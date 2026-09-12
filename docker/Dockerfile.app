@@ -30,7 +30,7 @@ COPY go.mod go.sum ./
 COPY third_party/anydoc-go/go.mod third_party/anydoc-go/go.mod
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY cmd/download cmd/download
-RUN mkdir -p /root/.duckdb
+RUN go run cmd/download/duckdb/duckdb.go
 COPY . .
 
 # Get version and commit info for build injection
@@ -51,13 +51,10 @@ ENV GO_VERSION=${GO_VERSION_ARG}
 # ~1 GB of build-stage layers).
 ARG WITH_ANYDOC=1
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
-ENV RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup
 ENV PATH=/usr/local/cargo/bin:$PATH
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     if [ "$WITH_ANYDOC" = "1" ]; then \
-        mkdir -p "$CARGO_HOME" && \
-        printf '[source.crates-io]\nreplace-with = "ustc"\n\n[source.ustc]\nregistry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"\n' > "$CARGO_HOME/config.toml" && \
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
             | sh -s -- -y --profile minimal --default-toolchain stable && \
         ./scripts/build-anydoc-lib.sh; \
@@ -65,11 +62,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 # Build the application with version info
 RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
     if [ "$WITH_ANYDOC" = "1" ]; then \
-        make build-prod GO_BUILD_TAGS=anydoc GOFLAGS=-p=4; \
+        make build-prod GO_BUILD_TAGS=anydoc; \
     else \
-        make build-prod GOFLAGS=-p=4; \
+        make build-prod; \
     fi
 RUN --mount=type=cache,target=/go/pkg/mod cp -r /go/pkg/mod/github.com/yanyiwu/ /app/yanyiwu/
 
@@ -100,10 +96,12 @@ RUN if [ -n "$APK_MIRROR_ARG" ]; then \
         nodejs npm \
         gosu \
         ffmpeg && \
-    python3 -m pip install --break-system-packages --upgrade -i https://mirrors.tencent.com/pypi/simple pip setuptools wheel && \
+    python3 -m pip install --break-system-packages --upgrade pip setuptools wheel && \
     mkdir -p /home/appuser/.local/bin && \
-    python3 -m pip install --break-system-packages -i https://mirrors.tencent.com/pypi/simple uv && \
+    curl -LsSf https://astral.sh/uv/install.sh | CARGO_HOME=/home/appuser/.cargo UV_INSTALL_DIR=/home/appuser/.local/bin sh && \
     chown -R appuser:appuser /home/appuser && \
+    ln -sf /home/appuser/.local/bin/uvx /usr/local/bin/uvx && \
+    chmod +x /usr/local/bin/uvx && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -124,8 +122,6 @@ COPY --from=builder /app/skills/preloaded ./skills/preloaded
 # Keep a read-only backup so bind-mount cannot erase built-in skills
 COPY --from=builder /app/skills/preloaded ./skills/_builtin
 COPY --from=builder /root/.duckdb /home/appuser/.duckdb
-COPY docker/duckdb_ext/excel.duckdb_extension /home/appuser/.duckdb/extensions/v1.5.2/linux_amd64/excel.duckdb_extension
-COPY docker/duckdb_ext/spatial.duckdb_extension /home/appuser/.duckdb/extensions/v1.5.2/linux_amd64/spatial.duckdb_extension
 COPY --from=builder /app/WeKnora .
 
 # Copy and make entrypoint script executable

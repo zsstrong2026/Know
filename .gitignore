@@ -30,10 +30,6 @@ logs/
 
 WeKnora
 WeKnora-lite
-WeKnora-lite.exe
-
-# 本地构建产物：duckdb 扩展（约 118MB）
-docker/duckdb_ext/
 cmd/desktop/build/bin/
 /models/
 test/data/mswag.txt

@@ -44,12 +44,12 @@ export interface CustomAgentConfig {
   model_id?: string;
   rerank_model_id?: string;         // ReRank 模型 ID
   temperature?: number;
-  max_completion_tokens?: number;   // 最大生成token数（普通模式）
+  max_completion_tokens?: number;   // 0 = 跟随系统默认（快速问答 2048；智能推理 4096，绑沙箱可写文件时 24576）。大于 0 为自定义上限
   thinking?: boolean;                      // 是否启用思考模式（支持扩展思考的模型）
   citation_enabled?: boolean;        // 是否在最终回答中输出知识库/网页来源引用（默认开启）
 
   // ===== Agent模式设置 =====
-  max_iterations?: number;          // 最大迭代次数
+  max_iterations?: number;          // 最大迭代次数；-1 表示不限制
   llm_call_timeout?: number;        // LLM调用超时时间（秒）
   allowed_tools?: string[];         // 允许的工具
   reflection_enabled?: boolean;     // 是否启用反思
@@ -64,6 +64,11 @@ export interface CustomAgentConfig {
   // Skills选择模式：all=全部预装, selected=指定, none=不使用
   skills_selection_mode?: 'all' | 'selected' | 'none';
   selected_skills?: string[];       // 选择的Skill名称列表
+
+  // ===== 沙箱设置 =====
+  // 该智能体的技能脚本运行在哪个沙箱配置上；为空表示不启用沙箱执行。
+  // 指向逻辑配置而非某个具体版本，凭据轮换时无需重新指派每个智能体。
+  sandbox_config_id?: string;
 
   // ===== 知识库设置 =====
   // 知识库选择模式：all=全部知识库, selected=指定知识库, none=不使用知识库
@@ -324,7 +329,7 @@ export interface IMChannelOverview {
   id: string;
   tenant_id: number;
   agent_id: string;
-  agent_name: string; // empty string for built-in agents
+  agent_name: string; // localized built-in name when the agent is built-in
   platform: IMChannel['platform'];
   name: string;
   enabled: boolean;
@@ -407,81 +412,4 @@ export function getWeChatQRCode() {
 
 export function pollWeChatQRCodeStatus(qrcode: string) {
   return post<{ data: WeChatQRCodeStatus }>('/api/v1/wechat/qrcode/status', { qrcode });
-}
-
-// ===== 智能体冒烟测试 =====
-
-export interface AgentEvalAssertion {
-  name: string;
-  expected: string;
-  actual: string;
-  passed: boolean;
-}
-
-export interface AgentEvalJudgeItem {
-  metric: string;
-  score?: number;
-  reason?: string;
-  error?: string;
-}
-
-export interface AgentEvalToolCall {
-  tool_name: string;
-  tool_call_id?: string;
-}
-
-export interface AgentEvalRun {
-  run_id: string;
-  tenant_id?: number;
-  agent_id: string;
-  status: 'running' | 'completed' | 'failed';
-  total: number;
-  passed: number;
-  failed: number;
-  error?: string;
-  trigger?: string;
-  duration_ms: number;
-  created_at?: string;
-  updated_at?: string;
-  finished_at?: string;
-}
-
-export interface AgentEvalCaseResult {
-  id: string;
-  run_id: string;
-  case_id: string;
-  case_title: string;
-  query: string;
-  status: 'passed' | 'failed' | 'running';
-  assertions: AgentEvalAssertion[];
-  judge: AgentEvalJudgeItem[];
-  tool_calls: AgentEvalToolCall[];
-  answer: string;
-  reference_count: number;
-  error?: string;
-  duration_ms: number;
-  created_at?: string;
-  updated_at?: string;
-}
-
-// 触发冒烟测试：202 异步返回 running run；同智能体已有运行中测试时后端返回 409（含 run_id）
-export function runAgentEval(agentId: string) {
-  return post<{ data: AgentEvalRun }>(`/api/v1/agents/${agentId}/evaluations`);
-}
-
-// 运行历史（倒序存档）
-export function listAgentEvals(agentId: string) {
-  return get<{ data: AgentEvalRun[] }>(`/api/v1/agents/${agentId}/evaluations`);
-}
-
-// 单次运行详情（含全部用例结果）；running 期间用例逐个补齐，供前端轮询
-export function getAgentEvalRun(agentId: string, runId: string) {
-  return get<{ data: { run: AgentEvalRun; cases: AgentEvalCaseResult[] } }>(
-    `/api/v1/agents/${agentId}/evaluations/${runId}`
-  );
-}
-
-// 删除运行存档（级联删用例结果）
-export function deleteAgentEvalRun(agentId: string, runId: string) {
-  return del<{ success: boolean }>(`/api/v1/agents/${agentId}/evaluations/${runId}`);
 }

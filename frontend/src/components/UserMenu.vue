@@ -92,6 +92,10 @@
           <t-icon name="control-platform" class="menu-icon" />
           <span>{{ $t('settings.modelManagement') }}</span>
         </div>
+        <div v-if="canManageSkills" class="menu-item" @click="handleQuickNav('skills')">
+          <t-icon :name="SKILL_ICON" class="menu-icon" />
+          <span>{{ $t('settings.skills.title') }}</span>
+        </div>
         <div class="menu-divider"></div>
         <div class="menu-item" @click="handleSettings">
           <t-icon name="setting" class="menu-icon" />
@@ -106,6 +110,28 @@
         <div v-if="authStore.isSystemAdmin" class="menu-item" @click="handleSystemAdmin">
           <t-icon name="server" class="menu-icon" />
           <span>{{ $t('settings.navGroups.systemAdministration') }}</span>
+        </div>
+        <div class="menu-divider"></div>
+        <div class="menu-item" @click="openDocs">
+          <t-icon name="help-circle" class="menu-icon" />
+          <span class="menu-text-with-icon">
+            <span>{{ $t('general.helpAndDocs') }}</span>
+            <svg class="menu-external-icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path fill="currentColor"
+                d="M12.667 8a.667.667 0 0 1 .666.667v4a2.667 2.667 0 0 1-2.666 2.666H4.667a2.667 2.667 0 0 1-2.667-2.666V5.333a2.667 2.667 0 0 1 2.667-2.666h4a.667.667 0 1 1 0 1.333h-4a1.333 1.333 0 0 0-1.333 1.333v7.334A1.333 1.333 0 0 0 4.667 13.333h6a1.333 1.333 0 0 0 1.333-1.333v-4A.667.667 0 0 1 12.667 8Zm2.666-6.667v4a.667.667 0 0 1-1.333 0V3.276l-5.195 5.195a.667.667 0 0 1-.943-.943l5.195-5.195h-2.057a.667.667 0 0 1 0-1.333h4a.667.667 0 0 1 .666.666Z" />
+            </svg>
+          </span>
+        </div>
+        <div class="menu-item" :title="$t('common.githubStarTip')" @click="openGithub">
+          <t-icon name="logo-github" class="menu-icon" />
+          <span class="menu-text-with-icon">
+            <span>{{ $t('common.github') }}</span>
+            <t-icon name="star-filled" class="menu-github-star-icon" size="16px" aria-hidden="true" />
+            <svg class="menu-external-icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path fill="currentColor"
+                d="M12.667 8a.667.667 0 0 1 .666.667v4a2.667 2.667 0 0 1-2.666 2.666H4.667a2.667 2.667 0 0 1-2.667-2.666V5.333a2.667 2.667 0 0 1 2.667-2.666h4a.667.667 0 1 1 0 1.333h-4a1.333 1.333 0 0 0-1.333 1.333v7.334A1.333 1.333 0 0 0 4.667 13.333h6a1.333 1.333 0 0 0 1.333-1.333v-4A.667.667 0 0 1 12.667 8Zm2.666-6.667v4a.667.667 0 0 1-1.333 0V3.276l-5.195 5.195a.667.667 0 0 1-.943-.943l5.195-5.195h-2.057a.667.667 0 0 1 0-1.333h4a.667.667 0 0 1 .666.666Z" />
+            </svg>
+          </span>
         </div>
         <template v-if="!authStore.isLiteMode">
           <div class="menu-divider"></div>
@@ -193,6 +219,7 @@ import { useRoleLabel, useHomeTenant } from '@/composables/useRoleLabel'
 import { getRootZoom, rectToCssPx, cssViewportSize } from '@/utils/zoom'
 import { openNewUserGuide } from '@/config/contextualGuides'
 import { SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE } from '@/config/settingsAccess'
+import { SKILL_ICON } from '@/types/mention'
 
 const { t } = useI18n()
 
@@ -233,6 +260,11 @@ const canManageModels = computed(() =>
   authStore.canAccessAllTenants ||
   authStore.isSystemAdmin ||
   authStore.hasRole(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE.models),
+)
+const canManageSkills = computed(() =>
+  authStore.canAccessAllTenants ||
+  authStore.isSystemAdmin ||
+  authStore.hasRole(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE.skills),
 )
 
 const menuRef = ref<HTMLElement>()
@@ -469,6 +501,17 @@ const clampFloatingToViewport = (selector: string, target: { value: Record<strin
 const reopenGuide = () => {
   menuVisible.value = false
   openNewUserGuide()
+}
+
+const openDocs = () => {
+  menuVisible.value = false
+  window.open('https://github.com/Tencent/WeKnora/tree/main/docs', '_blank')
+}
+
+// 打开 GitHub
+const openGithub = () => {
+  menuVisible.value = false
+  window.open('https://github.com/Tencent/WeKnora', '_blank')
 }
 
 // 注销

@@ -207,8 +207,6 @@
                     <div class="popup-menu">
                       <div v-if="canManageAgent(agent)" class="popup-menu-item" @click="handleEdit(agent)"><t-icon
                           class="menu-icon" name="edit" /><span>{{ $t('common.edit') }}</span></div>
-                      <div v-if="canManageAgent(agent)" class="popup-menu-item" @click="handleRunEval(agent)"><t-icon
-                          class="menu-icon" name="play-circle" /><span>{{ $t('agent.eval.menuRun') }}</span></div>
                       <div v-if="authStore.hasRole('contributor')" class="popup-menu-item" @click="handleCopy(agent)">
                         <t-icon class="menu-icon" name="file-copy" /><span>{{ $t('common.copy') }}</span>
                       </div>
@@ -411,10 +409,6 @@
                       <div v-if="canManageAgent(agent)" class="popup-menu-item" @click="handleEdit(agent)">
                         <t-icon class="menu-icon" name="edit" />
                         <span>{{ $t('common.edit') }}</span>
-                      </div>
-                      <div v-if="canManageAgent(agent)" class="popup-menu-item" @click="handleRunEval(agent)">
-                        <t-icon class="menu-icon" name="play-circle" />
-                        <span>{{ $t('agent.eval.menuRun') }}</span>
                       </div>
                       <div v-if="authStore.hasRole('contributor')" class="popup-menu-item" @click="handleCopy(agent)">
                         <t-icon class="menu-icon" name="file-copy" />
@@ -812,9 +806,6 @@
       :readOnly="editorMode === 'edit' && editingAgent != null && !canManageAgent(editingAgent as AgentWithUI)"
       @update:visible="editorVisible = $event" @success="handleEditorSuccess" />
 
-    <!-- 智能体冒烟测试抽屉 -->
-    <AgentEvalDrawer v-model:visible="evalVisible" :agent-id="evalAgentId" ref="evalDrawerRef" />
-
     <TenantModelsGuide :when="showAgentTenantModelsGuide" variant="agent" />
     <ContextualGuide tour="agentList" :when="showAgentListContextualGuide" />
   </div>
@@ -823,7 +814,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { DialogPlugin, MessagePlugin, Icon as TIcon } from 'tdesign-vue-next'
+import { MessagePlugin, Icon as TIcon } from 'tdesign-vue-next'
 import { deleteAgent, copyAgent, type CustomAgent } from '@/api/agent'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import { formatStringDate } from '@/utils/index'
@@ -835,10 +826,9 @@ import { useSettingsStore } from '@/stores/settings'
 import { useMenuStore } from '@/stores/menu'
 import type { SharedAgentInfo, OrganizationSharedAgentItem } from '@/api/organization'
 import AgentEditorModal from './AgentEditorModal.vue'
-import AgentEvalDrawer from './components/AgentEvalDrawer.vue'
 import ContextualGuide from '@/components/ContextualGuide.vue'
 import TenantModelsGuide from '@/components/TenantModelsGuide.vue'
-import { markContextualGuideDone } from '@/config/contextualGuides'
+import { focusAgentEditorSection, markContextualGuideDone } from '@/config/contextualGuides'
 import { useTenantModelReadiness } from '@/composables/useTenantModelReadiness'
 import { useUIStore } from '@/stores/ui'
 import AgentAvatar from '@/components/AgentAvatar.vue'
@@ -848,6 +838,7 @@ import { shouldShowResourceOriginBadge } from '@/utils/card-list-badge'
 import { useAuthStore } from '@/stores/auth'
 import { useListUrlState } from '@/composables/useListUrlState'
 import { useResourcePins } from '@/composables/useResourcePins'
+import { integrationSectionKey } from '@/config/settingsRoute'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -1117,7 +1108,7 @@ const applyAgentListData = (res: { data: CustomAgent[]; disabled_own_agent_ids: 
     showMore: false,
     disabled_by_me: disabledOwnIds.includes(agent.id)
   }))
-  checkAndOpenEditModal()
+  void checkAndOpenEditModal()
 }
 
 const fetchList = (force = false) => {
@@ -1127,7 +1118,7 @@ const fetchList = (force = false) => {
     orgStore.fetchOrganizations({ force }),
     orgStore.fetchSharedAgents({ force }),
   ]).finally(() => { loading.value = false }).then(() => {
-    checkAndOpenEditModal()
+    void checkAndOpenEditModal()
     // 各空间智能体数量已由 GET /organizations 的 resource_counts 带回，存于 orgStore.resourceCounts
     const counts = orgStore.resourceCounts?.agents?.by_organization
     if (counts) spaceAgentCountByOrg.value = { ...counts }
@@ -1147,27 +1138,53 @@ const resolveAgentForEdit = (editId: string, sourceTenantId?: string): CustomAge
   return null
 }
 
-const checkAndOpenEditModal = () => {
+let editOpenGeneration = 0
+
+const checkAndOpenEditModal = async () => {
+  const generation = ++editOpenGeneration
   const editId = route.query.edit as string
   const section = route.query.section as string
   const sourceTenantId = route.query.sourceTenantId as string | undefined
-  if (editId && (section === 'im' || section === 'embed' || section === 'integrations')) {
-    const tab = section === 'embed' ? 'embed' : 'im'
+  if (editId && (section === 'im' || section === 'embed' || section === 'integrations' || section === 'integration-im' || section === 'integration-embed')) {
+    const tab = section === 'embed' || section === 'integration-embed' ? 'embed' : 'im'
     router.replace({
       path: '/platform/settings',
-      query: { section: 'integrations', tab, agentId: editId },
+      query: { section: integrationSectionKey(tab), agentId: editId },
     })
     return
   }
   if (editId) {
     const agent = resolveAgentForEdit(editId, sourceTenantId)
-    if (agent) {
+    // A route change can remove a creator filter before the corresponding
+    // all-agent fetch completes. Keep the deep-link query intact so the list
+    // refresh callback can resolve and open the target instead of losing it.
+    if (!agent) return
+
+    const requestedSection = section || 'basic'
+    const requestedHighlight = (route.query.highlight as string) || ''
+    if (
+      editorVisible.value
+      && editingAgent.value?.id === agent.id
+      && !requestedHighlight
+    ) {
+      // Global Settings may be covering this exact editor. Preserve any
+      // unsaved draft and focus the requested configuration section in place.
+      editorInitialSection.value = requestedSection
+      focusAgentEditorSection(requestedSection)
+    } else {
+      // A global Settings dialog can be opened on top of an existing agent
+      // editor. Flush visible=false before loading the deep-linked target so
+      // AgentEditorModal's visibility watcher rebuilds its form data.
+      editorVisible.value = false
+      await nextTick()
+      if (generation !== editOpenGeneration) return
       editingAgent.value = agent
       editorMode.value = 'edit'
-      editorInitialSection.value = section || 'basic'
-      editorInitialHighlightField.value = (route.query.highlight as string) || ''
+      editorInitialSection.value = requestedSection
+      editorInitialHighlightField.value = requestedHighlight
       editorVisible.value = true
     }
+    if (generation !== editOpenGeneration) return
     // Drop the transient edit/section params but preserve other filter
     // state (scope / creator / q) so refreshing doesn't reset the view.
     const { edit: _e, section: _s, highlight: _h, sourceTenantId: _st, ...rest } = route.query
@@ -1183,7 +1200,7 @@ watch(
   () => route.query.edit,
   (v) => {
     if (v && (agents.value.length > 0 || sharedAgents.value.length > 0)) {
-      checkAndOpenEditModal()
+      void checkAndOpenEditModal()
     }
   },
 )
@@ -1554,49 +1571,12 @@ const confirmDelete = () => {
   })
 }
 
-const evalVisible = ref(false)
-const evalAgentId = ref('')
-const evalDrawerRef = ref<InstanceType<typeof AgentEvalDrawer> | null>(null)
-
-const openEvalDrawer = (agentId: string, autoRun = false) => {
-  evalAgentId.value = agentId
-  evalVisible.value = true
-  if (autoRun) {
-    nextTick(() => {
-      evalDrawerRef.value?.triggerRun()
-    })
-  }
-}
-
-const handleRunEval = (agent: AgentWithUI) => {
-  openMoreAgentId.value = null
-  openEvalDrawer(agent.id)
-}
-
 const handleEditorSuccess = (agent?: CustomAgent) => {
-  const wasCreate = editorMode.value === 'create'
   if (agent) {
     editingAgent.value = agent
     editorMode.value = 'edit'
   }
   fetchList(true)
-  if (wasCreate && agent?.id) {
-    const newAgentId = agent.id
-    const dialog = DialogPlugin.confirm({
-      header: t('agent.eval.createConfirmTitle'),
-      body: t('agent.eval.createConfirmBody'),
-      confirmBtn: t('agent.eval.menuRun'),
-      cancelBtn: t('common.cancel'),
-      onConfirm: () => {
-        dialog.destroy()
-        editorVisible.value = false
-        openEvalDrawer(newAgentId, true)
-      },
-      onClose: () => {
-        dialog.destroy()
-      },
-    })
-  }
 }
 
 const formatDate = (dateStr: string) => {

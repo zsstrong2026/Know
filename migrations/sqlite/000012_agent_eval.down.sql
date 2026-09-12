@@ -1,4 +1,0 @@
--- Mirrors versioned migration 000085_agent_eval down.
-
-DROP TABLE IF EXISTS agent_eval_case_results;
-DROP TABLE IF EXISTS agent_eval_runs;

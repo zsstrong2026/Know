@@ -18,7 +18,7 @@ import (
 // their agent, otherwise Admin+ is required. Built-in agents
 // (IsBuiltin=true) have an empty creator and are always Admin+. Reads
 // are Viewer+, copy is Contributor+ (the copy is owned by the caller).
-func RegisterCustomAgentRoutes(r *gin.RouterGroup, agentHandler *handler.CustomAgentHandler, evalHandler *handler.AgentEvalHandler, g *rbacGuards) {
+func RegisterCustomAgentRoutes(r *gin.RouterGroup, agentHandler *handler.CustomAgentHandler, g *rbacGuards) {
 	agents := g.apiKeyGroup(r.Group("/agents"), apiKeyFullAccess())
 	// agentsRead are the agent read endpoints. They stay full-access only for
 	// plain scoped keys (agent config can carry sensitive model/MCP bindings),
@@ -48,14 +48,6 @@ func RegisterCustomAgentRoutes(r *gin.RouterGroup, agentHandler *handler.CustomA
 	// Registered outside the group to avoid Gin route conflict with /agents/:id/shares in organization routes
 	g.apiKeyRoute(r, http.MethodGet, "/agents/:id/suggested-questions",
 		apiKeyReadAgents(apiKeyManageAgents(apiKeyChat(apiKeyFullAccess()))), g.Viewer(), agentHandler.GetSuggestedQuestions)
-
-	agentEvals := g.apiKeyGroup(r.Group("/agents/:id/evaluations"), apiKeyFullAccess())
-	{
-		agentEvals.POST("", g.OwnedAgentOrAdmin(), evalHandler.TriggerRun)
-		agentEvals.GET("", g.Viewer(), evalHandler.ListRuns)
-		agentEvals.GET("/:run_id", g.Viewer(), evalHandler.GetRunDetail)
-		agentEvals.DELETE("/:run_id", g.OwnedAgentOrAdmin(), evalHandler.DeleteRun)
-	}
 }
 
 // RegisterUserFavoriteRoutes wires the per-user starred-resource endpoints.
@@ -83,8 +75,19 @@ func RegisterUserFavoriteRoutes(r *gin.RouterGroup, h *handler.UserResourceFavor
 func RegisterSkillRoutes(r *gin.RouterGroup, skillHandler *handler.SkillHandler, g *rbacGuards) {
 	skills := r.Group("/skills")
 	{
-		// List all preloaded skills — Viewer+
+		// Usable skills for @ mention / chat — Viewer+
 		skills.GET("", g.Viewer(), skillHandler.ListSkills)
+		// Catalog reads are Viewer+ so the agent editor can show uninstalled skills.
+		skills.GET("/catalog", g.Viewer(), skillHandler.ListCatalog)
+	}
+	// Catalog writes bake into sandbox images; scoped API keys cannot hold them.
+	catalogWrite := g.apiKeyGroup(r.Group("/skills/catalog"), apiKeyFullAccess())
+	{
+		catalogWrite.POST("", g.Admin(), skillHandler.RegisterCatalog)
+		catalogWrite.POST("/:id/install", g.Admin(), skillHandler.InstallCatalog)
+		catalogWrite.GET("/:id/files", g.Admin(), skillHandler.ListCatalogFiles)
+		catalogWrite.GET("/:id/files/content", g.Admin(), skillHandler.GetCatalogFile)
+		catalogWrite.DELETE("/:id", g.Admin(), skillHandler.DeleteCatalog)
 	}
 }
 
