@@ -1,0 +1,4 @@
+zh-CN title: Hi，我是天禄，企业的知识大脑
+en-US title: Hi, I am Tianlu — your knowledge, within reach  [containsWeKnora=False]
+ko-KR title: 안녕하세요, Tianlu입니다 — 당신의 지식을 손끝에  [containsWeKnora=False]
+ru-RU title: Привет, я Tianlu — ваши знания всегда под рукой  [containsWeKnora=False]

@@ -1,0 +1,41 @@
+cases:
+  - id: qa-001
+    query: "智能客服 Agent 建设方案推荐什么技术选型路线？"
+    expected_answer_keywords: ["Dify", "LangGraph"]
+    min_references: 1
+    thresholds:
+      faithfulness: 0.7
+      answer_relevancy: 0.7
+    disabled: false
+  - id: qa-002
+    query: "知识管理 Agent 和智能客服 Agent 在用户定位与关键成功要素上有什么区别？"
+    expected_answer_keywords: ["内部员工", "权限"]
+    min_references: 3
+    thresholds:
+      faithfulness: 0.7
+      answer_relevancy: 0.7
+    disabled: false
+  - id: qa-003
+    query: "BI 报表 Agent 方案中 Text2SQL 采用什么推荐方案？"
+    expected_answer_keywords: ["模板"]
+    min_references: 1
+    thresholds:
+      faithfulness: 0.75
+    disabled: false
+  - id: qa-004
+    query: "企业级 Agent 应用采用几层架构？分别是哪几层？"
+    expected_answer_keywords: ["交互层", "核心层", "模型层", "集成层"]
+    min_references: 1
+    disabled: false
+  - id: qa-005
+    query: "我们公司想做一个内部知识库问答机器人，应该怎么起步？"
+    expected_answer_keywords: []
+    min_references: 1
+    disabled: false
+  - id: qa-006
+    query: "2026 年世界杯决赛的比分是多少？"
+    expected_answer_keywords: []
+    min_references: 0
+    thresholds:
+      answer_relevancy: 0.5
+    disabled: false

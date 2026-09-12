@@ -1,0 +1,38 @@
+cases:
+  - id: tool-001
+    query: "智能客服 Agent 建设方案推荐什么技术选型路线？"
+    expected_tools: ["knowledge_search"]
+    exact_order: false
+    thresholds:
+      tool_correctness: 0.7
+    disabled: false
+  - id: tool-002
+    query: "知识管理 Agent 的北极星指标有哪些？"
+    expected_tools: ["query_understand", "knowledge_search"]
+    exact_order: true
+    thresholds:
+      tool_correctness: 0.7
+    disabled: false
+  - id: tool-003
+    query: "你好呀，今天天气不错"
+    expected_tools: ["query_understand"]
+    exact_order: false
+    thresholds:
+      tool_correctness: 0.7
+    disabled: false
+  - id: tool-004
+    query: "BI 报表 Agent 的 Text2SQL 推荐方案是什么？"
+    expected_tools: ["query_understand", "knowledge_search"]
+    exact_order: false
+    disabled: false
+  - id: tool-005
+    query: "企业级 Agent 应用有哪些治理维度？"
+    expected_tools: ["knowledge_search"]
+    exact_order: false
+    disabled: false
+  - id: tool-006
+    query: "公众号审核的 6 维度分级标准是什么？"
+    agent_id: "builtin-quick-answer"
+    expected_tools: ["knowledge_search"]
+    exact_order: false
+    disabled: false
