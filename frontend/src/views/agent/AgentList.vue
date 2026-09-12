@@ -1570,7 +1570,7 @@ const openEvalDrawer = (agentId: string, autoRun = false) => {
 
 const handleRunEval = (agent: AgentWithUI) => {
   openMoreAgentId.value = null
-  openEvalDrawer(agent.id, true)
+  openEvalDrawer(agent.id)
 }
 
 const handleEditorSuccess = (agent?: CustomAgent) => {

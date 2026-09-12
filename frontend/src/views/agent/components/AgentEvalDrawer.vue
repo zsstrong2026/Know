@@ -163,6 +163,33 @@
               </t-collapse-panel>
             </t-collapse>
             <div v-if="cases.length === 0" class="agent-eval-empty">{{ t('agent.eval.casesEmpty') }}</div>
+            <div v-if="report" class="agent-eval-report">
+              <div class="agent-eval-detail-title">{{ t('agent.eval.report.title') }}</div>
+              <div
+                class="agent-eval-report-summary"
+                :class="{ 'is-ok': report.allPassed, 'is-error': report.hasError }"
+              >
+                {{ report.summary }}
+              </div>
+              <div v-for="item in report.items" :key="item.id" class="agent-eval-report-item">
+                <div class="agent-eval-report-case">
+                  <t-icon name="close-circle" class="agent-eval-report-case-icon" />
+                  <span class="agent-eval-report-case-name">{{ item.title }}</span>
+                </div>
+                <div class="agent-eval-report-row">
+                  <span class="agent-eval-field-label">{{ t('agent.eval.report.analysisLabel') }}</span>
+                  <ul class="agent-eval-report-list">
+                    <li v-for="(line, i) in item.analysis" :key="i">{{ line }}</li>
+                  </ul>
+                </div>
+                <div class="agent-eval-report-row">
+                  <span class="agent-eval-field-label">{{ t('agent.eval.report.suggestionLabel') }}</span>
+                  <ul class="agent-eval-report-list is-suggestion">
+                    <li v-for="(line, i) in item.suggestions" :key="i">{{ line }}</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
           </template>
         </template>
         <div v-else class="agent-eval-detail-placeholder">{{ t('agent.eval.detailEmpty') }}</div>
@@ -218,6 +245,84 @@ const progressPct = computed(() => {
   const done = cases.value.filter((c) => c.status !== 'running').length
   return Math.min(100, Math.round((done / selectedRun.value.total) * 100))
 })
+
+interface EvalReportItem {
+  id: string
+  title: string
+  analysis: string[]
+  suggestions: string[]
+}
+
+const report = computed<null | {
+  summary: string
+  allPassed: boolean
+  hasError: boolean
+  items: EvalReportItem[]
+}>(() => {
+  const run = selectedRun.value
+  if (!run || run.status === 'running' || loadingDetail.value || cases.value.length === 0) return null
+  const total = cases.value.length
+  const passed = cases.value.filter((c) => c.status === 'passed').length
+  const failedCases = cases.value.filter((c) => c.status === 'failed')
+  const allPassed = failedCases.length === 0 && !run.error
+  let summary: string
+  if (run.error) {
+    summary = t('agent.eval.report.summaryWithError', { passed, total })
+  } else if (allPassed) {
+    summary = t('agent.eval.report.summaryAllPassed', { passed, total })
+  } else {
+    summary = t('agent.eval.report.summaryPartial', { passed, total, failed: failedCases.length })
+  }
+  return { summary, allPassed, hasError: Boolean(run.error), items: failedCases.map(analyzeCase) }
+})
+
+function analyzeCase(c: AgentEvalCaseResult): EvalReportItem {
+  const analysis: string[] = []
+  const suggestions: string[] = []
+  const addSuggestion = (key: string, params?: Record<string, unknown>) => {
+    const line = t(`agent.eval.report.suggestion.${key}`, params || {})
+    if (!suggestions.includes(line)) suggestions.push(line)
+  }
+  for (const a of (c.assertions || []).filter((x) => !x.passed)) {
+    const sep = a.name.indexOf(':')
+    const kind = sep >= 0 ? a.name.slice(0, sep) : a.name
+    const arg = sep >= 0 ? a.name.slice(sep + 1) : ''
+    if (kind === 'expect_tool') {
+      analysis.push(t('agent.eval.report.analysis.expectTool', { tool: arg, actual: a.actual }))
+      addSuggestion('expectTool', { tool: arg })
+    } else if (kind === 'forbid_tool') {
+      analysis.push(t('agent.eval.report.analysis.forbidTool', { tool: arg, actual: a.actual }))
+      addSuggestion('forbidTool', { tool: arg })
+    } else if (kind === 'min_references') {
+      analysis.push(t('agent.eval.report.analysis.minReferences', { expected: a.expected, actual: a.actual }))
+      addSuggestion('minReferences')
+    } else if (kind === 'answer_not_empty') {
+      analysis.push(t('agent.eval.report.analysis.answerNotEmpty', { actual: a.actual }))
+      addSuggestion('answerNotEmpty')
+    } else if (kind === 'no_error') {
+      analysis.push(t('agent.eval.report.analysis.noError', { actual: a.actual }))
+      addSuggestion('noError')
+    } else {
+      analysis.push(t('agent.eval.report.analysis.generic', { name: a.name, expected: a.expected, actual: a.actual }))
+      addSuggestion('generic')
+    }
+  }
+  const runError = selectedRun.value?.error || ''
+  const isRerank = /rerank/i.test(`${c.error || ''} ${runError}`)
+  if (c.error && c.error !== runError) {
+    analysis.push(t('agent.eval.report.analysis.caseError', { error: c.error }))
+    if (!isRerank) addSuggestion('caseError')
+  }
+  if (isRerank) {
+    analysis.push(t('agent.eval.report.analysis.rerankMissing'))
+    addSuggestion('rerankMissing')
+  }
+  if (analysis.length === 0) {
+    analysis.push(t('agent.eval.report.analysis.generic', { name: c.case_title, expected: '-', actual: c.status }))
+  }
+  if (suggestions.length === 0) addSuggestion('generic')
+  return { id: c.id, title: c.case_title, analysis, suggestions }
+}
 
 const historyColumns = computed(() => [
   { colKey: 'created_at', title: t('agent.eval.columns.time'), cell: 'timeCell' },
@@ -664,6 +769,82 @@ defineExpose({ triggerRun })
   font-size: 12px;
   line-height: 1.6;
   word-break: break-word;
+}
+
+.agent-eval-report {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agent-eval-report-summary {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--td-brand-color-1, rgba(0, 82, 217, 0.06));
+  color: var(--td-brand-color);
+  font-size: 12px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.agent-eval-report-summary.is-ok {
+  background: var(--td-success-color-1, rgba(0, 168, 112, 0.08));
+  color: var(--td-success-color);
+}
+
+.agent-eval-report-summary.is-error {
+  background: var(--td-error-color-1, rgba(213, 73, 65, 0.08));
+  color: var(--td-error-color);
+}
+
+.agent-eval-report-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 6px;
+}
+
+.agent-eval-report-case {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-eval-report-case-icon {
+  color: var(--td-error-color);
+}
+
+.agent-eval-report-case-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.agent-eval-report-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-eval-report-list {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--td-text-color-secondary);
+}
+
+.agent-eval-report-list.is-suggestion li {
+  color: var(--td-text-color-primary);
+}
+
+.agent-eval-report-list.is-suggestion li::marker {
+  color: var(--td-brand-color);
 }
 </style>
 
