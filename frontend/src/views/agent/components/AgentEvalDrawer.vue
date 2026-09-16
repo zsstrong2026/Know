@@ -11,6 +11,10 @@
     hide-footer
   >
     <div class="agent-eval">
+      <t-tabs v-model="suite" class="agent-eval-tabs">
+        <t-tab-panel value="functional" :label="t('agent.eval.tabs.functional')" />
+        <t-tab-panel value="security" :label="t('agent.eval.tabs.security')" />
+      </t-tabs>
       <div class="agent-eval-toolbar">
         <t-button theme="primary" :loading="triggering" @click="triggerRun">
           <template #icon><t-icon name="play-circle" /></template>
@@ -238,6 +242,8 @@ const cases = ref<AgentEvalCaseResult[]>([])
 const loadingDetail = ref(false)
 const expandedCaseIds = ref<string[]>([])
 
+const suite = ref<'functional' | 'security'>('functional')
+
 const latestRun = computed(() => runs.value[0] ?? null)
 
 const progressPct = computed(() => {
@@ -380,7 +386,7 @@ function formatTime(iso?: string): string {
 async function loadList() {
   loadingList.value = true
   try {
-    const res = await listAgentEvals(props.agentId)
+    const res = await listAgentEvals(props.agentId, suite.value)
     const data = unwrap(res)
     runs.value = Array.isArray(data) ? data : []
   } catch (e: any) {
@@ -397,7 +403,7 @@ async function selectRun(run: AgentEvalRun) {
   expandedCaseIds.value = []
   loadingDetail.value = true
   try {
-    const res = await getAgentEvalRun(props.agentId, run.run_id)
+    const res = await getAgentEvalRun(props.agentId, run.run_id, suite.value)
     const data = unwrap(res)
     if (selectedRun.value?.run_id !== run.run_id) return
     const nextRun: AgentEvalRun = data?.run || run
@@ -421,7 +427,7 @@ async function triggerRun() {
   if (triggering.value) return
   triggering.value = true
   try {
-    const res = await runAgentEval(props.agentId)
+    const res = await runAgentEval(props.agentId, suite.value)
     const data = unwrap(res)
     MessagePlugin.success(t('agent.eval.triggerSuccess'))
     await loadList()
@@ -445,7 +451,7 @@ async function triggerRun() {
 async function deleteRun(run: AgentEvalRun) {
   deletingRunId.value = run.run_id
   try {
-    await deleteAgentEvalRun(props.agentId, run.run_id)
+    await deleteAgentEvalRun(props.agentId, run.run_id, suite.value)
     if (selectedRun.value?.run_id === run.run_id) {
       stopPolling()
       selectedRun.value = null
@@ -484,7 +490,7 @@ async function refreshSelectedRun() {
     return
   }
   try {
-    const res = await getAgentEvalRun(props.agentId, current.run_id)
+    const res = await getAgentEvalRun(props.agentId, current.run_id, suite.value)
     const data = unwrap(res)
     if (selectedRun.value?.run_id !== current.run_id) return
     const nextRun: AgentEvalRun = data?.run || current
@@ -519,6 +525,17 @@ watch(
   },
 )
 
+watch(suite, () => {
+  stopPolling()
+  runs.value = []
+  selectedRun.value = null
+  cases.value = []
+  expandedCaseIds.value = []
+  if (props.visible && props.agentId) {
+    void loadList()
+  }
+})
+
 onUnmounted(stopPolling)
 
 defineExpose({ triggerRun })
@@ -529,6 +546,10 @@ defineExpose({ triggerRun })
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.agent-eval-tabs {
+  margin-bottom: 12px;
 }
 
 .agent-eval-toolbar {

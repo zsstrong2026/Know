@@ -207,6 +207,8 @@
                     <div class="popup-menu">
                       <div v-if="canManageAgent(agent)" class="popup-menu-item" @click="handleEdit(agent)"><t-icon
                           class="menu-icon" name="edit" /><span>{{ $t('common.edit') }}</span></div>
+                      <div v-if="canManageAgent(agent)" class="popup-menu-item" @click="handleRunEval(agent)"><t-icon
+                          class="menu-icon" name="play-circle" /><span>{{ $t('agent.eval.menuRun') }}</span></div>
                       <div v-if="authStore.hasRole('contributor')" class="popup-menu-item" @click="handleCopy(agent)">
                         <t-icon class="menu-icon" name="file-copy" /><span>{{ $t('common.copy') }}</span>
                       </div>
@@ -409,6 +411,10 @@
                       <div v-if="canManageAgent(agent)" class="popup-menu-item" @click="handleEdit(agent)">
                         <t-icon class="menu-icon" name="edit" />
                         <span>{{ $t('common.edit') }}</span>
+                      </div>
+                      <div v-if="canManageAgent(agent)" class="popup-menu-item" @click="handleRunEval(agent)">
+                        <t-icon class="menu-icon" name="play-circle" />
+                        <span>{{ $t('agent.eval.menuRun') }}</span>
                       </div>
                       <div v-if="authStore.hasRole('contributor')" class="popup-menu-item" @click="handleCopy(agent)">
                         <t-icon class="menu-icon" name="file-copy" />
@@ -806,6 +812,9 @@
       :readOnly="editorMode === 'edit' && editingAgent != null && !canManageAgent(editingAgent as AgentWithUI)"
       @update:visible="editorVisible = $event" @success="handleEditorSuccess" />
 
+    <!-- 智能体冒烟测试抽屉 -->
+    <AgentEvalDrawer v-model:visible="evalVisible" :agent-id="evalAgentId" ref="evalDrawerRef" />
+
     <TenantModelsGuide :when="showAgentTenantModelsGuide" variant="agent" />
     <ContextualGuide tour="agentList" :when="showAgentListContextualGuide" />
   </div>
@@ -814,7 +823,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { MessagePlugin, Icon as TIcon } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin, Icon as TIcon } from 'tdesign-vue-next'
 import { deleteAgent, copyAgent, type CustomAgent } from '@/api/agent'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import { formatStringDate } from '@/utils/index'
@@ -826,6 +835,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useMenuStore } from '@/stores/menu'
 import type { SharedAgentInfo, OrganizationSharedAgentItem } from '@/api/organization'
 import AgentEditorModal from './AgentEditorModal.vue'
+import AgentEvalDrawer from './components/AgentEvalDrawer.vue'
 import ContextualGuide from '@/components/ContextualGuide.vue'
 import TenantModelsGuide from '@/components/TenantModelsGuide.vue'
 import { focusAgentEditorSection, markContextualGuideDone } from '@/config/contextualGuides'
@@ -1571,12 +1581,45 @@ const confirmDelete = () => {
   })
 }
 
+const evalVisible = ref(false)
+const evalAgentId = ref('')
+const evalDrawerRef = ref<InstanceType<typeof AgentEvalDrawer> | null>(null)
+const openEvalDrawer = (agentId: string, autoRun = false) => {
+  evalAgentId.value = agentId
+  evalVisible.value = true
+  if (autoRun) {
+    nextTick(() => { evalDrawerRef.value?.triggerRun() })
+  }
+}
+const handleRunEval = (agent: AgentWithUI) => {
+  openMoreAgentId.value = null
+  openEvalDrawer(agent.id)
+}
+
 const handleEditorSuccess = (agent?: CustomAgent) => {
+  const wasCreate = editorMode.value === 'create'
   if (agent) {
     editingAgent.value = agent
     editorMode.value = 'edit'
   }
   fetchList(true)
+  if (wasCreate && agent?.id) {
+    const newAgentId = agent.id
+    const dialog = DialogPlugin.confirm({
+      header: t('agent.eval.createConfirmTitle'),
+      body: t('agent.eval.createConfirmBody'),
+      confirmBtn: t('agent.eval.menuRun'),
+      cancelBtn: t('common.cancel'),
+      onConfirm: () => {
+        dialog.destroy()
+        editorVisible.value = false
+        openEvalDrawer(newAgentId, true)
+      },
+      onClose: () => {
+        dialog.destroy()
+      },
+    })
+  }
 }
 
 const formatDate = (dateStr: string) => {

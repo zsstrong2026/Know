@@ -18,7 +18,7 @@ import (
 // their agent, otherwise Admin+ is required. Built-in agents
 // (IsBuiltin=true) have an empty creator and are always Admin+. Reads
 // are Viewer+, copy is Contributor+ (the copy is owned by the caller).
-func RegisterCustomAgentRoutes(r *gin.RouterGroup, agentHandler *handler.CustomAgentHandler, g *rbacGuards) {
+func RegisterCustomAgentRoutes(r *gin.RouterGroup, agentHandler *handler.CustomAgentHandler, agentEvalHandler *handler.AgentEvalHandler, g *rbacGuards) {
 	agents := g.apiKeyGroup(r.Group("/agents"), apiKeyFullAccess())
 	// agentsRead are the agent read endpoints. They stay full-access only for
 	// plain scoped keys (agent config can carry sensitive model/MCP bindings),
@@ -48,6 +48,17 @@ func RegisterCustomAgentRoutes(r *gin.RouterGroup, agentHandler *handler.CustomA
 	// Registered outside the group to avoid Gin route conflict with /agents/:id/shares in organization routes
 	g.apiKeyRoute(r, http.MethodGet, "/agents/:id/suggested-questions",
 		apiKeyReadAgents(apiKeyManageAgents(apiKeyChat(apiKeyFullAccess()))), g.Viewer(), agentHandler.GetSuggestedQuestions)
+
+	// Agent smoke-test evaluations. Triggering a run drives several LLM
+	// calls (cost) and DELETE mutates run archives — Admin+ for those,
+	// reads are Viewer+; mirrors the /evaluation route matrix.
+	agentEvals := agents.With(apiKeyRunEvaluations(apiKeyFullAccess()))
+	{
+		agentEvals.POST("/:id/evaluations", g.Admin(), agentEvalHandler.TriggerRun)
+		agentEvals.GET("/:id/evaluations", g.Viewer(), agentEvalHandler.ListRuns)
+		agentEvals.GET("/:id/evaluations/:run_id", g.Viewer(), agentEvalHandler.GetRunDetail)
+		agentEvals.DELETE("/:id/evaluations/:run_id", g.Admin(), agentEvalHandler.DeleteRun)
+	}
 }
 
 // RegisterUserFavoriteRoutes wires the per-user starred-resource endpoints.

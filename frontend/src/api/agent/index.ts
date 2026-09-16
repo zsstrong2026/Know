@@ -413,3 +413,85 @@ export function getWeChatQRCode() {
 export function pollWeChatQRCodeStatus(qrcode: string) {
   return post<{ data: WeChatQRCodeStatus }>('/api/v1/wechat/qrcode/status', { qrcode });
 }
+
+// ===== 智能体冒烟测试 =====
+
+export interface AgentEvalAssertion {
+  name: string;
+  expected: string;
+  actual: string;
+  passed: boolean;
+}
+
+export interface AgentEvalJudgeItem {
+  metric: string;
+  score?: number;
+  reason?: string;
+  error?: string;
+}
+
+export interface AgentEvalToolCall {
+  tool_name: string;
+  tool_call_id?: string;
+}
+
+export interface AgentEvalRun {
+  run_id: string;
+  tenant_id?: number;
+  agent_id: string;
+  status: 'running' | 'completed' | 'failed';
+  total: number;
+  passed: number;
+  failed: number;
+  error?: string;
+  trigger?: string;
+  suite?: string;
+  duration_ms: number;
+  created_at?: string;
+  updated_at?: string;
+  finished_at?: string;
+}
+
+export interface AgentEvalCaseResult {
+  id: string;
+  run_id: string;
+  case_id: string;
+  case_title: string;
+  query: string;
+  status: 'passed' | 'failed' | 'running';
+  assertions: AgentEvalAssertion[];
+  judge: AgentEvalJudgeItem[];
+  tool_calls: AgentEvalToolCall[];
+  answer: string;
+  reference_count: number;
+  error?: string;
+  duration_ms: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+function evalSuiteQuery(suite?: string): string {
+  return suite ? `?suite=${encodeURIComponent(suite)}` : '';
+}
+
+// 触发冒烟测试：202 异步返回 running run；同智能体已有运行中测试时后端返回 409（含 run_id）
+export function runAgentEval(agentId: string, suite?: string) {
+  return post<{ data: AgentEvalRun }>(`/api/v1/agents/${agentId}/evaluations${evalSuiteQuery(suite)}`);
+}
+
+// 运行历史（倒序存档）
+export function listAgentEvals(agentId: string, suite?: string) {
+  return get<{ data: AgentEvalRun[] }>(`/api/v1/agents/${agentId}/evaluations${evalSuiteQuery(suite)}`);
+}
+
+// 单次运行详情（含全部用例结果）；running 期间用例逐个补齐，供前端轮询
+export function getAgentEvalRun(agentId: string, runId: string, suite?: string) {
+  return get<{ data: { run: AgentEvalRun; cases: AgentEvalCaseResult[] } }>(
+    `/api/v1/agents/${agentId}/evaluations/${runId}${evalSuiteQuery(suite)}`
+  );
+}
+
+// 删除运行存档（级联删用例结果）
+export function deleteAgentEvalRun(agentId: string, runId: string, suite?: string) {
+  return del<{ success: boolean }>(`/api/v1/agents/${agentId}/evaluations/${runId}${evalSuiteQuery(suite)}`);
+}

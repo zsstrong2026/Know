@@ -15,6 +15,9 @@ const (
 	AgentEvalCaseStatusFailed = "failed"
 
 	AgentEvalTriggerManual = "manual"
+
+	AgentEvalSuiteFunctional = "functional"
+	AgentEvalSuiteSecurity   = "security"
 )
 
 type AgentEvalCredentials struct {
@@ -118,6 +121,7 @@ type AgentEvalRun struct {
 	Failed     int        `yaml:"failed" json:"failed"`
 	Error      string     `yaml:"error" json:"error,omitempty"`
 	Trigger    string     `yaml:"trigger" json:"trigger" gorm:"column:eval_trigger;type:varchar(16)"`
+	Suite      string     `yaml:"suite" json:"suite" gorm:"type:varchar(32)"`
 	DurationMS int64      `yaml:"duration_ms" json:"duration_ms"`
 	CreatedAt  time.Time  `yaml:"created_at" json:"created_at"`
 	UpdatedAt  time.Time  `yaml:"updated_at" json:"updated_at"`

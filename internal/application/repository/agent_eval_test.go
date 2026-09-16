@@ -28,10 +28,17 @@ func makeEvalRun(tenantID uint64, agentID, status string, createdAt time.Time) *
 		TenantID:  tenantID,
 		AgentID:   agentID,
 		Status:    status,
+		Suite:     types.AgentEvalSuiteFunctional,
 		Trigger:   types.AgentEvalTriggerManual,
 		CreatedAt: createdAt.UTC(),
 		UpdatedAt: createdAt.UTC(),
 	}
+}
+
+func makeEvalRunWithSuite(tenantID uint64, agentID, status, suite string, createdAt time.Time) *types.AgentEvalRun {
+	run := makeEvalRun(tenantID, agentID, status, createdAt)
+	run.Suite = suite
+	return run
 }
 
 func makeEvalCaseResult(tenantID uint64, runID string, caseID string, createdAt time.Time) *types.AgentEvalCaseResult {
@@ -84,24 +91,24 @@ func TestAgentEval_FindRunningByAgent(t *testing.T) {
 	repo := NewAgentEvalRepository(db)
 	ctx := context.Background()
 
-	run, err := repo.FindRunningByAgent(ctx, 1, "agent-1")
+	run, err := repo.FindRunningByAgent(ctx, 1, "agent-1", types.AgentEvalSuiteFunctional)
 	require.NoError(t, err)
 	assert.Nil(t, run)
 
 	completed := makeEvalRun(1, "agent-1", types.AgentEvalRunStatusCompleted, time.Now())
 	require.NoError(t, repo.CreateRun(ctx, completed))
-	run, err = repo.FindRunningByAgent(ctx, 1, "agent-1")
+	run, err = repo.FindRunningByAgent(ctx, 1, "agent-1", types.AgentEvalSuiteFunctional)
 	require.NoError(t, err)
 	assert.Nil(t, run)
 
 	running := makeEvalRun(1, "agent-1", types.AgentEvalRunStatusRunning, time.Now())
 	require.NoError(t, repo.CreateRun(ctx, running))
-	run, err = repo.FindRunningByAgent(ctx, 1, "agent-1")
+	run, err = repo.FindRunningByAgent(ctx, 1, "agent-1", types.AgentEvalSuiteFunctional)
 	require.NoError(t, err)
 	require.NotNil(t, run)
 	assert.Equal(t, running.ID, run.ID)
 
-	run, err = repo.FindRunningByAgent(ctx, 1, "agent-2")
+	run, err = repo.FindRunningByAgent(ctx, 1, "agent-2", types.AgentEvalSuiteFunctional)
 	require.NoError(t, err)
 	assert.Nil(t, run)
 }
@@ -121,12 +128,12 @@ func TestAgentEval_ListRunsByAgent_OrderAndLimit(t *testing.T) {
 		require.NoError(t, repo.CreateRun(ctx, r))
 	}
 
-	runs, err := repo.ListRunsByAgent(ctx, 1, "agent-1", 0)
+	runs, err := repo.ListRunsByAgent(ctx, 1, "agent-1", types.AgentEvalSuiteFunctional, 0)
 	require.NoError(t, err)
 	require.Len(t, runs, 3)
 	assert.Equal(t, []string{r3.ID, r2.ID, r1.ID}, []string{runs[0].ID, runs[1].ID, runs[2].ID})
 
-	runs, err = repo.ListRunsByAgent(ctx, 1, "agent-1", 2)
+	runs, err = repo.ListRunsByAgent(ctx, 1, "agent-1", types.AgentEvalSuiteFunctional, 2)
 	require.NoError(t, err)
 	require.Len(t, runs, 2)
 	assert.Equal(t, r3.ID, runs[0].ID)
@@ -324,4 +331,45 @@ func TestAgentEval_CaseResult_JSONRoundtripAndIsolation(t *testing.T) {
 	empty, err := repo.ListCaseResultsByRun(ctx, run.ID, 2)
 	require.NoError(t, err)
 	assert.Empty(t, empty)
+}
+
+func TestAgentEval_FindRunningByAgent_SuiteIsolation(t *testing.T) {
+	db := setupAgentEvalTestDB(t)
+	repo := NewAgentEvalRepository(db)
+	ctx := context.Background()
+
+	// 同一 agent 下：功能套件有一条 running，安全套件也有一条 running
+	require.NoError(t, repo.CreateRun(ctx, makeEvalRunWithSuite(1, "agent-1", types.AgentEvalRunStatusRunning, types.AgentEvalSuiteFunctional, time.Now())))
+	require.NoError(t, repo.CreateRun(ctx, makeEvalRunWithSuite(1, "agent-1", types.AgentEvalRunStatusRunning, types.AgentEvalSuiteSecurity, time.Now())))
+
+	// 查 functional 只命中 functional 那条
+	run, err := repo.FindRunningByAgent(ctx, 1, "agent-1", types.AgentEvalSuiteFunctional)
+	require.NoError(t, err)
+	require.NotNil(t, run)
+	assert.Equal(t, types.AgentEvalSuiteFunctional, run.Suite)
+
+	// 查 security 只命中 security 那条
+	run, err = repo.FindRunningByAgent(ctx, 1, "agent-1", types.AgentEvalSuiteSecurity)
+	require.NoError(t, err)
+	require.NotNil(t, run)
+	assert.Equal(t, types.AgentEvalSuiteSecurity, run.Suite)
+}
+
+func TestAgentEval_ListRunsByAgent_SuiteFilter(t *testing.T) {
+	db := setupAgentEvalTestDB(t)
+	repo := NewAgentEvalRepository(db)
+	ctx := context.Background()
+
+	require.NoError(t, repo.CreateRun(ctx, makeEvalRunWithSuite(1, "agent-1", types.AgentEvalRunStatusCompleted, types.AgentEvalSuiteFunctional, time.Now().Add(-time.Hour))))
+	require.NoError(t, repo.CreateRun(ctx, makeEvalRunWithSuite(1, "agent-1", types.AgentEvalRunStatusCompleted, types.AgentEvalSuiteSecurity, time.Now())))
+
+	runs, err := repo.ListRunsByAgent(ctx, 1, "agent-1", types.AgentEvalSuiteSecurity, 10)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	assert.Equal(t, types.AgentEvalSuiteSecurity, runs[0].Suite)
+
+	runs, err = repo.ListRunsByAgent(ctx, 1, "agent-1", types.AgentEvalSuiteFunctional, 10)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	assert.Equal(t, types.AgentEvalSuiteFunctional, runs[0].Suite)
 }

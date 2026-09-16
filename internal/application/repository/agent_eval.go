@@ -39,10 +39,10 @@ func (r *agentEvalRepository) GetRun(ctx context.Context, id string, tenantID ui
 	return &run, nil
 }
 
-func (r *agentEvalRepository) FindRunningByAgent(ctx context.Context, tenantID uint64, agentID string) (*types.AgentEvalRun, error) {
+func (r *agentEvalRepository) FindRunningByAgent(ctx context.Context, tenantID uint64, agentID string, suite string) (*types.AgentEvalRun, error) {
 	var run types.AgentEvalRun
 	err := r.db.WithContext(ctx).
-		Where("tenant_id = ? AND agent_id = ? AND status = ?", tenantID, agentID, types.AgentEvalRunStatusRunning).
+		Where("tenant_id = ? AND agent_id = ? AND status = ? AND suite = ?", tenantID, agentID, types.AgentEvalRunStatusRunning, suite).
 		First(&run).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -53,10 +53,11 @@ func (r *agentEvalRepository) FindRunningByAgent(ctx context.Context, tenantID u
 	return &run, nil
 }
 
-func (r *agentEvalRepository) ListRunsByAgent(ctx context.Context, tenantID uint64, agentID string, limit int) ([]*types.AgentEvalRun, error) {
+func (r *agentEvalRepository) ListRunsByAgent(ctx context.Context, tenantID uint64, agentID string, suite string, limit int) ([]*types.AgentEvalRun, error) {
 	var runs []*types.AgentEvalRun
 	query := r.db.WithContext(ctx).
-		Where("tenant_id = ? AND agent_id = ?", tenantID, agentID).
+		Model(&types.AgentEvalRun{}).
+		Where("tenant_id = ? AND agent_id = ? AND suite = ?", tenantID, agentID, suite).
 		Order("created_at DESC")
 	if limit > 0 {
 		query = query.Limit(limit)
