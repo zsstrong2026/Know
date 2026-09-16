@@ -18,13 +18,17 @@ test('capability filtering is fail-open unless backend explicitly disables a fea
   assert.equal(isDeploymentCapabilitySupported(capabilities, 'agents'), true)
 })
 
-test('organizations stay hidden in lite even when capabilities fail open', () => {
+test('organizations follow capability probing in lite mode as well', () => {
   assert.equal(
     isDeploymentCapabilitySupported({}, 'organizations', { liteMode: true }),
-    false,
+    true,
   )
   assert.equal(
-    isDeploymentCapabilitySupported({}, 'organizations', { edition: 'lite' }),
+    isDeploymentCapabilitySupported(
+      { organizations: { supported: false, reason: 'route_not_registered' } },
+      'organizations',
+      { liteMode: true },
+    ),
     false,
   )
   assert.equal(

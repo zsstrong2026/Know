@@ -893,18 +893,8 @@ const handleWikiDrawerClick = (e: MouseEvent) => {
     e.preventDefault();
     const src = target.getAttribute('src');
     if (src) openImagePreview(src);
-  } else {
-    // allow link navigation inside drawer
-    const aEl = target.closest?.('a') as HTMLAnchorElement | null;
-    // @ts-ignore
-    if (aEl && aEl.href && window.runtime && window.runtime.BrowserOpenURL) {
-      if (aEl.href.startsWith('http://') || aEl.href.startsWith('https://')) {
-        e.preventDefault();
-        // @ts-ignore
-        window.runtime.BrowserOpenURL(aEl.href);
-      }
-    }
   }
+  // allow link navigation inside drawer (default browser behavior)
 };
 
 // Import icons
@@ -2234,15 +2224,9 @@ const handleCitationActivate = (el: HTMLElement) => {
   }
   if (!url) return;
   try {
-    // @ts-ignore: Wails runtime check
-    if (window.runtime && window.runtime.BrowserOpenURL) {
-      // @ts-ignore
-      window.runtime.BrowserOpenURL(url);
-    } else {
-      const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
-      if (!newWindow) {
-        window.location.assign(url);
-      }
+    const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!newWindow) {
+      window.location.assign(url);
     }
   } catch {
     window.location.assign(url);
@@ -2374,18 +2358,6 @@ const onRootClick = (e: Event) => {
       MessagePlugin.warning(t('agentStream.citation.noKbForWiki'));
     }
     return;
-  }
-
-  // Handle generic a clicks (especially in Wails desktop)
-  const aEl = target.closest?.('a') as HTMLAnchorElement | null;
-  // @ts-ignore
-  if (aEl && aEl.href && window.runtime && window.runtime.BrowserOpenURL) {
-    if (aEl.href.startsWith('http://') || aEl.href.startsWith('https://')) {
-      e.preventDefault();
-      // @ts-ignore
-      window.runtime.BrowserOpenURL(aEl.href);
-      return;
-    }
   }
 };
 

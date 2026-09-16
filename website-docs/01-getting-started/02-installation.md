@@ -1,6 +1,6 @@
 # 安装部署
 
-WeKnora 支持从「一台笔记本」到「Kubernetes 集群」的多种部署形态。本文逐一介绍 Docker Compose（生产/开发两套编排）、镜像构建、Makefile 与脚本、Helm，以及桌面端（Lite 单二进制、桌面应用与 Homebrew）。
+WeKnora 支持从「一台笔记本」到「Kubernetes 集群」的多种部署形态。本文逐一介绍 Docker Compose（生产/开发两套编排）、镜像构建、Makefile 与脚本、Helm，以及 Lite 单二进制与 Homebrew。
 
 ## 部署形态总览
 
@@ -10,7 +10,6 @@ WeKnora 支持从「一台笔记本」到「Kubernetes 集群」的多种部署�
 | Docker Compose（开发） | `docker-compose.dev.yml` | 同上（仅基础设施进容器） | 同上 | 本地开发：app / frontend 在宿主机运行 |
 | Helm | `helm/` | ParadeDB（chart 内置） | Redis（chart 内置） | Kubernetes >= 1.25 |
 | Lite 单二进制 | `make build-lite` / `scripts/package-lite.sh` | SQLite（FTS5 + sqlite-vec） | 内存（无 Redis） | 个人 / 离线 / 低资源环境 |
-| 桌面应用（**未正式发布**） | `cmd/desktop`（Wails v2）+ `scripts/package-mac-app.sh` | SQLite | 内存 | 桌面单机使用，带图形界面与本地数据目录 |
 | Homebrew | `Formula/weknora-lite.rb` | SQLite | 内存 | macOS / Linux 命令行安装 Lite |
 
 ```mermaid
@@ -28,7 +27,7 @@ flowchart TB
         LOCALAPP --> DR2["docreader 容器 :50051"]
         LOCALFE["宿主机 npm run dev 前端"] --> LOCALAPP
     end
-    subgraph lite["Lite / 桌面 (单进程)"]
+    subgraph lite["Lite (单进程)"]
         BIN["WeKnora-lite 二进制 (内嵌 web/ 前端)"]
         BIN --> SQLITE[("SQLite: FTS5 + sqlite-vec")]
         BIN --> MEMQ[("内存流管理")]
@@ -156,7 +155,6 @@ make docker-build-frontend
 | `make dev-*` | 开发模式（见上文） |
 | `make build` / `run` / `build-prod` | 本地编译运行 `cmd/server`（`build-prod` 需 CGO，注入版本号与 `Edition=standard`） |
 | `make build-lite` / `run-lite` / `package-lite` | Lite 模式构建 / 运行（读 `.env.lite`）/ 打发行包 |
-| `make package-mac-app` | 打包 macOS 桌面应用 |
 | `make docs` / `install-swagger` | 生成 Swagger 文档（`http://localhost:8080/swagger/index.html`，release 模式禁用） |
 | `make clean-db` | 删除 postgres/minio/redis 数据卷（危险操作） |
 
@@ -171,7 +169,7 @@ make docker-build-frontend
 | `scripts/build_frontend_dist.sh` | 构建前端静态产物 `frontend/dist`（frontend 镜像的前置步骤） |
 | `scripts/migrate.sh` | golang-migrate 封装 |
 | `scripts/docker-entrypoint.sh` | app 容器入口（属主修复 + 内置 Skills 合并 + docker.sock GID 补组 + gosu 降权） |
-| `scripts/package-lite.sh` / `package-mac-app.sh` | Lite tarball / macOS .app 打包 |
+| `scripts/package-lite.sh` | Lite tarball 打包 |
 
 ## 六、Helm 部署（helm/）
 
@@ -210,9 +208,9 @@ helm install weknora ./helm -n weknora --create-namespace \
   --set secrets.jwtSecret=xxx --set secrets.systemAesKey=$(openssl rand -hex 16)
 ```
 
-## 七、桌面端（Lite 模式 / 桌面应用 / Homebrew）
+## 七、Lite 单机模式（Lite 模式 / Homebrew）
 
-桌面端面向本机与低资源环境，底层都是同一套 Lite 运行时（单进程 + SQLite + 内存队列），只是分发与启动方式不同：**单二进制**（命令行启动，也可作为后台服务）、**桌面应用**（图形界面，双击启动）、**Homebrew**（macOS/Linux 命令行安装 Lite）。三者能力范围一致。
+Lite 模式面向本机与低资源环境，底层是同一套 Lite 运行时（单进程 + SQLite + 内存队列），只是分发与启动方式不同：**单二进制**（命令行启动，也可作为后台服务）、**Homebrew**（macOS/Linux 命令行安装 Lite）。两者能力范围一致。
 
 ### 7.1 Lite 运行时（零外部依赖）
 
@@ -231,24 +229,9 @@ make run-lite                       # 构建并以 .env.lite 环境启动 ./WeKn
 make package-lite                   # 打包发行 tarball（scripts/package-lite.sh）
 ```
 
-Lite 还提供 `POST /auth/auto-setup` 一键生成本地账号（仅 lite edition 开放，见 `internal/handler/auth.go`），桌面应用据此实现免注册启动。
+Lite 还提供 `POST /auth/auto-setup` 一键生成本地账号（仅 lite edition 开放，见 `internal/handler/auth.go`），实现免注册启动。
 
-### 7.2 桌面应用（cmd/desktop，Wails v2）
-
-桌面应用提供图形界面的本机使用方式：双击启动，进程内自带后端与 SQLite，数据落在系统的应用数据目录；另有端口设置、局域网绑定与更新检查等桌面特有能力。运行时能力与 §7.1 相同。
-
-::: warning 尚未正式发布
-桌面应用目前**没有随 Release 提供安装包**，需要自己按下面的步骤构建。`release-lite.yml` 里已有跨平台（macOS universal/amd64/arm64、Linux amd64、Windows amd64）的构建任务，但该工作流的 tag 触发被注释掉、只能手动触发，且当前最新 Release 未附带任何产物。
-:::
-
-- 入口 `cmd/desktop/main.go` + `cmd/desktop/wails.json`；`cmd/desktop/app.go` 向前端暴露 `GetAPIBaseURL`（返回 `http://127.0.0.1:PORT/api/v1`）、HTTP 端口与「绑定到局域网」设置、`CheckForUpdates` 自动更新检查等绑定方法。
-- `scripts/package-mac-app.sh`：先构建前端到 `web/`，再 `wails build -tags "sqlite_fts5"`，最后组装 `.app` 包 —— `Contents/MacOS/WeKnora Lite` 为主程序，`Contents/Resources` 内嵌 `.env`、config、`migrations/sqlite`、web 前端；相对路径数据自动重定向到 `~/Library/Application Support/WeKnora Lite/data/`，日志写 `~/Library/Logs/WeKnora Lite/`。
-
-```bash
-make package-mac-app
-```
-
-### 7.3 Homebrew（Formula/weknora-lite.rb）
+### 7.2 Homebrew（Formula/weknora-lite.rb）
 
 ```bash
 brew install weknora-lite            # 从 GitHub Releases 下载 WeKnora-lite_v{ver}_{os}_{arch}.tar.gz
@@ -291,7 +274,7 @@ flowchart TB
         A2 --> PVC1[("PVC: postgres 10Gi / redis 1Gi / data-files 10Gi")]
         A2 --> D2["docreader Deployment"]
     end
-    subgraph laptop["个人：Lite / 桌面 / Homebrew"]
+    subgraph laptop["个人：Lite / Homebrew"]
         direction LR
         U3["用户"] --> L1["WeKnora-lite 单进程 (内嵌前端 + SQLite + 内存队列)"]
         L1 --> O3["Ollama / 远程 OpenAI 兼容 API"]

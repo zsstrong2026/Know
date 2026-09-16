@@ -60,7 +60,7 @@ npm run preview  # 预览构建产物
 | 文档 | 内容 |
 | --- | --- |
 | [产品介绍](01-getting-started/01-introduction.md) | WeKnora 是什么、核心概念（租户/知识库/知识/分块/会话/Agent 等）、功能总览与系统组件图 |
-| [安装部署](01-getting-started/02-installation.md) | docker-compose（含 12 个可选 profile）、开发模式、Helm、Lite 单二进制与桌面应用、Homebrew |
+| [安装部署](01-getting-started/02-installation.md) | docker-compose（含 12 个可选 profile）、开发模式、Helm、Lite 单二进制、Homebrew |
 | [快速上手](01-getting-started/03-quickstart.md) | 注册 → 初始化向导 → 配置模型 → 建库 → 上传 → 问答的完整路径，含可直接执行的 curl 链路 |
 | [配置详解](01-getting-started/04-configuration.md) | config.yaml 全字段、约 150 个环境变量、prompt 模板、内置模型与内置 Agent 配置 |
 
@@ -128,7 +128,6 @@ npm run preview  # 预览构建产物
 | [命令行工具 CLI](05-clients/02-cli.md) | 17 个命令组、多 profile 配置、输出格式与退出码、脚本化用法 |
 | [Go SDK](05-clients/03-go-sdk.md) | 约 170 个方法的资源覆盖、流式对话、错误处理、完整示例 |
 | [微信小程序](05-clients/04-miniprogram.md) | 页面结构、后端地址与 API Key 配置、构建发布 |
-| [桌面端](05-clients/05-desktop.md) | 单机桌面应用（未正式发布）、数据目录与端口设置、偏好设置与自动更新 |
 | [Chrome 插件](05-clients/06-chrome-extension.md) | 网页侧边栏问答、剪藏与速记，凭证配置与排查 |
 | [Claw Skill](05-clients/07-claw-skill.md) | ClawHub 上的 WeKnora Skill、环境变量配置、与 MCP 的取舍 |
 

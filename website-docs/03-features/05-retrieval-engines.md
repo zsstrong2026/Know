@@ -6,7 +6,7 @@
 
 | 情况 | 考虑 |
 | --- | --- |
-| 单机 / 桌面版，不想跑数据库 | SQLite（内嵌，零依赖） |
+| 单机，不想跑数据库 | SQLite（内嵌，零依赖） |
 | 向量规模到千万级、要独立扩容 | Qdrant、Milvus |
 | 公司已有 Elasticsearch / OpenSearch 栈 | 复用现有集群 |
 | 要按知识库分开存放数据 | 保持默认引擎，另在「设置 → 向量存储」注册实例并绑定到指定知识库 |
@@ -104,7 +104,7 @@ flowchart TD
 - **过滤**：主表 `lite_embeddings` 上的 KB/knowledge/tag/is_enabled 过滤。向量路径的过滤条件必须**先于 top-k 生效**——写成 `v.rowid IN (SELECT ... FROM lite_embeddings filtered WHERE ...)` 的子查询而不是 JOIN 之后再过滤，否则 vec0 先取全局最近的 k 条、再被过滤掉大半，指定知识库或标签时会出现「明明有匹配却召回为空」；
 - **错误传播**：任一检索路径出错直接返回错误，而不是塞一条带 `Error` 字段的空结果继续走——后者会被上层当成「检索成功但没命中」；
 - **阈值**：向量阈值为 0 时视为不过滤，而不是把所有结果都滤掉。
-- 适合桌面版 / 开发环境 / 极小规模部署。
+- 适合开发环境 / 极小规模部署。
 
 ### 2.3 Elasticsearch v8
 
@@ -189,7 +189,7 @@ flowchart TD
 | 引擎 | RETRIEVE_DRIVER 值 | 向量检索 | 关键词/全文 | 关键词打分 | 中文分词 | 维度管理 | 阈值下推 | 部署复杂度 | 适用场景 |
 |------|-------------------|----------|------------|-----------|---------|----------|---------|-----------|----------|
 | PostgreSQL | `postgres` | pgvector halfvec + HNSW 表达式索引 | ParadeDB BM25（`\|\|\|`） | BM25（paradedb.score） | ParadeDB tokenizer | 单表混维，表达式索引按维 cast | 距离阈值 SQL 内 | 低（默认镜像内置） | 默认选择；与业务同库，事务一致 |
-| SQLite | `sqlite` | sqlite-vec vec0（cosine） | FTS5 contentless | FTS5 | 应用侧 bigram | 每维一张 vec0 虚表 | 应用侧 | 极低（内嵌） | 桌面版 / 开发 / 微型部署 |
+| SQLite | `sqlite` | sqlite-vec vec0（cosine） | FTS5 contentless | FTS5 | 应用侧 bigram | 每维一张 vec0 虚表 | 应用侧 | 极低（内嵌） | 单机 / 开发 / 微型部署 |
 | Elasticsearch v8 | `elasticsearch_v8` | script_score cosineSimilarity | match（BM25） | BM25 | ES analyzer | dense_vector 单索引 | 应用侧 | 中 | 已有 ES 8 集群 |
 | Elasticsearch v7 | `elasticsearch_v7` | 不支持（Support 仅 keywords） | match（BM25） | BM25 | ES analyzer | — | — | 中 | 存量 ES 7，仅作关键词引擎，需与其他向量引擎组合 |
 | OpenSearch | `opensearch` | k-NN 插件 knn（HNSW） | match（BM25） | BM25 | OS analyzer | knn_vector 声明式 mapping + 指纹校验 | k-NN 原生 | 中 | 需审计/别名/reindex 的生产 ES 系方案；版本 2.11+/3.x |

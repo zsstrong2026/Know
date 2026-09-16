@@ -1,10 +1,9 @@
 # Web 前端（frontend/）
 
-WeKnora 的 Web 前端是一个基于 **Vue 3 + TypeScript + Vite** 的单页应用（SPA），承载知识库管理、Agent 对话、组织协作、系统设置等全部交互界面。同一份代码同时服务三种形态：
+WeKnora 的 Web 前端是一个基于 **Vue 3 + TypeScript + Vite** 的单页应用（SPA），承载知识库管理、Agent 对话、组织协作、系统设置等全部交互界面。同一份代码同时服务两种形态：
 
 1. **标准 Web 部署**：Vite 构建产物由 nginx 容器托管，`/api` 反向代理到后端；
 2. **网页嵌入（Embed）**：独立的轻量入口 `frontend/embed.html` + `frontend/src/embed-main.ts`，供第三方网站以 iframe / 浮窗方式嵌入智能体对话；
-3. **桌面端（Wails）**：通过 `frontend/src/wailsjs/` 下的自动生成绑定与桌面进程的 Go 侧通信，前端代码中可见大量对桌面形态的适配（如 `--wails-draggable` 拖拽区域、窗口深浅色同步）。
 
 ## 技术栈总览
 
@@ -58,7 +57,6 @@ flowchart TB
     subgraph io["数据访问层"]
         API["API 封装 (src/api)<br/>axios 实例 + SSE 流式"]
         I18N["多语言 (src/i18n)<br/>zh-CN / en-US / ru-RU / ko-KR"]
-        WAILS["桌面绑定 (src/wailsjs)<br/>Wails 自动生成"]
     end
 
     BACKEND["WeKnora 后端 API<br/>(/api, /files)"]
@@ -73,7 +71,7 @@ flowchart TB
     VIEWS --> API
     API --> BACKEND
     VIEWS --> I18N
-    COMPOSABLES --> WAILS
+    COMPOSABLES --> API
 ```
 
 ### 目录速览
@@ -91,7 +89,6 @@ flowchart TB
 | `frontend/src/utils/` | 工具集：axios 实例、markdown 渲染管线、DOMPurify 消毒、Agent 工具展示等 |
 | `frontend/src/i18n/` | vue-i18n 配置与语言包 |
 | `frontend/src/assets/theme/` | 主题 CSS 变量（light / dark） |
-| `frontend/src/wailsjs/` | Wails 桌面端自动生成绑定（勿手改） |
 | `frontend/src/directives/`、`frontend/src/types/`、`frontend/src/config/` | 自定义指令、类型定义、配置 |
 | `frontend/public/` | 静态资源：`weknora-widget.js`（第三方站点嵌入加载器）、`config.js`（运行时配置占位，容器启动时覆盖）、离线 TDesign 图标 |
 | `frontend/packages/` | 本地依赖 tarball（`xlsx-0.20.2.tgz`） |
@@ -179,7 +176,7 @@ flowchart TB
 `router.beforeEach` 中实现了一条完整的鉴权链（`frontend/src/router/index.ts`）：
 
 1. **OIDC 回调放行**：URL hash 含 `oidc_result=` / `oidc_error=` 时直接放行，交由 `App.vue` 消费；
-2. **Lite / 桌面端深链恢复**：Lite 模式硬刷新落在默认首页时，从 `sessionStorage` 恢复上次访问的 `/platform` 子路径；
+2. **Lite 深链恢复**：Lite 模式硬刷新落在默认首页时，从 `sessionStorage` 恢复上次访问的 `/platform` 子路径；
 3. **会话恢复**：未登录时先用 `localStorage` 中的 `weknora_token` 调 `getCurrentUser()` 恢复会话（同时刷新 memberships，避免角色变更滞后）；
 4. **Lite 自动登录**：恢复失败则尝试一次 `autoSetup()`（单机版免登录），失败会在 `localStorage` 打标避免重复尝试；
 5. **租户门槛**：已登录但无有效租户 → 跳 `/onboarding/workspace`；
@@ -274,7 +271,6 @@ RAG 流水线的可视化进度（`views/chat/components/RagPipelineProgress.vue
 - **CSS 变量**：`frontend/src/assets/theme/theme.css` 以 TDesign token 体系（`--td-brand-color-*`、`--td-bg-color-*`、`--td-text-color-*`、字体/圆角/阴影等）分别定义 `:root[theme-mode="light"]` 与 `:root[theme-mode="dark"]` 两套变量，品牌色为绿色系；组件样式一律引用变量实现一键换肤。
 - **偏好持久化**：主题与字体偏好通过 `frontend/src/composables/preferenceStorage.ts` 按用户 id 命名空间存入 `localStorage`，登录/登出/切换账号时由 `reloadThemeFromStorage()` / `reloadFontFromStorage()` 重载（在 `stores/auth.ts` 中触发）。
 - **字体**：`frontend/src/composables/useFont.ts` 管理界面字体选择，`main.ts` 启动时 `initTheme()` + `initFont()`。
-- **桌面端同步**：`useTheme.ts` 中的 `syncWailsNativeChrome()` 调用 Wails runtime 的 `WindowSetDarkTheme / WindowSetLightTheme / WindowSetBackgroundColour`，让原生窗口底色与网页主题一致，减轻刷新白闪。
 
 ## 构建与部署
 
@@ -310,12 +306,3 @@ RAG 流水线的可视化进度（`views/chat/components/RagPipelineProgress.vue
 - **资源短链 `/r/`**：`location ^~ /r/` 同样反代到后端。IM 渠道把 `resource://` 图片改写成 `<APP_EXTERNAL_URL>/r/<token>`，缺这段配置时请求会落进 SPA fallback，IM 侧图片显示为空白（详见 [IM 集成](../03-features/12-im-integration.md)）；
 - **嵌入页**：`/embed/*` fallback 到 `embed.html`（独立 location，不继承主站的 `X-Frame-Options: SAMEORIGIN`，因此可被第三方 iframe 加载）；`/weknora-widget.js` 是给第三方站点的静态加载器；文件头部另附可选的独立 embed 子域 server 块示例；
 - 启用 gzip（注释记录了实测收益：低带宽下首屏从 25s 降到 3-5s）及一组安全响应头（`X-Frame-Options`、`X-Content-Type-Options`、`Referrer-Policy` 等，在各 location 内重复声明以规避 nginx `add_header` 不继承的问题）。
-
-## 桌面端（Wails）关联
-
-`frontend/src/wailsjs/` 是 Wails 框架自动生成的绑定代码（文件头标注 "automatically generated. DO NOT EDIT"）：
-
-- `wailsjs/go/main/App.d.ts` / `App.js`：Go 侧 `App` 结构体方法的 JS 绑定，包括 `CheckForUpdates` / `AutoCheckForUpdates`（桌面更新检查）、`GetAPIBaseURL` / `GetAPILanBaseURL`、桌面内置 HTTP 服务的端口与对外监听设置（`GetDesktopHTTPPortSetting`、`SetDesktopHTTPBindPublicSetting` 等）；
-- `wailsjs/runtime/`：Wails runtime API（窗口控制等），前端在浏览器环境下调用会被 try/catch 安静降级（如 `useTheme.ts`）。
-
-桌面应用的窗口内容就是这份前端代码，Lite 模式（`autoSetup` 免登录 + 深链恢复）与 `--wails-draggable` 标记的可拖拽标题区都是为桌面形态准备的适配。

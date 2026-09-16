@@ -124,8 +124,11 @@ func (c *OllamaChat) buildChatRequest(messages []Message, opts *ChatOptions, isS
 
 // Chat 进行非流式聊天
 func (c *OllamaChat) Chat(ctx context.Context, messages []Message, opts *ChatOptions) (*types.ChatResponse, error) {
+	timeoutCtx, cancel := withLLMTimeout(ctx, defaultChatTimeout)
+	defer cancel()
+
 	// 确保模型可用
-	if err := c.ensureModelAvailable(ctx); err != nil {
+	if err := c.ensureModelAvailable(timeoutCtx); err != nil {
 		return nil, err
 	}
 
@@ -133,14 +136,14 @@ func (c *OllamaChat) Chat(ctx context.Context, messages []Message, opts *ChatOpt
 	chatReq := c.buildChatRequest(messages, opts, false)
 
 	// 记录请求日志
-	logger.GetLogger(ctx).Infof("发送聊天请求到模型 %s", c.modelName)
+	logger.GetLogger(timeoutCtx).Infof("发送聊天请求到模型 %s", c.modelName)
 
 	var responseContent string
 	var toolCalls []types.LLMToolCall
 	var promptTokens, completionTokens int
 
 	// 使用 Ollama 客户端发送请求
-	err := c.ollamaService.Chat(ctx, chatReq, func(resp ollamaapi.ChatResponse) error {
+	err := c.ollamaService.Chat(timeoutCtx, chatReq, func(resp ollamaapi.ChatResponse) error {
 		responseContent = resp.Message.Content
 		// 当 Content 为空但 Thinking 有内容时（如推理模型未正确配置 thinking 参数），使用 Thinking 作为兜底
 		if responseContent == "" && resp.Message.Thinking != "" {
@@ -166,7 +169,7 @@ func (c *OllamaChat) Chat(ctx context.Context, messages []Message, opts *ChatOpt
 		TotalTokens:      promptTokens + completionTokens,
 	}
 	usage.MarkPromptCacheUnsupported()
-	logUsage(ctx, c.modelName, &usage)
+	logUsage(timeoutCtx, c.modelName, &usage)
 
 	return &types.ChatResponse{
 		Content:   responseContent,
@@ -181,8 +184,11 @@ func (c *OllamaChat) ChatStream(
 	messages []Message,
 	opts *ChatOptions,
 ) (<-chan types.StreamResponse, error) {
+	timeoutCtx, cancel := withLLMTimeout(ctx, defaultStreamTimeout)
+
 	// 确保模型可用
-	if err := c.ensureModelAvailable(ctx); err != nil {
+	if err := c.ensureModelAvailable(timeoutCtx); err != nil {
+		cancel()
 		return nil, err
 	}
 
@@ -190,7 +196,7 @@ func (c *OllamaChat) ChatStream(
 	chatReq := c.buildChatRequest(messages, opts, true)
 
 	// 记录请求日志
-	logger.GetLogger(ctx).Infof("发送流式聊天请求到模型 %s", c.modelName)
+	logger.GetLogger(timeoutCtx).Infof("发送流式聊天请求到模型 %s", c.modelName)
 
 	// 创建流式响应通道
 	streamChan := make(chan types.StreamResponse)
@@ -198,9 +204,10 @@ func (c *OllamaChat) ChatStream(
 	// 启动goroutine处理流式响应
 	go func() {
 		defer close(streamChan)
+		defer cancel()
 
 		var thinking thinkingEmitter
-		err := c.ollamaService.Chat(ctx, chatReq, func(resp ollamaapi.ChatResponse) error {
+		err := c.ollamaService.Chat(timeoutCtx, chatReq, func(resp ollamaapi.ChatResponse) error {
 			// 发送思考内容（支持 Qwen3、DeepSeek 等推理模型）
 			if resp.Message.Thinking != "" {
 				thinking.emit(streamChan, resp.Message.Thinking)
@@ -227,8 +234,8 @@ func (c *OllamaChat) ChatStream(
 				// Log this so we can trace non-streaming thought delivery.
 				for _, tc := range resp.Message.ToolCalls {
 					if tc.Function.Name == "thinking" {
-						argsBytes, _ := json.Marshal(tc.Function.Arguments)
-						logger.Warnf(ctx, "[Ollama Stream] Tool %q arrived non-incrementally (%d bytes args), "+
+					argsBytes, _ := json.Marshal(tc.Function.Arguments)
+					logger.Warnf(timeoutCtx, "[Ollama Stream] Tool %q arrived non-incrementally (%d bytes args), "+
 							"thought will not be token-streamed to frontend",
 							tc.Function.Name, len(argsBytes))
 					}
@@ -263,7 +270,7 @@ func (c *OllamaChat) ChatStream(
 					}
 					usage.MarkPromptCacheUnsupported()
 				}
-				logUsage(ctx, c.modelName, usage)
+				logUsage(timeoutCtx, c.modelName, usage)
 				streamChan <- types.StreamResponse{
 					ResponseType: types.ResponseTypeAnswer,
 					Done:         true,
@@ -274,7 +281,7 @@ func (c *OllamaChat) ChatStream(
 			return nil
 		})
 		if err != nil {
-			logger.GetLogger(ctx).Errorf("流式聊天请求失败: %v", err)
+		logger.GetLogger(timeoutCtx).Errorf("流式聊天请求失败: %v", err)
 			// 发送错误响应
 			streamChan <- types.StreamResponse{
 				ResponseType: types.ResponseTypeError,

@@ -801,7 +801,7 @@ const docTemplate = `{
                 "tags": [
                     "认证"
                 ],
-                "summary": "自动初始化（Lite 桌面版）",
+                "summary": "自动初始化（Lite 版）",
                 "responses": {
                     "200": {
                         "description": "OK",

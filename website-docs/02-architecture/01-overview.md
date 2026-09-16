@@ -39,7 +39,6 @@ WeKnora 采用"主服务 + 前端 + 文档解析微服务"的三进程核心架�
 除标准 Docker Compose 部署外，仓库还支持：
 
 - **Lite 模式**：`DB_DRIVER=sqlite`（内置 sqlite-vec 向量扩展）+ 不配置 `REDIS_ADDR`（Asynq 退化为进程内 `SyncTaskExecutor`），单二进制运行，前端静态资源内嵌（`handler.Edition == "lite"` 时由 Go 进程直接托管）；
-- **桌面版**：`cmd/desktop` 基于 Wails v2 打包为桌面应用；
 - **Kubernetes**：`helm/` Chart；**裸机**：`deploy/` systemd 单元；**macOS**：`Formula/` Homebrew 配方。
 
 ## 2. 技术栈清单
@@ -68,7 +67,6 @@ WeKnora 采用"主服务 + 前端 + 文档解析微服务"的三进程核心架�
 | 前端框架 | Vue 3（^3.5）+ TypeScript + Vite 7 | `frontend/package.json` |
 | 前端 UI/状态 | TDesign Vue Next、Pinia、Vue Router 4、vue-i18n | Marked/KaTeX/Mermaid/highlight.js 渲染富文本 |
 | 文档解析服务 | Python + grpcio | `docreader/main.py`；解析器位于 `docreader/parser/`（pdf/docx/excel/epub/web/image/markitdown/opendataloader 等） |
-| 桌面端 | Wails v2 | `cmd/desktop` |
 
 ## 3. 进程间通信方式
 
@@ -177,7 +175,7 @@ sequenceDiagram
 
 | 目录 | 职责 |
 | --- | --- |
-| `cmd/` | 可执行入口。`cmd/server`：主服务（main/bootstrap/listen + 平台信号处理）；`cmd/desktop`：Wails 桌面版；`cmd/download`：模型/资源下载辅助工具 |
+| `cmd/` | 可执行入口。`cmd/server`：主服务（main/bootstrap/listen + 平台信号处理）；`cmd/download`：模型/资源下载辅助工具 |
 | `internal/` | Go 后端全部业务代码（分层结构见后端设计篇）：`handler`、`application/service`、`application/repository`、`container`（DI）、`router`、`middleware`、`types`、`agent`、`im`、`mcp`、`stream`、`sandbox` 等 |
 | `frontend/` | Vue3 + Vite + TDesign 的 Web 前端，构建产物由 NGINX 或 Lite 模式内嵌托管 |
 | `docreader/` | Python gRPC 文档解析微服务：`main.py` 服务端入口、`parser/` 25+ 解析器、`splitter/` 分割器、`proto/` 协议定义、独立 `Dockerfile.docreader` 构建 |

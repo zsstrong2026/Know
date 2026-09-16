@@ -75,7 +75,6 @@ const surfaces = [
   { icon: 'console', name: 'Web 控制台', desc: '知识库管理、对话、Wiki 浏览与系统配置的完整界面。' },
   { icon: 'extension', name: 'Chrome 插件', desc: '网页侧边栏问答，支持正文剪藏与 Markdown 速记入库。' },
   { icon: 'embed', name: '网页嵌入挂件', desc: '一段 script 即可在自有站点提供悬浮问答，访客无需登录。' },
-  { icon: 'desktop', name: '桌面客户端', desc: '单机运行的桌面应用，自带后端与本地存储；尚未正式发布，需自行构建。' },
   { icon: 'bot', name: 'IM 机器人', desc: '企业微信、飞书、钉钉、Slack 等 10 个平台的官方适配器。' },
   { icon: 'mobile', name: '微信小程序', desc: '移动端入口，支持网页收藏入库与提问。' },
   { icon: 'cli', name: '命令行 weknora', desc: '文档管理、检索与带引用的流式问答，默认 JSON 输出，便于脚本化。' },
@@ -229,13 +228,12 @@ const map = [
     index: '05',
     icon: 'clients',
     title: '客户端',
-    brief: '七种客户端：Web、CLI、SDK、小程序、桌面端、浏览器插件与 Skill。',
+    brief: '六种客户端：Web、CLI、SDK、小程序、浏览器插件与 Skill。',
     items: [
       { text: 'Web 前端', link: '/05-clients/01-frontend' },
       { text: '命令行工具 CLI', link: '/05-clients/02-cli' },
       { text: 'Go SDK', link: '/05-clients/03-go-sdk' },
       { text: '微信小程序', link: '/05-clients/04-miniprogram' },
-      { text: '桌面客户端', link: '/05-clients/05-desktop' },
       { text: 'Chrome 插件', link: '/05-clients/06-chrome-extension' },
       { text: 'Claw Skill', link: '/05-clients/07-claw-skill' },
     ],
@@ -258,9 +256,9 @@ const deployments = [
   { icon: 'helm', name: 'Helm', desc: 'Kubernetes 集群编排，适用于生产多副本', note: '' },
   {
     icon: 'lite',
-    name: 'Lite（单二进制 / 桌面应用）',
-    desc: 'SQLite + 进程内队列，无需 Docker 与外部数据库；提供命令行与图形界面两种形式',
-    note: '桌面应用尚未正式发布，需自行构建',
+    name: 'Lite（单二进制）',
+    desc: 'SQLite + 进程内队列，无需 Docker 与外部数据库，一条命令启动',
+    note: '',
   },
 ]
 </script>
@@ -1238,7 +1236,7 @@ open http://localhost
 
 .deploy-list li {
   display: grid;
-  /* 名称列要装下图标 + 「Lite（单二进制 / 桌面应用）」，比原来放宽一档 */
+  /* 名称列要装下图标 + 「Lite（单二进制）」，比原来放宽一档 */
   grid-template-columns: 178px 1fr;
   gap: 16px;
   padding: 15px 0;

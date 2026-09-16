@@ -881,7 +881,7 @@ func (h *AuthHandler) SwitchTenant(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.NewAuthLoginResponse(resp))
 }
 
-// @Summary      自动初始化（Lite 桌面版）
+// @Summary      自动初始化（Lite 版）
 // @Description  Lite 版专用：首次启动时自动创建默认用户和空间并返回令牌，后续启动直接签发令牌，免除手动注册/登录流程
 // @Tags         认证
 // @Accept       json

@@ -95,13 +95,12 @@ docreader 的大量调优参数（PDF 渲染 DPI、扫描件判定、SSRF 白名
 
 ### 2.3 Lite 模式（零外部依赖）
 
-Lite 模式把 SQLite（+sqlite-vec）与内存队列编译进单个二进制，适合快速体验与桌面端：
+Lite 模式把 SQLite（+sqlite-vec）与内存队列编译进单个二进制，适合快速体验：
 
 ```bash
 make build-lite     # 先构建前端到 web/，再 CGO 构建 Go（tags: sqlite_fts5）；SKIP_FRONTEND=1 跳过前端
 make run-lite       # 依赖 .env.lite，构建并启动 WeKnora-lite
 make package-lite   # 打 tarball 发行包（scripts/package-lite.sh）
-make package-mac-app  # 打 macOS .app（scripts/package-mac-app.sh）
 ```
 
 ## 3. Makefile 目标全览
@@ -157,7 +156,7 @@ make package-mac-app  # 打 macOS .app（scripts/package-mac-app.sh）
 | `dev-start` / `dev-stop` / `dev-restart` / `dev-logs` / `dev-status` | `scripts/dev.sh start/stop/restart/logs/status`（支持 `DEV_ARGS` 传 profile 参数） |
 | `dev-app` | 本地 `go run ./cmd/server`（带版本 ldflags） |
 | `dev-frontend` | 本地 `npm run dev` |
-| `build-lite` / `run-lite` / `package-lite` / `package-mac-app` | Lite 模式构建/运行/打包（见 2.3） |
+| `build-lite` / `run-lite` / `package-lite` | Lite 模式构建/运行/打包（见 2.3） |
 | `download_spatial` | `go run cmd/download/duckdb/duckdb.go` 下载 DuckDB spatial 扩展（数据分析工具用） |
 
 ## 4. 测试体系

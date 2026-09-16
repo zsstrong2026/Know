@@ -25,17 +25,24 @@ func allDeploymentFeaturesAvailable() handler.DeploymentFeatureAvailability {
 	}
 }
 
-func TestBuildDeploymentCapabilitiesHidesOrganizationsInLite(t *testing.T) {
+func TestBuildDeploymentCapabilitiesFollowsOrganizationsAvailability(t *testing.T) {
 	result := handler.BuildDeploymentCapabilities("lite", allDeploymentFeaturesAvailable())
+	if !result.Capabilities["organizations"].Supported {
+		t.Fatal("organizations should follow route availability regardless of edition")
+	}
 
-	organization := result.Capabilities["organizations"]
+	available := allDeploymentFeaturesAvailable()
+	available.Organizations = false
+	missing := handler.BuildDeploymentCapabilities("lite", available)
+
+	organization := missing.Capabilities["organizations"]
 	if organization.Supported {
-		t.Fatal("organizations should be unsupported in lite edition")
+		t.Fatal("organizations should be unsupported when the route is not registered")
 	}
-	if organization.Reason != "not_supported_in_lite" {
-		t.Fatalf("organization reason = %q, want not_supported_in_lite", organization.Reason)
+	if organization.Reason != "route_not_registered" {
+		t.Fatalf("organization reason = %q, want route_not_registered", organization.Reason)
 	}
-	if !result.Capabilities["agents"].Supported {
+	if !missing.Capabilities["agents"].Supported {
 		t.Fatal("agents should remain supported in lite edition")
 	}
 }

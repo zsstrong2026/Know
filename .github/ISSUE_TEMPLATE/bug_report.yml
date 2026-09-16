@@ -84,7 +84,6 @@ body:
         - Docker Compose
         - Build from source
         - Lite (single binary)
-        - Desktop app
         - Kubernetes (Helm)
         - Other
     validations:
@@ -110,7 +109,7 @@ body:
           ```bash
           docker compose logs -f --tail=1000 app docreader postgres
           ```
-        - Lite / Desktop / build from source: include the console output or log files (e.g., `logs/*.log`).
+        - Lite / build from source: include the console output or log files (e.g., `logs/*.log`).
 
   - type: textarea
     id: logs

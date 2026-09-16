@@ -39,13 +39,18 @@ temp/
 # 本地构建产物 / 二进制
 WeKnora
 WeKnora-lite
+WeKnora-lite.exe
 /server
 /dist/
 /build/
 cmd/desktop/build/bin/
 
+# 本地 DuckDB 扩展下载缓存（镜像构建期自行下载，无需进上下文）
+docker/duckdb_ext/
+
 # 本地数据 / 模型文件
 /models/
+.local-data/
 data/files/
 data/*.db
 data/*.db-wal

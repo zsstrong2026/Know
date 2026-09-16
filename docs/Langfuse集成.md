@@ -129,7 +129,7 @@ LANGFUSE_SECRET_KEY=sk-lf-xxxxxxxx
 LANGFUSE_HOST=https://cloud.langfuse.com
 ```
 
-启动 `weknora-lite`（或 macOS `.app`）后效果同上。
+启动 `weknora-lite` 后效果同上。
 
 #### （C）Helm Chart 部署
 

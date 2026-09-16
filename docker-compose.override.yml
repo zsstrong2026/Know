@@ -1,0 +1,17 @@
+# 本地二开构建覆盖：app/frontend 改用本仓库 Dockerfile 构建并打本地 tag，
+# 不再拉取官方 wechatopenai/* 镜像；其余服务（docreader/sandbox/基础设施）不动。
+# build 定义继承自 docker-compose.yml，此处只覆盖 image 名称。
+#
+# 用法：
+#   docker compose build app frontend   # 构建本地镜像
+#   docker compose up -d                # 以本地镜像启动（其余服务仍用官方镜像）
+services:
+  app:
+    image: weknora-app:local
+    build:
+      args:
+        # 国内网络走 goproxy.cn，避免构建期访问 proxy.golang.org 挂起
+        - GOPROXY_ARG=${GOPROXY_ARG:-https://goproxy.cn,direct}
+
+  frontend:
+    image: weknora-ui:local

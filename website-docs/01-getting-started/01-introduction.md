@@ -4,7 +4,7 @@ WeKnora（维娜拉）是腾讯开源的知识库问答系统，做的事情是�
 
 整套流程分四步：**文档理解 → 建索引 → 混合检索 → 生成回答**，本文后面逐个展开。
 
-代码上是三个进程：Go（Gin）写的后端、Vue 3 的前端、Python（gRPC）的文档解析服务 docreader。部署方式有 Docker Compose、Helm、单二进制 Lite 模式和 macOS 桌面应用，按环境挑一种。
+代码上是三个进程：Go（Gin）写的后端、Vue 3 的前端、Python（gRPC）的文档解析服务 docreader。部署方式有 Docker Compose、Helm 和单二进制 Lite 模式，按环境挑一种。
 
 <Screenshot
   src="/screenshots/introduction-overview.png"

@@ -6939,7 +6939,7 @@ paths:
           description: 非 Lite 版本
           schema:
             $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
-      summary: 自动初始化（Lite 桌面版）
+      summary: 自动初始化（Lite 版）
       tags:
       - 认证
   /auth/change-password:
