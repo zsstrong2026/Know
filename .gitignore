@@ -30,6 +30,9 @@ logs/
 
 WeKnora
 WeKnora-lite
+WeKnora-lite.exe
+WeKnora-lite*.lnk
+docker/duckdb_ext/
 /models/
 test/data/mswag.txt
 data/files/
