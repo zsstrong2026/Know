@@ -130,6 +130,13 @@ func newFetcher(timeout time.Duration, renderBrowser func(context.Context, pinne
 	}
 	transport := utils.NewSSRFSafeTransport(config)
 	transport.DialContext = fetcher.pinnedDialContext()
+	// 显式走系统代理（HTTP_PROXY/HTTPS_PROXY）。NewSSRFSafeTransport 的 Proxy
+	// 字段为零值，理论上 http.Transport 会回退到 ProxyFromEnvironment，但该回退
+	// 依赖 httpproxy 的进程级缓存，实际环境（本机经系统代理出网）中抓取会直连
+	// 而超时。显式设置使其与搜索客户端（web_search/proxy.go）行为一致。SSRF
+	// 校验不受影响：目标 URL 仍经 SSRFValidatingRoundTripper 校验，代理地址由
+	// pinnedDialContext 中的 IsSystemProxy 放行。
+	transport.Proxy = http.ProxyFromEnvironment
 	fetcher.client = utils.NewSSRFSafeHTTPClientWithTransport(config, transport)
 	return fetcher
 }
