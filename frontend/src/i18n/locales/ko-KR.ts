@@ -714,7 +714,8 @@ export default {
       yuque: '위큐 지식베이스에서 문서 동기화',
       ima: 'Tencent IMA 지식베이스에서 문서, 노트 및 파일 동기화 (AI 세션과 동영상 분석은 지원되지 않음)',
       rss: 'RSS / Atom 피드에서 글 동기화',
-      gitlab: 'GitLab 프로젝트의 파일 동기화'
+      gitlab: 'GitLab 프로젝트의 파일 동기화',
+      topic_search: '사용자 지정 주제로 공용 웹을 검색해 관련 웹페이지를 자동으로 수집합니다'
     },
     connector: {
       feishu: '페이슈 (Feishu)',
@@ -725,7 +726,29 @@ export default {
       yuque: '위큐 (Yuque)',
       ima: 'Tencent IMA',
       rss: 'RSS / Atom 피드',
-      gitlab: 'GitLab'
+      gitlab: 'GitLab',
+      topic_search: '주제 웹 검색'
+    },
+    topicSearch: {
+      sectionTitle: '주제 및 검색 설정',
+      topics: '주제 키워드',
+      topicsPlaceholder: '예:\nRAG 검색 증강 생성\n기업 지식베이스 구축 사례',
+      topicsHint: '한 줄에 하나(또는 쉼표로 구분) 입력하며 최대 20개입니다. 동기화 시 해당 주제로 공용 웹을 검색해 웹페이지 본문을 수집합니다.',
+      provider: '검색 Provider (선택)',
+      providerPlaceholder: '워크스페이스 기본 Provider 사용',
+      providerHint: '비워 두면 기본 웹 검색 Provider를 사용합니다. 아직 없다면 「설정 → 웹 검색」에서 추가하고 기본으로 지정하세요.',
+      maxItems: '동기화당 수집 수',
+      maxItemsHint: '한 번의 동기화에서 생성하거나 갱신할 최대 웹페이지 수(1-50)입니다.',
+      maxResults: '주제별 검색 결과 수',
+      maxResultsHint: '각 주제에서 고려할 검색 결과 수(1-50)입니다.',
+      advanced: '고급 설정',
+      minContentLength: '본문 최소 길이',
+      minContentLengthHint: '본문이 이 글자 수보다 짧은 웹페이지는 건너뜁니다(기본 200).',
+      recencyDays: '최근 N일만',
+      recencyDaysHint: '0은 제한 없음입니다. 발행일이 없는 웹페이지는 항상 유지합니다.',
+      blacklist: '도메인 블랙리스트',
+      blacklistPlaceholder: '*://*.example.com/*',
+      blacklistHint: '한 줄에 하나씩 입력하며 와일드카드(*://*.example.com/*)와 정규식(/example\\.(net|org)/)을 지원합니다.'
     },
     logDetail: {
       startTime: '시작 시간',
@@ -6306,6 +6329,7 @@ export default {
     channelYuque: 'Yuque',
     channelGitLab: 'GitLab',
     channelIma: 'Tencent IMA',
+    channelTopicSearch: '주제 웹 검색',
     channelUpload: '업로드',
     channelManual: '수동',
     channelUrl: '웹',

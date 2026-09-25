@@ -36,6 +36,7 @@ const (
 	ChannelYuque            = "yuque"             // Yuque (语雀)
 	ChannelRSS              = "rss"               // RSS / Atom feed
 	ChannelIMA              = "ima"               // Tencent IMA (ima.qq.com)
+	ChannelTopicSearch      = "topic_search"      // 主题网络搜索（按主题抓取公网网页）
 )
 
 // Knowledge parse status constants

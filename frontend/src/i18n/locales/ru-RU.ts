@@ -714,7 +714,8 @@ export default {
       yuque: 'Синхронизация документов из баз знаний Yuque',
       ima: 'Синхронизация документов, заметок и файлов из баз знаний Tencent IMA (ИИ-сессии и разбор видео не поддерживаются)',
       rss: 'Синхронизация статей из лент RSS / Atom',
-      gitlab: 'Синхронизация файлов из проектов GitLab'
+      gitlab: 'Синхронизация файлов из проектов GitLab',
+      topic_search: 'Поиск в открытом вебе по заданным темам с загрузкой найденных страниц'
     },
     connector: {
       feishu: 'Feishu (Фэйшу)',
@@ -725,7 +726,29 @@ export default {
       yuque: 'Yuque (Юйцюэ)',
       ima: 'Tencent IMA',
       rss: 'RSS / Atom лента',
-      gitlab: 'GitLab'
+      gitlab: 'GitLab',
+      topic_search: 'Тематический веб-поиск'
+    },
+    topicSearch: {
+      sectionTitle: 'Темы и поиск',
+      topics: 'Ключевые темы',
+      topicsPlaceholder: 'например:\nRAG retrieval-augmented generation\nПрактика корпоративных баз знаний',
+      topicsHint: 'Одна тема в строке (или через запятую), максимум 20. При синхронизации выполняется поиск в открытом вебе по теме и загрузка текста найденных страниц.',
+      provider: 'Провайдер поиска (необязательно)',
+      providerPlaceholder: 'Использовать провайдера по умолчанию',
+      providerHint: 'Оставьте пустым, чтобы использовать провайдера веб-поиска по умолчанию. Если его ещё нет, добавьте в «Настройки → Веб-поиск» и отметьте как провайдера по умолчанию.',
+      maxItems: 'Страниц за синхронизацию',
+      maxItemsHint: 'Сколько страниц можно создать или обновить за одну синхронизацию (1–50).',
+      maxResults: 'Результатов на тему',
+      maxResultsHint: 'Сколько результатов поиска учитывать по каждой теме (1–50).',
+      advanced: 'Дополнительные настройки',
+      minContentLength: 'Минимальная длина текста',
+      minContentLengthHint: 'Страницы короче указанного числа символов пропускаются (по умолчанию 200).',
+      recencyDays: 'Только за последние N дней',
+      recencyDaysHint: '0 — без ограничений. Страницы без даты публикации сохраняются всегда.',
+      blacklist: 'Чёрный список домена',
+      blacklistPlaceholder: '*://*.example.com/*',
+      blacklistHint: 'По одному правилу в строке; поддерживаются шаблоны (*://*.example.com/*) и регулярные выражения (/example\\.(net|org)/).'
     },
     logDetail: {
       startTime: 'Время начала',
@@ -6306,6 +6329,7 @@ export default {
     channelYuque: 'Yuque',
     channelGitLab: 'GitLab',
     channelIma: 'Tencent IMA',
+    channelTopicSearch: 'Тематический веб-поиск',
     channelUpload: 'Загрузка',
     channelManual: 'Вручную',
     channelUrl: 'Веб',

@@ -38,6 +38,11 @@ const (
 	ConnectorTypeRSS         = "rss"
 	ConnectorTypeGitLab      = "gitlab"
 	ConnectorTypeIMA         = "ima"
+	// ConnectorTypeTopicSearch searches the public web for user-defined topics and
+	// ingests the result pages' text. It holds no secrets: the search provider's
+	// credentials live in the web_search_providers entity, selected per data source
+	// via settings["provider_id"] or the tenant default.
+	ConnectorTypeTopicSearch = "topic_search"
 
 	// Sync modes
 	SyncModeIncremental = "incremental"
@@ -248,6 +253,14 @@ func (d DataSourceConfig) HasCredentials() bool {
 // stored. RSS feed URLs are non-secret configuration (settings); only
 // auth_headers count as credentials for that connector.
 func (d DataSourceConfig) HasConfiguredCredentials(connectorType string) bool {
+	if connectorType == ConnectorTypeTopicSearch {
+		// No secrets at all: the search provider is referenced by ID and its
+		// credentials live in the web_search_providers entity, so the presence of
+		// the non-secret settings blob (topics, limits, blacklist) is what counts.
+		// Handled before the credentials check below, which would otherwise
+		// short-circuit on the always-empty credentials map.
+		return len(d.Settings) > 0
+	}
 	if len(d.Credentials) == 0 {
 		return false
 	}

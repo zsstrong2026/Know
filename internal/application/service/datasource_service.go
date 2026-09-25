@@ -664,6 +664,26 @@ func (s *DataSourceService) ProcessSync(ctx context.Context, task *asynq.Task) e
 	// embedded images for OCR when the KB can actually ingest them (never persisted).
 	config.MultimodalEnabled = kb.IsMultimodalEnabled()
 
+	// 提前注入租户上下文：连接器在 fetch 阶段就依赖它（例如 topic_search 需要按租户
+	// 解析默认 Web 搜索 Provider），KnowledgeService 在入库阶段同样需要它。
+	ctx = context.WithValue(ctx, types.TenantIDContextKey, ds.TenantID)
+
+	tenant, err := s.tenantRepo.GetTenantByID(ctx, ds.TenantID)
+	if err != nil {
+		logger.Errorf(ctx, "failed to get tenant info: %v", err)
+		syncLog.Status = types.SyncLogStatusFailed
+		syncLog.FinishedAt = timePtr(time.Now().UTC())
+		syncLog.ErrorMessage = fmt.Sprintf("Failed to get tenant info: %v", err)
+		_ = s.syncLogRepo.Update(ctx, syncLog)
+		if !wasPaused {
+			ds.Status = types.DataSourceStatusError
+		}
+		ds.ErrorMessage = syncLog.ErrorMessage
+		_ = s.dsRepo.Update(ctx, ds)
+		return err
+	}
+	ctx = context.WithValue(ctx, types.TenantInfoContextKey, tenant)
+
 	// Streaming path: connectors that support it interleave fetch→ingest→
 	// checkpoint so a large sync bounds memory and resumes after a timeout
 	// instead of restarting (Tencent/WeKnora#2136). Others fall back below.
@@ -722,25 +742,6 @@ func (s *DataSourceService) ProcessSync(ctx context.Context, task *asynq.Task) e
 	var result = &types.SyncResult{
 		Total: len(items),
 	}
-
-	// Set tenant context so KnowledgeService can resolve tenant info correctly
-	ctx = context.WithValue(ctx, types.TenantIDContextKey, ds.TenantID)
-
-	tenant, err := s.tenantRepo.GetTenantByID(ctx, ds.TenantID)
-	if err != nil {
-		logger.Errorf(ctx, "failed to get tenant info: %v", err)
-		syncLog.Status = types.SyncLogStatusFailed
-		syncLog.FinishedAt = timePtr(time.Now().UTC())
-		syncLog.ErrorMessage = fmt.Sprintf("Failed to get tenant info: %v", err)
-		_ = s.syncLogRepo.Update(ctx, syncLog)
-		if !wasPaused {
-			ds.Status = types.DataSourceStatusError
-		}
-		ds.ErrorMessage = syncLog.ErrorMessage
-		_ = s.dsRepo.Update(ctx, ds)
-		return err
-	}
-	ctx = context.WithValue(ctx, types.TenantInfoContextKey, tenant)
 
 	// Auto-tag: find or create a tag for this data source so synced items are easily identifiable
 	autoTagIDs := s.resolveAutoTagIDs(ctx, ds)
@@ -1193,7 +1194,12 @@ func allFetchedItemsFailedError(result *types.SyncResult) error {
 }
 
 // ValidateCredentials tests connectivity using raw credentials without persisting anything.
-func (s *DataSourceService) ValidateCredentials(ctx context.Context, connectorType string, credentials map[string]interface{}) error {
+// settings carries the connector's non-secret configuration so connectors that keep their
+// configuration outside credentials (e.g. topic_search keeps topics in settings) validate too.
+func (s *DataSourceService) ValidateCredentials(
+	ctx context.Context, connectorType string,
+	credentials map[string]interface{}, settings map[string]interface{},
+) error {
 	connector, err := s.connectorRegistry.Get(connectorType)
 	if err != nil {
 		return err
@@ -1201,6 +1207,7 @@ func (s *DataSourceService) ValidateCredentials(ctx context.Context, connectorTy
 	config := &types.DataSourceConfig{
 		Type:        connectorType,
 		Credentials: credentials,
+		Settings:    settings,
 	}
 	if err := connector.Validate(ctx, config); err != nil {
 		return err

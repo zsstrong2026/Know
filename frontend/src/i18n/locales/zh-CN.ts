@@ -716,7 +716,8 @@ export default {
       yuque: '同步语雀知识库中的文档',
       ima: '同步腾讯 IMA 知识库中的文档、笔记与文件（暂不支持 AI 会话与视频解析）',
       rss: '同步 RSS / Atom 订阅源中的文章',
-      gitlab: '同步 GitLab 项目中的文件'
+      gitlab: '同步 GitLab 项目中的文件',
+      topic_search: '按自定义主题搜索公网，自动抓取相关网页并入库'
     },
     connector: {
       feishu: '飞书',
@@ -727,7 +728,29 @@ export default {
       yuque: '语雀',
       ima: '腾讯 IMA',
       rss: 'RSS / Atom 订阅',
-      gitlab: 'GitLab'
+      gitlab: 'GitLab',
+      topic_search: '主题网络搜索'
+    },
+    topicSearch: {
+      sectionTitle: '主题与检索设置',
+      topics: '主题关键词',
+      topicsPlaceholder: '例如：\nRAG 检索增强生成\n企业知识库落地实践',
+      topicsHint: '每行（或逗号分隔）一个主题，最多 20 个；同步时按主题搜索公网并抓取网页正文入库',
+      provider: '搜索 Provider（可选）',
+      providerPlaceholder: '使用工作区默认 Provider',
+      providerHint: '留空时使用默认的 Web 搜索 Provider；若尚未配置，请先到「设置 → Web 搜索」中添加并设为默认',
+      maxItems: '每次同步入库上限',
+      maxItemsHint: '单次同步最多新增/更新多少篇网页（1-50），避免一次涌入过多内容',
+      maxResults: '每个主题检索条数',
+      maxResultsHint: '每个主题取前多少条搜索结果（1-50）',
+      advanced: '高级设置',
+      minContentLength: '正文长度下限',
+      minContentLengthHint: '正文少于该字符数的网页会被跳过，默认 200',
+      recencyDays: '只看最近 N 天',
+      recencyDaysHint: '0 表示不限；没有发布时间的网页始终保留',
+      blacklist: '域名黑名单',
+      blacklistPlaceholder: '*://*.example.com/*',
+      blacklistHint: '每行一条，支持通配（*://*.example.com/*）与正则（/example\\.(net|org)/）'
     },
     logDetail: {
       startTime: '开始时间',
@@ -6308,6 +6331,7 @@ export default {
     channelYuque: '语雀',
     channelGitLab: 'GitLab',
     channelIma: '腾讯 IMA',
+    channelTopicSearch: '主题网络搜索',
     channelUpload: '上传',
     channelManual: '手动',
     channelUrl: '网页',

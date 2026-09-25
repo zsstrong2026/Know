@@ -62,6 +62,7 @@ import (
 	imaConnector "github.com/Tencent/WeKnora/internal/datasource/connector/ima"
 	notionConnector "github.com/Tencent/WeKnora/internal/datasource/connector/notion"
 	rssConnector "github.com/Tencent/WeKnora/internal/datasource/connector/rss"
+	topicsearchConnector "github.com/Tencent/WeKnora/internal/datasource/connector/topicsearch"
 	yuqueConnector "github.com/Tencent/WeKnora/internal/datasource/connector/yuque"
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/handler"
@@ -77,6 +78,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/im/wecom"
 	"github.com/Tencent/WeKnora/internal/im/yunzhijia"
 	"github.com/Tencent/WeKnora/internal/infrastructure/docparser"
+	infra_web_fetch "github.com/Tencent/WeKnora/internal/infrastructure/web_fetch"
 	infra_web_search "github.com/Tencent/WeKnora/internal/infrastructure/web_search"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/mcp"
@@ -1664,7 +1666,13 @@ func registerIMService(imService *imPkg.Service, cleaner interfaces.ResourceClea
 // initConnectorRegistry creates and populates the connector registry with all available connectors.
 // Aggregates registration errors via errors.Join so a misconfigured or duplicated connector fails
 // container initialization loudly instead of silently disabling the feature at runtime.
-func initConnectorRegistry() (*datasource.ConnectorRegistry, error) {
+//
+// searchSvc/providerRepo are injected because the topic_search connector resolves a
+// tenant's search provider and runs web searches during a sync.
+func initConnectorRegistry(
+	searchSvc interfaces.WebSearchService,
+	providerRepo interfaces.WebSearchProviderRepository,
+) (*datasource.ConnectorRegistry, error) {
 	registry := datasource.NewConnectorRegistry()
 
 	var errs error
@@ -1698,6 +1706,15 @@ func initConnectorRegistry() (*datasource.ConnectorRegistry, error) {
 	}
 	if err := registry.Register(gitlabConnector.NewConnector()); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("register gitlab connector: %w", err))
+	}
+	// Topic search: scheduled public-web search per configured topic, ingesting
+	// the fetched pages. Needs the search service (queries) plus the provider
+	// repository (resolving the tenant's default provider) and the SSRF-safe
+	// web_fetch.Fetcher for page bodies.
+	if err := registry.Register(
+		topicsearchConnector.NewConnector(searchSvc, providerRepo, infra_web_fetch.NewFetcher()),
+	); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("register topic_search connector: %w", err))
 	}
 
 	// Future connectors will be registered here:

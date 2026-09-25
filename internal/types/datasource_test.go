@@ -166,3 +166,22 @@ func TestSubtreeChildID_MatchesPrefix(t *testing.T) {
 	assert.False(t, strings.HasPrefix(sibling, prefix),
 		"sibling node whose id shares a leading substring must not match the prefix")
 }
+
+// TestDataSourceConfig_HasConfiguredCredentials_TopicSearch locks the
+// no-secret contract for the topic search connector: its credentials live in the
+// web_search_providers entity, so "configured" is decided by the non-secret
+// settings blob instead of the (always empty) credentials map.
+func TestDataSourceConfig_HasConfiguredCredentials_TopicSearch(t *testing.T) {
+	withTopics := DataSourceConfig{
+		Type:        ConnectorTypeTopicSearch,
+		Credentials: map[string]interface{}{},
+		Settings:    map[string]interface{}{"topics": "RAG"},
+	}
+	assert.True(t, withTopics.HasConfiguredCredentials(ConnectorTypeTopicSearch))
+
+	empty := DataSourceConfig{
+		Type:        ConnectorTypeTopicSearch,
+		Credentials: map[string]interface{}{},
+	}
+	assert.False(t, empty.HasConfiguredCredentials(ConnectorTypeTopicSearch))
+}

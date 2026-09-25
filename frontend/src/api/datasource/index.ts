@@ -114,9 +114,15 @@ export function validateConnection(id: string) {
   return post(`/api/v1/datasource/${id}/validate`, {})
 }
 
-// Validate credentials without persisting (for "Test Connection" during creation)
-export function validateCredentials(type: string, credentials: Record<string, any>) {
-  return post('/api/v1/datasource/validate-credentials', { type, credentials })
+// Validate credentials without persisting (for "Test Connection" during creation).
+// settings carries non-secret configuration for connectors that keep their config
+// outside credentials (e.g. topic_search keeps its topics in settings).
+export function validateCredentials(
+  type: string,
+  credentials: Record<string, any>,
+  settings?: Record<string, any>,
+) {
+  return post('/api/v1/datasource/validate-credentials', { type, credentials, settings })
 }
 
 // listResources lists selectable resources for a data source. Pass parentId to

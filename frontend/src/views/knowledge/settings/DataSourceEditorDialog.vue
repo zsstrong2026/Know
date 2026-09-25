@@ -19,6 +19,7 @@ import {
 import SettingDrawer from '@/components/settings/SettingDrawer.vue'
 import DataSourceTypeIcon from './DataSourceTypeIcon.vue'
 import { getDatasourceIconUrl } from './datasourceIcons'
+import { listWebSearchProviders, type WebSearchProviderEntity } from '@/api/web-search-provider'
 
 const props = defineProps<{
   kbId: string
@@ -633,10 +634,72 @@ const connectorDefs = computed<ConnectorDef[]>(() => [
       { key: 'access_token', labelKey: 'datasource.gitlab.accessToken', placeholder: '', secret: true },
     ],
   },
+  {
+    // Topic search: no credentials at all — the search provider (and its API key)
+    // is selected per data source and lives in the web_search_providers entity, so
+    // every setting is non-secret and rendered by the topic_search section below.
+    type: 'topic_search',
+    available: true,
+    docUrl: '',
+    permissionDocUrl: '',
+    permissionPageUrl: '',
+    requiredPermissions: [],
+    fields: [],
+  },
 ])
 
 
 const currentDef = computed(() => connectorDefs.value.find(d => d.type === form.value.type))
+
+// Credential-less connectors (topic_search) have no credential fields, so the whole
+// "credentials" section is hidden rather than rendering an empty titled block.
+const hasCredentialFields = computed(() => (currentDef.value?.fields?.length || 0) > 0)
+
+// --- Topic search (topic_search) ---
+// Everything is non-secret settings: the search provider is referenced by ID and its
+// API key lives in the web_search_providers entity (see /settings/web-search).
+const topicSearchAdvancedOpen = ref(false)
+const webSearchProviders = ref<WebSearchProviderEntity[]>([])
+const loadingWebSearchProviders = ref(false)
+
+// defaultTopicSearchSettings mirrors the backend defaults (see the connector's
+// config.go); it keeps an untouched form in sync with what the server would apply.
+function defaultTopicSearchSettings(): Record<string, any> {
+  return {
+    topics: '',
+    provider_id: '',
+    max_items_per_run: 5,
+    max_results_per_topic: 10,
+    min_content_length: 200,
+    result_recency_days: 0,
+    blacklist: '',
+  }
+}
+
+// hydrateSettingsForType restores a saved config when editing. Topic search merges the
+// defaults underneath, so older rows never render empty numeric inputs.
+function hydrateSettingsForType(type: string, editConfig: any): Record<string, any> {
+  if (type === 'rss') return hydrateRssFeedUrlsFromConfig(editConfig)
+  if (type === 'topic_search') {
+    return { ...defaultTopicSearchSettings(), ...(editConfig.settings || {}) }
+  }
+  return editConfig.settings || {}
+}
+
+async function loadWebSearchProviders() {
+  if (loadingWebSearchProviders.value) return
+  loadingWebSearchProviders.value = true
+  try {
+    const res: any = await listWebSearchProviders()
+    webSearchProviders.value = (res?.data || res || []) as WebSearchProviderEntity[]
+  } catch {
+    // The list is a convenience: an empty list still lets the user fall back to
+    // the workspace's default provider.
+    webSearchProviders.value = []
+  } finally {
+    loadingWebSearchProviders.value = false
+  }
+}
 
 // --- Drawer lifecycle ---
 watch(visible, async (v) => {
@@ -684,9 +747,7 @@ watch(visible, async (v) => {
       config: {
         credentials: {},
         resource_ids: editConfig.resource_ids || [],
-        settings: props.dataSource.type === 'rss'
-          ? hydrateRssFeedUrlsFromConfig(editConfig)
-          : (editConfig.settings || {}),
+        settings: hydrateSettingsForType(props.dataSource.type, editConfig),
       },
       sync_schedule: props.dataSource.sync_schedule,
       sync_mode: props.dataSource.sync_mode,
@@ -714,6 +775,7 @@ watch(visible, async (v) => {
       }
     }
     tempDsId.value = props.dataSource.id
+    if (form.value.type === 'topic_search') void loadWebSearchProviders()
   } else {
     replaceCredentialsMode.value = false
     credentialsConfigured.value = false
@@ -767,6 +829,13 @@ function selectType(def: ConnectorDef) {
   form.value.type = def.type
   form.value.name = t(`datasource.connector.${def.type}`)
   form.value.config.credentials = {}
+  if (def.type === 'topic_search') {
+    // Seed the defaults so every input starts from the server-side default, then
+    // load the provider list for the (optional) provider picker.
+    form.value.config.settings = { ...defaultTopicSearchSettings(), ...form.value.config.settings }
+    topicSearchAdvancedOpen.value = false
+    void loadWebSearchProviders()
+  }
   if (isGitLabConnector(def.type)) addGitLabProject()
   rssAuthHeaders.value = []
   step.value = 1
@@ -776,6 +845,7 @@ function selectType(def: ConnectorDef) {
 async function testConnection() {
   syncRssAuthHeadersToCredentials()
   if (!validateRssFeedUrls()) return
+  if (!validateTopicSearchFields()) return
   if (!isEdit.value || !credentialsConfigured.value || replaceCredentialsMode.value) {
     const fields = currentDef.value?.fields || []
     for (const f of fields) {
@@ -803,7 +873,7 @@ async function testConnection() {
         // validate-credentials is credentials-only; feed URLs live in settings.
         creds.feed_urls = form.value.config.settings.feed_urls
       }
-      await validateCredentials(form.value.type, creds)
+      await validateCredentials(form.value.type, creds, form.value.config.settings)
     }
     testResult.value = 'success'
     MessagePlugin.success(t('datasource.testSuccess'))
@@ -966,9 +1036,21 @@ function validateRssFeedUrls(): boolean {
   return true
 }
 
+// Topic search keeps everything in settings (no credentials), so at least one topic
+// is required before the connector can search anything.
+function validateTopicSearchFields(): boolean {
+  if (form.value.type !== 'topic_search') return true
+  if (!String(form.value.config.settings.topics || '').trim()) {
+    MessagePlugin.warning(`${t('datasource.topicSearch.topics')} ${t('datasource.isRequired')}`)
+    return false
+  }
+  return true
+}
+
 function validateStep1Fields(): boolean {
   syncRssAuthHeadersToCredentials()
   if (!validateRssFeedUrls()) return false
+  if (!validateTopicSearchFields()) return false
   if (isEdit.value && credentialsConfigured.value && !replaceCredentialsMode.value) {
     return true
   }
@@ -1417,7 +1499,110 @@ const drawerConfirmText = computed(() => {
         </div>
       </section>
 
-      <section class="setting-drawer__section">
+      <section v-if="form.type === 'topic_search'" class="setting-drawer__section">
+        <h4 class="setting-drawer__section-title">{{ t('datasource.topicSearch.sectionTitle') }}</h4>
+
+        <div class="form-item">
+          <label class="form-label required">{{ t('datasource.topicSearch.topics') }}</label>
+          <t-textarea
+            v-model="form.config.settings.topics"
+            :placeholder="t('datasource.topicSearch.topicsPlaceholder')"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <p class="form-desc">{{ t('datasource.topicSearch.topicsHint') }}</p>
+        </div>
+
+        <div class="form-item">
+          <label class="form-label">{{ t('datasource.topicSearch.provider') }}</label>
+          <t-select
+            v-model="form.config.settings.provider_id"
+            clearable
+            :loading="loadingWebSearchProviders"
+            :placeholder="t('datasource.topicSearch.providerPlaceholder')"
+          >
+            <t-option v-for="p in webSearchProviders" :key="p.id" :value="p.id" :label="p.name" />
+          </t-select>
+          <p class="form-desc">{{ t('datasource.topicSearch.providerHint') }}</p>
+        </div>
+
+        <div class="form-item">
+          <label class="form-label">{{ t('datasource.topicSearch.maxItems') }}</label>
+          <t-input-number
+            v-model="form.config.settings.max_items_per_run"
+            :min="1"
+            :max="50"
+            theme="column"
+            style="width: 160px;"
+          />
+          <p class="form-desc">{{ t('datasource.topicSearch.maxItemsHint') }}</p>
+        </div>
+
+        <div class="form-item">
+          <label class="form-label">{{ t('datasource.topicSearch.maxResults') }}</label>
+          <t-input-number
+            v-model="form.config.settings.max_results_per_topic"
+            :min="1"
+            :max="50"
+            theme="column"
+            style="width: 160px;"
+          />
+          <p class="form-desc">{{ t('datasource.topicSearch.maxResultsHint') }}</p>
+        </div>
+
+        <t-button
+          variant="text"
+          size="small"
+          style="align-self: flex-start;"
+          @click="topicSearchAdvancedOpen = !topicSearchAdvancedOpen"
+        >
+          <template #icon>
+            <t-icon :name="topicSearchAdvancedOpen ? 'chevron-up' : 'chevron-down'" />
+          </template>
+          {{ t('datasource.topicSearch.advanced') }}
+        </t-button>
+
+        <template v-if="topicSearchAdvancedOpen">
+          <div class="form-item">
+            <label class="form-label">{{ t('datasource.topicSearch.minContentLength') }}</label>
+            <t-input-number
+              v-model="form.config.settings.min_content_length"
+              :min="0"
+              :max="10000"
+              theme="column"
+              style="width: 160px;"
+            />
+            <p class="form-desc">{{ t('datasource.topicSearch.minContentLengthHint') }}</p>
+          </div>
+
+          <div class="form-item">
+            <label class="form-label">{{ t('datasource.topicSearch.recencyDays') }}</label>
+            <t-input-number
+              v-model="form.config.settings.result_recency_days"
+              :min="0"
+              :max="365"
+              theme="column"
+              style="width: 160px;"
+            />
+            <p class="form-desc">{{ t('datasource.topicSearch.recencyDaysHint') }}</p>
+          </div>
+
+          <div class="form-item">
+            <label class="form-label">{{ t('datasource.topicSearch.blacklist') }}</label>
+            <t-textarea
+              v-model="form.config.settings.blacklist"
+              :placeholder="t('datasource.topicSearch.blacklistPlaceholder')"
+              :autosize="{ minRows: 2, maxRows: 5 }"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <p class="form-desc">{{ t('datasource.topicSearch.blacklistHint') }}</p>
+          </div>
+        </template>
+      </section>
+
+      <section v-if="hasCredentialFields" class="setting-drawer__section">
         <h4 class="setting-drawer__section-title">{{ t('datasource.credentialsLabel') }}</h4>
 
         <div v-if="isEdit && credentialsConfigured && !replaceCredentialsMode" class="form-item">

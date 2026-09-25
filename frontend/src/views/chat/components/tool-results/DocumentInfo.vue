@@ -113,6 +113,7 @@ const channelLabelMap: Record<string, string> = {
   slack: 'knowledgeBase.channelSlack',
   im: 'knowledgeBase.channelIm',
   ima: 'knowledgeBase.channelIma',
+  topic_search: 'knowledgeBase.channelTopicSearch',
 };
 
 const getChannelLabel = (channel: string) => {

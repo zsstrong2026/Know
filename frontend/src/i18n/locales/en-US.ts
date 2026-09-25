@@ -468,6 +468,7 @@ export default {
     channelYuque: 'Yuque',
     channelGitLab: 'GitLab',
     channelIma: 'Tencent IMA',
+    channelTopicSearch: 'Topic Web Search',
     channelUpload: 'Upload',
     channelManual: 'Manual',
     channelUrl: 'Web',
@@ -6176,7 +6177,8 @@ export default {
       yuque: 'Yuque',
       rss: 'RSS / Atom Feed',
       ima: 'Tencent IMA',
-      gitlab: 'GitLab'
+      gitlab: 'GitLab',
+      topic_search: 'Topic Web Search'
     },
     connectorDesc: {
       feishu: 'Sync documents, spreadsheets and files from Feishu Wiki',
@@ -6187,7 +6189,29 @@ export default {
       yuque: 'Sync documents from Yuque knowledge bases',
       rss: 'Sync articles from RSS / Atom feeds',
       ima: 'Sync documents, notes and files from Tencent IMA knowledge bases (AI sessions and video parses are not supported)',
-      gitlab: 'Sync files from GitLab projects'
+      gitlab: 'Sync files from GitLab projects',
+      topic_search: 'Search the public web for your own topics and ingest the matching pages'
+    },
+    topicSearch: {
+      sectionTitle: 'Topics & retrieval',
+      topics: 'Topic keywords',
+      topicsPlaceholder: 'e.g.\nRAG retrieval-augmented generation\nEnterprise knowledge base practices',
+      topicsHint: 'One topic per line (or comma separated), up to 20. Each sync searches the public web for the topic and ingests the pages it finds.',
+      provider: 'Search provider (optional)',
+      providerPlaceholder: "Use the workspace's default provider",
+      providerHint: 'Leave empty to use the default web search provider. If none is configured yet, add one under Settings → Web Search and mark it as default.',
+      maxItems: 'Pages per sync',
+      maxItemsHint: 'Maximum pages created or updated in a single sync (1-50), so one run cannot flood the knowledge base.',
+      maxResults: 'Search results per topic',
+      maxResultsHint: 'How many search results to consider for each topic (1-50).',
+      advanced: 'Advanced settings',
+      minContentLength: 'Minimum page length',
+      minContentLengthHint: 'Pages shorter than this many characters are skipped (default 200).',
+      recencyDays: 'Only the last N days',
+      recencyDaysHint: '0 means no limit. Pages without a publish date are always kept.',
+      blacklist: 'Domain blacklist',
+      blacklistPlaceholder: '*://*.example.com/*',
+      blacklistHint: 'One rule per line; wildcards (*://*.example.com/*) and regex (/example\\.(net|org)/) are supported.'
     },
     drive: {
       folderTokenLabel: 'Drive folder token',

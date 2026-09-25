@@ -302,7 +302,7 @@ func (h *DataSourceHandler) ValidateConnection(c *gin.Context) {
 // @Tags DataSource
 // @Accept json
 // @Produce json
-// @Param request body object true "type and credentials"
+// @Param request body object true "type, credentials and optional settings"
 // @Success 200 {object} map[string]string
 // @Failure 400 {object} map[string]string
 // @Router /datasource/validate-credentials [post]
@@ -317,13 +317,16 @@ func (h *DataSourceHandler) ValidateCredentials(c *gin.Context) {
 	var req struct {
 		Type        string                 `json:"type" binding:"required"`
 		Credentials map[string]interface{} `json:"credentials" binding:"required"`
+		// Settings is optional: connectors that store their configuration outside
+		// credentials (topic_search keeps topics in settings) need it to validate.
+		Settings map[string]interface{} `json:"settings"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: type and credentials are required"})
 		return
 	}
 
-	if err := h.service.ValidateCredentials(ctx, req.Type, req.Credentials); err != nil {
+	if err := h.service.ValidateCredentials(ctx, req.Type, req.Credentials, req.Settings); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

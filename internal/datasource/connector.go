@@ -277,6 +277,14 @@ var ConnectorMetadataRegistry = map[string]ConnectorMetadata{
 		AuthType:     "custom",
 		Capabilities: []string{"incremental"},
 	},
+	types.ConnectorTypeTopicSearch: {
+		Type:         types.ConnectorTypeTopicSearch,
+		Name:         "主题网络搜索",
+		Description:  "按自定义主题定时搜索公网，自动抓取相关网页并入库",
+		Priority:     13,
+		AuthType:     "none",
+		Capabilities: []string{"incremental"},
+	},
 	types.ConnectorTypeGitLab: {
 		Type:         types.ConnectorTypeGitLab,
 		Name:         "GitLab",
