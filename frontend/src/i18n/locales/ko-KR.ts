@@ -6914,14 +6914,17 @@ export default {
       deleteConfirmTitle: '템플릿 삭제',
       deleteConfirmBody: '템플릿 「{name}」을(를) 삭제하시겠습니까? 삭제 후 복구할 수 없습니다.',
       deleteSuccess: '템플릿이 삭제되었습니다',
-      deleteFailed: '템플릿 삭제에 실패했습니다'
+      deleteFailed: '템플릿 삭제에 실패했습니다',
+      use: '템플릿 사용',
+      back: '문서 도우미로 돌아가기'
     },
     generate: {
       title: '문서 생성',
       subtitle: '템플릿과 지식 베이스를 선택하고 주제를 입력하여 챕터별로 문서를 생성합니다',
-      template: '챕터 템플릿',
-      templatePlaceholder: '템플릿을 선택하세요',
+      template: '챕터 템플릿 (선택)',
+      templatePlaceholder: '템플릿을 선택하세요 (선택 사항)',
       templateRequired: '챕터 템플릿을 선택하세요',
+      noTemplateHint: '템플릿을 선택하지 않으면 주제에 따라 자유롭게 구성됩니다',
       knowledgeBases: '지식 베이스 자료',
       knowledgeBasesPlaceholder: '참조할 지식 베이스를 선택하세요 (다중 선택)',
       knowledgeBasesRequired: '지식 베이스를 하나 이상 선택하세요',
@@ -6940,9 +6943,10 @@ export default {
       loadKbFailed: '지식 베이스 목록을 불러오지 못했습니다'
     },
     history: {
-      title: '생성 기록',
+      title: '문서 도우미',
       subtitle: '모든 문서 생성 작업과 상태를 확인합니다',
-      newGeneration: '새 생성',
+      newGeneration: '문서 생성',
+      templateManage: '템플릿 관리',
       empty: '생성 작업이 없습니다',
       loadFailed: '작업 목록을 불러오지 못했습니다',
       viewDocument: '문서 보기',

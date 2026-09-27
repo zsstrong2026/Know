@@ -177,23 +177,50 @@ func clampInt(v, lo, hi int) int {
 	return v
 }
 
+// defaultDocChapters 不使用模板时的内置默认骨架（单章「正文」，按主题自由组织全文）
+func defaultDocChapters() types.JSON {
+	chapters := []types.DocTemplateChapter{
+		{
+			Title:         "正文",
+			Instruction:   "围绕文档主题，结合知识库素材，完整、结构化地组织全文，章内可按需使用小标题分层",
+			MaxWords:      types.DocTemplateMaxWordsUpper,
+			MustReference: true,
+		},
+	}
+	b, _ := json.Marshal(chapters)
+	return types.JSON(b)
+}
+
 // ---- 生成任务 ----
 
 // CreateGenerationTask 校验参数、写入快照、创建任务并入队
+// template_id 为空时使用内置默认骨架（单章「正文」，按主题自由组织全文），实现"不使用模板"生成
 func (s *DocAssistantService) CreateGenerationTask(ctx context.Context, task *types.DocGenerationTask) (*types.DocGenerationTask, error) {
-	if task == nil || task.TemplateID == "" || task.Theme == "" {
+	if task == nil || task.Theme == "" {
 		return nil, ErrInvalidTask
 	}
 	tenantID := types.MustTenantIDFromContext(ctx)
 	ownerID, _ := types.UserIDFromContext(ctx)
 
-	tpl, err := s.templateRepo.FindByID(ctx, tenantID, ownerID, task.TemplateID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: template %s", repository.ErrDocTemplateNotFound, task.TemplateID)
-	}
-	chapters, err := tpl.DecodeChapters()
-	if err != nil || len(chapters) == 0 {
-		return nil, ErrInvalidTemplate
+	var tpl *types.DocTemplate
+	var chapters []types.DocTemplateChapter
+	if task.TemplateID == "" {
+		tpl = &types.DocTemplate{
+			Name:        "不使用模板",
+			Description: "按主题自由组织的默认骨架",
+			Chapters:    defaultDocChapters(),
+		}
+		chapters, _ = tpl.DecodeChapters()
+	} else {
+		var err error
+		tpl, err = s.templateRepo.FindByID(ctx, tenantID, ownerID, task.TemplateID)
+		if err != nil {
+			return nil, fmt.Errorf("%w: template %s", repository.ErrDocTemplateNotFound, task.TemplateID)
+		}
+		chapters, err = tpl.DecodeChapters()
+		if err != nil || len(chapters) == 0 {
+			return nil, ErrInvalidTemplate
+		}
 	}
 
 	// 模板快照：模板被改后历史仍可还原当时骨架

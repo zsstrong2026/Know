@@ -10,19 +10,21 @@
     <div class="page-body generate-body">
       <t-card class="generate-card">
         <t-form label-align="top" :data="form">
-          <t-form-item :label="t('docAssistant.generate.template')" required-mark>
+          <t-form-item :label="t('docAssistant.generate.template')">
             <t-select
               v-model="form.template_id"
               :placeholder="t('docAssistant.generate.templatePlaceholder')"
               :loading="templateLoading"
+              clearable
               filterable
             >
               <t-option v-for="tpl in templates" :key="tpl.id" :value="tpl.id" :label="tpl.name" />
             </t-select>
-            <template v-if="selectedTemplate" #help>
+            <template #help>
               <div class="generate-help">
-                <span v-if="selectedTemplate.description" class="generate-help-text">{{ selectedTemplate.description }}</span>
-                <span class="generate-help-tags">
+                <span v-if="selectedTemplate" class="generate-help-text">{{ selectedTemplate.description }}</span>
+                <span v-else class="generate-help-text">{{ t('docAssistant.generate.noTemplateHint') }}</span>
+                <span v-if="selectedTemplate" class="generate-help-tags">
                   <t-tag v-for="(ch, index) in selectedTemplate.chapters" :key="'tpl-ch-' + index" size="small" variant="outline" class="chapter-tag">
                     {{ ch.title }}
                   </t-tag>
@@ -90,7 +92,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import ModelSelector from '@/components/ModelSelector.vue'
@@ -104,6 +106,7 @@ interface KbOption {
 }
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 
 const templates = ref<DocTemplate[]>([])
@@ -131,7 +134,7 @@ const selectedTemplate = computed(() =>
 )
 
 const canSubmit = computed(() =>
-  form.template_id !== '' && form.kb_ids.length > 0 && form.theme.trim() !== '' && !submitting.value,
+  form.kb_ids.length > 0 && form.theme.trim() !== '' && !submitting.value,
 )
 
 const loadTemplates = async () => {
@@ -171,10 +174,6 @@ const resetForm = () => {
 }
 
 const handleSubmit = async () => {
-  if (!form.template_id) {
-    MessagePlugin.warning(t('docAssistant.generate.templateRequired'))
-    return
-  }
   if (form.kb_ids.length === 0) {
     MessagePlugin.warning(t('docAssistant.generate.knowledgeBasesRequired'))
     return
@@ -186,7 +185,7 @@ const handleSubmit = async () => {
   submitting.value = true
   try {
     await createDocGenerationTask({
-      template_id: form.template_id,
+      template_id: form.template_id || undefined,
       kb_ids: form.kb_ids,
       model_id: form.model_id || undefined,
       theme: form.theme.trim(),
@@ -201,9 +200,13 @@ const handleSubmit = async () => {
   }
 }
 
-onMounted(() => {
-  void loadTemplates()
-  void loadKnowledgeBases()
+onMounted(async () => {
+  await Promise.all([loadTemplates(), loadKnowledgeBases()])
+  // 支持从模板列表「使用模板」入口携带 query 预选
+  const presetId = typeof route.query.template_id === 'string' ? route.query.template_id : ''
+  if (presetId && templates.value.some((tpl) => tpl.id === presetId)) {
+    form.template_id = presetId
+  }
 })
 </script>
 

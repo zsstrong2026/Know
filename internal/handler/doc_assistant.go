@@ -310,7 +310,7 @@ func (r *createDocTemplateRequest) toType() *types.DocTemplate {
 }
 
 type createGenerationRequest struct {
-	TemplateID       string   `json:"template_id" binding:"required"`
+	TemplateID       string   `json:"template_id"`
 	KbIDs            []string `json:"kb_ids" binding:"required,min=1"`
 	ModelID          string   `json:"model_id"`
 	Theme            string   `json:"theme" binding:"required"`

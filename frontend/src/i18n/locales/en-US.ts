@@ -67,14 +67,17 @@ export default {
       deleteConfirmTitle: 'Delete Template',
       deleteConfirmBody: 'Delete template "{name}"? This cannot be undone.',
       deleteSuccess: 'Template deleted',
-      deleteFailed: 'Failed to delete template'
+      deleteFailed: 'Failed to delete template',
+      use: 'Use Template',
+      back: 'Back to Doc Assistant'
     },
     generate: {
       title: 'Generate Document',
       subtitle: 'Pick a template and knowledge bases, enter a theme, and generate chapter by chapter',
-      template: 'Chapter Template',
-      templatePlaceholder: 'Select a template',
+      template: 'Chapter Template (optional)',
+      templatePlaceholder: 'Select a template (optional)',
       templateRequired: 'Please select a chapter template',
+      noTemplateHint: 'When no template is selected, the document is organized freely by theme',
       knowledgeBases: 'Knowledge Bases',
       knowledgeBasesPlaceholder: 'Select knowledge bases to reference (multi-select)',
       knowledgeBasesRequired: 'Please select at least one knowledge base',
@@ -93,9 +96,10 @@ export default {
       loadKbFailed: 'Failed to load knowledge bases'
     },
     history: {
-      title: 'Generation History',
+      title: 'Doc Assistant',
       subtitle: 'Review all document generation tasks and their status',
-      newGeneration: 'New Generation',
+      newGeneration: 'Generate Document',
+      templateManage: 'Template Management',
       empty: 'No generation tasks yet',
       loadFailed: 'Failed to load tasks',
       viewDocument: 'View Document',

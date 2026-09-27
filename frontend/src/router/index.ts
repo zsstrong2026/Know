@@ -170,7 +170,7 @@ const router = createRouter({
         },
         {
           path: "doc-assistant",
-          redirect: "/platform/doc-assistant/templates",
+          redirect: "/platform/doc-assistant/tasks",
           meta: { requiresInit: true, requiresAuth: true }
         },
         {

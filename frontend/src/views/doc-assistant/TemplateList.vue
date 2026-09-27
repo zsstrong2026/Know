@@ -2,6 +2,12 @@
   <div class="doc-assistant-page">
     <div class="page-header">
       <div class="page-header-title">
+        <div class="page-back-row" v-if="showBack">
+          <t-button size="small" variant="text" theme="primary" @click="goBack">
+            <template #icon><t-icon name="arrow-left" /></template>
+            {{ t('docAssistant.template.back') }}
+          </t-button>
+        </div>
         <h2>{{ t('docAssistant.template.title') }}</h2>
         <p class="page-header-subtitle">{{ t('docAssistant.template.subtitle') }}</p>
       </div>
@@ -39,6 +45,10 @@
           <div class="template-card-footer">
             <span class="template-card-time">{{ formatTime(tpl.updated_at) }}</span>
             <div class="template-card-actions">
+              <t-button size="small" variant="text" theme="primary" @click="useTemplate(tpl)">
+                <template #icon><t-icon name="play" /></template>
+                {{ t('docAssistant.template.use') }}
+              </t-button>
               <t-button size="small" variant="text" theme="primary" @click="openEdit(tpl)">
                 <template #icon><t-icon name="edit-1" /></template>
                 {{ t('common.edit') }}
@@ -55,6 +65,7 @@
 
     <!-- 新建 / 编辑弹窗 -->
     <t-dialog
+      class="doc-assistant-dialog"
       :visible="dialogVisible"
       :header="editingId ? t('docAssistant.template.edit') : t('docAssistant.template.create')"
       :confirm-btn="{ content: t('common.save'), loading: saving }"
@@ -128,6 +139,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import {
@@ -141,6 +153,7 @@ import {
 } from '@/api/doc-assistant'
 
 const { t } = useI18n()
+const router = useRouter()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -230,6 +243,17 @@ const openEdit = (tpl: DocTemplate) => {
 const closeDialog = () => {
   if (saving.value) return
   dialogVisible.value = false
+}
+
+// 使用模板：跳转文档列表页并自动打开生成弹窗预选该模板
+const useTemplate = (tpl: DocTemplate) => {
+  router.push({ path: '/platform/doc-assistant/tasks', query: { template_id: tpl.id } })
+}
+
+// 模板管理为二级页：显示返回文档助手首页入口
+const showBack = true
+const goBack = () => {
+  router.push('/platform/doc-assistant')
 }
 
 const addChapter = () => {
@@ -341,6 +365,12 @@ onMounted(() => {
     font-size: 13px;
     color: var(--td-text-color-secondary);
   }
+}
+
+.page-back-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
 }
 
 .page-body {
@@ -529,5 +559,14 @@ onMounted(() => {
   font-size: 13px;
   color: var(--td-text-color-secondary);
   white-space: nowrap;
+}
+</style>
+
+<style lang="less">
+/* 模板弹窗固定高度、内容滚动（t-dialog teleport 到 body，须用全局样式） */
+.doc-assistant-dialog .t-dialog__body {
+  height: min(560px, calc(100vh - 220px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 </style>

@@ -77,7 +77,7 @@ export interface DocGenerationTask {
 }
 
 export interface DocGenerationPayload {
-  template_id: string
+  template_id?: string
   kb_ids: string[]
   model_id?: string
   theme: string

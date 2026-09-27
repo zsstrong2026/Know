@@ -6914,14 +6914,17 @@ export default {
       deleteConfirmTitle: 'Удалить шаблон',
       deleteConfirmBody: 'Удалить шаблон «{name}»? Это действие необратимо.',
       deleteSuccess: 'Шаблон удалён',
-      deleteFailed: 'Не удалось удалить шаблон'
+      deleteFailed: 'Не удалось удалить шаблон',
+      use: 'Использовать шаблон',
+      back: 'Назад к помощнику документов'
     },
     generate: {
       title: 'Генерация документа',
       subtitle: 'Выберите шаблон и базы знаний, укажите тему — документ будет генерироваться по главам',
-      template: 'Шаблон глав',
-      templatePlaceholder: 'Выберите шаблон',
+      template: 'Шаблон глав (необязательно)',
+      templatePlaceholder: 'Выберите шаблон (необязательно)',
       templateRequired: 'Выберите шаблон глав',
+      noTemplateHint: 'Без шаблона документ организуется свободно по теме',
       knowledgeBases: 'Базы знаний',
       knowledgeBasesPlaceholder: 'Выберите базы знаний для цитирования (можно несколько)',
       knowledgeBasesRequired: 'Выберите хотя бы одну базу знаний',
@@ -6940,9 +6943,10 @@ export default {
       loadKbFailed: 'Не удалось загрузить список баз знаний'
     },
     history: {
-      title: 'История генерации',
+      title: 'Помощник документов',
       subtitle: 'Просмотр всех задач генерации документов и их статусов',
-      newGeneration: 'Новая генерация',
+      newGeneration: 'Создать документ',
+      templateManage: 'Управление шаблонами',
       empty: 'Задач генерации пока нет',
       loadFailed: 'Не удалось загрузить список задач',
       viewDocument: 'Просмотр документа',

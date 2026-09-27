@@ -6916,14 +6916,17 @@ export default {
       deleteConfirmTitle: '删除模板',
       deleteConfirmBody: '确定删除模板「{name}」吗？删除后不可恢复。',
       deleteSuccess: '模板已删除',
-      deleteFailed: '删除模板失败'
+      deleteFailed: '删除模板失败',
+      use: '使用模板',
+      back: '返回文档助手'
     },
     generate: {
       title: '生成文档',
       subtitle: '选择模板与知识库素材，输入主题，逐章生成结构化文档',
-      template: '章节模板',
-      templatePlaceholder: '请选择模板',
+      template: '章节模板（可选）',
+      templatePlaceholder: '请选择模板（可不选）',
       templateRequired: '请选择章节模板',
+      noTemplateHint: '未选择模板时，将按主题自由组织全文',
       knowledgeBases: '知识库素材',
       knowledgeBasesPlaceholder: '请选择要引用的知识库（可多选）',
       knowledgeBasesRequired: '请至少选择一个知识库',
@@ -6942,9 +6945,10 @@ export default {
       loadKbFailed: '加载知识库列表失败'
     },
     history: {
-      title: '生成历史',
+      title: '文档助手',
       subtitle: '查看所有文档生成任务及其状态',
-      newGeneration: '新建生成',
+      newGeneration: '生成文档',
+      templateManage: '模板管理',
       empty: '暂无生成任务',
       loadFailed: '加载任务列表失败',
       viewDocument: '查看文档',

@@ -5,10 +5,16 @@
         <h2>{{ t('docAssistant.history.title') }}</h2>
         <p class="page-header-subtitle">{{ t('docAssistant.history.subtitle') }}</p>
       </div>
-      <t-button theme="primary" @click="router.push('/platform/doc-assistant/generate')">
-        <template #icon><t-icon name="add" /></template>
-        {{ t('docAssistant.history.newGeneration') }}
-      </t-button>
+      <div class="page-header-actions">
+        <t-button variant="outline" @click="router.push('/platform/doc-assistant/templates')">
+          <template #icon><t-icon name="component" /></template>
+          {{ t('docAssistant.history.templateManage') }}
+        </t-button>
+        <t-button theme="primary" @click="openGenerate">
+          <template #icon><t-icon name="add" /></template>
+          {{ t('docAssistant.history.newGeneration') }}
+        </t-button>
+      </div>
     </div>
 
     <div class="page-body">
@@ -62,14 +68,23 @@
         </div>
       </div>
     </div>
+
+    <!-- 生成文档弹窗 -->
+    <GenerateDialog
+      :visible="generateVisible"
+      :preset-template-id="presetTemplateId"
+      @update:visible="generateVisible = $event"
+      @success="onGenerateSuccess"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
+import GenerateDialog from './GenerateDialog.vue'
 import {
   listDocTasks,
   deleteDocTask,
@@ -83,6 +98,7 @@ import {
 import { listDocTemplates } from '@/api/doc-assistant'
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 
 const tasks = ref<DocGenerationTask[]>([])
@@ -90,6 +106,8 @@ const loading = ref(false)
 const viewingId = ref('')
 const regeneratingId = ref('')
 const templateMap = ref<Record<string, DocTemplate>>({})
+const generateVisible = ref(false)
+const presetTemplateId = ref('')
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const ACTIVE_STATUSES: DocTaskStatus[] = ['pending', 'running']
@@ -245,6 +263,20 @@ const handleDelete = (task: DocGenerationTask) => {
   })
 }
 
+// 打开生成弹窗（支持从模板列表携带 query 预选模板）
+const openGenerate = () => {
+  presetTemplateId.value = typeof route.query.template_id === 'string' ? route.query.template_id : ''
+  generateVisible.value = true
+  // 消费后清理 query，避免再次打开仍被预选
+  router.replace({ path: '/platform/doc-assistant/tasks' })
+}
+
+// 生成成功：刷新列表并启动轮询
+const onGenerateSuccess = async () => {
+  await loadTasks()
+  if (runningCount.value > 0) startPolling()
+}
+
 onMounted(async () => {
   loading.value = true
   await loadTemplates()
@@ -303,6 +335,13 @@ const getDocTaskStatusRefresh = async () => {
     margin: 4px 0 0;
     font-size: 13px;
     color: var(--td-text-color-secondary);
+  }
+
+  &-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
   }
 }
 
