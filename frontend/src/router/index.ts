@@ -169,6 +169,35 @@ const router = createRouter({
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
+          path: "doc-assistant",
+          redirect: "/platform/doc-assistant/templates",
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
+          path: "doc-assistant/templates",
+          name: "docAssistantTemplates",
+          component: () => import("../views/doc-assistant/TemplateList.vue"),
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
+          path: "doc-assistant/generate",
+          name: "docAssistantGenerate",
+          component: () => import("../views/doc-assistant/GenerateDocument.vue"),
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
+          path: "doc-assistant/tasks",
+          name: "docAssistantTasks",
+          component: () => import("../views/doc-assistant/TaskHistory.vue"),
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
+          path: "doc-assistant/documents/:id",
+          name: "docAssistantDocumentDetail",
+          component: () => import("../views/doc-assistant/DocumentDetail.vue"),
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
           path: "chat/:chatid",
           name: "chat",
           component: () => import("../views/chat/index.vue"),

@@ -32,6 +32,7 @@ WeKnora
 WeKnora-lite
 WeKnora-lite.exe
 WeKnora-lite*.lnk
+weknora-dev-backend.exe
 docker/duckdb_ext/
 /models/
 test/data/mswag.txt
