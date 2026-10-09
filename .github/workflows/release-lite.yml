@@ -110,6 +110,7 @@ jobs:
           ARCHIVE="WeKnora-lite_${{ steps.ver.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}"
           mkdir -p "${ARCHIVE}/web"
           cp WeKnora-lite "${ARCHIVE}/"
+          bash ./scripts/copy-licenses.sh "${ARCHIVE}"
           cp -r web/* "${ARCHIVE}/web/"
           cp .env.lite.example "${ARCHIVE}/"
           cp docs/LITE.md "${ARCHIVE}/README.md"
