@@ -101,10 +101,6 @@
 
         <div class="form-section-title form-section-title--chapters">
           <span>{{ t('docAssistant.template.chapters') }}</span>
-          <t-button size="small" theme="primary" variant="outline" @click="addChapter">
-            <template #icon><t-icon name="add" /></template>
-            {{ t('docAssistant.template.addChapter') }}
-          </t-button>
         </div>
         <t-form-item v-if="form.chapters.length === 0">
           <div class="chapters-empty">{{ t('docAssistant.template.emptyChapters') }}</div>
@@ -131,6 +127,12 @@
               <t-switch v-model="chapter.skippable" />
             </div>
           </div>
+        </div>
+        <div class="chapter-add">
+          <t-button size="small" theme="primary" variant="outline" @click="addChapter">
+            <template #icon><t-icon name="add" /></template>
+            {{ t('docAssistant.template.addChapter') }}
+          </t-button>
         </div>
       </t-form>
     </t-dialog>
@@ -542,6 +544,12 @@ onMounted(() => {
     gap: 16px;
     margin-top: 8px;
   }
+}
+
+.chapter-add {
+  display: flex;
+  justify-content: center;
+  margin-top: 4px;
 }
 
 .chapter-option {
