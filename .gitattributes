@@ -4,6 +4,10 @@
 # a CRLF checkout breaks the checksum-field regex validation.
 licenses/**/*.tsv text eol=lf
 
+# Go module files are read by bash tooling (awk) in Docker builds; keep LF.
+go.mod text eol=lf
+go.sum text eol=lf
+
 # Force LF on Go source + JSON golden fixtures so Windows checkouts
 # (with default core.autocrlf=true) don't trip byte-equal comparisons in
 # acceptance/contract envelope tests.
