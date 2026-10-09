@@ -6959,7 +6959,15 @@ export default {
       deleteConfirmTitle: '작업 삭제',
       deleteConfirmBody: '작업 「{theme}」과(와) 모든 문서 버전을 삭제하시겠습니까? 삭제 후 복구할 수 없습니다.',
       deleteSuccess: '작업이 삭제되었습니다',
-      deleteFailed: '작업 삭제에 실패했습니다'
+      deleteFailed: '작업 삭제에 실패했습니다',
+      filterTime: '생성 시간',
+      filterTimeStart: '시작일',
+      filterTimeEnd: '종료일',
+      filterTemplateName: '템플릿 이름',
+      filterTemplateNamePlaceholder: '템플릿 이름으로 검색',
+      filterSearch: '검색',
+      filterReset: '초기화',
+      filterEmpty: '조건에 맞는 생성 작업이 없습니다'
     },
     detail: {
       title: '문서 상세',

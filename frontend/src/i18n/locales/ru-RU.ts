@@ -6959,7 +6959,15 @@ export default {
       deleteConfirmTitle: 'Удалить задачу',
       deleteConfirmBody: 'Удалить задачу «{theme}» и все версии её документов? Это действие необратимо.',
       deleteSuccess: 'Задача удалена',
-      deleteFailed: 'Не удалось удалить задачу'
+      deleteFailed: 'Не удалось удалить задачу',
+      filterTime: 'Время создания',
+      filterTimeStart: 'Дата начала',
+      filterTimeEnd: 'Дата окончания',
+      filterTemplateName: 'Название шаблона',
+      filterTemplateNamePlaceholder: 'Поиск по названию шаблона',
+      filterSearch: 'Поиск',
+      filterReset: 'Сброс',
+      filterEmpty: 'Подходящие задачи не найдены'
     },
     detail: {
       title: 'Детали документа',

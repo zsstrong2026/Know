@@ -18,10 +18,37 @@
     </div>
 
     <div class="page-body">
+      <div class="filter-bar">
+        <span class="filter-label">{{ t('docAssistant.history.filterTemplateName') }}</span>
+        <t-input
+          v-model="filter.templateName"
+          :placeholder="t('docAssistant.history.filterTemplateNamePlaceholder')"
+          clearable
+          class="filter-control filter-control--name"
+          @enter="handleSearch"
+        />
+        <span class="filter-label">{{ t('docAssistant.history.filterTime') }}</span>
+        <t-date-range-picker
+          v-model="filter.createdRange"
+          :placeholder="[t('docAssistant.history.filterTimeStart'), t('docAssistant.history.filterTimeEnd')]"
+          value-type="YYYY-MM-DD"
+          clearable
+          class="filter-control"
+        />
+        <t-button theme="primary" @click="handleSearch">
+          <template #icon><t-icon name="search" /></template>
+          {{ t('docAssistant.history.filterSearch') }}
+        </t-button>
+        <t-button variant="outline" @click="resetFilter">
+          {{ t('docAssistant.history.filterReset') }}
+        </t-button>
+      </div>
+
       <t-skeleton v-if="loading && tasks.length === 0" animation="gradient" :row-col="[{ width: '100%', height: '110px' }, { width: '100%', height: '110px' }]" />
       <t-empty v-else-if="tasks.length === 0" :description="t('docAssistant.history.empty')" />
+      <t-empty v-else-if="filteredTasks.length === 0" :description="t('docAssistant.history.filterEmpty')" />
       <div v-else class="task-list">
-        <div v-for="task in tasks" :key="task.id" class="task-card">
+        <div v-for="task in filteredTasks" :key="task.id" class="task-card">
           <div class="task-card-head">
             <div class="task-card-title-wrap">
               <span class="task-card-theme" :title="task.theme">{{ task.theme }}</span>
@@ -80,7 +107,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
@@ -108,6 +135,13 @@ const regeneratingId = ref('')
 const templateMap = ref<Record<string, DocTemplate>>({})
 const generateVisible = ref(false)
 const presetTemplateId = ref('')
+const filter = reactive<{
+  createdRange: string[]
+  templateName: string
+}>({
+  createdRange: [],
+  templateName: '',
+})
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const ACTIVE_STATUSES: DocTaskStatus[] = ['pending', 'running']
@@ -151,6 +185,48 @@ const templateName = (task: DocGenerationTask): string => {
 
 const doneCount = (task: DocGenerationTask): number =>
   (task.progress?.chapters || []).filter((ch) => ch.status === 'done' || ch.status === 'failed' || ch.status === 'skipped').length
+
+// ---- 检索条件：方案名称（模糊）、生成时间 ----
+
+const appliedFilter = reactive<{
+  createdRange: string[]
+  templateName: string
+}>({
+  createdRange: [],
+  templateName: '',
+})
+
+const filteredTasks = computed<DocGenerationTask[]>(() => {
+  const nameKeyword = appliedFilter.templateName.trim().toLowerCase()
+  const [start, end] = appliedFilter.createdRange || []
+  return tasks.value.filter((task) => {
+    if (nameKeyword) {
+      // 方案名称模糊匹配（忽略大小写）
+      const name = templateName(task).toLowerCase()
+      if (!name.includes(nameKeyword)) return false
+    }
+    if (start || end) {
+      const created = new Date(task.created_at)
+      if (Number.isNaN(created.getTime())) return false
+      const day = `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, '0')}-${String(created.getDate()).padStart(2, '0')}`
+      if (start && day < start) return false
+      if (end && day > end) return false
+    }
+    return true
+  })
+})
+
+const handleSearch = () => {
+  appliedFilter.createdRange = [...(filter.createdRange || [])]
+  appliedFilter.templateName = filter.templateName
+}
+
+const resetFilter = () => {
+  filter.createdRange = []
+  filter.templateName = ''
+  appliedFilter.createdRange = []
+  appliedFilter.templateName = ''
+}
 
 const hasDocuments = (task: DocGenerationTask): boolean =>
   task.status === 'success' || task.status === 'partial_success'
@@ -352,11 +428,44 @@ const getDocTaskStatusRefresh = async () => {
   padding: 0 24px 24px;
 }
 
-.task-list {
+.filter-bar {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.filter-label {
+  font-size: 13px;
+  color: var(--td-text-color-secondary);
+  flex-shrink: 0;
+}
+
+.filter-control {
+  width: 240px;
+
+  &--name {
+    width: 200px;
+  }
+}
+
+.task-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
-  max-width: 960px;
+
+  @media (max-width: 1400px) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  @media (max-width: 1024px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (max-width: 640px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .task-card {
@@ -377,7 +486,8 @@ const getDocTaskStatusRefresh = async () => {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
   &-title-wrap {
@@ -406,7 +516,7 @@ const getDocTaskStatusRefresh = async () => {
     border-radius: 4px;
     padding: 2px 8px;
     flex-shrink: 0;
-    max-width: 200px;
+    max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -434,7 +544,8 @@ const getDocTaskStatusRefresh = async () => {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
   &-time {
@@ -445,6 +556,9 @@ const getDocTaskStatusRefresh = async () => {
   &-actions {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-left: auto;
   }
 }
 

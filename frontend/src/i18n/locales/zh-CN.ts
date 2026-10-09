@@ -6961,7 +6961,15 @@ export default {
       deleteConfirmTitle: '删除任务',
       deleteConfirmBody: '确定删除任务「{theme}」及其所有文档版本吗？删除后不可恢复。',
       deleteSuccess: '任务已删除',
-      deleteFailed: '删除任务失败'
+      deleteFailed: '删除任务失败',
+      filterTime: '生成时间',
+      filterTimeStart: '开始日期',
+      filterTimeEnd: '结束日期',
+      filterTemplateName: '方案名称',
+      filterTemplateNamePlaceholder: '输入方案名称筛选',
+      filterSearch: '搜索',
+      filterReset: '重置',
+      filterEmpty: '未找到匹配的生成任务'
     },
     detail: {
       title: '文档详情',

@@ -112,7 +112,15 @@ export default {
       deleteConfirmTitle: 'Delete Task',
       deleteConfirmBody: 'Delete task "{theme}" and all its document versions? This cannot be undone.',
       deleteSuccess: 'Task deleted',
-      deleteFailed: 'Failed to delete task'
+      deleteFailed: 'Failed to delete task',
+      filterTime: 'Created Date',
+      filterTimeStart: 'Start date',
+      filterTimeEnd: 'End date',
+      filterTemplateName: 'Template Name',
+      filterTemplateNamePlaceholder: 'Filter by template name',
+      filterSearch: 'Search',
+      filterReset: 'Reset',
+      filterEmpty: 'No matching generation tasks'
     },
     detail: {
       title: 'Document Detail',
