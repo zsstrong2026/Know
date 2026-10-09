@@ -20,6 +20,14 @@ const (
 	AgentEvalSuiteSecurity   = "security"
 )
 
+// AgentEvalSessionMarker tags the sessions that agent smoke-test runs execute
+// in. Each eval case drives a real agent transcript through a real session so
+// the answer can be observed, but that transcript is infrastructure rather
+// than a conversation, so the console list must never show it. This mirrors
+// how skill maintenance sessions are classified (SkillMaintenanceSessionMarker):
+// a description prefix, so no schema change is needed.
+const AgentEvalSessionMarker = "agent_eval:"
+
 type AgentEvalCredentials struct {
 	Authorization string
 	XAPIKey       string

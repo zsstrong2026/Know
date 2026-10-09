@@ -321,7 +321,8 @@ func TestSessionRepositoryQueryPagedAPISourceReturnsAllTenantAPIKeySessions(t *t
 }
 
 // Maintenance sessions (skill install / remove) are real sessions with real
-// transcripts, but they are infrastructure, not conversations. They must be
+// transcripts, but they are infrastructure, not conversations. Agent eval
+// (smoke-test) sessions are the same kind of infrastructure. Both must be
 // invisible in every bucket — including the unfiltered listing, which is why
 // the exclusion lives in applyBase and not in the "web" source branch.
 func TestSessionRepositoryQueryPagedHidesMaintenanceSessions(t *testing.T) {
@@ -333,6 +334,9 @@ func TestSessionRepositoryQueryPagedHidesMaintenanceSessions(t *testing.T) {
 	maintenance := createSessionForTest(t, db, 1, "alice")
 	require.NoError(t, db.Model(&types.Session{}).Where("id = ?", maintenance.ID).
 		Update("description", types.SkillMaintenanceSessionMarker+"install").Error)
+	agentEval := createSessionForTest(t, db, 1, "alice")
+	require.NoError(t, db.Model(&types.Session{}).Where("id = ?", agentEval.ID).
+		Update("description", types.AgentEvalSessionMarker+"run-1").Error)
 
 	for _, source := range []string{"", "web"} {
 		items, total, err := repo.QueryPaged(ctx, &types.SessionListQuery{

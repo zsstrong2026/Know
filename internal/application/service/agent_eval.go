@@ -231,7 +231,7 @@ func (s *agentEvalService) runCase(ctx context.Context, run *types.AgentEvalRun,
 		return result, false
 	}
 
-	sessionID, err := s.createEvalSession(ctx, creds)
+	sessionID, err := s.createEvalSession(ctx, creds, run.ID)
 	if err != nil {
 		result.Error = "创建会话失败: " + err.Error()
 		result.Assertions = runAgentEvalAssertions(c.Assertions, agentEvalObservation{})
@@ -274,8 +274,14 @@ func (s *agentEvalService) runCase(ctx context.Context, run *types.AgentEvalRun,
 	return result, false
 }
 
-func (s *agentEvalService) createEvalSession(ctx context.Context, creds types.AgentEvalCredentials) (string, error) {
-	body, err := json.Marshal(map[string]string{"title": "agent-eval"})
+func (s *agentEvalService) createEvalSession(ctx context.Context, creds types.AgentEvalCredentials, runID string) (string, error) {
+	// Tag the session with the eval marker so the console list filters it out:
+	// the transcript must exist for the run to observe answers, but it is test
+	// infrastructure, not a conversation (see types.AgentEvalSessionMarker).
+	body, err := json.Marshal(map[string]string{
+		"title":       "agent-eval",
+		"description": types.AgentEvalSessionMarker + runID,
+	})
 	if err != nil {
 		return "", err
 	}
