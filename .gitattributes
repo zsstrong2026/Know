@@ -1,5 +1,9 @@
 *.sh text eol=lf
 
+# License source manifests are parsed by bash `read` in Docker builds;
+# a CRLF checkout breaks the checksum-field regex validation.
+licenses/**/*.tsv text eol=lf
+
 # Force LF on Go source + JSON golden fixtures so Windows checkouts
 # (with default core.autocrlf=true) don't trip byte-equal comparisons in
 # acceptance/contract envelope tests.
