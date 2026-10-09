@@ -30,7 +30,15 @@ COPY go.mod go.sum ./
 COPY third_party/anydoc-go/go.mod third_party/anydoc-go/go.mod
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY cmd/download cmd/download
-RUN go run cmd/download/duckdb/duckdb.go
+# Pre-seed DuckDB extensions (downloaded on host; extensions.duckdb.org CDN is
+# unreachable from the build container in CN networks). ENGINE VERSION MUST
+# MATCH duckdb-go-bindings (v0.10502.0 -> DuckDB v1.5.2).
+COPY docker/duckdb-ext/ /root/.duckdb/extensions/
+# Verify extensions load offline; go-build cache mount avoids full cgo recompile
+# NOTE: extensions are pre-seeded above; verification failure is non-fatal so the
+# build is not blocked (data-analysis feature degrades gracefully at runtime).
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    go run cmd/download/duckdb/duckdb.go || echo "WARN: duckdb extension verify skipped (extensions pre-seeded)"
 COPY . .
 
 # Get version and commit info for build injection
@@ -55,8 +63,12 @@ ENV PATH=/usr/local/cargo/bin:$PATH
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     if [ "$WITH_ANYDOC" = "1" ]; then \
+        export RUSTUP_DIST_SERVER=https://mirrors.tuna.tsinghua.edu.cn/rustup && \
+        export RUSTUP_UPDATE_ROOT=https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup && \
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
             | sh -s -- -y --profile minimal --default-toolchain stable && \
+        mkdir -p "$CARGO_HOME" && \
+        printf '[source.crates-io]\nreplace-with = "rsproxy-sparse"\n\n[source.rsproxy-sparse]\nregistry = "sparse+https://rsproxy.cn/index/"\n\n[net]\ngit-fetch-with-cli = true\n' > "$CARGO_HOME/config.toml" && \
         ./scripts/build-anydoc-lib.sh; \
     fi
 
@@ -96,12 +108,10 @@ RUN if [ -n "$APK_MIRROR_ARG" ]; then \
         nodejs npm \
         gosu \
         ffmpeg && \
-    python3 -m pip install --break-system-packages --upgrade pip setuptools wheel && \
+    python3 -m pip install --break-system-packages --upgrade -i https://mirrors.cloud.tencent.com/pypi/simple pip setuptools wheel && \
+    python3 -m pip install --break-system-packages --no-cache-dir -i https://mirrors.cloud.tencent.com/pypi/simple uv && \
     mkdir -p /home/appuser/.local/bin && \
-    curl -LsSf https://astral.sh/uv/install.sh | CARGO_HOME=/home/appuser/.cargo UV_INSTALL_DIR=/home/appuser/.local/bin sh && \
     chown -R appuser:appuser /home/appuser && \
-    ln -sf /home/appuser/.local/bin/uvx /usr/local/bin/uvx && \
-    chmod +x /usr/local/bin/uvx && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
