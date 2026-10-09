@@ -69,7 +69,7 @@ func objectStorageSetupContext() (context.Context, context.CancelFunc) {
 }
 
 // objectStorageTransferContext adds a fallback deadline only when the caller
-// did not set one, matching models/chat.withLLMTimeout.
+// did not set one, matching models/api.WithLLMTimeout.
 func objectStorageTransferContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		ctx = context.Background()

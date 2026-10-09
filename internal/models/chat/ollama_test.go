@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/models/api"
 	ollamautil "github.com/Tencent/WeKnora/internal/models/utils/ollama"
 	"github.com/Tencent/WeKnora/internal/types"
 	secutils "github.com/Tencent/WeKnora/internal/utils"
@@ -43,9 +44,9 @@ func newHungOllamaChat(t *testing.T) *OllamaChat {
 }
 
 func TestOllamaChatChatAppliesDeadlineWhenParentHasNone(t *testing.T) {
-	old := defaultChatTimeout
-	defaultChatTimeout = time.Second
-	defer func() { defaultChatTimeout = old }()
+	old := api.DefaultChatTimeout
+	api.DefaultChatTimeout = time.Second
+	defer func() { api.DefaultChatTimeout = old }()
 
 	c := newHungOllamaChat(t)
 
@@ -62,9 +63,9 @@ func TestOllamaChatChatAppliesDeadlineWhenParentHasNone(t *testing.T) {
 }
 
 func TestOllamaChatChatStreamAppliesDeadlineWhenParentHasNone(t *testing.T) {
-	old := defaultStreamTimeout
-	defaultStreamTimeout = time.Second
-	defer func() { defaultStreamTimeout = old }()
+	old := api.DefaultStreamTimeout
+	api.DefaultStreamTimeout = time.Second
+	defer func() { api.DefaultStreamTimeout = old }()
 
 	c := newHungOllamaChat(t)
 

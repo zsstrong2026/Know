@@ -150,7 +150,7 @@ func (c *OllamaChat) buildChatRequest(messages []Message, opts *ChatOptions, isS
 
 // Chat 进行非流式聊天
 func (c *OllamaChat) Chat(ctx context.Context, messages []Message, opts *ChatOptions) (*types.ChatResponse, error) {
-	timeoutCtx, cancel := withLLMTimeout(ctx, defaultChatTimeout)
+	timeoutCtx, cancel := api.WithLLMTimeout(ctx, api.DefaultChatTimeout)
 	defer cancel()
 
 	// 确保模型可用
@@ -212,7 +212,7 @@ func (c *OllamaChat) ChatStream(
 	messages []Message,
 	opts *ChatOptions,
 ) (<-chan types.StreamResponse, error) {
-	timeoutCtx, cancel := withLLMTimeout(ctx, defaultStreamTimeout)
+	timeoutCtx, cancel := api.WithLLMTimeout(ctx, api.DefaultStreamTimeout)
 
 	// 确保模型可用
 	if err := c.ensureModelAvailable(timeoutCtx); err != nil {
