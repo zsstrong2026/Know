@@ -1,10 +1,14 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"mime"
 	"net/http"
 	stderrors "errors"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -251,7 +255,7 @@ func (h *DocAssistantHandler) ExportMarkdown(c *gin.Context) {
 		h.handleError(c, err)
 		return
 	}
-	c.Header("Content-Disposition", "attachment; filename=document-v"+strconv.Itoa(doc.Version)+".md")
+	c.Header("Content-Disposition", exportContentDisposition(h.exportBaseName(ctx, doc)+".md"))
 	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(md))
 }
 
@@ -269,8 +273,35 @@ func (h *DocAssistantHandler) ExportWord(c *gin.Context) {
 		h.handleError(c, err)
 		return
 	}
-	c.Header("Content-Disposition", "attachment; filename=document-v"+strconv.Itoa(doc.Version)+".docx")
+	c.Header("Content-Disposition", exportContentDisposition(h.exportBaseName(ctx, doc)+".docx"))
 	c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", data)
+}
+
+// exportNameInvalidRe 导出文件名中的非法字符（Windows 保留字符与换行等）
+var exportNameInvalidRe = regexp.MustCompile(`[\\/:*?"<>|\r\n\t]+`)
+
+// exportBaseName 导出文件基础名：与文档名称（生成任务主题）保持一致，异常时回退 document-v版本号
+func (h *DocAssistantHandler) exportBaseName(ctx context.Context, doc *types.DocDocument) string {
+	if doc != nil && doc.TaskID != "" {
+		if task, err := h.service.GetTask(ctx, doc.TaskID); err == nil && task != nil {
+			name := strings.TrimSpace(exportNameInvalidRe.ReplaceAllString(task.Theme, "_"))
+			if name = strings.Trim(name, ". "); name != "" {
+				if runes := []rune(name); len(runes) > 100 {
+					name = string(runes[:100])
+				}
+				return name
+			}
+		}
+	}
+	return "document-v" + strconv.Itoa(doc.Version)
+}
+
+// exportContentDisposition 生成 Content-Disposition（非 ASCII 文件名自动使用 RFC 2184 编码）
+func exportContentDisposition(filename string) string {
+	if v := mime.FormatMediaType("attachment", map[string]string{"filename": filename}); v != "" {
+		return v
+	}
+	return "attachment; filename=export"
 }
 
 // handleError 错误映射

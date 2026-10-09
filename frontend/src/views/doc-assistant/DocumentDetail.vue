@@ -176,14 +176,19 @@ const loadDocument = async (docId: string) => {
     try {
       const verRes = await listDocDocuments(current.task_id)
       versions.value = verRes.data || []
-      if (versions.value.length > 1 && current.task_id) {
-        const taskRes = await getDocTask(current.task_id)
-        task.value = taskRes.data || null
-      } else {
-        task.value = null
-      }
     } catch {
       versions.value = [current]
+    }
+    // 拉取任务信息（文档名称用于导出文件名与主题标签展示）
+    if (current.task_id) {
+      try {
+        const taskRes = await getDocTask(current.task_id)
+        task.value = taskRes.data || null
+      } catch {
+        task.value = null
+      }
+    } else {
+      task.value = null
     }
   } catch (error: any) {
     MessagePlugin.error(error?.message || t('docAssistant.detail.loadFailed'))
@@ -296,6 +301,15 @@ const downloadBlob = (blob: Blob, filename: string) => {
   }, 0)
 }
 
+// 导出文件基础名：与文档名称（任务主题）保持一致，异常时回退 document-v版本号
+const exportBaseName = (): string => {
+  if (!doc.value) return 'document'
+  const name = (task.value?.theme || '')
+    .replace(/[\\/:*?"<>|\r\n\t]+/g, '_')
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+  return name || `document-v${doc.value.version}`
+}
+
 const handleExport = async (kind: 'markdown' | 'word') => {
   if (!doc.value) return
   exporting.value = kind
@@ -304,8 +318,8 @@ const handleExport = async (kind: 'markdown' | 'word') => {
       ? await exportDocMarkdown(doc.value.id)
       : await exportDocWord(doc.value.id)
     const filename = kind === 'markdown'
-      ? `document-v${doc.value.version}.md`
-      : `document-v${doc.value.version}.docx`
+      ? `${exportBaseName()}.md`
+      : `${exportBaseName()}.docx`
     downloadBlob(blob, filename)
   } catch (error: any) {
     MessagePlugin.error(error?.message || t('docAssistant.detail.exportFailed'))
