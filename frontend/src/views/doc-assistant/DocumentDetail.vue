@@ -104,15 +104,15 @@
       :header="t('docAssistant.detail.editChapter')"
       :confirm-btn="{ content: t('common.save'), loading: saving }"
       :cancel-btn="t('common.cancel')"
-      width="720px"
+      width="880px"
       :on-confirm="handleSaveChapter"
       :on-close="closeEditDialog"
       @close="closeEditDialog"
     >
       <div class="edit-dialog-hint">{{ t('docAssistant.detail.editHint') }}</div>
-      <t-textarea
+      <RichTextEditor
+        v-if="editDialogVisible"
         v-model="editContent"
-        :autosize="{ minRows: 12, maxRows: 24 }"
         :placeholder="t('docAssistant.detail.editPlaceholder')"
       />
     </t-dialog>
@@ -124,7 +124,12 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
+import { Marked } from 'marked'
+import TurndownService from 'turndown'
+import { gfm } from 'turndown-plugin-gfm'
+import { sanitizeHTML } from '@/utils/security'
 import MarkdownContent from './components/MarkdownContent.vue'
+import RichTextEditor from './components/RichTextEditor.vue'
 import {
   getDocDocument,
   listDocDocuments,
@@ -213,9 +218,32 @@ const goBack = () => {
 
 // ---- 单章编辑续写 ----
 
+// 存储格式保持 Markdown：编辑层做 Markdown ↔ HTML 双向转换。
+// 使用独立 Marked 实例，避免全局注册的 KaTeX 扩展把公式渲染成 HTML 后无法还原。
+const mdParser = new Marked({ breaks: true, gfm: true })
+const turndownService = new TurndownService({
+  headingStyle: 'atx',
+  codeBlockStyle: 'fenced',
+  bulletListMarker: '-',
+})
+turndownService.use(gfm)
+
+const markdownToHtml = (markdown: string): string => {
+  if (!markdown) return ''
+  const rawHtml = mdParser.parse(markdown, { async: false }) as string
+  return sanitizeHTML(rawHtml)
+}
+
+const htmlToPlainText = (html: string): string => {
+  if (!html) return ''
+  const div = document.createElement('div')
+  div.innerHTML = html
+  return (div.textContent || '').trim()
+}
+
 const openEditDialog = () => {
   if (!activeChapter.value) return
-  editContent.value = activeChapter.value.content || ''
+  editContent.value = markdownToHtml(activeChapter.value.content || '')
   editDialogVisible.value = true
 }
 
@@ -226,13 +254,14 @@ const closeEditDialog = () => {
 
 const handleSaveChapter = async () => {
   if (!doc.value || !activeChapter.value) return
-  if (!editContent.value.trim()) {
+  if (!htmlToPlainText(editContent.value)) {
     MessagePlugin.warning(t('docAssistant.detail.editEmpty'))
     return false
   }
   saving.value = true
   try {
-    const res = await updateDocChapter(doc.value.id, activeChapter.value.no, editContent.value)
+    const markdown = turndownService.turndown(editContent.value)
+    const res = await updateDocChapter(doc.value.id, activeChapter.value.no, markdown)
     doc.value = res.data
     // 刷新版本列表（新版本在前）
     try {

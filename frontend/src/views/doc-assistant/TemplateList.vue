@@ -252,7 +252,7 @@ const useTemplate = (tpl: DocTemplate) => {
   router.push({ path: '/platform/doc-assistant/tasks', query: { template_id: tpl.id } })
 }
 
-// 模板管理为二级页：显示返回文档助手首页入口
+// 模板管理为二级页：显示返回方案助手首页入口
 const showBack = true
 const goBack = () => {
   router.push('/platform/doc-assistant')

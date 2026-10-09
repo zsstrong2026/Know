@@ -7586,7 +7586,7 @@ export default {
     myChats: '我的对话',
     apiChats: 'API 会话',
     noSessions: '暂无对话',
-    docAssistant: '文档助手'
+    docAssistant: '方案助手'
   },
   docAssistant: {
     template: {
@@ -7630,7 +7630,7 @@ export default {
       deleteSuccess: '模板已删除',
       deleteFailed: '删除模板失败',
       use: '使用模板',
-      back: '返回文档助手'
+      back: '返回方案助手'
     },
     generate: {
       title: '生成文档',
@@ -7657,7 +7657,7 @@ export default {
       loadKbFailed: '加载知识库列表失败'
     },
     history: {
-      title: '文档助手',
+      title: '方案助手',
       subtitle: '查看所有文档生成任务及其状态',
       newGeneration: '生成文档',
       templateManage: '模板管理',
@@ -7702,7 +7702,7 @@ export default {
       loadFailed: '加载文档失败',
       missingId: '缺少文档 ID',
       editHint: '编辑后将生成新版本，原有版本保留可回溯。',
-      editPlaceholder: '直接修改或续写本章内容（支持 Markdown）',
+      editPlaceholder: '直接修改或续写本章内容',
       editEmpty: '章节内容不能为空',
       editSuccess: '章节已更新，已生成新版本',
       editFailed: '保存章节失败',

@@ -225,7 +225,7 @@ export default {
     myChats: 'My chats',
     apiChats: 'API sessions',
     noSessions: 'No conversations yet',
-    docAssistant: 'Doc Assistant'
+    docAssistant: 'Solution Assistant'
   },
   docAssistant: {
     template: {
@@ -269,7 +269,7 @@ export default {
       deleteSuccess: 'Template deleted',
       deleteFailed: 'Failed to delete template',
       use: 'Use Template',
-      back: 'Back to Doc Assistant'
+      back: 'Back to Solution Assistant'
     },
     generate: {
       title: 'Generate Document',
@@ -296,7 +296,7 @@ export default {
       loadKbFailed: 'Failed to load knowledge bases'
     },
     history: {
-      title: 'Doc Assistant',
+      title: 'Solution Assistant',
       subtitle: 'Review all document generation tasks and their status',
       newGeneration: 'Generate Document',
       templateManage: 'Template Management',
@@ -341,7 +341,7 @@ export default {
       loadFailed: 'Failed to load document',
       missingId: 'Missing document ID',
       editHint: 'Editing creates a new version; previous versions are kept.',
-      editPlaceholder: 'Edit or continue this chapter (Markdown supported)',
+      editPlaceholder: 'Edit or continue this chapter',
       editEmpty: 'Chapter content cannot be empty',
       editSuccess: 'Chapter updated, new version created',
       editFailed: 'Failed to save chapter',

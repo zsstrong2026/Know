@@ -7584,7 +7584,7 @@ export default {
     myChats: '내 대화',
     apiChats: 'API 세션',
     noSessions: '대화가 없습니다',
-    docAssistant: '문서 도우미'
+    docAssistant: '솔루션 도우미'
   },
   docAssistant: {
     template: {
@@ -7628,7 +7628,7 @@ export default {
       deleteSuccess: '템플릿이 삭제되었습니다',
       deleteFailed: '템플릿 삭제에 실패했습니다',
       use: '템플릿 사용',
-      back: '문서 도우미로 돌아가기'
+      back: '솔루션 도우미로 돌아가기'
     },
     generate: {
       title: '문서 생성',
@@ -7655,7 +7655,7 @@ export default {
       loadKbFailed: '지식 베이스 목록을 불러오지 못했습니다'
     },
     history: {
-      title: '문서 도우미',
+      title: '솔루션 도우미',
       subtitle: '모든 문서 생성 작업과 상태를 확인합니다',
       newGeneration: '문서 생성',
       templateManage: '템플릿 관리',
@@ -7700,7 +7700,7 @@ export default {
       loadFailed: '문서를 불러오지 못했습니다',
       missingId: '문서 ID가 없습니다',
       editHint: '편집하면 새 버전이 생성되며 기존 버전은 유지됩니다.',
-      editPlaceholder: '이 챕터의 내용을 수정하거나 이어서 작성하세요 (Markdown 지원)',
+      editPlaceholder: '이 챕터의 내용을 수정하거나 이어서 작성하세요',
       editEmpty: '챕터 내용은 비어 있을 수 없습니다',
       editSuccess: '챕터가 업데이트되었고 새 버전이 생성되었습니다',
       editFailed: '챕터 저장에 실패했습니다',
