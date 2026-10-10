@@ -24,7 +24,8 @@ services:
     image: alpine/socat:latest
     container_name: WeKnora-dockersock-relay
     command:
-      - UNIX-LISTEN:/run/weknora-dockersock/docker.sock,fork,reuseaddr,mode=666
+      # unlink-early：监听前删除卷中残留的旧 socket 文件，避免 relay 重启后崩溃循环
+      - UNIX-LISTEN:/run/weknora-dockersock/docker.sock,fork,reuseaddr,mode=666,unlink-early
       - UNIX-CONNECT:/var/run/docker.sock
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

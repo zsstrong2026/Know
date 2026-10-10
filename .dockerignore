@@ -78,5 +78,17 @@ configure-ollama.sh
 fix-docker.sh
 /scripts/scale_dev_jobs.sh
 
+# 本地 OCR 测试环境 / 产物（paddleocr-env 约 4.5GB，严重拖慢构建上下文传输）
+paddleocr-env/
+ocr_test_result/
+ocr_test_img.png
+_test_ocr_api.py
+test_ocr_e2e.py
+tools/
+
+# PaddleOCR 相关本地缓存（.pip-cache 约 2.8GB，.paddlex_cache 约 187MB）
+.pip-cache/
+.paddlex_cache/
+
 # 注意:不要排除 docs/ —— 里面的 docs.go / swagger.json 是 Go 代码依赖的 swagger 包
 # 注意:不要用 *.md 通配排除 —— skills/preloaded/**/SKILL.md 会被打进镜像给 agent 用
