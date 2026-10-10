@@ -88,3 +88,85 @@ func TestBuildDocxDocumentWellFormed(t *testing.T) {
 		t.Errorf("一级标题手写序号未被剥离")
 	}
 }
+
+func TestNormalizeChapterContent(t *testing.T) {
+	cases := []struct {
+		desc, content, title, want string
+	}{
+		{
+			desc:    "剥离首行 ## 重复标题",
+			content: "## 概述\n\n正文内容。",
+			title:   "概述",
+			want:    "正文内容。",
+		},
+		{
+			desc:    "剥离首行 # 重复标题（含手写序号）",
+			content: "# 1. 概述\n\n正文内容。",
+			title:   "概述",
+			want:    "正文内容。",
+		},
+		{
+			desc:    "剥离首行中文序号重复标题",
+			content: "## 一、概述\n正文内容。",
+			title:   "概述",
+			want:    "正文内容。",
+		},
+		{
+			desc:    "首行标题与章节名不同则保留并下压",
+			content: "## 背景介绍\n\n正文。",
+			title:   "概述",
+			want:    "### 背景介绍\n\n正文。",
+		},
+		{
+			desc:    "正文 ## 小节下压为 ###",
+			content: "正文。\n\n## 小节一\n\n内容。\n\n## 小节二\n\n内容。",
+			title:   "概述",
+			want:    "正文。\n\n### 小节一\n\n内容。\n\n### 小节二\n\n内容。",
+		},
+		{
+			desc:    "正文 # 与 #### 混合时整体平移（最浅到 ###）",
+			content: "# 大节\n\n#### 细节\n\n正文。",
+			title:   "概述",
+			want:    "### 大节\n\n###### 细节\n\n正文。",
+		},
+		{
+			desc:    "已是 ### 起的正文保持不变",
+			content: "正文。\n\n### 1.1 小节\n\n内容。",
+			title:   "概述",
+			want:    "正文。\n\n### 1.1 小节\n\n内容。",
+		},
+		{
+			desc:    "代码块内的 # 注释不受影响",
+			content: "## 概述\n\n```go\n# 不是标题\nfunc main() {}\n```\n\n正文。",
+			title:   "概述",
+			want:    "```go\n# 不是标题\nfunc main() {}\n```\n\n正文。",
+		},
+		{
+			desc:    "无标题正文原样返回",
+			content: "纯正文，没有标题。",
+			title:   "概述",
+			want:    "纯正文，没有标题。",
+		},
+	}
+	for _, c := range cases {
+		if got := normalizeChapterContent(c.content, c.title); got != c.want {
+			t.Errorf("%s:\n得到:\n%s\n期望:\n%s", c.desc, got, c.want)
+		}
+	}
+}
+
+func TestNormalizeTitleText(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"概述", "概述"},
+		{"1. 概述", "概述"},
+		{"1、概述", "概述"},
+		{"一、概述", "概述"},
+		{"**概述**", "概述"},
+		{"概 述", "概述"},
+	}
+	for _, c := range cases {
+		if got := normalizeTitleText(c.in); got != c.want {
+			t.Errorf("normalizeTitleText(%q) = %q, 期望 %q", c.in, got, c.want)
+		}
+	}
+}

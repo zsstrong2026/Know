@@ -76,7 +76,7 @@
             </div>
 
             <div class="chapter-content-body">
-              <MarkdownContent :content="activeChapter.content || ''" />
+              <MarkdownContent :content="displayContent" />
             </div>
 
             <div v-if="activeChapter.references?.length" class="chapter-references">
@@ -130,6 +130,7 @@ import { gfm } from 'turndown-plugin-gfm'
 import { sanitizeHTML } from '@/utils/security'
 import MarkdownContent from './components/MarkdownContent.vue'
 import RichTextEditor from './components/RichTextEditor.vue'
+import { stripDuplicateChapterHeading } from './chapterContent'
 import {
   getDocDocument,
   listDocDocuments,
@@ -162,6 +163,13 @@ const regenerating = ref(false)
 
 const activeChapter = computed<DocChapter | null>(() =>
   doc.value?.chapters.find((ch) => ch.no === activeChapterNo.value) || null,
+)
+
+// 正文展示用内容：剥离与顶部固定标题重复的首行标题；编辑/字数统计仍用原始 content
+const displayContent = computed(() =>
+  activeChapter.value
+    ? stripDuplicateChapterHeading(activeChapter.value.content || '', activeChapter.value.title)
+    : '',
 )
 
 const wordCount = (content?: string): number => (content || '').length

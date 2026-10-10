@@ -213,7 +213,7 @@ func (s *DocAssistantService) callChapterLLM(
 	insufficient bool,
 ) (string, error) {
 	var systemParts []string
-	systemParts = append(systemParts, "你是一位资深文档撰写专家。请严格按用户给定的章节要求撰写文档章节，输出 Markdown 正文（不要输出章节标题行之外的装饰性内容）。")
+	systemParts = append(systemParts, "你是一位资深文档撰写专家。请严格按用户给定的章节要求撰写文档章节，输出 Markdown 正文。章节标题由系统统一添加，正文中不要重复输出本章节标题行；如需小节标题，请从 ### 三级标题开始使用。")
 	systemParts = append(systemParts, fmt.Sprintf("文档主题：%s", theme))
 	if extra != "" {
 		systemParts = append(systemParts, fmt.Sprintf("补充要求：%s", extra))

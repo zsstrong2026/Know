@@ -32,9 +32,90 @@ func (s *DocAssistantService) RenderMarkdown(ctx context.Context, doc *types.Doc
 			sb.WriteString("> 本章生成失败：" + orDefault(ch.Message, "未知原因") + "\n\n")
 			continue
 		}
-		sb.WriteString(ch.Content + "\n\n")
+		sb.WriteString(normalizeChapterContent(ch.Content, ch.Title) + "\n\n")
 	}
 	return sb.String(), nil
+}
+
+var (
+	// mdHeadingRe 匹配 ATX 标题行（# ～ ######，兼容尾部闭合 #）
+	mdHeadingRe = regexp.MustCompile(`^(#{1,6})\s+(.*?)\s*#*\s*$`)
+	// chineseNumPrefixRe 匹配手写中文序号前缀，如「一、」「十二、」
+	chineseNumPrefixRe = regexp.MustCompile(`^[一二三四五六七八九十]+、\s*`)
+	// looseNumPrefixRe 宽松匹配手写阿拉伯序号前缀（空白可选），仅用于标题重复判定
+	looseNumPrefixRe = regexp.MustCompile(`^\d+[\.、]\s*`)
+)
+
+// normalizeChapterContent 清洗章节正文，供导出使用：
+// 1) 剥离开头与章节标题重复的 Markdown 标题行（模型常在正文首行重复章节名）；
+// 2) 正文内标题级别整体下压，使最浅级别从 ### 起，避免正文小节抢占
+//    章节标题（## → Heading1）的自动编号与目录层级。
+func normalizeChapterContent(content, chapterTitle string) string {
+	lines := strings.Split(content, "\n")
+	// 1) 首个非空行若是与章节名同义的标题行，则删除
+	if chapterTitle != "" {
+		for i, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			if m := mdHeadingRe.FindStringSubmatch(trimmed); m != nil &&
+				normalizeTitleText(m[2]) == normalizeTitleText(chapterTitle) {
+				lines = append(lines[:i], lines[i+1:]...)
+			}
+			break // 只判定第一个非空行
+		}
+	}
+	// 2) 统计正文（代码块外）最浅标题级别，必要时整体下压到 ### 起
+	minLevel := 7
+	inCode := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inCode = !inCode
+			continue
+		}
+		if inCode {
+			continue
+		}
+		if m := mdHeadingRe.FindStringSubmatch(trimmed); m != nil && len(m[1]) < minLevel {
+			minLevel = len(m[1])
+		}
+	}
+	if minLevel < 3 {
+		shift := 3 - minLevel
+		inCode = false
+		for i, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "```") {
+				inCode = !inCode
+				continue
+			}
+			if inCode {
+				continue
+			}
+			if m := mdHeadingRe.FindStringSubmatch(trimmed); m != nil {
+				level := len(m[1]) + shift
+				if level > 6 {
+					level = 6
+				}
+				lines[i] = strings.Repeat("#", level) + " " + m[2]
+			}
+		}
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+// normalizeTitleText 规范化标题文本用于重复判定：剥离手写序号（阿拉伯/中文数字）、
+// 行内标记与全部空白，使「## 1. 概述」「# 一、概述」均能与章节名「概述」匹配
+func normalizeTitleText(s string) string {
+	s = strings.TrimSpace(s)
+	s = hnManualNum.ReplaceAllString(s, "")
+	s = h1ManualNum.ReplaceAllString(s, "")
+	s = looseNumPrefixRe.ReplaceAllString(s, "")
+	s = chineseNumPrefixRe.ReplaceAllString(s, "")
+	s = mdInlineRe.ReplaceAllString(s, "")
+	return strings.Join(strings.Fields(s), "")
 }
 
 // documentTitle 文档名称：取生成任务主题；任务缺失时回退为「文档 v版本号」
@@ -166,6 +247,9 @@ const stylesXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:keepLines/><w:numPr><w:ilvl w:val="2"/><w:numId w:val="2"/></w:numPr><w:spacing w:before="240" w:after="160" w:line="360" w:lineRule="auto"/><w:ind w:firstLineChars="0" w:firstLine="0"/><w:jc w:val="left"/><w:outlineLvl w:val="2"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="微软雅黑"/><w:b/><w:color w:val="000000"/><w:sz w:val="26"/><w:szCs w:val="26"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Heading4"><w:name w:val="heading 4"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:keepLines/><w:numPr><w:ilvl w:val="3"/><w:numId w:val="2"/></w:numPr><w:spacing w:before="120" w:after="80" w:line="360" w:lineRule="auto"/><w:ind w:firstLineChars="0" w:firstLine="0"/><w:jc w:val="left"/><w:outlineLvl w:val="3"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="宋体"/><w:b/><w:color w:val="000000"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:qFormat/><w:pPr><w:ind w:left="480" w:right="480" w:firstLineChars="0" w:firstLine="0"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="楷体"/><w:color w:val="595959"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="TOC1"><w:name w:val="toc 1"/><w:basedOn w:val="Normal"/><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="8300"/></w:tabs><w:spacing w:before="120" w:after="60" w:line="360" w:lineRule="auto"/><w:ind w:left="0" w:firstLineChars="0" w:firstLine="0"/><w:jc w:val="left"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="宋体"/><w:b/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="TOC2"><w:name w:val="toc 2"/><w:basedOn w:val="Normal"/><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="8300"/></w:tabs><w:spacing w:before="0" w:after="60" w:line="360" w:lineRule="auto"/><w:ind w:left="210" w:firstLineChars="0" w:firstLine="0"/><w:jc w:val="left"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="宋体"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="TOC3"><w:name w:val="toc 3"/><w:basedOn w:val="Normal"/><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="8300"/></w:tabs><w:spacing w:before="0" w:after="60" w:line="360" w:lineRule="auto"/><w:ind w:left="420" w:firstLineChars="0" w:firstLine="0"/><w:jc w:val="left"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="宋体"/><w:sz w:val="21"/><w:szCs w:val="21"/></w:rPr></w:style>
 </w:styles>`
 
 // 多级编号抽象定义：
