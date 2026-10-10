@@ -4963,6 +4963,17 @@ definitions:
       total_pages:
         type: integer
     type: object
+  github_com_Tencent_WeKnora_internal_types.WikiPageMoveBatchRequest:
+    properties:
+      folder_id:
+        type: string
+      slugs:
+        items:
+          type: string
+        type: array
+    required:
+    - slugs
+    type: object
   github_com_Tencent_WeKnora_internal_types.WikiPageMoveRequest:
     properties:
       folder_id:
@@ -11588,6 +11599,47 @@ paths:
       security:
       - Bearer: []
       summary: Move a wiki page into a folder
+      tags:
+      - Wiki
+  /knowledgebase/{kb_id}/wiki/move-pages:
+    put:
+      consumes:
+      - application/json
+      description: Relocate a batch of pages (identified by slugs in the body) into
+        one folder (folder_id empty = root) in a single request; validation is all-or-nothing
+        and cached category paths are recomputed
+      parameters:
+      - description: Knowledge base ID
+        in: path
+        name: kb_id
+        required: true
+        type: string
+      - description: Batch move target
+        in: body
+        name: move
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.WikiPageMoveBatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: integer
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      summary: Move multiple wiki pages into a folder
       tags:
       - Wiki
   /knowledgebase/{kb_id}/wiki/pages:

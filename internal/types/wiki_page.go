@@ -474,6 +474,14 @@ type WikiPageMoveRequest struct {
 	FolderID string `json:"folder_id"`
 }
 
+// WikiPageMoveBatchRequest moves multiple pages into one folder in a single
+// request. slugs is required and capped handler-side at 200 entries;
+// duplicates are deduplicated server-side. folder_id empty means root.
+type WikiPageMoveBatchRequest struct {
+	Slugs    []string `json:"slugs" binding:"required"`
+	FolderID string   `json:"folder_id"`
+}
+
 // WikiExtractionGranularity controls how aggressive Pass 0 (candidate slug
 // extraction) is. Higher granularity = more slugs, lower = tighter focus on
 // the document's main subjects.

@@ -313,6 +313,45 @@ func (h *WikiPageHandler) MovePage(c *gin.Context) {
 	c.JSON(http.StatusOK, page)
 }
 
+// maxWikiMoveBatchSize 限制单次批量移动的页面数，对齐知识库批量删除的 200 上限先例。
+const maxWikiMoveBatchSize = 200
+
+// MovePages godoc
+// @Summary      Move multiple wiki pages into a folder
+// @Description  Relocate a batch of pages (identified by slugs in the body) into one folder (folder_id empty = root) in a single request; validation is all-or-nothing and cached category paths are recomputed
+// @Tags         Wiki
+// @Accept       json
+// @Produce      json
+// @Param        kb_id  path  string  true  "Knowledge base ID"
+// @Param        move   body  types.WikiPageMoveBatchRequest true "Batch move target"
+// @Success      200  {object}  map[string]int
+// @Failure      400  {object}  errors.AppError
+// @Failure      404  {object}  errors.AppError
+// @Security     Bearer
+// @Router       /knowledgebase/{kb_id}/wiki/move-pages [put]
+func (h *WikiPageHandler) MovePages(c *gin.Context) {
+	kbID, _, err := h.validateWikiKB(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	var req types.WikiPageMoveBatchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
+		return
+	}
+	if len(req.Slugs) > maxWikiMoveBatchSize {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Too many slugs in one request (limit 200)"})
+		return
+	}
+	moved, err := h.wikiService.MovePages(c.Request.Context(), kbID, req.Slugs, strings.TrimSpace(req.FolderID))
+	if err != nil {
+		writeWikiFolderError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"moved": moved})
+}
+
 // writeWikiFolderError maps folder/page service errors to HTTP status codes.
 func writeWikiFolderError(c *gin.Context, err error) {
 	switch {

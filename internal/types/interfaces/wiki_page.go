@@ -205,6 +205,11 @@ type WikiPageService interface {
 	// MovePage relocates a page into folderID ("" = root), recomputing its
 	// cached category path. Returns the updated page.
 	MovePage(ctx context.Context, kbID string, slug string, folderID string) (*types.WikiPage, error)
+	// MovePages relocates multiple pages into folderID ("" = root) in one
+	// call. Validation is all-or-nothing (any unknown slug or folder rejects
+	// the whole batch before any write); the write phase updates pages one
+	// by one without a transaction. Returns the number of moved pages.
+	MovePages(ctx context.Context, kbID string, slugs []string, folderID string) (int, error)
 
 	// CountByType returns page counts grouped by type for a knowledge
 	// base. Re-exposed at the service layer so the index intro

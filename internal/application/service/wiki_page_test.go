@@ -706,3 +706,124 @@ func TestMovePageIntoTypeLabelNamedFolderKeepsHierarchy(t *testing.T) {
 	require.Equal(t, 1, listed.Pages[0].Depth)
 	require.Equal(t, "concept/概念/将计就计", listed.Pages[0].WikiPath)
 }
+
+func TestMovePagesMovesAllIntoFolder(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&types.WikiFolder{}, &types.WikiPage{}, &types.WikiPageRevision{}))
+
+	ctx := context.Background()
+	repo := repository.NewWikiPageRepository(db)
+	svc := NewWikiPageService(repo, nil, nil, nil, nil)
+	now := time.Now()
+
+	folder, err := svc.CreateFolder(ctx, "kb-batch", 1, types.WikiFolderRootID, "概念")
+	require.NoError(t, err)
+	for _, seed := range []struct{ id, slug, title string }{
+		{"page-a", "concept/a", "甲"},
+		{"page-b", "concept/b", "乙"},
+	} {
+		require.NoError(t, repo.Create(ctx, &types.WikiPage{
+			ID: seed.id, TenantID: 1, KnowledgeBaseID: "kb-batch", Slug: seed.slug,
+			Title: seed.title, PageType: types.WikiPageTypeConcept, Status: types.WikiPageStatusPublished,
+			Version: 1, CreatedAt: now, UpdatedAt: now,
+		}))
+	}
+
+	// 请求中的重复 slug 会被去重，两个页面都落入目录
+	moved, err := svc.MovePages(ctx, "kb-batch", []string{"concept/a", "concept/b", "concept/a"}, folder.ID)
+	require.NoError(t, err)
+	require.Equal(t, 2, moved)
+
+	for _, slug := range []string{"concept/a", "concept/b"} {
+		stored, err := repo.GetBySlug(ctx, "kb-batch", slug)
+		require.NoError(t, err)
+		require.Equal(t, folder.ID, stored.FolderID)
+		require.Equal(t, types.StringArray{"概念"}, stored.CategoryPath)
+		require.Equal(t, 1, stored.Depth)
+	}
+}
+
+func TestMovePagesRejectsWholeBatchOnUnknownSlug(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&types.WikiFolder{}, &types.WikiPage{}, &types.WikiPageRevision{}))
+
+	ctx := context.Background()
+	repo := repository.NewWikiPageRepository(db)
+	svc := NewWikiPageService(repo, nil, nil, nil, nil)
+	now := time.Now()
+
+	folder, err := svc.CreateFolder(ctx, "kb-batch", 1, types.WikiFolderRootID, "概念")
+	require.NoError(t, err)
+	require.NoError(t, repo.Create(ctx, &types.WikiPage{
+		ID: "page-a", TenantID: 1, KnowledgeBaseID: "kb-batch", Slug: "concept/a",
+		Title: "甲", PageType: types.WikiPageTypeConcept, Status: types.WikiPageStatusPublished,
+		Version: 1, CreatedAt: now, UpdatedAt: now,
+	}))
+
+	_, err = svc.MovePages(ctx, "kb-batch", []string{"concept/a", "concept/missing"}, folder.ID)
+	require.ErrorIs(t, err, repository.ErrWikiPageNotFound)
+
+	// 校验整体拒绝：已知页面必须保持原位
+	stored, err := repo.GetBySlug(ctx, "kb-batch", "concept/a")
+	require.NoError(t, err)
+	require.Empty(t, stored.FolderID)
+}
+
+func TestMovePagesRejectsUnknownFolder(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&types.WikiFolder{}, &types.WikiPage{}, &types.WikiPageRevision{}))
+
+	ctx := context.Background()
+	repo := repository.NewWikiPageRepository(db)
+	svc := NewWikiPageService(repo, nil, nil, nil, nil)
+	now := time.Now()
+
+	require.NoError(t, repo.Create(ctx, &types.WikiPage{
+		ID: "page-a", TenantID: 1, KnowledgeBaseID: "kb-batch", Slug: "concept/a",
+		Title: "甲", PageType: types.WikiPageTypeConcept, Status: types.WikiPageStatusPublished,
+		Version: 1, CreatedAt: now, UpdatedAt: now,
+	}))
+
+	_, err = svc.MovePages(ctx, "kb-batch", []string{"concept/a"}, "folder-does-not-exist")
+	require.ErrorIs(t, err, repository.ErrWikiFolderNotFound)
+
+	stored, err := repo.GetBySlug(ctx, "kb-batch", "concept/a")
+	require.NoError(t, err)
+	require.Empty(t, stored.FolderID)
+}
+
+func TestMovePagesToRootClearsFolder(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&types.WikiFolder{}, &types.WikiPage{}, &types.WikiPageRevision{}))
+
+	ctx := context.Background()
+	repo := repository.NewWikiPageRepository(db)
+	svc := NewWikiPageService(repo, nil, nil, nil, nil)
+	now := time.Now()
+
+	folder, err := svc.CreateFolder(ctx, "kb-batch", 1, types.WikiFolderRootID, "概念")
+	require.NoError(t, err)
+	require.NoError(t, repo.Create(ctx, &types.WikiPage{
+		ID: "page-a", TenantID: 1, KnowledgeBaseID: "kb-batch", Slug: "concept/a",
+		Title: "甲", PageType: types.WikiPageTypeConcept, Status: types.WikiPageStatusPublished,
+		Version: 1, CreatedAt: now, UpdatedAt: now,
+	}))
+
+	// 先移入目录，再整批移回根目录
+	_, err = svc.MovePage(ctx, "kb-batch", "concept/a", folder.ID)
+	require.NoError(t, err)
+	moved, err := svc.MovePages(ctx, "kb-batch", []string{"concept/a"}, "")
+	require.NoError(t, err)
+	require.Equal(t, 1, moved)
+
+	stored, err := repo.GetBySlug(ctx, "kb-batch", "concept/a")
+	require.NoError(t, err)
+	require.Empty(t, stored.FolderID)
+	require.Empty(t, stored.CategoryPath)
+	require.Equal(t, 0, stored.Depth)
+	require.Equal(t, "concept/甲", stored.WikiPath)
+}

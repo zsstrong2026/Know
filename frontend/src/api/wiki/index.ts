@@ -174,6 +174,11 @@ export function moveWikiPage(kbId: string, slug: string, folderId: string) {
   return put(`/api/v1/knowledgebase/${kbId}/wiki/move-page`, { slug, folder_id: folderId });
 }
 
+// moveWikiPages relocates multiple pages into folderId ("" = root) in one request.
+export function moveWikiPages(kbId: string, slugs: string[], folderId: string) {
+  return put(`/api/v1/knowledgebase/${kbId}/wiki/move-pages`, { slugs, folder_id: folderId });
+}
+
 export function createWikiPage(kbId: string, data: Partial<WikiPage>) {
   return post(`/api/v1/knowledgebase/${kbId}/wiki/pages`, data);
 }

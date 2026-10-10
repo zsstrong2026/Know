@@ -1622,6 +1622,65 @@ func (s *wikiPageService) MovePage(
 	return page, nil
 }
 
+// MovePages relocates multiple pages into folderID ("" = root) in one call.
+// Validation is all-or-nothing: any unknown slug or unresolvable folder
+// rejects the whole batch before anything is written. The write phase mirrors
+// MovePage page-by-page via UpdateMeta (bookkeeping-only, no version bump); it
+// is intentionally not transactional, so a mid-batch failure leaves earlier
+// pages already moved (accepted limitation, see design doc).
+func (s *wikiPageService) MovePages(
+	ctx context.Context, kbID string, slugs []string, folderID string,
+) (int, error) {
+	folderID = strings.TrimSpace(folderID)
+
+	// 去重并剔除空 slug，保持首次出现顺序
+	seen := make(map[string]struct{}, len(slugs))
+	unique := make([]string, 0, len(slugs))
+	for _, slug := range slugs {
+		slug = strings.TrimSpace(slug)
+		if slug == "" {
+			continue
+		}
+		if _, ok := seen[slug]; ok {
+			continue
+		}
+		seen[slug] = struct{}{}
+		unique = append(unique, slug)
+	}
+	if len(unique) == 0 {
+		return 0, repository.ErrWikiPageNotFound
+	}
+
+	// 阶段一：先校验全部，再写任何一条
+	if folderID != "" {
+		if _, err := s.repo.GetFolderByID(ctx, kbID, folderID); err != nil {
+			return 0, err
+		}
+	}
+	pages := make([]*types.WikiPage, 0, len(unique))
+	for _, slug := range unique {
+		page, err := s.repo.GetBySlug(ctx, kbID, slug)
+		if err != nil {
+			return 0, err
+		}
+		pages = append(pages, page)
+	}
+
+	// 阶段二：逐页写入，语义与单项 MovePage 完全一致
+	for _, page := range pages {
+		page.FolderID = folderID
+		if err := s.applyFolderToPage(ctx, page); err != nil {
+			return 0, err
+		}
+		page.UpdatedAt = time.Now()
+		normalizeWikiHierarchy(page)
+		if err := s.repo.UpdateMeta(ctx, page); err != nil {
+			return 0, fmt.Errorf("move wiki page: %w", err)
+		}
+	}
+	return len(pages), nil
+}
+
 // RenameOrMoveFolder renames and/or reparents a folder, then recomputes the
 // materialized path/depth of the entire subtree and the cached category path of
 // every page underneath. Guards against cycles (moving a folder into itself or

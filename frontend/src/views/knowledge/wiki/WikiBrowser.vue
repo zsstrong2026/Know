@@ -261,7 +261,26 @@
                       <t-icon name="file-add" />
                     </button>
                   </t-tooltip>
+                  <t-tooltip v-if="props.canEdit" :content="$t('knowledgeEditor.wikiBrowser.batchManage')" placement="top">
+                    <button type="button" class="wiki-tab-bar-action"
+                      :class="{ 'wiki-tab-bar-action--active': batchMode }"
+                      :disabled="sidebarViewMode !== 'tree' || sidebarViewSwitching || sidebarTabSwitching"
+                      :aria-label="$t('knowledgeEditor.wikiBrowser.batchManage')"
+                      @click.stop="toggleBatchMode">
+                      <t-icon name="check-double" />
+                    </button>
+                  </t-tooltip>
                 </div>
+              </div>
+
+              <div v-if="batchMode && sidebarViewMode === 'tree'" class="wiki-batch-bar">
+                <span class="wiki-batch-bar-count">
+                  {{ $t('knowledgeEditor.wikiBrowser.selectedCount', { count: checkedSlugs.size }) }}
+                </span>
+                <t-button variant="text" theme="default" size="small" :disabled="checkedSlugs.size === 0"
+                  @click.stop="clearPageSelection">
+                  {{ $t('knowledgeEditor.wikiBrowser.clearSelection') }}
+                </t-button>
               </div>
 
               <!-- Active-tab list -->
@@ -328,10 +347,14 @@
                       </template>
                     </div>
                     <div v-else
-                      :class="['wiki-page-item', 'wiki-page-item--tree', { active: selectedPage?.id === item.page.id }]"
-                      :style="{ '--wiki-tree-depth': item.depth }" :title="item.page.title" draggable="true"
-                      @click="selectPage(item.page)" @dragstart="onPageDragStart($event, item.page)"
+                      :class="['wiki-page-item', 'wiki-page-item--tree', { active: selectedPage?.id === item.page.id, 'wiki-page-item--checked': batchMode && checkedSlugs.has(item.page.slug) }]"
+                      :style="{ '--wiki-tree-depth': item.depth }" :title="item.page.title"
+                      :draggable="!batchMode || checkedSlugs.has(item.page.slug)"
+                      @click="onPageRowClick(item.page)" @dragstart="onPageDragStart($event, item.page)"
                       @dragend="onPageDragEnd">
+                      <input v-if="batchMode" type="checkbox" class="wiki-page-checkbox"
+                        :checked="checkedSlugs.has(item.page.slug)" @click.stop
+                        @change="togglePageChecked(item.page.slug)" />
                       <t-icon :name="getPageIcon(item.page)"
                         :class="['wiki-page-file-icon', `wiki-page-file-icon--${item.page.page_type}`]" />
                       <span class="wiki-page-item-title">{{ item.page.title }}</span>
@@ -774,7 +797,12 @@
             {{ $t('knowledgeEditor.wikiBrowser.moveConfirmTitle') }}
           </div>
           <div class="anchored-form-popup-body">
-            {{ $t('knowledgeEditor.wikiBrowser.moveConfirm', { target: pendingMove.targetLabel }) }}
+            <template v-if="pendingMove.item.kind === 'pages'">
+              {{ $t('knowledgeEditor.wikiBrowser.moveConfirmBatch', { count: pendingMove.item.slugs.length, target: pendingMove.targetLabel }) }}
+            </template>
+            <template v-else>
+              {{ $t('knowledgeEditor.wikiBrowser.moveConfirm', { target: pendingMove.targetLabel }) }}
+            </template>
           </div>
           <div class="anchored-form-popup-footer">
             <t-button variant="outline" @click="cancelPendingMove">
@@ -818,6 +846,7 @@ import {
   updateWikiFolder,
   deleteWikiFolder,
   moveWikiPage,
+  moveWikiPages,
   createWikiPage,
   updateWikiPage,
   deleteWikiPage,
@@ -2244,6 +2273,36 @@ async function reloadDirectoryForType(
   if (refreshFlatList) await loadFlatPagesForType(type, true)
 }
 
+// --- Batch selection mode -------------------------------------------------
+// batchMode toggles checkboxes on page rows; checkedSlugs holds the staged
+// selection (by slug, so it survives tree reloads). Exiting the mode clears
+// the selection; a successful batch move clears it too, while a failed move
+// keeps it so the user can retry.
+const batchMode = ref(false)
+const checkedSlugs = ref<Set<string>>(new Set())
+
+function toggleBatchMode() {
+  batchMode.value = !batchMode.value
+  if (!batchMode.value) checkedSlugs.value = new Set()
+}
+
+function togglePageChecked(slug: string) {
+  const next = new Set(checkedSlugs.value)
+  if (next.has(slug)) next.delete(slug)
+  else next.add(slug)
+  checkedSlugs.value = next
+}
+
+function clearPageSelection() {
+  checkedSlugs.value = new Set()
+}
+
+// 批量模式下点击页面行 = 切换勾选；否则保持原有的打开页面行为
+function onPageRowClick(page: WikiPage) {
+  if (batchMode.value) togglePageChecked(page.slug)
+  else selectPage(page)
+}
+
 // --- Drag-and-drop: move a page or folder into a folder ------------------
 // draggedItem holds whatever is being dragged — a page (move into folder) or a
 // folder (reparent). dropTargetKey is the row highlighted as the hover target
@@ -2251,6 +2310,7 @@ async function reloadDirectoryForType(
 // cancelled drag leaves no sticky highlight.
 type DraggedItem =
   | { kind: 'page'; page: WikiPage }
+  | { kind: 'pages'; slugs: string[] }
   | { kind: 'folder'; folderId: string; path: string[] }
 const draggedItem = ref<DraggedItem | null>(null)
 const dropTargetKey = ref<string>('')
@@ -2270,7 +2330,12 @@ function primeDragData(e: DragEvent) {
 }
 
 function onPageDragStart(e: DragEvent, page: WikiPage) {
-  draggedItem.value = { kind: 'page', page }
+  // 批量模式下拖动已勾选行 = 拖动整批选择
+  if (batchMode.value && checkedSlugs.value.has(page.slug)) {
+    draggedItem.value = { kind: 'pages', slugs: [...checkedSlugs.value] }
+  } else {
+    draggedItem.value = { kind: 'page', page }
+  }
   primeDragData(e)
 }
 
@@ -2312,19 +2377,34 @@ const pendingMove = ref<
   | null
 >(null)
 
+// findLoadedPageBySlug 在已加载的树行中按 slug 查页面。批量选择本来就来自
+// 可见行，因此该查找覆盖整批；查不到时按非 no-op 处理（保守保留在批次中）。
+function findLoadedPageBySlug(slug: string): WikiPage | null {
+  for (const row of activeTreeRows.value) {
+    if (row.kind === 'page' && row.page.slug === slug) return row.page
+  }
+  return null
+}
+
 function onDropOnDirectory(e: DragEvent, folderId: string, path: string[]) {
-  const item = draggedItem.value
+  let item = draggedItem.value
   draggedItem.value = null
   dropTargetKey.value = ''
   if (!item) return
   const targetPath = path.join('/')
 
-  if (item.kind === 'page') {
-    // No-op when the page already lives in this folder.
+  if (item.kind === 'pages') {
+    // 过滤掉本就在目标目录下的页面（no-op）；整批都是 no-op 时直接跳过确认
+    const remaining = item.slugs.filter((slug) => {
+      const page = findLoadedPageBySlug(slug)
+      const current = (page ? pageCategoryPath(page) : null) || []
+      return current.join('/') !== targetPath
+    })
+    if (remaining.length === 0) return
+    item = { kind: 'pages', slugs: remaining }
+  } else if (item.kind === 'page') {
     if ((pageCategoryPath(item.page) || []).join('/') === targetPath) return
   } else {
-    // Folder reparent. Reject no-op (same parent) and the illegal move of a
-    // folder into itself or one of its descendants.
     const sourcePath = item.path.join('/')
     if (sourcePath === targetPath) return
     if (folderId === item.folderId) return
@@ -2349,6 +2429,22 @@ async function confirmPendingMove() {
   pendingMove.value = null
   if (!move) return
   const { item, folderId } = move
+
+  if (item.kind === 'pages') {
+    try {
+      await moveWikiPages(props.knowledgeBaseId, item.slugs, folderId)
+      MessagePlugin.success(t('knowledgeEditor.wikiBrowser.movePagesSuccess', { count: item.slugs.length }))
+      // 成功：清空选择并退出批量模式
+      checkedSlugs.value = new Set()
+      batchMode.value = false
+      await reloadDirectoryForType(activeTab.value)
+    } catch (e) {
+      console.error('Failed to batch move wiki pages:', e)
+      // 失败：保留勾选与批量模式，便于修正后重试
+      MessagePlugin.error(t('knowledgeEditor.wikiBrowser.movePagesFailed'))
+    }
+    return
+  }
 
   if (item.kind === 'page') {
     try {
@@ -5063,6 +5159,30 @@ onUnmounted(() => {
     cursor: not-allowed;
     opacity: 0.45;
   }
+}
+
+.wiki-tab-bar-action--active {
+  color: var(--td-brand-color);
+  background: var(--td-brand-color-light);
+}
+
+.wiki-batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
+  border-bottom: 1px solid var(--td-component-border);
+}
+
+.wiki-page-checkbox {
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.wiki-page-item--checked {
+  background: var(--td-brand-color-light);
 }
 
 .wiki-tree-trailing {
