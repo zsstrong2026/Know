@@ -12,6 +12,27 @@ services:
       args:
         # 国内网络走 goproxy.cn，避免构建期访问 proxy.golang.org 挂起
         - GOPROXY_ARG=${GOPROXY_ARG:-https://goproxy.cn,direct}
+    volumes:
+      - weknora-dockersock:/run/weknora-dockersock
+    environment:
+      DOCKER_HOST: unix:///run/weknora-dockersock/docker.sock
+    depends_on:
+      dockersock-relay:
+        condition: service_started
+
+  dockersock-relay:
+    image: alpine/socat:latest
+    container_name: WeKnora-dockersock-relay
+    command:
+      - UNIX-LISTEN:/run/weknora-dockersock/docker.sock,fork,reuseaddr,mode=666
+      - UNIX-CONNECT:/var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - weknora-dockersock:/run/weknora-dockersock
+    restart: unless-stopped
 
   frontend:
     image: weknora-ui:local
+
+volumes:
+  weknora-dockersock:
