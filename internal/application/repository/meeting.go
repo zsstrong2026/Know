@@ -110,8 +110,11 @@ func (r *meetingMessageRepository) ListByRoom(ctx context.Context, roomID string
 	q := r.db.WithContext(ctx).Where("meeting_room_id = ?", roomID)
 	if beforeID != "" {
 		// 游标：取 beforeID 这条消息的 (created_at,id)，查询更早的
+		// 必须同样限定 meeting_room_id，避免跨房间传入 beforeID 时静默返回错误分页
 		var pivot types.MeetingMessage
-		if err := r.db.WithContext(ctx).Select("created_at", "id").Where("id = ?", beforeID).First(&pivot).Error; err != nil {
+		if err := r.db.WithContext(ctx).Select("created_at", "id").
+			Where("id = ? AND meeting_room_id = ?", beforeID, roomID).
+			First(&pivot).Error; err != nil {
 			return nil, ErrMeetingMessageNotFound
 		}
 		q = q.Where("(created_at, id) < (?, ?)", pivot.CreatedAt, pivot.ID)
