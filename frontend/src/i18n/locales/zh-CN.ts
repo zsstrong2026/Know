@@ -7592,6 +7592,7 @@ export default {
     myChats: '我的对话',
     apiChats: 'API 会话',
     noSessions: '暂无对话',
+    meetings: '会议室',
     docAssistant: '方案助手'
   },
   docAssistant: {

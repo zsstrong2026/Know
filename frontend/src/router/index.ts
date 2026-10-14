@@ -153,6 +153,24 @@ const router = createRouter({
           meta: { requiresInit: true, requiresAuth: true, requiredCapability: 'agents' }
         },
         {
+          path: "meetings",
+          name: "meetingList",
+          component: () => import("../views/meeting/MeetingListView.vue"),
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
+          path: "meetings/new",
+          name: "meetingCreate",
+          component: () => import("../views/meeting/MeetingCreateView.vue"),
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
+          path: "meetings/:roomId",
+          name: "meetingRoom",
+          component: () => import("../views/meeting/MeetingRoomView.vue"),
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
           path: "integrations",
           redirect: (to) => {
             const tab = typeof to.query.tab === 'string' ? to.query.tab : undefined

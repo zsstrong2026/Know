@@ -225,6 +225,7 @@ export default {
     myChats: 'My chats',
     apiChats: 'API sessions',
     noSessions: 'No conversations yet',
+    meetings: 'Meeting Rooms',
     docAssistant: 'Solution Assistant'
   },
   docAssistant: {
