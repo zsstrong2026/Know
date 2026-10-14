@@ -228,6 +228,24 @@ export default {
     meetings: 'Meeting Rooms',
     docAssistant: 'Solution Assistant'
   },
+  meeting: {
+    create: 'Create Meeting',
+    title: 'Meeting Title',
+    topic: 'Topic',
+    topicPlaceholder: 'What problem should this discussion solve…',
+    selectAgents: 'Agents',
+    selectKBs: 'Meeting Knowledge Bases',
+    broadcastMode: 'Speaking Mode',
+    modeSequential: 'Sequential',
+    modeParallel: 'Parallel',
+    createAndEnter: 'Create & Enter',
+    createdAt: 'Created At',
+    status: 'Status',
+    loadEarlier: 'Load Earlier Messages',
+    discussing: 'Discussion in progress…',
+    inputPlaceholder: 'Type your opinion or question; press Ctrl+Enter to send',
+    send: 'Send',
+  },
   docAssistant: {
     template: {
       title: 'Templates',

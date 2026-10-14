@@ -7595,6 +7595,24 @@ export default {
     meetings: '会议室',
     docAssistant: '方案助手'
   },
+  meeting: {
+    create: '创建会议',
+    title: '会议名称',
+    topic: '讨论主题',
+    topicPlaceholder: '本次讨论要解决的问题…',
+    selectAgents: '参会智能体',
+    selectKBs: '会议级知识库',
+    broadcastMode: '发言模式',
+    modeSequential: '轮流发言',
+    modeParallel: '并发发言',
+    createAndEnter: '创建并进入',
+    createdAt: '创建时间',
+    status: '状态',
+    loadEarlier: '加载更早消息',
+    discussing: '讨论进行中…',
+    inputPlaceholder: '输入你的观点或问题，Ctrl+Enter 发送',
+    send: '发送',
+  },
   docAssistant: {
     template: {
       title: '模板管理',

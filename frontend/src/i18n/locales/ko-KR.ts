@@ -7593,6 +7593,24 @@ export default {
     meetings: '회의실',
     docAssistant: '솔루션 도우미'
   },
+  meeting: {
+    create: '회의 만들기',
+    title: '회의 이름',
+    topic: '토론 주제',
+    topicPlaceholder: '이번 토론에서 해결할 문제…',
+    selectAgents: '참여 에이전트',
+    selectKBs: '회의 지식베이스',
+    broadcastMode: '발언 모드',
+    modeSequential: '순차 발언',
+    modeParallel: '동시 발언',
+    createAndEnter: '만들고 입장',
+    createdAt: '생성 시간',
+    status: '상태',
+    loadEarlier: '이전 메시지 불러오기',
+    discussing: '토론 진행 중…',
+    inputPlaceholder: '의견이나 질문을 입력하세요. Ctrl+Enter로 전송',
+    send: '보내기',
+  },
   docAssistant: {
     template: {
       title: '템플릿 관리',

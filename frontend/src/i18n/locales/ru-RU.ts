@@ -7593,6 +7593,24 @@ export default {
     meetings: 'Комнаты встреч',
     docAssistant: 'Помощник по решениям'
   },
+  meeting: {
+    create: 'Создать встречу',
+    title: 'Название встречи',
+    topic: 'Тема обсуждения',
+    topicPlaceholder: 'Какую задачу нужно решить в этом обсуждении…',
+    selectAgents: 'Агенты-участники',
+    selectKBs: 'Базы знаний встречи',
+    broadcastMode: 'Режим выступлений',
+    modeSequential: 'По очереди',
+    modeParallel: 'Параллельно',
+    createAndEnter: 'Создать и войти',
+    createdAt: 'Дата создания',
+    status: 'Статус',
+    loadEarlier: 'Загрузить более ранние',
+    discussing: 'Идёт обсуждение…',
+    inputPlaceholder: 'Введите своё мнение или вопрос, Ctrl+Enter — отправить',
+    send: 'Отправить',
+  },
   docAssistant: {
     template: {
       title: 'Шаблоны',
