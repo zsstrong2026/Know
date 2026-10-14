@@ -7590,6 +7590,7 @@ export default {
     myChats: 'Мои чаты',
     apiChats: 'Сессии API',
     noSessions: 'Пока нет диалогов',
+    meetings: 'Комнаты встреч',
     docAssistant: 'Помощник по решениям'
   },
   docAssistant: {

@@ -32,16 +32,23 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     hasMore.value = page.length >= 100;
   }
 
+  // 去重插入：本地乐观插入与 SSE 回流可能命中同一条，按 id 去重
+  function appendMessage(msg: MeetingMessage | null | undefined) {
+    if (!msg || messages.value.some((m) => m.id === msg.id)) return;
+    messages.value.push(msg);
+  }
+
   async function speak(content: string, mentionAgentIds: string[] = []) {
     if (!currentRoom.value) return;
-    await sendMessage(currentRoom.value.id, content, mentionAgentIds);
-    // 用户消息本体经 SSE message.created 回流，这里不本地乐观插入，避免重复
+    // 后端不会通过 SSE 回推用户自身的消息，这里本地插入返回值，避免自己发言不显示
+    const msg = await sendMessage(currentRoom.value.id, content, mentionAgentIds);
+    appendMessage(msg);
   }
 
   // SSE 事件入口：由视图层订阅后调用
-  function applyStreamEvent(event: string, data: any) {
+  function applyStreamEvent(event: string, data: unknown) {
     if (event === 'message.created' && data) {
-      messages.value.push(data as MeetingMessage);
+      appendMessage(data as MeetingMessage);
     } else if (event === 'discussion.turn_started') {
       discussing.value = true;
     } else if (event === 'discussion.turn_ended') {

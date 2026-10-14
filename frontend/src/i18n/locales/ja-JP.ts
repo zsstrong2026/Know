@@ -224,7 +224,8 @@ export default {
     logoutSuccess: 'ログアウトしました',
     myChats: 'マイチャット',
     apiChats: 'APIセッション',
-    noSessions: '会話はまだありません'
+    noSessions: '会話はまだありません',
+    meetings: '会議室'
   },
   chatHeader: {
     moreActions: 'その他の会話操作',

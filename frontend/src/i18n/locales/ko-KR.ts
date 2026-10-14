@@ -7590,6 +7590,7 @@ export default {
     myChats: '내 대화',
     apiChats: 'API 세션',
     noSessions: '대화가 없습니다',
+    meetings: '회의실',
     docAssistant: '솔루션 도우미'
   },
   docAssistant: {
