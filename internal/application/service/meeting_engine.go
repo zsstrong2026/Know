@@ -138,14 +138,17 @@ func shouldRunParallel(mode string, speakerCount int) bool {
 // runAgentTurns 按广播模式执行本轮各智能体发言：parallel 并发、sequential 顺序（每轮前检查打断）
 func (e *meetingEngine) runAgentTurns(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, speakers []*types.CustomAgent) {
 	if shouldRunParallel(room.BroadcastMode, len(speakers)) {
+		// ctx 已取消时不再启动并发发言，否则 N 个 goroutine 各发一条无意义的失败提示
+		if ctx.Err() != nil {
+			return
+		}
 		var wg sync.WaitGroup
 		for _, agent := range speakers {
 			wg.Add(1)
 			go func(a *types.CustomAgent) {
 				defer wg.Done()
 				if err := e.runAgentTurn(ctx, room, trigger, a); err != nil {
-					logger.Errorf(ctx, "[meeting] agent %s speak failed: %v", a.ID, err)
-					e.publishSystemMessage(ctx, room.ID, fmt.Sprintf("「%s」发言失败，已跳过", a.Name))
+					e.handleSpeakFailure(ctx, room, a, err)
 				}
 			}(agent)
 		}
@@ -160,10 +163,15 @@ func (e *meetingEngine) runAgentTurns(ctx context.Context, room *types.MeetingRo
 			return
 		}
 		if err := e.runAgentTurn(ctx, room, trigger, a); err != nil {
-			logger.Errorf(ctx, "[meeting] agent %s speak failed: %v", a.ID, err)
-			e.publishSystemMessage(ctx, room.ID, fmt.Sprintf("「%s」发言失败，已跳过", a.Name))
+			e.handleSpeakFailure(ctx, room, a, err)
 		}
 	}
+}
+
+// handleSpeakFailure 统一处理单个智能体发言失败：记录日志并落库/广播一条系统提示
+func (e *meetingEngine) handleSpeakFailure(ctx context.Context, room *types.MeetingRoom, agent *types.CustomAgent, err error) {
+	logger.Errorf(ctx, "[meeting] agent %s speak failed: %v", agent.ID, err)
+	e.publishSystemMessage(ctx, room.ID, fmt.Sprintf("「%s」发言失败，已跳过", agent.Name))
 }
 
 // Interrupt 强制结束当前讨论轮（释放锁由引擎下一轮进入时自行处理，这里置打断标记）
@@ -248,6 +256,8 @@ func (e *meetingEngine) publishSystemMessage(ctx context.Context, roomID string,
 	}
 	if err := e.messageRepo.Create(ctx, msg); err == nil {
 		e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventMessageCreated, Data: msg})
+	} else {
+		logger.Warnf(ctx, "publish meeting system message failed, room=%s err=%v", roomID, err)
 	}
 }
 
