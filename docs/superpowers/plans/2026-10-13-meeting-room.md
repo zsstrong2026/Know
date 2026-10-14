@@ -3483,13 +3483,183 @@ Run: `git add internal/application/service/meeting_engine.go internal/applicatio
 
 ---
 
+### Task T3.6: 用户打断触发主持人收敛消息（补 T3.3 设计级偏离）
+
+> **补计划遗漏（T3.3 规格符合性审查发现）**：设计 `design.md:137`（`POST /meetings/:id/interrupt` = "用户触发'回到正题'（中断当前 RunTurn，**主持人收敛**）"）、`design.md:229-239`（主持人职责第 2 条：护栏触发/用户点"回到正题"时"总结分歧点/暂停争论/邀请用户裁决"；`L239` 明确"护栏触发 / **用户 interrupt** / 用户点'汇总方案' 时分别触发对应 host 消息生成"）、`design.md:369-371`（M3 验收"用户点'回到正题'**立即触发收敛**"）均要求用户打断后由主持人生成**收敛消息**。
+> 但 T3.3 计划原文仅要求"边界停轮并 publishSystemMessage"，实现因此只在 sequential 分支落一条系统提示（`meeting_engine.go:286`），parallel 分支连系统提示都缺失，且打断路径完全不生成主持人消息（主持人收敛此前仅接线到护栏路径 `meeting_engine.go:120-121`）。本任务补齐该语义。
+
+**Files:**
+- Modify: `internal/application/service/meeting_engine.go`（RunTurn 收尾统一处理 + 去掉分支内重复落库 + 新增 handleInterrupt）
+- Modify: `internal/application/service/meeting_host.go`（新增 generateInterruptMessage + 抽取共用渲染辅助）
+- Modify: `internal/application/service/meeting_engine_test.go`（调整既有打断用例 + 新增 RunTurn 级打断收敛用例）
+
+**语义**：
+- 打断收尾**统一在 `RunTurn` 主循环**（`runDiscussion` 返回并广播 TurnEnded 之后、护栏块之前）判定 `isInterrupted`：①落一条系统提示"讨论已被用户打断"；②主持人 `generateInterruptMessage` 生成收敛消息（不可用/失败用兜底文案）；③落库 sender_kind=host 并广播 `guard.triggered`（`reason:"user_interrupt"`）；④清除标记并结束本轮。sequential / parallel 两种模式走同一路径。
+- `runSpeakerTasks`（sequential 分支）与 `runDiscussion` 只负责"停止"，不再自行落库提示（避免重复与缺失）。
+
+- [ ] **Step 1: 拆掉分支内重复落库**
+
+`runSpeakerTasks` sequential 分支：
+
+```go
+if e.isInterrupted(ctx, room.ID) {
+	logger.Infof(ctx, "meeting turn interrupted. room=%s", room.ID)
+	return out // 打断收尾（系统提示 + 主持人收敛）统一由 RunTurn 处理
+}
+```
+
+`runDiscussion` 子轮循环：
+
+```go
+if e.isInterrupted(ctx, room.ID) {
+	return // 打断收尾统一由 RunTurn 处理
+}
+```
+
+- [ ] **Step 2: RunTurn 统一收尾**
+
+在 `RunTurn` 主循环中，"广播 MeetingEventTurnEnded"之后、"护栏检测块"之前插入：
+
+```go
+// 用户打断（"回到正题"）：落系统提示 + 主持人生成收敛消息 + 广播 guard.triggered，随后结束本轮
+if e.isInterrupted(ctx, roomID) {
+	e.handleInterrupt(ctx, room, roomID)
+	e.clearInterrupt(ctx, roomID)
+	break
+}
+```
+
+- [ ] **Step 3: handleInterrupt（meeting_engine.go，appendHostMessage 附近）**
+
+```go
+// handleInterrupt 用户打断（"回到正题"）的收尾：落系统提示 + 主持人生成收敛消息并广播 guard.triggered
+func (e *meetingEngine) handleInterrupt(ctx context.Context, room *types.MeetingRoom, roomID string) {
+	e.publishSystemMessage(ctx, roomID, "讨论已被用户打断")
+	recent, err := e.messageRepo.ListByRoom(ctx, roomID, "", e.contextMax)
+	if err != nil {
+		logger.Warnf(ctx, "meeting interrupt list messages failed, room=%s err=%v", roomID, err)
+		recent = nil
+	}
+	content := e.generateInterruptMessage(ctx, room, recent)
+	hostMsg, herr := e.appendHostMessage(ctx, roomID, content)
+	if herr != nil {
+		logger.Warnf(ctx, "meeting interrupt host message failed, room=%s err=%v", roomID, herr)
+		return
+	}
+	e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventGuardTriggered, Data: map[string]interface{}{
+		"reason": "user_interrupt", "message": hostMsg,
+	}})
+}
+```
+
+- [ ] **Step 4: generateInterruptMessage + 抽取共用渲染（meeting_host.go）**
+
+为避免与 `generateGuardMessage` 重复，先抽取共用渲染：
+
+```go
+// renderRecentForHost 把最近 n 条消息渲染为"名称: 内容"要点行（主持人收敛/打断提示复用）
+func (e *meetingEngine) renderRecentForHost(ctx context.Context, roomID string, recent []*types.MeetingMessage, n int) string {
+	var b strings.Builder
+	for _, m := range tailN(recent, n) {
+		name := senderLabel(m)
+		if m.SenderKind == types.MeetingSenderAgent {
+			name = e.agentDisplayName(ctx, roomID, m.SenderID)
+		}
+		fmt.Fprintf(&b, "- %s: %s\n", name, truncate(m.Content, 200))
+	}
+	return b.String()
+}
+```
+
+`generateGuardMessage` 内的渲染循环改为 `b.WriteString(e.renderRecentForHost(ctx, room.ID, recent, 6))`（行为不变）。
+
+新增：
+
+```go
+// generateInterruptMessage 用户主动打断（"回到正题"）后由主持人生成收敛消息；不可用/失败时返回兜底文案。
+func (e *meetingEngine) generateInterruptMessage(ctx context.Context, room *types.MeetingRoom, recent []*types.MeetingMessage) string {
+	fallback := fmt.Sprintf("主持人：已收到打断，我们先暂停当前讨论，回到主题「%s」。请用户指示下一步方向。", room.Title)
+	hostChat, err := e.resolveHostChat(ctx)
+	if err != nil {
+		return fallback
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "会议主题：%s\n用户已打断当前讨论并要求回到正题。最近讨论内容（截取）：\n", room.Title)
+	b.WriteString(e.renderRecentForHost(ctx, room.ID, recent, 6))
+	b.WriteString("\n请以主持人身份用 2-3 句话：简要总结当前讨论的分歧焦点，宣布暂停争论，并邀请用户给出下一步指示。语气中立、简洁。")
+	resp, err := hostChat.Chat(ctx, []chat.Message{{Role: "user", Content: b.String()}}, &chat.ChatOptions{Temperature: 0.3})
+	if err != nil || resp == nil || strings.TrimSpace(resp.Content) == "" {
+		return fallback
+	}
+	return resp.Content
+}
+```
+
+- [ ] **Step 5: 测试**
+
+（1）调整 `TestRunAgentTurnsSequentialInterrupted`：`runSpeakerTasks` 不再落库，断言改为"不调用 AgentQA 且不产生任何消息"，并更名 `TestRunSpeakerTasksSequentialInterruptedStopsSilently`。
+
+（2）新增 RunTurn 级用例（复用 `newGuardEngineFixture` + `fakeGuardRoomRepoForTurn`/`fakeTwoAgentParticipantRepo`/`fakeTwoAgentRepoForTurn`）：
+
+```go
+// TestRunTurnInterruptTriggersHostConvergence 真实路径：用户在讨论进行中打断 →
+// 系统提示 + 主持人收敛消息 + 广播 guard.triggered
+func TestRunTurnInterruptTriggersHostConvergence(t *testing.T) {
+	ctx := context.Background()
+	e, repo := newGuardEngineFixture(t, "room-i", []*types.MeetingMessage{
+		{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "触发"},
+	})
+	e.roomRepo = &fakeGuardRoomRepoForTurn{}
+	e.participantRepo = &fakeTwoAgentParticipantRepo{}
+	e.agentRepo = &fakeTwoAgentRepoForTurn{}
+	// 首个智能体发言时模拟用户点击"回到正题"（置打断标记）
+	e.sessionService = &fakeMeetingSession{agentQA: func(ctx context.Context, _ *types.QARequest, _ *event.EventBus) error {
+		return e.redis.Set(ctx, interruptKey("room-i"), "1", time.Minute).Err()
+	}}
+
+	ch, unsub := e.broadcaster.Subscribe("room-i")
+	defer unsub()
+
+	require.NoError(t, e.RunTurn(ctx, "room-i", "u1"))
+
+	msgs := repo.snapshot()
+	sysMsgs := messagesByKind(msgs, types.MeetingSenderSystem)
+	require.Len(t, sysMsgs, 1, "打断应落一条系统提示")
+	assert.Contains(t, sysMsgs[0].Content, "讨论已被用户打断")
+
+	hostMsgs := messagesByKind(msgs, types.MeetingSenderHost)
+	require.Len(t, hostMsgs, 1, "打断应产生恰好一条主持人收敛消息")
+	assert.Contains(t, hostMsgs[0].Content, "发布方案评审", "兜底收敛文案应包含会议主题")
+
+	var sawGuard bool
+	for len(ch) > 0 {
+		if evt := <-ch; evt.Type == MeetingEventGuardTriggered {
+			sawGuard = true
+		}
+	}
+	assert.True(t, sawGuard, "打断应广播 guard.triggered")
+}
+```
+
+- [ ] **Step 6: 测试 + vet + 提交**
+
+Run: `go test ./internal/application/service/ -run "Meeting|TestDetectBickering|TestParseMentionedAgentIDs|TestRunTurn|TestRunSpeakerTasks|TestGenerateGuardMessage|TestBuildMeetingQuery|TestExtractQueuedTrigger" -v`
+Expected: PASS。
+
+Run: `go vet ./internal/application/service/`
+Expected: 无输出。
+
+Run: `git add internal/application/service/meeting_engine.go internal/application/service/meeting_host.go internal/application/service/meeting_engine_test.go; git commit -m "feat(meeting): 用户打断统一收尾——系统提示 + 主持人收敛消息 + guard.triggered（补 T3.3 设计级偏离）"`
+
+---
+
 ### Task T3.5: M3 端到端验收
 
 > 依赖 T3.4：Step 1 的"3 个来回互呛"须在单轮内由子轮循环自然形成（首轮各自表态后互相 @ 反驳）。
 
 - [ ] **Step 1: 互呛触发**：造 2 个提示词易争论的智能体（如"激进派"/"保守派"），引导其互相反驳 3 个来回 → 消息流出现主持人收敛消息（sender_kind=host）→ SSE 收到 `guard.triggered` → 讨论轮停止，输入框恢复。
 - [ ] **Step 2: 不触发场景**：同一对 2 个来回后用户插话 → 再 2 个来回 → 不触发（计数被重置）。
-- [ ] **Step 3: 打断**：讨论进行中点"打断讨论"→ 当前智能体说完即停（下一个边界前不再开新发言）→ 系统消息"讨论已被用户打断"。
+- [ ] **Step 3: 打断**：讨论进行中点"打断讨论"→ 当前智能体说完即停（下一个边界前不再开新发言）→ 系统消息"讨论已被用户打断" → **主持人收敛消息（sender_kind=host）** → SSE 收到 `guard.triggered`（`reason=user_interrupt`）。
 - [ ] **Step 4: 提交**：`git commit --allow-empty -m "test(meeting): M3 护栏与打断验收"`
 
 ---
