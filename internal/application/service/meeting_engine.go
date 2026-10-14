@@ -68,9 +68,16 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 		logger.Infof(ctx, "meeting turn already running, queued. room=%s", roomID)
 		return nil
 	}
-	defer func() { _, _ = redislock.Release(ctx, e.redis, turnLockKey(roomID), token) }()
+	defer func() {
+		if _, err := redislock.Release(ctx, e.redis, turnLockKey(roomID), token); err != nil {
+			// 释放失败有 5min lease 兜底，仅记录便于观测
+			logger.Warnf(ctx, "meeting turn lock release failed, room=%s err=%v", roomID, err)
+		}
+	}()
 	// 进入新一轮即清除打断标记
-	_ = e.redis.Del(ctx, interruptKey(roomID)).Err()
+	if err := e.redis.Del(ctx, interruptKey(roomID)).Err(); err != nil {
+		logger.Warnf(ctx, "clear meeting interrupt flag failed, room=%s err=%v", roomID, err)
+	}
 
 	// 会议与消息均为引擎内部消费对象，不校验 created_by（租户隔离由 HTTP 层保证）
 	room, err := e.roomRepo.GetByIDInternal(ctx, roomID)
@@ -117,7 +124,12 @@ func (e *meetingEngine) Interrupt(ctx context.Context, roomID string) error {
 
 func (e *meetingEngine) isInterrupted(ctx context.Context, roomID string) bool {
 	n, err := e.redis.Exists(ctx, interruptKey(roomID)).Result()
-	return err == nil && n > 0
+	if err != nil {
+		// fail-open：Redis 故障时按"未打断"处理，仅告警便于观测
+		logger.Warnf(ctx, "check meeting interrupt flag failed, room=%s err=%v", roomID, err)
+		return false
+	}
+	return n > 0
 }
 
 // runAgentTurn 单个智能体发言：程序化调用 AgentQA，捕获最终答案并落库+广播

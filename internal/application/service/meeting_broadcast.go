@@ -40,14 +40,18 @@ func (b *MeetingBroadcaster) Subscribe(roomID string) (chan MeetingEvent, func()
 	}
 	b.subs[roomID][ch] = struct{}{}
 	b.mu.Unlock()
+	// 用 once 保证取消函数幂等：重复调用不会 double-close channel 造成 panic（对齐 context.CancelFunc 语义）
+	var once sync.Once
 	return ch, func() {
-		b.mu.Lock()
-		delete(b.subs[roomID], ch)
-		if len(b.subs[roomID]) == 0 {
-			delete(b.subs, roomID)
-		}
-		b.mu.Unlock()
-		close(ch)
+		once.Do(func() {
+			b.mu.Lock()
+			delete(b.subs[roomID], ch)
+			if len(b.subs[roomID]) == 0 {
+				delete(b.subs, roomID)
+			}
+			b.mu.Unlock()
+			close(ch)
+		})
 	}
 }
 
