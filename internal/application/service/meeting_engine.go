@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -97,14 +98,15 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 			e.clearInterrupt(ctx, roomID)
 			break
 		}
-		room, trigger, speakers, err := e.prepareTurn(ctx, roomID, current)
+		in, err := e.prepareTurn(ctx, roomID, current)
 		if err != nil {
 			return err
 		}
+		room := in.room
 		e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnStarted, Data: map[string]interface{}{
 			"room_id": roomID, "trigger_message_id": current,
 		}})
-		e.runAgentTurns(ctx, room, trigger, speakers)
+		e.runDiscussion(ctx, room, in.trigger, in.speakers, in.agents, in.participants)
 		e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnEnded, Data: map[string]interface{}{
 			"room_id": roomID, "trigger_message_id": current,
 		}})
@@ -143,22 +145,30 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 	return nil
 }
 
+// turnInput 一轮讨论的输入快照
+type turnInput struct {
+	room         *types.MeetingRoom
+	trigger      *types.MeetingMessage
+	speakers     []*types.CustomAgent // 本轮发言者（selectSpeakers 结果）
+	agents       []*types.CustomAgent // 全部参会智能体（供子轮按 ID 取回）
+	participants []*types.MeetingParticipant
+}
+
 // prepareTurn 加载本轮所需的会议/触发消息/参会智能体，并选出本轮发言者
-func (e *meetingEngine) prepareTurn(ctx context.Context, roomID string, triggerMessageID string) (*types.MeetingRoom, *types.MeetingMessage, []*types.CustomAgent, error) {
+func (e *meetingEngine) prepareTurn(ctx context.Context, roomID string, triggerMessageID string) (*turnInput, error) {
 	room, err := e.roomRepo.GetByIDInternal(ctx, roomID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	trigger, err := e.messageRepo.GetByID(ctx, triggerMessageID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	participants, err := e.participantRepo.ListByRoom(ctx, roomID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	agents := filterAgentParticipants(participants)
-	// selectSpeakers 现按 *types.CustomAgent 工作，按参会顺序加载 agent 对象（单个失败仅告警跳过）
 	agentObjs := make([]*types.CustomAgent, 0, len(agents))
 	for _, p := range agents {
 		agent, err := e.agentRepo.GetAgentByID(ctx, p.AgentID, room.TenantID)
@@ -168,7 +178,12 @@ func (e *meetingEngine) prepareTurn(ctx context.Context, roomID string, triggerM
 		}
 		agentObjs = append(agentObjs, agent)
 	}
-	return room, trigger, e.selectSpeakers(ctx, room, trigger, agentObjs), nil
+	return &turnInput{
+		room: room, trigger: trigger,
+		speakers:     e.selectSpeakers(ctx, room, trigger, agentObjs),
+		agents:       agentObjs,
+		participants: participants,
+	}, nil
 }
 
 // extractQueuedTrigger 返回 triggerID 之后最后一条用户消息；无则 nil。
@@ -196,36 +211,153 @@ func shouldRunParallel(mode string, speakerCount int) bool {
 	return mode == types.MeetingBroadcastParallel && speakerCount > 1
 }
 
-// runAgentTurns 按广播模式执行本轮各智能体发言：parallel 并发、sequential 顺序（每轮前检查打断）
-func (e *meetingEngine) runAgentTurns(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, speakers []*types.CustomAgent) {
-	if shouldRunParallel(room.BroadcastMode, len(speakers)) {
-		// ctx 已取消时不再启动并发发言，否则 N 个 goroutine 各发一条无意义的失败提示
-		if ctx.Err() != nil {
-			return
+// mentionTokenRe 匹配 @某人（@ 后接连续的字母/数字/下划线/连字符/汉字）
+var mentionTokenRe = regexp.MustCompile(`@([\p{L}\p{N}_\-]+)`)
+
+// parseMentionedAgentIDs 从回复文本解析 @展示名 提及并映射为 agentID（按参会顺序去重，排除自己）。
+// participants 为空或无有效匹配时返回 nil。
+func parseMentionedAgentIDs(content string, participants []*types.MeetingParticipant, selfID string) []string {
+	if content == "" || len(participants) == 0 {
+		return nil
+	}
+	matches := mentionTokenRe.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	names := make(map[string]struct{}, len(matches))
+	for _, m := range matches {
+		names[m[1]] = struct{}{}
+	}
+	var out []string
+	for _, p := range participants {
+		if p.Kind != types.ParticipantKindAgent || p.AgentID == "" || p.AgentID == selfID || p.DisplayName == "" {
+			continue
 		}
+		if _, ok := names[p.DisplayName]; ok {
+			out = append(out, p.AgentID)
+		}
+	}
+	return out
+}
+
+// meetingSpeaker 一个发言任务：agent 回应 replyTo 这条消息
+type meetingSpeaker struct {
+	agent   *types.CustomAgent
+	replyTo *types.MeetingMessage
+}
+
+// runAgentTurns 一轮发言（所有发言者回应同一 trigger）；保留既有签名供既有测试/调用复用
+func (e *meetingEngine) runAgentTurns(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, speakers []*types.CustomAgent) []*types.MeetingMessage {
+	tasks := make([]meetingSpeaker, 0, len(speakers))
+	for _, a := range speakers {
+		tasks = append(tasks, meetingSpeaker{agent: a, replyTo: trigger})
+	}
+	return e.runSpeakerTasks(ctx, room, tasks, nil)
+}
+
+// runSpeakerTasks 按广播模式执行一组发言任务，返回成功落库的 agent 消息（顺序确定）
+func (e *meetingEngine) runSpeakerTasks(ctx context.Context, room *types.MeetingRoom, tasks []meetingSpeaker, participants []*types.MeetingParticipant) []*types.MeetingMessage {
+	if shouldRunParallel(room.BroadcastMode, len(tasks)) {
+		if ctx.Err() != nil {
+			return nil // ctx 已取消时不再启动并发发言
+		}
+		slots := make([]*types.MeetingMessage, len(tasks))
 		var wg sync.WaitGroup
-		for _, agent := range speakers {
+		for i, task := range tasks {
 			wg.Add(1)
-			go func(a *types.CustomAgent) {
+			go func(i int, task meetingSpeaker) {
 				defer wg.Done()
-				if err := e.runAgentTurn(ctx, room, trigger, a); err != nil {
-					e.handleSpeakFailure(ctx, room, a, err)
+				msg, err := e.runAgentTurn(ctx, room, task.replyTo, task.agent, participants)
+				if err != nil {
+					e.handleSpeakFailure(ctx, room, task.agent, err)
+					return
 				}
-			}(agent)
+				slots[i] = msg // 各 goroutine 写不同下标，无数据竞争
+			}(i, task)
 		}
 		wg.Wait()
-		return
+		return compactMessages(slots)
 	}
-	// sequential：严格按参会顺序逐个发言，每个发言前检查打断标记
-	for _, a := range speakers {
+	// sequential：严格按顺序逐个发言，每个发言前检查打断标记
+	out := make([]*types.MeetingMessage, 0, len(tasks))
+	for _, task := range tasks {
 		if e.isInterrupted(ctx, room.ID) {
 			logger.Infof(ctx, "meeting turn interrupted. room=%s", room.ID)
 			e.publishSystemMessage(ctx, room.ID, "讨论已被用户打断")
-			return
+			return out
 		}
-		if err := e.runAgentTurn(ctx, room, trigger, a); err != nil {
-			e.handleSpeakFailure(ctx, room, a, err)
+		msg, err := e.runAgentTurn(ctx, room, task.replyTo, task.agent, participants)
+		if err != nil {
+			e.handleSpeakFailure(ctx, room, task.agent, err)
+			continue
 		}
+		out = append(out, msg)
+	}
+	return out
+}
+
+// compactMessages 去掉 nil 槽位，保持成功消息相对顺序
+func compactMessages(in []*types.MeetingMessage) []*types.MeetingMessage {
+	out := make([]*types.MeetingMessage, 0, len(in))
+	for _, m := range in {
+		if m != nil {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// planReplyRound 依据本轮消息的提及关系规划下一子轮：被提及者各自回应"最早提及它的那条消息"。
+// 无任何提及 → nil，表示讨论自然终止。
+func planReplyRound(created []*types.MeetingMessage, participants []*types.MeetingParticipant, agentsByID map[string]*types.CustomAgent) []meetingSpeaker {
+	targets := make(map[string]*types.MeetingMessage, len(participants))
+	for _, m := range created {
+		for _, id := range m.MentionedAgentIDs {
+			if _, seen := targets[id]; !seen {
+				targets[id] = m // 仅记最早一条，保证确定性
+			}
+		}
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	out := make([]meetingSpeaker, 0, len(targets))
+	for _, p := range participants { // 按参会顺序，保证确定性
+		if p.Kind != types.ParticipantKindAgent {
+			continue
+		}
+		target, ok := targets[p.AgentID]
+		if !ok {
+			continue
+		}
+		if agent := agentsByID[p.AgentID]; agent != nil {
+			out = append(out, meetingSpeaker{agent: agent, replyTo: target})
+		}
+	}
+	return out
+}
+
+// runDiscussion 执行一轮完整讨论：首轮由 selectSpeakers 决定的发言者回应触发消息，
+// 之后按"提及链"展开子轮，直至自然终止（无提及）/达到护栏上限/用户打断。
+func (e *meetingEngine) runDiscussion(
+	ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage,
+	speakers, allAgents []*types.CustomAgent, participants []*types.MeetingParticipant,
+) {
+	agentsByID := make(map[string]*types.CustomAgent, len(allAgents))
+	for _, a := range allAgents {
+		agentsByID[a.ID] = a
+	}
+	tasks := make([]meetingSpeaker, 0, len(speakers))
+	for _, a := range speakers {
+		tasks = append(tasks, meetingSpeaker{agent: a, replyTo: trigger})
+	}
+	maxRounds := e.guardMaxExchange(room) // 子轮硬上限：防 LLM 无限互相回应
+	for round := 0; round < maxRounds && len(tasks) > 0; round++ {
+		created := e.runSpeakerTasks(ctx, room, tasks, participants)
+		if e.isInterrupted(ctx, room.ID) {
+			return // sequential 分支已落库打断提示，此处仅停止继续展开子轮
+		}
+		tasks = planReplyRound(created, participants, agentsByID)
 	}
 }
 
@@ -250,18 +382,18 @@ func (e *meetingEngine) isInterrupted(ctx context.Context, roomID string) bool {
 	return n > 0
 }
 
-// runAgentTurn 单个智能体发言：程序化调用 AgentQA，捕获最终答案并落库+广播
-// agent 为已加载的智能体对象（只读），落库消息固定回复触发消息
-func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, agent *types.CustomAgent) error {
+// runAgentTurn 单个智能体发言：回应 replyTo 这条消息；解析回复中的 @ 提及写入 MentionedAgentIDs
+// agent 为已加载的智能体对象（只读）
+func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoom, replyTo *types.MeetingMessage, agent *types.CustomAgent, participants []*types.MeetingParticipant) (*types.MeetingMessage, error) {
 	meetingAgent := cloneAgentForMeeting(agent)
 	kbIDs := unionKnowledgeBaseIDs(meetingAgent.Config.KBSelectionMode, meetingAgent.Config.KnowledgeBases, room.KnowledgeBaseIDs)
 
 	// 共享上下文：最近 N 条（正序）
 	contextMsgs, err := e.messageRepo.ListRecent(ctx, room.ID, e.contextMax)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	query := buildMeetingQuery(room, trigger.Content, contextMsgs)
+	query := buildMeetingQuery(room, replyTo.Content, contextMsgs)
 
 	eventBus := event.NewEventBus()
 	var answer strings.Builder
@@ -289,25 +421,26 @@ func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoo
 		KnowledgeBaseIDs:   kbIDs,
 	}
 	if err := e.sessionService.AgentQA(ctx, req, eventBus); err != nil {
-		return err
+		return nil, err
 	}
 	if runErr != nil {
-		return runErr
+		return nil, runErr
 	}
 
 	msg := &types.MeetingMessage{
-		MeetingRoomID:    room.ID,
-		SenderKind:       types.MeetingSenderAgent,
-		SenderID:         agent.ID,
-		ReplyToMessageID: trigger.ID,
-		Content:          answer.String(),
-		ReviewState:      types.ReviewStateNone,
+		MeetingRoomID:     room.ID,
+		SenderKind:        types.MeetingSenderAgent,
+		SenderID:          agent.ID,
+		ReplyToMessageID:  replyTo.ID,
+		MentionedAgentIDs: types.StringList(parseMentionedAgentIDs(answer.String(), participants, agent.ID)),
+		Content:           answer.String(),
+		ReviewState:       types.ReviewStateNone,
 	}
 	if err := e.messageRepo.Create(ctx, msg); err != nil {
-		return err
+		return nil, err
 	}
 	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventMessageCreated, Data: msg})
-	return nil
+	return msg, nil
 }
 
 // publishSystemMessage 系统提示消息（失败提示、护栏提示等）
@@ -483,7 +616,7 @@ func buildMeetingQuery(room *types.MeetingRoom, triggerContent string, contextMs
 		}
 	}
 	b.WriteString("\n【当前议题】" + triggerContent)
-	b.WriteString("\n请以你的身份与职责，针对当前议题发表意见，简明扼要。")
+	b.WriteString("\n请以你的身份与职责，针对当前议题发表意见，简明扼要。若需赞同或反驳其他参会人，请在该句中直接用 @对方姓名 提及。")
 	return b.String()
 }
 

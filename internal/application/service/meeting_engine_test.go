@@ -83,9 +83,11 @@ func (f *fakeMeetingMessageRepo) ListRecent(_ context.Context, _ string, _ int) 
 	return nil, nil
 }
 
-// GetByID 从预置消息中按 ID 查找
+// GetByID 从预置 + 本轮落库中按 ID 查找
 func (f *fakeMeetingMessageRepo) GetByID(_ context.Context, id string) (*types.MeetingMessage, error) {
-	for _, m := range f.preset {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, m := range append(append([]*types.MeetingMessage{}, f.preset...), f.created...) {
 		if m.ID == id {
 			return m, nil
 		}
@@ -93,12 +95,13 @@ func (f *fakeMeetingMessageRepo) GetByID(_ context.Context, id string) (*types.M
 	return nil, errors.New("message not found")
 }
 
-// ListByRoom 返回预置消息的正序副本（旧->新）
+// ListByRoom 返回"预置 ∪ 本轮落库"的正序副本（旧->新），模拟真实持久化读回
 func (f *fakeMeetingMessageRepo) ListByRoom(_ context.Context, _ string, _ string, _ int) ([]*types.MeetingMessage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make([]*types.MeetingMessage, len(f.preset))
-	copy(out, f.preset)
+	out := make([]*types.MeetingMessage, 0, len(f.preset)+len(f.created))
+	out = append(out, f.preset...)
+	out = append(out, f.created...)
 	return out, nil
 }
 
@@ -314,6 +317,24 @@ func TestExtractQueuedTrigger(t *testing.T) {
 	assert.Nil(t, extractQueuedTrigger(msgs, "nope"))
 }
 
+// TestParseMentionedAgentIDs 纯逻辑：从回复文本解析 @展示名 → agentID（按参会顺序去重，排除自己）
+func TestParseMentionedAgentIDs(t *testing.T) {
+	ps := []*types.MeetingParticipant{
+		{Kind: types.ParticipantKindAgent, AgentID: "agent-A", DisplayName: "甲"},
+		{Kind: types.ParticipantKindAgent, AgentID: "agent-B", DisplayName: "乙"},
+		{Kind: types.ParticipantKindHost, AgentID: "", DisplayName: "主持人"},
+	}
+	// 命中对方：按参会顺序返回 agentID
+	assert.Equal(t, []string{"agent-B"}, parseMentionedAgentIDs("我赞同 @乙 的看法", ps, "agent-A"))
+	// 提及自己：排除
+	assert.Nil(t, parseMentionedAgentIDs("@甲 我说完了", ps, "agent-A"))
+	// 提及主持人（非 agent 参会者）与未知名字：不产生 ID
+	assert.Nil(t, parseMentionedAgentIDs("@主持人 请裁决", ps, "agent-A"))
+	assert.Nil(t, parseMentionedAgentIDs("没有提及任何人", ps, "agent-A"))
+	// 参与者为空：不 panic、返回 nil
+	assert.Nil(t, parseMentionedAgentIDs("@甲", nil, "agent-A"))
+}
+
 // TestRunTurnConsumesQueuedTriggers 循环级行为：RunTurn 消费排队输入直至清空
 func TestRunTurnConsumesQueuedTriggers(t *testing.T) {
 	ctx := context.Background()
@@ -401,34 +422,57 @@ func (f *fakeTwoAgentParticipantRepo) ListByRoom(_ context.Context, roomID strin
 	}, nil
 }
 
-// TestRunTurnGuardTriggersHostConvergence 护栏接入行为：尾部同一对智能体连续 3 来回 → 主持人收敛并广播 guard.triggered
+// fakeTwoAgentRepoForTurn 解析 agent-A/agent-B 两个智能体对象（子轮按 ID 取回发言人）
+type fakeTwoAgentRepoForTurn struct {
+	interfaces.CustomAgentRepository
+}
+
+func (f *fakeTwoAgentRepoForTurn) GetAgentByID(_ context.Context, id string, _ uint64) (*types.CustomAgent, error) {
+	name := "甲"
+	if id == "agent-B" {
+		name = "乙"
+	}
+	return &types.CustomAgent{ID: id, Name: name}, nil
+}
+
+// TestRunTurnGuardTriggersHostConvergence 真实路径：两个智能体在本轮内互相 @，
+// 子轮自然扩展出 3 个来回（6 条 agent 消息）→ 护栏触发 → 主持人收敛 + 广播 guard.triggered
 func TestRunTurnGuardTriggersHostConvergence(t *testing.T) {
 	ctx := context.Background()
-	// u1 为触发消息；A/B 两条链严格交替，累计 3 个完整来回
 	preset := []*types.MeetingMessage{
 		{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "触发"},
-		{ID: "g1", SenderKind: types.MeetingSenderAgent, SenderID: "agent-A", Content: "观点 1"},
-		{ID: "g2", SenderKind: types.MeetingSenderAgent, SenderID: "agent-B", Content: "观点 2"},
-		{ID: "g3", SenderKind: types.MeetingSenderAgent, SenderID: "agent-A", Content: "观点 3"},
-		{ID: "g4", SenderKind: types.MeetingSenderAgent, SenderID: "agent-B", Content: "观点 4"},
-		{ID: "g5", SenderKind: types.MeetingSenderAgent, SenderID: "agent-A", Content: "观点 5"},
-		{ID: "g6", SenderKind: types.MeetingSenderAgent, SenderID: "agent-B", Content: "观点 6"},
 	}
 	e, repo := newGuardEngineFixture(t, "room-g", preset)
-	// 房间带 GuardMaxExchange=3；参会者为两个带展示名的 agent，用于展示名反查
-	e.roomRepo = &fakeGuardRoomRepoForTurn{}
-	e.participantRepo = &fakeTwoAgentParticipantRepo{}
+	e.roomRepo = &fakeGuardRoomRepoForTurn{}          // GuardMaxExchange=3
+	e.participantRepo = &fakeTwoAgentParticipantRepo{} // 甲/乙
+	e.agentRepo = &fakeTwoAgentRepoForTurn{}
+	// 每个智能体都 @ 对方 → 每轮都产生新提及 → 子轮持续到硬上限（3 轮 × 2 人 = 6 条）
+	e.sessionService = &fakeMeetingSession{agentQA: func(_ context.Context, req *types.QARequest, bus *event.EventBus) error {
+		target := "@乙"
+		if req.CustomAgent.ID == "agent-B" {
+			target = "@甲"
+		}
+		return bus.Emit(context.Background(), event.Event{
+			Type: event.EventAgentFinalAnswer,
+			Data: event.AgentFinalAnswerData{Content: "我的观点 " + target},
+		})
+	}}
 
 	ch, unsub := e.broadcaster.Subscribe("room-g")
 	defer unsub()
 
 	require.NoError(t, e.RunTurn(ctx, "room-g", "u1"))
 
+	agentMsgs := messagesByKind(repo.snapshot(), types.MeetingSenderAgent)
+	require.Len(t, agentMsgs, 6, "3 个子轮 × 2 个智能体 = 6 条互相回应消息")
+	assert.Equal(t, "u1", agentMsgs[0].ReplyToMessageID, "首轮回应触发消息")
+	assert.NotEqual(t, "u1", agentMsgs[2].ReplyToMessageID, "子轮应回应其他智能体的消息")
+	require.Len(t, agentMsgs[0].MentionedAgentIDs, 1, "应落库解析出的提及")
+
 	hostMsgs := messagesByKind(repo.snapshot(), types.MeetingSenderHost)
 	require.Len(t, hostMsgs, 1, "护栏触发应产生恰好一条主持人收敛消息")
 	assert.Contains(t, hostMsgs[0].Content, "发布方案评审", "兜底收敛文案应包含会议主题")
 
-	// publish 为同步，RunTurn 返回后缓冲区内应已含 guard.triggered
 	var sawGuard bool
 	for len(ch) > 0 {
 		if evt := <-ch; evt.Type == MeetingEventGuardTriggered {
@@ -436,6 +480,22 @@ func TestRunTurnGuardTriggersHostConvergence(t *testing.T) {
 		}
 	}
 	assert.True(t, sawGuard, "应广播 guard.triggered 事件")
+}
+
+// TestRunTurnStopsWhenNoMention 反向用例：智能体不提及他人 → 不展开子轮，仅 2 条消息、不触发护栏
+func TestRunTurnStopsWhenNoMention(t *testing.T) {
+	ctx := context.Background()
+	e, repo := newGuardEngineFixture(t, "room-s", []*types.MeetingMessage{
+		{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "触发"},
+	})
+	e.roomRepo = &fakeGuardRoomRepoForTurn{}
+	e.participantRepo = &fakeTwoAgentParticipantRepo{}
+	e.agentRepo = &fakeTwoAgentRepoForTurn{}
+
+	require.NoError(t, e.RunTurn(ctx, "room-s", "u1"))
+
+	assert.Equal(t, 2, countByKind(repo.snapshot(), types.MeetingSenderAgent), "无提及应自然终止于首轮")
+	assert.Equal(t, 0, countByKind(repo.snapshot(), types.MeetingSenderHost), "未达阈值不应触发护栏")
 }
 
 // TestRunTurnNoGuardWhenNotBickering 反向用例：尾部仅 2 条交替（不足 3 来回）→ 不应触发护栏
