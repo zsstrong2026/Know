@@ -40,3 +40,21 @@ type MeetingArtifactRepository interface {
 	GetByID(ctx context.Context, id string, roomID string) (*types.MeetingArtifact, error)
 	ListByRoom(ctx context.Context, roomID string) ([]*types.MeetingArtifact, error)
 }
+
+// MeetingService 会议室业务服务
+type MeetingService interface {
+	CreateMeeting(ctx context.Context, room *types.MeetingRoom, agentIDs []string) (*types.MeetingRoom, error)
+	GetMeeting(ctx context.Context, tenantID uint64, id string) (*types.MeetingRoom, []*types.MeetingParticipant, error)
+	ListMeetings(ctx context.Context, tenantID uint64, createdBy string, status string, offset, limit int) ([]*types.MeetingRoom, int64, error)
+	UpdateMeeting(ctx context.Context, room *types.MeetingRoom) error
+	DeleteMeeting(ctx context.Context, tenantID uint64, id string) error
+	// SendUserMessage 落库用户消息并异步触发讨论轮，返回落库后的消息
+	SendUserMessage(ctx context.Context, roomID string, userID string, content string, mentionedAgentIDs []string) (*types.MeetingMessage, error)
+	ListMessages(ctx context.Context, roomID string, beforeID string, limit int) ([]*types.MeetingMessage, error)
+}
+
+// MeetingEngine 讨论引擎：同一会议同一时刻仅一个讨论轮次（Redis 锁保证）
+type MeetingEngine interface {
+	RunTurn(ctx context.Context, roomID string, triggerMessageID string) error
+	Interrupt(ctx context.Context, roomID string) error
+}
