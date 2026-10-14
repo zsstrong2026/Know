@@ -24,6 +24,7 @@ type meetingEngine struct {
 	messageRepo     interfaces.MeetingMessageRepository
 	agentRepo       interfaces.CustomAgentRepository
 	sessionService  interfaces.SessionService
+	modelService    interfaces.ModelService
 	redis           *redis.Client
 	broadcaster     *MeetingBroadcaster
 	cfg             *config.Config
@@ -37,6 +38,7 @@ func NewMeetingEngine(
 	messageRepo interfaces.MeetingMessageRepository,
 	agentRepo interfaces.CustomAgentRepository,
 	sessionService interfaces.SessionService,
+	modelService interfaces.ModelService,
 	redisClient *redis.Client,
 	cfg *config.Config,
 ) interfaces.MeetingEngine {
@@ -48,7 +50,8 @@ func NewMeetingEngine(
 	return &meetingEngine{
 		roomRepo: roomRepo, participantRepo: participantRepo,
 		messageRepo: messageRepo, agentRepo: agentRepo,
-		sessionService: sessionService, redis: redisClient,
+		sessionService: sessionService, modelService: modelService,
+		redis: redisClient,
 		broadcaster:   NewMeetingBroadcaster(),
 		cfg:           cfg,
 		contextMax:    contextMax,
@@ -110,9 +113,27 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 		"room_id": roomID,
 	}})
 
+	// 临时适配（T2.2 移除）：selectSpeakers 现按 *types.CustomAgent 工作，这里把 agent 参会者逐个加载为
+	// CustomAgent 对象，并用 AgentID->participant 映射把选中的智能体还原回 participant 传给 runAgentTurn。
+	agentObjs := make([]*types.CustomAgent, 0, len(agents))
+	participantByAgent := make(map[string]*types.MeetingParticipant, len(agents))
+	for _, p := range agents {
+		agent, err := e.agentRepo.GetAgentByID(ctx, p.AgentID, room.TenantID)
+		if err != nil {
+			logger.Warnf(ctx, "meeting load agent failed, room=%s agent=%s err=%v", roomID, p.AgentID, err)
+			continue
+		}
+		agentObjs = append(agentObjs, agent)
+		participantByAgent[p.AgentID] = p
+	}
+
 	// 顺序广播：按 order_index 逐个智能体发言（M2 加并发模式与智能筛选）
-	speakers := selectSpeakers(room, trigger, agents)
-	for _, p := range speakers {
+	speakers := e.selectSpeakers(ctx, room, trigger, agentObjs)
+	for _, agent := range speakers {
+		p := participantByAgent[agent.ID]
+		if p == nil {
+			continue
+		}
 		if e.isInterrupted(ctx, roomID) {
 			logger.Infof(ctx, "meeting turn interrupted. room=%s", roomID)
 			return nil
@@ -266,24 +287,36 @@ func filterAgentParticipants(ps []*types.MeetingParticipant) []*types.MeetingPar
 	return out
 }
 
-// selectSpeakers 选择本轮发言者：@ 点名优先；M1 默认全员（智能筛选在 M2）
-func selectSpeakers(room *types.MeetingRoom, trigger *types.MeetingMessage, agents []*types.MeetingParticipant) []*types.MeetingParticipant {
+// selectSpeakers 三级策略：@ 指定 > 主持人 LLM 筛选 > 全员
+func (e *meetingEngine) selectSpeakers(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, agents []*types.CustomAgent) []*types.CustomAgent {
+	// 第一级：消息显式 @ 了哪些智能体（保持参会者顺序，保证确定性）
 	if len(trigger.MentionedAgentIDs) > 0 {
-		mentioned := make(map[string]struct{}, len(trigger.MentionedAgentIDs))
-		for _, id := range trigger.MentionedAgentIDs {
-			mentioned[id] = struct{}{}
-		}
-		out := make([]*types.MeetingParticipant, 0, len(agents))
-		for _, p := range agents {
-			if _, ok := mentioned[p.AgentID]; ok {
-				out = append(out, p)
-			}
-		}
-		if len(out) > 0 {
-			return out
+		return filterByIDs(agents, trigger.MentionedAgentIDs)
+	}
+	// 第二级：主持人 LLM 按相关性挑选
+	candidates := make([]speakerCandidate, len(agents))
+	for i, a := range agents {
+		candidates[i] = speakerCandidate{ID: a.ID, Name: a.Name, Description: a.Description}
+	}
+	if ids := e.selectSpeakersByLLM(ctx, room, trigger, candidates); ids != nil {
+		return filterByIDs(agents, ids)
+	}
+	// 第三级：全员
+	return agents
+}
+
+func filterByIDs(agents []*types.CustomAgent, ids []string) []*types.CustomAgent {
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	out := make([]*types.CustomAgent, 0, len(ids))
+	for _, a := range agents {
+		if want[a.ID] {
+			out = append(out, a)
 		}
 	}
-	return agents
+	return out
 }
 
 // buildMeetingQuery 把会议主题 + 共享上下文 + 触发消息拼成单轮 query（MultiTurnEnabled=false）
