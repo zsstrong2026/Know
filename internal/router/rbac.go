@@ -116,8 +116,9 @@ type rbacGuards struct {
 	// Lookup closures resolve a request's :id into the resource's creator
 	// user ID. Captured up front so the handler-level methods don't have
 	// to be exported into every Register* function as well.
-	kbCreator    middleware.CreatorLookup
-	agentCreator middleware.CreatorLookup
+	kbCreator      middleware.CreatorLookup
+	agentCreator   middleware.CreatorLookup
+	meetingCreator middleware.CreatorLookup
 	// kbCreatorFromKbIDParam reads :kbId (not :id) for the
 	// /initialization/* routes whose KB is addressed by :kbId.
 	kbCreatorFromKbIDParam middleware.CreatorLookup
@@ -162,6 +163,7 @@ func newRBACGuards(
 	chunkService interfaces.ChunkService,
 	kbShareService interfaces.KBShareService,
 	agentShareService interfaces.AgentShareService,
+	meetingHandler *handler.MeetingHandler,
 ) *rbacGuards {
 	g := &rbacGuards{cfg: cfg, apiKeyAuthorizer: middleware.NewAPIKeyRouteAuthorizer()}
 	if kbHandler != nil {
@@ -170,6 +172,9 @@ func newRBACGuards(
 	}
 	if agentHandler != nil {
 		g.agentCreator = agentHandler.AgentCreatorLookup
+	}
+	if meetingHandler != nil {
+		g.meetingCreator = meetingHandler.MeetingCreatorLookup
 	}
 	if knowledgeHandler != nil {
 		g.knowledgeKBCreator = knowledgeHandler.KBCreatorLookupFromKnowledgeID
@@ -463,6 +468,11 @@ func (g *rbacGuards) OwnedKBOrAdminFromKbIDParam() gin.HandlerFunc {
 // lookup returns "" and only Admin+ may mutate them.
 func (g *rbacGuards) OwnedAgentOrAdmin() gin.HandlerFunc {
 	return middleware.RequireOwnershipOrRole(types.TenantRoleAdmin, g.agentCreator, g.cfg)
+}
+
+// OwnedMeetingOrAdmin 会议室写操作：创建者本人或租户管理员
+func (g *rbacGuards) OwnedMeetingOrAdmin() gin.HandlerFunc {
+	return middleware.RequireOwnershipOrRole(types.TenantRoleAdmin, g.meetingCreator, g.cfg)
 }
 
 // OwnedKnowledgeKBOrAdmin: per-knowledge mutations (update / delete /

@@ -114,3 +114,12 @@ extract:
 tenant:
   # Enable cross-tenant access (can be enabled for intranet environments)
   enable_cross_tenant_access: false
+
+# Meeting room (multi-agent discussion) configuration
+meeting:
+  # 单轮讨论最大发言轮次护栏，<=0 回退默认 3
+  guard_max_exchange: 3
+  # 注入 LLM 上下文的最近消息数上限，<=0 回退默认 50
+  context_max_messages: 50
+  # 默认广播模式（sequential），空值回退 sequential
+  default_broadcast_mode: sequential

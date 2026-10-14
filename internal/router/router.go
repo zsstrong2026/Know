@@ -78,6 +78,7 @@ type RouterParams struct {
 	FAQHandler                   *handler.FAQHandler
 	TagHandler                   *handler.TagHandler
 	CustomAgentHandler           *handler.CustomAgentHandler
+	MeetingHandler               *handler.MeetingHandler
 	AgentEvalHandler             *handler.AgentEvalHandler
 	UserFavoriteHandler          *handler.UserResourceFavoriteHandler
 	SkillHandler                 *handler.SkillHandler
@@ -249,6 +250,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 			params.ChunkService,
 			params.KBShareService,
 			params.AgentShareService,
+			params.MeetingHandler,
 		)
 
 		// API-key gate: single authority for X-API-Key principals. Runs
@@ -317,6 +319,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterVectorStoreRoutes(v1, params.VectorStoreHandler, rbacGuards)
 		RegisterStorageBackendRoutes(v1, params.StorageBackendHandler, rbacGuards)
 		RegisterCustomAgentRoutes(v1, params.CustomAgentHandler, params.AgentEvalHandler, rbacGuards)
+		RegisterMeetingRoutes(v1, params.MeetingHandler, rbacGuards)
 		RegisterUserFavoriteRoutes(v1, params.UserFavoriteHandler, rbacGuards)
 		RegisterSkillRoutes(v1, params.SkillHandler, rbacGuards)
 		RegisterOrganizationRoutes(v1, params.OrganizationHandler, rbacGuards)

@@ -33,6 +33,7 @@ type Config struct {
 	PromptTemplates *PromptTemplatesConfig `yaml:"prompt_templates" json:"prompt_templates"`
 	IM              *IMConfig              `yaml:"im"               json:"im"`
 	Agent           *AgentConfig           `yaml:"agent"            json:"agent"`
+	Meeting         *MeetingConfig         `yaml:"meeting"          json:"meeting"`
 	// FrontendBaseURL is the externally-visible origin of the SPA, used
 	// to compose absolute share-link URLs. Empty falls back to a host-
 	// relative URL ("/register?token=…") which the SPA then resolves
@@ -49,6 +50,19 @@ type AgentConfig struct {
 	// ToolApprovalTimeoutSeconds is how long the agent waits for human approval on a flagged MCP tool.
 	// 0 means default 600 (10 minutes).
 	ToolApprovalTimeoutSeconds int `yaml:"tool_approval_timeout_seconds" json:"tool_approval_timeout_seconds"`
+}
+
+// MeetingConfig represents the meeting-room (multi-agent discussion) settings.
+type MeetingConfig struct {
+	// GuardMaxExchange caps the number of speaking turns per discussion turn.
+	// <=0 falls back to the default 3.
+	GuardMaxExchange int `yaml:"guard_max_exchange" json:"guard_max_exchange"`
+	// ContextMaxMessages caps how many recent messages are injected into the
+	// LLM context. <=0 falls back to the default 50.
+	ContextMaxMessages int `yaml:"context_max_messages" json:"context_max_messages"`
+	// DefaultBroadcastMode is the fallback broadcast mode (sequential).
+	// Empty falls back to "sequential".
+	DefaultBroadcastMode string `yaml:"default_broadcast_mode" json:"default_broadcast_mode"`
 }
 
 // IMConfig configures the IM integration service.
@@ -589,6 +603,7 @@ func LoadConfig() (*Config, error) {
 	// Validate configuration values
 	applyOIDCEnvOverrides(&cfg)
 	applyAgentEnvOverrides(&cfg)
+	applyMeetingEnvOverrides(&cfg)
 	applyKnowledgeBaseEnvOverrides(&cfg)
 	applyAuthAndTenantDefaults(&cfg)
 	applyAuditDefaults(&cfg)
@@ -801,6 +816,38 @@ func applyAgentEnvOverrides(cfg *Config) {
 		} else if d, err := time.ParseDuration(value + "s"); err == nil {
 			cfg.Agent.ToolApprovalTimeoutSeconds = int(d.Seconds())
 		}
+	}
+}
+
+// applyMeetingEnvOverrides 填充会议室配置的默认值并应用环境变量覆盖。
+// 默认值：guard_max_exchange=3, context_max_messages=50, default_broadcast_mode=sequential。
+// 环境变量：MEETING_GUARD_MAX_EXCHANGE / MEETING_CONTEXT_MAX_MESSAGES / MEETING_DEFAULT_BROADCAST_MODE。
+func applyMeetingEnvOverrides(cfg *Config) {
+	if cfg.Meeting == nil {
+		cfg.Meeting = &MeetingConfig{}
+	}
+	if value := strings.TrimSpace(os.Getenv("MEETING_GUARD_MAX_EXCHANGE")); value != "" {
+		if n, err := strconv.Atoi(value); err == nil {
+			cfg.Meeting.GuardMaxExchange = n
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("MEETING_CONTEXT_MAX_MESSAGES")); value != "" {
+		if n, err := strconv.Atoi(value); err == nil {
+			cfg.Meeting.ContextMaxMessages = n
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("MEETING_DEFAULT_BROADCAST_MODE")); value != "" {
+		cfg.Meeting.DefaultBroadcastMode = value
+	}
+	// 非法/缺失值统一回退默认
+	if cfg.Meeting.GuardMaxExchange <= 0 {
+		cfg.Meeting.GuardMaxExchange = 3
+	}
+	if cfg.Meeting.ContextMaxMessages <= 0 {
+		cfg.Meeting.ContextMaxMessages = 50
+	}
+	if cfg.Meeting.DefaultBroadcastMode == "" {
+		cfg.Meeting.DefaultBroadcastMode = "sequential"
 	}
 }
 

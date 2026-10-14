@@ -10,6 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/Tencent/WeKnora/internal/common/redislock"
+	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -25,6 +26,7 @@ type meetingEngine struct {
 	sessionService  interfaces.SessionService
 	redis           *redis.Client
 	broadcaster     *MeetingBroadcaster
+	cfg             *config.Config
 	contextMax      int // LLM 上下文消息上限（MEETING_CONTEXT_MAX_MESSAGES，默认 50）
 	turnLockLease   time.Duration
 }
@@ -36,13 +38,20 @@ func NewMeetingEngine(
 	agentRepo interfaces.CustomAgentRepository,
 	sessionService interfaces.SessionService,
 	redisClient *redis.Client,
+	cfg *config.Config,
 ) interfaces.MeetingEngine {
+	// 上下文消息上限：优先取配置，缺失或非法时回退 50
+	contextMax := 50
+	if cfg != nil && cfg.Meeting != nil && cfg.Meeting.ContextMaxMessages > 0 {
+		contextMax = cfg.Meeting.ContextMaxMessages
+	}
 	return &meetingEngine{
 		roomRepo: roomRepo, participantRepo: participantRepo,
 		messageRepo: messageRepo, agentRepo: agentRepo,
 		sessionService: sessionService, redis: redisClient,
 		broadcaster:   NewMeetingBroadcaster(),
-		contextMax:    50,
+		cfg:           cfg,
+		contextMax:    contextMax,
 		turnLockLease: 5 * time.Minute,
 	}
 }
