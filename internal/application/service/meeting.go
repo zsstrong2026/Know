@@ -123,6 +123,12 @@ func (s *meetingService) SendUserMessage(ctx context.Context, roomID string, use
 	// 异步触发讨论轮；CloneContext 保留 trace，避免请求 ctx 取消中断讨论
 	go func() {
 		bgCtx := logger.CloneContext(ctx)
+		// 兜底 recover：讨论轮是异步重管线，单次 panic 不应拖垮整个服务进程
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Errorf(bgCtx, "meeting RunTurn panic, room=%s recover=%v", roomID, r)
+			}
+		}()
 		if err := s.engine.RunTurn(bgCtx, roomID, msg.ID); err != nil {
 			logger.Errorf(bgCtx, "meeting RunTurn failed, room=%s err=%v", roomID, err)
 		}
