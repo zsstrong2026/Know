@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -113,10 +114,8 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 		"room_id": roomID,
 	}})
 
-	// 临时适配（T2.2 移除）：selectSpeakers 现按 *types.CustomAgent 工作，这里把 agent 参会者逐个加载为
-	// CustomAgent 对象，并用 AgentID->participant 映射把选中的智能体还原回 participant 传给 runAgentTurn。
+	// selectSpeakers 现按 *types.CustomAgent 工作，按参会顺序加载 agent 对象（单个失败仅告警跳过）
 	agentObjs := make([]*types.CustomAgent, 0, len(agents))
-	participantByAgent := make(map[string]*types.MeetingParticipant, len(agents))
 	for _, p := range agents {
 		agent, err := e.agentRepo.GetAgentByID(ctx, p.AgentID, room.TenantID)
 		if err != nil {
@@ -124,27 +123,47 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 			continue
 		}
 		agentObjs = append(agentObjs, agent)
-		participantByAgent[p.AgentID] = p
 	}
 
-	// 顺序广播：按 order_index 逐个智能体发言（M2 加并发模式与智能筛选）
 	speakers := e.selectSpeakers(ctx, room, trigger, agentObjs)
-	for _, agent := range speakers {
-		p := participantByAgent[agent.ID]
-		if p == nil {
-			continue
+	e.runAgentTurns(ctx, room, trigger, speakers)
+	return nil
+}
+
+// shouldRunParallel 判断本轮是否走并发模式：parallel 且发言者多于 1 个
+func shouldRunParallel(mode string, speakerCount int) bool {
+	return mode == types.MeetingBroadcastParallel && speakerCount > 1
+}
+
+// runAgentTurns 按广播模式执行本轮各智能体发言：parallel 并发、sequential 顺序（每轮前检查打断）
+func (e *meetingEngine) runAgentTurns(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, speakers []*types.CustomAgent) {
+	if shouldRunParallel(room.BroadcastMode, len(speakers)) {
+		var wg sync.WaitGroup
+		for _, agent := range speakers {
+			wg.Add(1)
+			go func(a *types.CustomAgent) {
+				defer wg.Done()
+				if err := e.runAgentTurn(ctx, room, trigger, a); err != nil {
+					logger.Errorf(ctx, "[meeting] agent %s speak failed: %v", a.ID, err)
+					e.publishSystemMessage(ctx, room.ID, fmt.Sprintf("「%s」发言失败，已跳过", a.Name))
+				}
+			}(agent)
 		}
-		if e.isInterrupted(ctx, roomID) {
-			logger.Infof(ctx, "meeting turn interrupted. room=%s", roomID)
-			return nil
+		wg.Wait()
+		return
+	}
+	// sequential：严格按参会顺序逐个发言，每个发言前检查打断标记
+	for _, a := range speakers {
+		if e.isInterrupted(ctx, room.ID) {
+			logger.Infof(ctx, "meeting turn interrupted. room=%s", room.ID)
+			e.publishSystemMessage(ctx, room.ID, "讨论已被用户打断")
+			return
 		}
-		if err := e.runAgentTurn(ctx, room, p, trigger, nil); err != nil {
-			logger.Errorf(ctx, "agent turn failed, room=%s agent=%s err=%v", roomID, p.AgentID, err)
-			// 单个智能体失败不阻塞整轮，广播 system 消息提示
-			e.publishSystemMessage(ctx, roomID, fmt.Sprintf("智能体「%s」本轮发言失败：%v", p.DisplayName, err))
+		if err := e.runAgentTurn(ctx, room, trigger, a); err != nil {
+			logger.Errorf(ctx, "[meeting] agent %s speak failed: %v", a.ID, err)
+			e.publishSystemMessage(ctx, room.ID, fmt.Sprintf("「%s」发言失败，已跳过", a.Name))
 		}
 	}
-	return nil
 }
 
 // Interrupt 强制结束当前讨论轮（释放锁由引擎下一轮进入时自行处理，这里置打断标记）
@@ -163,11 +182,8 @@ func (e *meetingEngine) isInterrupted(ctx context.Context, roomID string) bool {
 }
 
 // runAgentTurn 单个智能体发言：程序化调用 AgentQA，捕获最终答案并落库+广播
-func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoom, p *types.MeetingParticipant, trigger *types.MeetingMessage, replyTo *types.MeetingMessage) error {
-	agent, err := e.agentRepo.GetAgentByID(ctx, p.AgentID, room.TenantID)
-	if err != nil {
-		return err
-	}
+// agent 为已加载的智能体对象（只读），落库消息固定回复触发消息
+func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, agent *types.CustomAgent) error {
 	meetingAgent := cloneAgentForMeeting(agent)
 	kbIDs := unionKnowledgeBaseIDs(meetingAgent.Config.KBSelectionMode, meetingAgent.Config.KnowledgeBases, room.KnowledgeBaseIDs)
 
@@ -211,14 +227,12 @@ func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoo
 	}
 
 	msg := &types.MeetingMessage{
-		MeetingRoomID: room.ID,
-		SenderKind:    types.MeetingSenderAgent,
-		SenderID:      p.AgentID,
-		Content:       answer.String(),
-		ReviewState:   types.ReviewStateNone,
-	}
-	if replyTo != nil {
-		msg.ReplyToMessageID = replyTo.ID
+		MeetingRoomID:    room.ID,
+		SenderKind:       types.MeetingSenderAgent,
+		SenderID:         agent.ID,
+		ReplyToMessageID: trigger.ID,
+		Content:          answer.String(),
+		ReviewState:      types.ReviewStateNone,
 	}
 	if err := e.messageRepo.Create(ctx, msg); err != nil {
 		return err

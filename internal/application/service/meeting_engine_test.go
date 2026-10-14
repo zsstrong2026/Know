@@ -20,6 +20,17 @@ func TestUnionKnowledgeBaseIDs(t *testing.T) {
 	assert.Nil(t, got)
 }
 
+func TestShouldRunParallel(t *testing.T) {
+	// sequential：不走并发
+	assert.False(t, shouldRunParallel(types.MeetingBroadcastSequential, 3))
+	// parallel 但发言者仅 1 个：无需并发
+	assert.False(t, shouldRunParallel(types.MeetingBroadcastParallel, 1))
+	// parallel 且发言者多于 1 个：并发
+	assert.True(t, shouldRunParallel(types.MeetingBroadcastParallel, 2))
+	// 空模式：默认顺序
+	assert.False(t, shouldRunParallel("", 3))
+}
+
 func TestBuildMeetingQuery(t *testing.T) {
 	room := roomFixture()
 	msgs := messagesFixture()
