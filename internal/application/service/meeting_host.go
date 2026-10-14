@@ -104,3 +104,45 @@ func candidateIDs(cs []speakerCandidate) []string {
 	}
 	return ids
 }
+
+// generateGuardMessage 护栏触发后由主持人生成"回到正题"收敛消息；主持人不可用或生成失败时返回兜底文案。
+func (e *meetingEngine) generateGuardMessage(ctx context.Context, room *types.MeetingRoom, nameA, nameB string, recent []*types.MeetingMessage) string {
+	fallback := fmt.Sprintf("主持人提醒：「%s」与「%s」的讨论已较深入，我们先回到主题「%s」。请用户指示下一步方向。", nameA, nameB, room.Title)
+	hostChat, err := e.resolveHostChat(ctx)
+	if err != nil {
+		return fallback
+	}
+	// 组装收敛提示：主题 + 互呛双方 + 最近若干条发言（截断），要求主持人中立引导回主题
+	var b strings.Builder
+	fmt.Fprintf(&b, "会议主题：%s\n智能体「%s」和「%s」已连续多轮互相回应，内容如下（截取）：\n", room.Title, nameA, nameB)
+	for _, m := range tailN(recent, 6) {
+		name := senderLabel(m)
+		if m.SenderKind == types.MeetingSenderAgent {
+			name = e.agentDisplayName(ctx, room.ID, m.SenderID)
+		}
+		fmt.Fprintf(&b, "- %s: %s\n", name, truncate(m.Content, 200))
+	}
+	b.WriteString("\n请以主持人身份用 2-3 句话：肯定双方观点中有价值的部分，指出分歧焦点，然后把讨论引导回主题并向用户提问下一步。语气中立、简洁。")
+	resp, err := hostChat.Chat(ctx, []chat.Message{{Role: "user", Content: b.String()}}, &chat.ChatOptions{Temperature: 0.3})
+	if err != nil || resp == nil || strings.TrimSpace(resp.Content) == "" {
+		return fallback
+	}
+	return resp.Content
+}
+
+// tailN 取切片最后 n 条（不足则原样返回）
+func tailN(msgs []*types.MeetingMessage, n int) []*types.MeetingMessage {
+	if len(msgs) <= n {
+		return msgs
+	}
+	return msgs[len(msgs)-n:]
+}
+
+// truncate 截断到 n 个字符（按 rune 计，避免中文截半）
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}

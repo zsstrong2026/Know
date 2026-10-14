@@ -88,17 +88,13 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 		}
 	}()
 	// 进入新一轮讨论即清除遗留的打断标记
-	if err := e.redis.Del(ctx, interruptKey(roomID)).Err(); err != nil {
-		logger.Warnf(ctx, "clear meeting interrupt flag failed, room=%s err=%v", roomID, err)
-	}
+	e.clearInterrupt(ctx, roomID)
 
 	current := triggerMessageID
 	for {
 		if e.isInterrupted(ctx, roomID) {
 			// 用户已打断：清除标记并停止继续消化排队输入
-			if err := e.redis.Del(ctx, interruptKey(roomID)).Err(); err != nil {
-				logger.Warnf(ctx, "clear meeting interrupt flag failed, room=%s err=%v", roomID, err)
-			}
+			e.clearInterrupt(ctx, roomID)
 			break
 		}
 		room, trigger, speakers, err := e.prepareTurn(ctx, roomID, current)
@@ -112,6 +108,26 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 		e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnEnded, Data: map[string]interface{}{
 			"room_id": roomID, "trigger_message_id": current,
 		}})
+
+		// 护栏：检测互呛（同一对智能体连续多来回且无用户/主持人插入）→ 主持人收敛 → 广播 guard.triggered。
+		// 放在 TurnEnded 之后，保证 TurnStarted/TurnEnded 始终配对；触发后结束本轮并等待用户指示（不再消化排队输入）。
+		if recentForGuard, gerr := e.messageRepo.ListByRoom(ctx, roomID, "", e.guardWindowSize(room)); gerr == nil {
+			if hit, pair := detectBickering(recentForGuard, e.guardMaxExchange(room)); hit {
+				nameA := e.agentDisplayName(ctx, roomID, pair[0])
+				nameB := e.agentDisplayName(ctx, roomID, pair[1])
+				content := e.generateGuardMessage(ctx, room, nameA, nameB, recentForGuard)
+				if hostMsg, herr := e.appendHostMessage(ctx, roomID, content); herr == nil {
+					e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventGuardTriggered, Data: map[string]interface{}{
+						"agents": []string{pair[0], pair[1]}, "message": hostMsg,
+					}})
+				} else {
+					logger.Warnf(ctx, "meeting guard host message failed, room=%s err=%v", roomID, herr)
+				}
+				break // 护栏触发即结束当前讨论轮，等待用户指示
+			}
+		} else if gerr != nil {
+			logger.Warnf(ctx, "meeting guard window query failed, room=%s err=%v", roomID, gerr)
+		}
 
 		// 拾取排队输入：本轮触发消息之后的最后一条用户消息
 		recent, err := e.messageRepo.ListByRoom(ctx, roomID, "", 50)
@@ -303,6 +319,57 @@ func (e *meetingEngine) publishSystemMessage(ctx context.Context, roomID string,
 		e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventMessageCreated, Data: msg})
 	} else {
 		logger.Warnf(ctx, "publish meeting system message failed, room=%s err=%v", roomID, err)
+	}
+}
+
+// appendHostMessage 落库 sender_kind=host 消息并广播 message.created（护栏收敛/M4 方案生成复用）
+func (e *meetingEngine) appendHostMessage(ctx context.Context, roomID string, content string) (*types.MeetingMessage, error) {
+	msg := &types.MeetingMessage{
+		MeetingRoomID: roomID, SenderKind: types.MeetingSenderHost, Content: content,
+	}
+	if err := e.messageRepo.Create(ctx, msg); err != nil {
+		return nil, err
+	}
+	e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventMessageCreated, Data: msg})
+	return msg, nil
+}
+
+// agentDisplayName 参会者列表反查展示名，查不到回退 agentID 前 8 位
+func (e *meetingEngine) agentDisplayName(ctx context.Context, roomID string, agentID string) string {
+	ps, err := e.participantRepo.ListByRoom(ctx, roomID)
+	if err == nil {
+		for _, p := range ps {
+			if p.AgentID == agentID && p.DisplayName != "" {
+				return p.DisplayName
+			}
+		}
+	}
+	if len(agentID) > 8 {
+		return agentID[:8]
+	}
+	return agentID
+}
+
+// guardMaxExchange 护栏互呛来回上限：优先房间配置，其次全局配置，最后回退 3
+func (e *meetingEngine) guardMaxExchange(room *types.MeetingRoom) int {
+	if room != nil && room.GuardMaxExchange > 0 {
+		return room.GuardMaxExchange
+	}
+	if e.cfg != nil && e.cfg.Meeting != nil && e.cfg.Meeting.GuardMaxExchange > 0 {
+		return e.cfg.Meeting.GuardMaxExchange
+	}
+	return 3
+}
+
+// guardWindowSize 护栏回看窗口：来回上限*2 + 余量（够判定即可，避免全量拉取）
+func (e *meetingEngine) guardWindowSize(room *types.MeetingRoom) int {
+	return e.guardMaxExchange(room)*2 + 4
+}
+
+// clearInterrupt 清除打断标记（本轮结束/进入新一轮时调用）
+func (e *meetingEngine) clearInterrupt(ctx context.Context, roomID string) {
+	if err := e.redis.Del(ctx, interruptKey(roomID)).Err(); err != nil {
+		logger.Warnf(ctx, "clear meeting interrupt flag failed, room=%s err=%v", roomID, err)
 	}
 }
 

@@ -336,3 +336,118 @@ func TestRunTurnConsumesQueuedTriggers(t *testing.T) {
 	require.NoError(t, e2.RunTurn(ctx, "room2", "m1"))
 	require.Len(t, messagesByKind(repo2.snapshot(), types.MeetingSenderAgent), 1, "无排队输入只应执行一轮")
 }
+
+// ---- 护栏收敛测试（T3.2）----
+
+// newGuardEngineFixture 复用 newTurnEngineFixture，额外注入 modelService：
+// 避免 resolveHostChat 因 modelService==nil 而 panic；ListModels 返回 nil → 走 fallback 文案。
+func newGuardEngineFixture(t *testing.T, roomID string, preset []*types.MeetingMessage) (*meetingEngine, *fakeMeetingMessageRepo) {
+	t.Helper()
+	e, repo := newTurnEngineFixture(t, roomID, preset)
+	e.modelService = &stubModelService{}
+	return e, repo
+}
+
+// TestGenerateGuardMessageFallback 主持人不可用时应返回兜底文案（含双方名与主题），而非 panic
+func TestGenerateGuardMessageFallback(t *testing.T) {
+	e := &meetingEngine{
+		modelService:    &stubModelService{},
+		participantRepo: &fakeParticipantRepoForTurn{},
+		messageRepo:     &fakeMeetingMessageRepo{},
+		broadcaster:     NewMeetingBroadcaster(),
+	}
+	room := &types.MeetingRoom{ID: "r", Title: "发布方案评审"}
+	recent := []*types.MeetingMessage{
+		{ID: "a", SenderKind: types.MeetingSenderAgent, SenderID: "a1", Content: "甲的观点"},
+		{ID: "b", SenderKind: types.MeetingSenderAgent, SenderID: "a2", Content: "乙的观点"},
+	}
+	got := e.generateGuardMessage(context.Background(), room, "甲", "乙", recent)
+	assert.NotEmpty(t, got)
+	assert.Contains(t, got, "甲")
+	assert.Contains(t, got, "乙")
+	assert.Contains(t, got, room.Title)
+
+	// truncate：按 rune 截断，避免中文截半
+	assert.Equal(t, "中文测…", truncate("中文测试abc", 3))
+	assert.Equal(t, "abc", truncate("abc", 5), "不超长时原样返回")
+	assert.Equal(t, "论", truncate("论", 1), "长度恰等于 n 时不追加省略号")
+	// tailN：len<=n 原样返回；len>n 取尾段
+	assert.Equal(t, recent, tailN(recent, 2))
+	assert.Equal(t, recent[1:], tailN(recent, 1))
+}
+
+// fakeGuardRoomRepoForTurn 返回带护栏上限配置的房间（覆盖 fakeRoomRepoForTurn 的默认配置）
+type fakeGuardRoomRepoForTurn struct {
+	interfaces.MeetingRoomRepository
+}
+
+func (f *fakeGuardRoomRepoForTurn) GetByIDInternal(_ context.Context, id string) (*types.MeetingRoom, error) {
+	return &types.MeetingRoom{
+		ID: id, TenantID: 1, Title: "发布方案评审",
+		BroadcastMode:    types.MeetingBroadcastSequential,
+		GuardMaxExchange: 3,
+	}, nil
+}
+
+// fakeTwoAgentParticipantRepo 返回两个带展示名的 agent 参会者，用于校验护栏双方展示名反查
+type fakeTwoAgentParticipantRepo struct {
+	interfaces.MeetingParticipantRepository
+}
+
+func (f *fakeTwoAgentParticipantRepo) ListByRoom(_ context.Context, roomID string) ([]*types.MeetingParticipant, error) {
+	return []*types.MeetingParticipant{
+		{MeetingRoomID: roomID, Kind: types.ParticipantKindAgent, AgentID: "agent-A", DisplayName: "甲"},
+		{MeetingRoomID: roomID, Kind: types.ParticipantKindAgent, AgentID: "agent-B", DisplayName: "乙"},
+	}, nil
+}
+
+// TestRunTurnGuardTriggersHostConvergence 护栏接入行为：尾部同一对智能体连续 3 来回 → 主持人收敛并广播 guard.triggered
+func TestRunTurnGuardTriggersHostConvergence(t *testing.T) {
+	ctx := context.Background()
+	// u1 为触发消息；A/B 两条链严格交替，累计 3 个完整来回
+	preset := []*types.MeetingMessage{
+		{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "触发"},
+		{ID: "g1", SenderKind: types.MeetingSenderAgent, SenderID: "agent-A", Content: "观点 1"},
+		{ID: "g2", SenderKind: types.MeetingSenderAgent, SenderID: "agent-B", Content: "观点 2"},
+		{ID: "g3", SenderKind: types.MeetingSenderAgent, SenderID: "agent-A", Content: "观点 3"},
+		{ID: "g4", SenderKind: types.MeetingSenderAgent, SenderID: "agent-B", Content: "观点 4"},
+		{ID: "g5", SenderKind: types.MeetingSenderAgent, SenderID: "agent-A", Content: "观点 5"},
+		{ID: "g6", SenderKind: types.MeetingSenderAgent, SenderID: "agent-B", Content: "观点 6"},
+	}
+	e, repo := newGuardEngineFixture(t, "room-g", preset)
+	// 房间带 GuardMaxExchange=3；参会者为两个带展示名的 agent，用于展示名反查
+	e.roomRepo = &fakeGuardRoomRepoForTurn{}
+	e.participantRepo = &fakeTwoAgentParticipantRepo{}
+
+	ch, unsub := e.broadcaster.Subscribe("room-g")
+	defer unsub()
+
+	require.NoError(t, e.RunTurn(ctx, "room-g", "u1"))
+
+	hostMsgs := messagesByKind(repo.snapshot(), types.MeetingSenderHost)
+	require.Len(t, hostMsgs, 1, "护栏触发应产生恰好一条主持人收敛消息")
+	assert.Contains(t, hostMsgs[0].Content, "发布方案评审", "兜底收敛文案应包含会议主题")
+
+	// publish 为同步，RunTurn 返回后缓冲区内应已含 guard.triggered
+	var sawGuard bool
+	for len(ch) > 0 {
+		if evt := <-ch; evt.Type == MeetingEventGuardTriggered {
+			sawGuard = true
+		}
+	}
+	assert.True(t, sawGuard, "应广播 guard.triggered 事件")
+}
+
+// TestRunTurnNoGuardWhenNotBickering 反向用例：尾部仅 2 条交替（不足 3 来回）→ 不应触发护栏
+func TestRunTurnNoGuardWhenNotBickering(t *testing.T) {
+	ctx := context.Background()
+	preset := []*types.MeetingMessage{
+		{ID: "m1", SenderKind: types.MeetingSenderUser, Content: "触发"},
+		{ID: "g1", SenderKind: types.MeetingSenderAgent, SenderID: "a1", Content: "观点 1"},
+		{ID: "g2", SenderKind: types.MeetingSenderAgent, SenderID: "a2", Content: "观点 2"},
+	}
+	e, repo := newGuardEngineFixture(t, "room-n", preset)
+
+	require.NoError(t, e.RunTurn(ctx, "room-n", "m1"))
+	assert.Equal(t, 0, countByKind(repo.snapshot(), types.MeetingSenderHost), "未构成互呛不应产生主持人收敛消息")
+}
