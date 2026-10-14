@@ -33,6 +33,15 @@ func (r *meetingRoomRepository) GetByID(ctx context.Context, id string, tenantID
 	return &room, err
 }
 
+func (r *meetingRoomRepository) GetByIDInternal(ctx context.Context, id string) (*types.MeetingRoom, error) {
+	var room types.MeetingRoom
+	err := r.db.WithContext(ctx).Where("id = ?", id).First(&room).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrMeetingRoomNotFound
+	}
+	return &room, err
+}
+
 func (r *meetingRoomRepository) ListByCreator(ctx context.Context, tenantID uint64, createdBy string, status string, offset, limit int) ([]*types.MeetingRoom, int64, error) {
 	var rooms []*types.MeetingRoom
 	var total int64

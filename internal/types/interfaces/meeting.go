@@ -10,6 +10,8 @@ import (
 type MeetingRoomRepository interface {
 	Create(ctx context.Context, room *types.MeetingRoom) error
 	GetByID(ctx context.Context, id string, tenantID uint64) (*types.MeetingRoom, error)
+	// GetByIDInternal 引擎内部使用：不校验 created_by（讨论轮是系统行为），仍按 tenant 隔离由调用方保证
+	GetByIDInternal(ctx context.Context, id string) (*types.MeetingRoom, error)
 	ListByCreator(ctx context.Context, tenantID uint64, createdBy string, status string, offset, limit int) ([]*types.MeetingRoom, int64, error)
 	Update(ctx context.Context, room *types.MeetingRoom) error
 	Delete(ctx context.Context, id string, tenantID uint64) error // 软删
