@@ -245,6 +245,11 @@ export default {
     discussing: 'Discussion in progress…',
     inputPlaceholder: 'Type your opinion or question; press Ctrl+Enter to send',
     send: 'Send',
+    senderHost: 'Host',
+    senderSystem: 'System',
+    senderMe: 'Me',
+    loadFailed: 'Failed to load',
+    createFailed: 'Failed to create',
   },
   docAssistant: {
     template: {

@@ -7610,6 +7610,11 @@ export default {
     discussing: 'Идёт обсуждение…',
     inputPlaceholder: 'Введите своё мнение или вопрос, Ctrl+Enter — отправить',
     send: 'Отправить',
+    senderHost: 'Ведущий',
+    senderSystem: 'Система',
+    senderMe: 'Я',
+    loadFailed: 'Не удалось загрузить',
+    createFailed: 'Не удалось создать',
   },
   docAssistant: {
     template: {

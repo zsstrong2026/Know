@@ -30,6 +30,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
+import { MessagePlugin } from 'tdesign-vue-next';
 import { useMeetingStore } from '@/stores/meeting';
 import type { MeetingRoom } from '@/api/meeting';
 
@@ -48,7 +49,13 @@ const columns = computed(() => [
 
 onMounted(async () => {
   loading.value = true;
-  try { await store.fetchRooms(); } finally { loading.value = false; }
+  try {
+    await store.fetchRooms();
+  } catch {
+    MessagePlugin.error(t('meeting.loadFailed'));
+  } finally {
+    loading.value = false;
+  }
 });
 
 // t-table 的行点击回调入参为 { row, index, e }

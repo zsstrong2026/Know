@@ -244,6 +244,11 @@ export default {
     discussing: '討論中…',
     inputPlaceholder: '意見や質問を入力。Ctrl+Enterで送信',
     send: '送信',
+    senderHost: '司会',
+    senderSystem: 'システム',
+    senderMe: '自分',
+    loadFailed: '読み込みに失敗しました',
+    createFailed: '作成に失敗しました',
   },
   chatHeader: {
     moreActions: 'その他の会話操作',

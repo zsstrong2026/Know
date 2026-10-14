@@ -36,6 +36,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { createMeeting, type BroadcastMode } from '@/api/meeting';
@@ -43,6 +44,7 @@ import { listAgents } from '@/api/agent';                    // 复用既有智�
 import { listKnowledgeBases } from '@/api/knowledge-base';   // 复用既有知识库列表接口
 
 const router = useRouter();
+const { t } = useI18n();
 const agents = ref<Array<{ id: string; name: string }>>([]);
 const knowledgeBases = ref<Array<{ id: string; name: string }>>([]);
 const submitting = ref(false);
@@ -60,9 +62,13 @@ const broadcastMode = computed<BroadcastMode>({
 
 onMounted(async () => {
   // listAgents / listKnowledgeBases 均返回 { data: [...] } 信封，这里统一解包取数组
-  const [agentRes, kbRes] = await Promise.all([listAgents(), listKnowledgeBases()]);
-  agents.value = agentRes?.data ?? [];
-  knowledgeBases.value = (kbRes?.data ?? []) as Array<{ id: string; name: string }>;
+  try {
+    const [agentRes, kbRes] = await Promise.all([listAgents(), listKnowledgeBases()]);
+    agents.value = agentRes?.data ?? [];
+    knowledgeBases.value = (kbRes?.data ?? []) as Array<{ id: string; name: string }>;
+  } catch {
+    MessagePlugin.error(t('meeting.loadFailed'));
+  }
 });
 
 async function submit() {
@@ -70,8 +76,8 @@ async function submit() {
   try {
     const room = await createMeeting(form);
     router.push({ name: 'meetingRoom', params: { roomId: room.id } });
-  } catch (e: any) {
-    MessagePlugin.error(e?.message || 'create failed');
+  } catch (e) {
+    MessagePlugin.error((e as Error)?.message || t('meeting.createFailed'));
   } finally {
     submitting.value = false;
   }

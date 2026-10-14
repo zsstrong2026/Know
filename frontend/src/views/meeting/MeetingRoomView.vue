@@ -31,12 +31,15 @@
 
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
+import { MessagePlugin } from 'tdesign-vue-next';
 import { useMeetingStore } from '@/stores/meeting';
 import { openMeetingStream } from '@/api/meeting';
 import type { MeetingMessage } from '@/api/meeting';
 
 const route = useRoute();
+const { t } = useI18n();
 const store = useMeetingStore();
 const draft = ref('');
 const scrollRef = ref<HTMLElement>();
@@ -45,7 +48,14 @@ let closeStream: (() => void) | null = null;
 const roomId = route.params.roomId as string;
 
 onMounted(async () => {
-  await store.enterRoom(roomId);
+  // 进入房间失败时给出提示，且仅在成功后才建立 SSE 连接，避免空白页
+  try {
+    await store.enterRoom(roomId);
+  } catch (e) {
+    MessagePlugin.error(t('meeting.loadFailed'));
+    return;
+  }
+  await nextTick();
   scrollToBottom();
   closeStream = openMeetingStream(roomId, {
     onEvent: (event, data) => store.applyStreamEvent(event, data),
@@ -58,7 +68,8 @@ onBeforeUnmount(() => {
   store.leaveRoom();
 });
 
-watch(() => store.messages.length, () => nextTick(scrollToBottom));
+// 监听最后一条消息 id：prepend 加载更早消息时末条 id 不变，仅追加时滚动到底部
+watch(() => store.messages[store.messages.length - 1]?.id, () => nextTick(scrollToBottom));
 
 function scrollToBottom() {
   const el = scrollRef.value;
@@ -66,9 +77,9 @@ function scrollToBottom() {
 }
 
 function senderLabel(m: MeetingMessage): string {
-  if (m.sender_kind === 'host') return '主持人';
-  if (m.sender_kind === 'system') return '系统';
-  if (m.sender_kind === 'user') return '我';
+  if (m.sender_kind === 'host') return t('meeting.senderHost');
+  if (m.sender_kind === 'system') return t('meeting.senderSystem');
+  if (m.sender_kind === 'user') return t('meeting.senderMe');
   const p = store.currentRoom?.participants?.find(
     x => x.kind === 'agent' && x.agent_id === m.sender_id);
   return p?.display_name ?? m.sender_id.slice(0, 8);
@@ -78,6 +89,11 @@ async function send() {
   const content = draft.value.trim();
   if (!content) return;
   draft.value = '';
-  await store.speak(content);
+  try {
+    await store.speak(content);
+  } catch (e) {
+    draft.value = content;                          // 失败时回填，避免丢内容
+    MessagePlugin.error((e as Error)?.message || t('meeting.loadFailed'));
+  }
 }
 </script>

@@ -7612,6 +7612,11 @@ export default {
     discussing: '讨论进行中…',
     inputPlaceholder: '输入你的观点或问题，Ctrl+Enter 发送',
     send: '发送',
+    senderHost: '主持人',
+    senderSystem: '系统',
+    senderMe: '我',
+    loadFailed: '加载失败',
+    createFailed: '创建失败',
   },
   docAssistant: {
     template: {
