@@ -3066,7 +3066,424 @@ Run: `git add internal/handler/meeting.go internal/router/routes_meeting.go inte
 
 ---
 
+### Task T3.4: 单轮内智能体互相回应（reply_to 链 + 多来回子轮循环）
+
+> **补计划遗漏（T3.2 代码质量审查 C1）**：设计 §4.2 明确"单个 RunTurn 内允许 agent 互相回应（生成 reply_to 链），链长达到 `guard_max_exchange` 才触发护栏"。但 M3 原计划没有任何实现该语义的任务，`runAgentTurns` 每个 agent 每轮只发一条且 `ReplyToMessageID` 恒为触发消息（用户消息），导致护栏 tail 最多只有"发言人数"条，生产路径 **永不触发**（只有 `guard_max_exchange<=1` 时侥幸命中）。本任务补齐该链路。
+
+**Files:**
+- Modify: `internal/application/service/meeting_engine.go`（子轮循环 + 提及解析 + 组装指令）
+- Modify: `internal/application/service/meeting_engine_test.go`（修复 M1 假阳性 + 新增子轮用例）
+
+**语义（最小可用）**：
+- 首轮：`selectSpeakers` 选出的发言者各自 `reply_to = 触发消息`（现状不变）。
+- 子轮：由 **agent 自身输出信号**驱动——agent 在回复中用 `@展示名` 提及其他参会者，引擎解析后写入该消息的 `MentionedAgentIDs`；下一子轮发言者 = 上一子轮中被提及的参会者（按参会顺序去重），各自 `reply_to = 提及它的那条消息`。
+- 自然终止：某子轮内没有任何 agent 提及其他参会者（对齐设计："本轮没有 agent 消息 reply_to 其他 agent 消息 → 自然结束"）。
+- 硬上限：子轮数 ≤ `guardMaxExchange(room)`（防 LLM 无限互呛，绑定成本）。
+- 打断：子轮边界复用既有 `isInterrupted` 检查。
+- 护栏检查仍留在 `RunTurn` 中 `runDiscussion` 之后（T3.2 现状不变）；此时 tail 已形成 `A,B,A,B,…` 交替链，达 `maxExchange*2` 条即触发。
+
+- [ ] **Step 1: 写失败测试（含 M1 假阳性修复）**
+
+`meeting_engine_test.go`：
+
+**① 修复假阳性根因**：替身 `ListByRoom` 必须返回"预置 ∪ 本轮落库"，否则测试预置 `runAgentTurns` 永远造不出的状态：
+
+```go
+// GetByID 从预置 + 本轮落库中按 ID 查找
+func (f *fakeMeetingMessageRepo) GetByID(_ context.Context, id string) (*types.MeetingMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, m := range append(append([]*types.MeetingMessage{}, f.preset...), f.created...) {
+		if m.ID == id {
+			return m, nil
+		}
+	}
+	return nil, errors.New("message not found")
+}
+
+// ListByRoom 返回"预置 ∪ 本轮落库"的正序副本（旧->新），模拟真实持久化读回
+func (f *fakeMeetingMessageRepo) ListByRoom(_ context.Context, _ string, _ string, _ int) ([]*types.MeetingMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*types.MeetingMessage, 0, len(f.preset)+len(f.created))
+	out = append(out, f.preset...)
+	out = append(out, f.created...)
+	return out, nil
+}
+```
+
+**② 提及解析纯逻辑用例**：
+
+```go
+func TestParseMentionedAgentIDs(t *testing.T) {
+	ps := []*types.MeetingParticipant{
+		{Kind: types.ParticipantKindAgent, AgentID: "agent-A", DisplayName: "甲"},
+		{Kind: types.ParticipantKindAgent, AgentID: "agent-B", DisplayName: "乙"},
+		{Kind: types.ParticipantKindHost, AgentID: "", DisplayName: "主持人"},
+	}
+	// 命中对方：按参会顺序返回 agentID
+	assert.Equal(t, []string{"agent-B"}, parseMentionedAgentIDs("我赞同 @乙 的看法", ps, "agent-A"))
+	// 提及自己：排除
+	assert.Nil(t, parseMentionedAgentIDs("@甲 我说完了", ps, "agent-A"))
+	// 提及主持人（非 agent 参会者）与未知名字：不产生 ID
+	assert.Nil(t, parseMentionedAgentIDs("@主持人 请裁决", ps, "agent-A"))
+	assert.Nil(t, parseMentionedAgentIDs("没有提及任何人", ps, "agent-A"))
+	// 参与者为空：不 panic、返回 nil
+	assert.Nil(t, parseMentionedAgentIDs("@甲", nil, "agent-A"))
+}
+```
+
+**③ 子轮行为用例（真实流程自然形成 3 来回）**：
+
+```go
+// fakeTwoAgentRepoForTurn 解析 agent-A/agent-B 两个智能体对象（子轮按 ID 取回发言人）
+type fakeTwoAgentRepoForTurn struct {
+	interfaces.CustomAgentRepository
+}
+
+func (f *fakeTwoAgentRepoForTurn) GetAgentByID(_ context.Context, id string, _ uint64) (*types.CustomAgent, error) {
+	name := "甲"
+	if id == "agent-B" {
+		name = "乙"
+	}
+	return &types.CustomAgent{ID: id, Name: name}, nil
+}
+
+// TestRunTurnGuardTriggersHostConvergence 真实路径：两个智能体在本轮内互相 @，
+// 子轮自然扩展出 3 个来回（6 条 agent 消息）→ 护栏触发 → 主持人收敛 + 广播 guard.triggered
+func TestRunTurnGuardTriggersHostConvergence(t *testing.T) {
+	ctx := context.Background()
+	preset := []*types.MeetingMessage{
+		{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "触发"},
+	}
+	e, repo := newGuardEngineFixture(t, "room-g", preset)
+	e.roomRepo = &fakeGuardRoomRepoForTurn{}          // GuardMaxExchange=3
+	e.participantRepo = &fakeTwoAgentParticipantRepo{} // 甲/乙
+	e.agentRepo = &fakeTwoAgentRepoForTurn{}
+	// 每个智能体都 @ 对方 → 每轮都产生新提及 → 子轮持续到硬上限（3 轮 × 2 人 = 6 条）
+	e.sessionService = &fakeMeetingSession{agentQA: func(_ context.Context, req *types.QARequest, bus *event.EventBus) error {
+		target := "@乙"
+		if req.CustomAgent.ID == "agent-B" {
+			target = "@甲"
+		}
+		return bus.Emit(context.Background(), event.Event{
+			Type: event.EventAgentFinalAnswer,
+			Data: event.AgentFinalAnswerData{Content: "我的观点 " + target},
+		})
+	}}
+
+	ch, unsub := e.broadcaster.Subscribe("room-g")
+	defer unsub()
+
+	require.NoError(t, e.RunTurn(ctx, "room-g", "u1"))
+
+	agentMsgs := messagesByKind(repo.snapshot(), types.MeetingSenderAgent)
+	require.Len(t, agentMsgs, 6, "3 个子轮 × 2 个智能体 = 6 条互相回应消息")
+	assert.Equal(t, "u1", agentMsgs[0].ReplyToMessageID, "首轮回应触发消息")
+	assert.NotEqual(t, "u1", agentMsgs[2].ReplyToMessageID, "子轮应回应其他智能体的消息")
+	require.Len(t, agentMsgs[0].MentionedAgentIDs, 1, "应落库解析出的提及")
+
+	hostMsgs := messagesByKind(repo.snapshot(), types.MeetingSenderHost)
+	require.Len(t, hostMsgs, 1, "护栏触发应产生恰好一条主持人收敛消息")
+	assert.Contains(t, hostMsgs[0].Content, "发布方案评审", "兜底收敛文案应包含会议主题")
+
+	var sawGuard bool
+	for len(ch) > 0 {
+		if evt := <-ch; evt.Type == MeetingEventGuardTriggered {
+			sawGuard = true
+		}
+	}
+	assert.True(t, sawGuard, "应广播 guard.triggered 事件")
+}
+
+// TestRunTurnStopsWhenNoMention 反向用例：智能体不提及他人 → 不展开子轮，仅 2 条消息、不触发护栏
+func TestRunTurnStopsWhenNoMention(t *testing.T) {
+	ctx := context.Background()
+	e, repo := newGuardEngineFixture(t, "room-s", []*types.MeetingMessage{
+		{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "触发"},
+	})
+	e.roomRepo = &fakeGuardRoomRepoForTurn{}
+	e.participantRepo = &fakeTwoAgentParticipantRepo{}
+	e.agentRepo = &fakeTwoAgentRepoForTurn{}
+
+	require.NoError(t, e.RunTurn(ctx, "room-s", "u1"))
+
+	assert.Equal(t, 2, countByKind(repo.snapshot(), types.MeetingSenderAgent), "无提及应自然终止于首轮")
+	assert.Equal(t, 0, countByKind(repo.snapshot(), types.MeetingSenderHost), "未达阈值不应触发护栏")
+}
+```
+
+Run: `go test ./internal/application/service/ -run "TestParseMentionedAgentIDs|TestRunTurnStopsWhenNoMention|TestRunTurnGuardTriggersHostConvergence" -v`
+Expected: FAIL（`parseMentionedAgentIDs` 未定义 / 子轮未实现）。
+
+- [ ] **Step 2: 实现提及解析 + 子轮循环**
+
+`meeting_engine.go` 顶部 import 增加 `"regexp"`。
+
+```go
+// mentionTokenRe 匹配 @某人（@ 后接连续的字母/数字/下划线/连字符/汉字）
+var mentionTokenRe = regexp.MustCompile(`@([\p{L}\p{N}_\-]+)`)
+
+// parseMentionedAgentIDs 从回复文本解析 @展示名 提及并映射为 agentID（按参会顺序去重，排除自己）。
+// participants 为空或无有效匹配时返回 nil。
+func parseMentionedAgentIDs(content string, participants []*types.MeetingParticipant, selfID string) []string {
+	if content == "" || len(participants) == 0 {
+		return nil
+	}
+	matches := mentionTokenRe.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	names := make(map[string]struct{}, len(matches))
+	for _, m := range matches {
+		names[m[1]] = struct{}{}
+	}
+	var out []string
+	for _, p := range participants {
+		if p.Kind != types.ParticipantKindAgent || p.AgentID == "" || p.AgentID == selfID || p.DisplayName == "" {
+			continue
+		}
+		if _, ok := names[p.DisplayName]; ok {
+			out = append(out, p.AgentID)
+		}
+	}
+	return out
+}
+
+// meetingSpeaker 一个发言任务：agent 回应 replyTo 这条消息
+type meetingSpeaker struct {
+	agent   *types.CustomAgent
+	replyTo *types.MeetingMessage
+}
+
+// runAgentTurns 一轮发言（所有发言者回应同一 trigger）；保留既有签名供既有测试/调用复用
+func (e *meetingEngine) runAgentTurns(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, speakers []*types.CustomAgent) []*types.MeetingMessage {
+	tasks := make([]meetingSpeaker, 0, len(speakers))
+	for _, a := range speakers {
+		tasks = append(tasks, meetingSpeaker{agent: a, replyTo: trigger})
+	}
+	return e.runSpeakerTasks(ctx, room, tasks, nil)
+}
+
+// runSpeakerTasks 按广播模式执行一组发言任务，返回成功落库的 agent 消息（顺序确定）
+func (e *meetingEngine) runSpeakerTasks(ctx context.Context, room *types.MeetingRoom, tasks []meetingSpeaker, participants []*types.MeetingParticipant) []*types.MeetingMessage {
+	if shouldRunParallel(room.BroadcastMode, len(tasks)) {
+		if ctx.Err() != nil {
+			return nil // ctx 已取消时不再启动并发发言
+		}
+		slots := make([]*types.MeetingMessage, len(tasks))
+		var wg sync.WaitGroup
+		for i, task := range tasks {
+			wg.Add(1)
+			go func(i int, task meetingSpeaker) {
+				defer wg.Done()
+				msg, err := e.runAgentTurn(ctx, room, task.replyTo, task.agent, participants)
+				if err != nil {
+					e.handleSpeakFailure(ctx, room, task.agent, err)
+					return
+				}
+				slots[i] = msg // 各 goroutine 写不同下标，无数据竞争
+			}(i, task)
+		}
+		wg.Wait()
+		return compactMessages(slots)
+	}
+	// sequential：严格按顺序逐个发言，每个发言前检查打断标记
+	out := make([]*types.MeetingMessage, 0, len(tasks))
+	for _, task := range tasks {
+		if e.isInterrupted(ctx, room.ID) {
+			logger.Infof(ctx, "meeting turn interrupted. room=%s", room.ID)
+			e.publishSystemMessage(ctx, room.ID, "讨论已被用户打断")
+			return out
+		}
+		msg, err := e.runAgentTurn(ctx, room, task.replyTo, task.agent, participants)
+		if err != nil {
+			e.handleSpeakFailure(ctx, room, task.agent, err)
+			continue
+		}
+		out = append(out, msg)
+	}
+	return out
+}
+
+// compactMessages 去掉 nil 槽位，保持成功消息相对顺序
+func compactMessages(in []*types.MeetingMessage) []*types.MeetingMessage {
+	out := make([]*types.MeetingMessage, 0, len(in))
+	for _, m := range in {
+		if m != nil {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// planReplyRound 依据本轮消息的提及关系规划下一子轮：被提及者各自回应"最早提及它的那条消息"。
+// 无任何提及 → nil，表示讨论自然终止。
+func planReplyRound(created []*types.MeetingMessage, participants []*types.MeetingParticipant, agentsByID map[string]*types.CustomAgent) []meetingSpeaker {
+	targets := make(map[string]*types.MeetingMessage, len(participants))
+	for _, m := range created {
+		for _, id := range m.MentionedAgentIDs {
+			if _, seen := targets[id]; !seen {
+				targets[id] = m // 仅记最早一条，保证确定性
+			}
+		}
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	out := make([]meetingSpeaker, 0, len(targets))
+	for _, p := range participants { // 按参会顺序，保证确定性
+		if p.Kind != types.ParticipantKindAgent {
+			continue
+		}
+		target, ok := targets[p.AgentID]
+		if !ok {
+			continue
+		}
+		if agent := agentsByID[p.AgentID]; agent != nil {
+			out = append(out, meetingSpeaker{agent: agent, replyTo: target})
+		}
+	}
+	return out
+}
+
+// runDiscussion 执行一轮完整讨论：首轮由 selectSpeakers 决定的发言者回应触发消息，
+// 之后按"提及链"展开子轮，直至自然终止（无提及）/达到护栏上限/用户打断。
+func (e *meetingEngine) runDiscussion(
+	ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage,
+	speakers, allAgents []*types.CustomAgent, participants []*types.MeetingParticipant,
+) {
+	agentsByID := make(map[string]*types.CustomAgent, len(allAgents))
+	for _, a := range allAgents {
+		agentsByID[a.ID] = a
+	}
+	tasks := make([]meetingSpeaker, 0, len(speakers))
+	for _, a := range speakers {
+		tasks = append(tasks, meetingSpeaker{agent: a, replyTo: trigger})
+	}
+	maxRounds := e.guardMaxExchange(room) // 子轮硬上限：防 LLM 无限互相回应
+	for round := 0; round < maxRounds && len(tasks) > 0; round++ {
+		created := e.runSpeakerTasks(ctx, room, tasks, participants)
+		if e.isInterrupted(ctx, room.ID) {
+			return // sequential 分支已落库打断提示，此处仅停止继续展开子轮
+		}
+		tasks = planReplyRound(created, participants, agentsByID)
+	}
+}
+```
+
+`prepareTurn` 改为返回输入快照结构（避免 5 个返回值）：
+
+```go
+// turnInput 一轮讨论的输入快照
+type turnInput struct {
+	room         *types.MeetingRoom
+	trigger      *types.MeetingMessage
+	speakers     []*types.CustomAgent // 本轮发言者（selectSpeakers 结果）
+	agents       []*types.CustomAgent // 全部参会智能体（供子轮按 ID 取回）
+	participants []*types.MeetingParticipant
+}
+
+func (e *meetingEngine) prepareTurn(ctx context.Context, roomID string, triggerMessageID string) (*turnInput, error) {
+	room, err := e.roomRepo.GetByIDInternal(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	trigger, err := e.messageRepo.GetByID(ctx, triggerMessageID)
+	if err != nil {
+		return nil, err
+	}
+	participants, err := e.participantRepo.ListByRoom(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	agents := filterAgentParticipants(participants)
+	agentObjs := make([]*types.CustomAgent, 0, len(agents))
+	for _, p := range agents {
+		agent, err := e.agentRepo.GetAgentByID(ctx, p.AgentID, room.TenantID)
+		if err != nil {
+			logger.Warnf(ctx, "meeting load agent failed, room=%s agent=%s err=%v", roomID, p.AgentID, err)
+			continue
+		}
+		agentObjs = append(agentObjs, agent)
+	}
+	return &turnInput{
+		room: room, trigger: trigger,
+		speakers:     e.selectSpeakers(ctx, room, trigger, agentObjs),
+		agents:       agentObjs,
+		participants: participants,
+	}, nil
+}
+```
+
+`RunTurn` 主循环相应改为：
+
+```go
+in, err := e.prepareTurn(ctx, roomID, current)
+if err != nil {
+	return err
+}
+room := in.room
+e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnStarted, Data: map[string]interface{}{
+	"room_id": roomID, "trigger_message_id": current,
+}})
+e.runDiscussion(ctx, room, in.trigger, in.speakers, in.agents, in.participants)
+e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnEnded, Data: map[string]interface{}{
+	"room_id": roomID, "trigger_message_id": current,
+}})
+// ...以下护栏块保持不变
+```
+
+`runAgentTurn` 签名改为"回应哪条消息"，并落库提及：
+
+```go
+// runAgentTurn 单个智能体发言：回应 replyTo 这条消息；解析回复中的 @ 提及写入 MentionedAgentIDs
+func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoom, replyTo *types.MeetingMessage, agent *types.CustomAgent, participants []*types.MeetingParticipant) (*types.MeetingMessage, error) {
+	// ...（前半段 AgentQA 调用不变，仅把 trigger 全部替换为 replyTo）
+	query := buildMeetingQuery(room, replyTo.Content, contextMsgs)
+	// ...
+	msg := &types.MeetingMessage{
+		MeetingRoomID:     room.ID,
+		SenderKind:        types.MeetingSenderAgent,
+		SenderID:          agent.ID,
+		ReplyToMessageID:  replyTo.ID,
+		MentionedAgentIDs: types.StringList(parseMentionedAgentIDs(answer.String(), participants, agent.ID)),
+		Content:           answer.String(),
+		ReviewState:       types.ReviewStateNone,
+	}
+	if err := e.messageRepo.Create(ctx, msg); err != nil {
+		return nil, err
+	}
+	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventMessageCreated, Data: msg})
+	return msg, nil
+}
+```
+
+`buildMeetingQuery` 末尾指令追加"回应他人"的引导（否则生产环境 agent 不会 @ 他人，子轮永不展开）：
+
+```go
+b.WriteString("\n请以你的身份与职责，针对当前议题发表意见，简明扼要。若需赞同或反驳其他参会人，请在该句中直接用 @对方姓名 提及。")
+```
+
+- [ ] **Step 3: 全量测试 + 编译 + 提交**
+
+Run:
+```
+go test ./internal/application/service/ -run "Meeting|TestDetectBickering|TestParseMentionedAgentIDs|TestRunTurn|TestRunAgentTurns|TestExtractQueuedTrigger|TestGenerateGuardMessage" -v
+```
+（既有 3 个 `runAgentTurns` 用例签名不变——`runAgentTurns` 保留为 4 参数薄封装，新增返回值可在语句中忽略。）
+Expected: PASS。
+
+Run: `go vet ./internal/application/service/`
+Expected: 无输出。
+
+Run: `git add internal/application/service/meeting_engine.go internal/application/service/meeting_engine_test.go; git commit -m "feat(meeting): 单轮内智能体互相回应（reply_to 链 + 多来回子轮循环），修复护栏不可达与假阳性测试"`
+
+---
+
 ### Task T3.5: M3 端到端验收
+
+> 依赖 T3.4：Step 1 的"3 个来回互呛"须在单轮内由子轮循环自然形成（首轮各自表态后互相 @ 反驳）。
 
 - [ ] **Step 1: 互呛触发**：造 2 个提示词易争论的智能体（如"激进派"/"保守派"），引导其互相反驳 3 个来回 → 消息流出现主持人收敛消息（sender_kind=host）→ SSE 收到 `guard.triggered` → 讨论轮停止，输入框恢复。
 - [ ] **Step 2: 不触发场景**：同一对 2 个来回后用户插话 → 再 2 个来回 → 不触发（计数被重置）。
