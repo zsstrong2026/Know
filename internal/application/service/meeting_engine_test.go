@@ -69,6 +69,7 @@ type fakeMeetingMessageRepo struct {
 	interfaces.MeetingMessageRepository
 	mu      sync.Mutex
 	created []*types.MeetingMessage
+	preset  []*types.MeetingMessage // 预置消息（供 GetByID/ListByRoom 返回）
 }
 
 func (f *fakeMeetingMessageRepo) Create(_ context.Context, msg *types.MeetingMessage) error {
@@ -80,6 +81,25 @@ func (f *fakeMeetingMessageRepo) Create(_ context.Context, msg *types.MeetingMes
 
 func (f *fakeMeetingMessageRepo) ListRecent(_ context.Context, _ string, _ int) ([]*types.MeetingMessage, error) {
 	return nil, nil
+}
+
+// GetByID 从预置消息中按 ID 查找
+func (f *fakeMeetingMessageRepo) GetByID(_ context.Context, id string) (*types.MeetingMessage, error) {
+	for _, m := range f.preset {
+		if m.ID == id {
+			return m, nil
+		}
+	}
+	return nil, errors.New("message not found")
+}
+
+// ListByRoom 返回预置消息的正序副本（旧->新）
+func (f *fakeMeetingMessageRepo) ListByRoom(_ context.Context, _ string, _ string, _ int) ([]*types.MeetingMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*types.MeetingMessage, len(f.preset))
+	copy(out, f.preset)
+	return out, nil
 }
 
 // snapshot 线程安全地复制已落库消息，供并发分支断言使用（避免数据竞争）
@@ -218,4 +238,101 @@ func TestRunAgentTurnsSequentialInterrupted(t *testing.T) {
 	require.Len(t, msgs, 1)
 	assert.Equal(t, types.MeetingSenderSystem, msgs[0].SenderKind)
 	assert.Contains(t, msgs[0].Content, "讨论已被用户打断")
+}
+
+// ---- 排队语义测试替身 ----
+
+// fakeRoomRepoForTurn 仅覆写 GetByIDInternal（引擎加载会议入口）
+type fakeRoomRepoForTurn struct {
+	interfaces.MeetingRoomRepository
+}
+
+func (f *fakeRoomRepoForTurn) GetByIDInternal(_ context.Context, id string) (*types.MeetingRoom, error) {
+	return &types.MeetingRoom{ID: id, TenantID: 1, BroadcastMode: types.MeetingBroadcastSequential}, nil
+}
+
+// fakeParticipantRepoForTurn 返回恰好 1 个 agent 参会者，使 selectSpeakers 走早退、无需主持人
+type fakeParticipantRepoForTurn struct {
+	interfaces.MeetingParticipantRepository
+}
+
+func (f *fakeParticipantRepoForTurn) ListByRoom(_ context.Context, roomID string) ([]*types.MeetingParticipant, error) {
+	return []*types.MeetingParticipant{
+		{MeetingRoomID: roomID, Kind: types.ParticipantKindAgent, AgentID: "a1"},
+	}, nil
+}
+
+// fakeAgentRepoForTurn 覆写 GetAgentByID 返回固定智能体
+type fakeAgentRepoForTurn struct {
+	interfaces.CustomAgentRepository
+}
+
+func (f *fakeAgentRepoForTurn) GetAgentByID(_ context.Context, id string, _ uint64) (*types.CustomAgent, error) {
+	return &types.CustomAgent{ID: id, Name: "甲"}, nil
+}
+
+// newTurnEngineFixture 组装带真实 miniredis 锁的引擎与消息仓储
+func newTurnEngineFixture(t *testing.T, roomID string, preset []*types.MeetingMessage) (*meetingEngine, *fakeMeetingMessageRepo) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	repo := &fakeMeetingMessageRepo{preset: preset}
+	sess := &fakeMeetingSession{agentQA: func(_ context.Context, _ *types.QARequest, _ *event.EventBus) error {
+		return nil
+	}}
+	e := &meetingEngine{
+		roomRepo:        &fakeRoomRepoForTurn{},
+		participantRepo: &fakeParticipantRepoForTurn{},
+		messageRepo:     repo,
+		agentRepo:       &fakeAgentRepoForTurn{},
+		sessionService:  sess,
+		redis:           rdb,
+		broadcaster:     NewMeetingBroadcaster(),
+		contextMax:      50,
+		turnLockLease:   5 * time.Minute,
+	}
+	return e, repo
+}
+
+// TestExtractQueuedTrigger 纯逻辑：排队触发=当前轮触发消息之后最后一条用户消息
+func TestExtractQueuedTrigger(t *testing.T) {
+	msgs := []*types.MeetingMessage{
+		{ID: "m1", SenderKind: types.MeetingSenderUser, Content: "第一条"},
+		{ID: "m2", SenderKind: types.MeetingSenderAgent, Content: "a 回复"},
+		{ID: "m3", SenderKind: types.MeetingSenderUser, Content: "补充一下"},
+		{ID: "m4", SenderKind: types.MeetingSenderUser, Content: "还有这个"},
+	}
+	// 排队触发 = 当前轮触发消息之后的最后一条用户消息
+	got := extractQueuedTrigger(msgs, "m1")
+	require.NotNil(t, got)
+	assert.Equal(t, "m4", got.ID)
+	// 触发消息之后没有新用户消息 → nil
+	assert.Nil(t, extractQueuedTrigger(msgs, "m4"))
+	// 触发消息不存在 → nil
+	assert.Nil(t, extractQueuedTrigger(msgs, "nope"))
+}
+
+// TestRunTurnConsumesQueuedTriggers 循环级行为：RunTurn 消费排队输入直至清空
+func TestRunTurnConsumesQueuedTriggers(t *testing.T) {
+	ctx := context.Background()
+
+	// 用例 A：m1 触发 + m2 排队 → 应执行两轮
+	e, repo := newTurnEngineFixture(t, "room1", []*types.MeetingMessage{
+		{ID: "m1", SenderKind: types.MeetingSenderUser, Content: "触发"},
+		{ID: "m2", SenderKind: types.MeetingSenderUser, Content: "排队补刀"},
+	})
+	require.NoError(t, e.RunTurn(ctx, "room1", "m1"))
+	agentMsgs := messagesByKind(repo.snapshot(), types.MeetingSenderAgent)
+	require.Len(t, agentMsgs, 2, "应消费排队输入执行第二轮")
+	assert.Equal(t, "m1", agentMsgs[0].ReplyToMessageID)
+	assert.Equal(t, "m2", agentMsgs[1].ReplyToMessageID, "第二轮应以排队消息为触发")
+
+	// 用例 B：仅 m1，无排队输入 → 仅一轮
+	e2, repo2 := newTurnEngineFixture(t, "room2", []*types.MeetingMessage{
+		{ID: "m1", SenderKind: types.MeetingSenderUser, Content: "触发"},
+	})
+	require.NoError(t, e2.RunTurn(ctx, "room2", "m1"))
+	require.Len(t, messagesByKind(repo2.snapshot(), types.MeetingSenderAgent), 1, "无排队输入只应执行一轮")
 }

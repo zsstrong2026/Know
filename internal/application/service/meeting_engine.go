@@ -66,7 +66,7 @@ func (e *meetingEngine) Broadcaster() *MeetingBroadcaster { return e.broadcaster
 func turnLockKey(roomID string) string  { return fmt.Sprintf("meeting:%s:turn_lock", roomID) }
 func interruptKey(roomID string) string { return fmt.Sprintf("meeting:%s:interrupt", roomID) }
 
-// RunTurn 执行一个讨论轮次：同一会议同一时刻仅允许一个轮次
+// RunTurn 执行讨论轮次：取锁后循环消化排队输入，直至没有新的用户消息
 func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessageID string) error {
 	token, err := redislock.NewToken()
 	if err != nil {
@@ -77,7 +77,7 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 		return err
 	}
 	if !ok {
-		// 已有讨论轮进行中：本条消息排队（已落库，下一轮会带上）
+		// 已有讨论轮进行中：本条消息排队（已落库，锁持有者会在循环末尾拾取），这里直接返回
 		logger.Infof(ctx, "meeting turn already running, queued. room=%s", roomID)
 		return nil
 	}
@@ -87,33 +87,61 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 			logger.Warnf(ctx, "meeting turn lock release failed, room=%s err=%v", roomID, err)
 		}
 	}()
-	// 进入新一轮即清除打断标记
+	// 进入新一轮讨论即清除遗留的打断标记
 	if err := e.redis.Del(ctx, interruptKey(roomID)).Err(); err != nil {
 		logger.Warnf(ctx, "clear meeting interrupt flag failed, room=%s err=%v", roomID, err)
 	}
 
-	// 会议与消息均为引擎内部消费对象，不校验 created_by（租户隔离由 HTTP 层保证）
+	current := triggerMessageID
+	for {
+		if e.isInterrupted(ctx, roomID) {
+			// 用户已打断：清除标记并停止继续消化排队输入
+			if err := e.redis.Del(ctx, interruptKey(roomID)).Err(); err != nil {
+				logger.Warnf(ctx, "clear meeting interrupt flag failed, room=%s err=%v", roomID, err)
+			}
+			break
+		}
+		room, trigger, speakers, err := e.prepareTurn(ctx, roomID, current)
+		if err != nil {
+			return err
+		}
+		e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnStarted, Data: map[string]interface{}{
+			"room_id": roomID, "trigger_message_id": current,
+		}})
+		e.runAgentTurns(ctx, room, trigger, speakers)
+		e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnEnded, Data: map[string]interface{}{
+			"room_id": roomID, "trigger_message_id": current,
+		}})
+
+		// 拾取排队输入：本轮触发消息之后的最后一条用户消息
+		recent, err := e.messageRepo.ListByRoom(ctx, roomID, "", 50)
+		if err != nil {
+			return err
+		}
+		next := extractQueuedTrigger(recent, current)
+		if next == nil {
+			break // 没有新输入，结束
+		}
+		current = next.ID
+	}
+	return nil
+}
+
+// prepareTurn 加载本轮所需的会议/触发消息/参会智能体，并选出本轮发言者
+func (e *meetingEngine) prepareTurn(ctx context.Context, roomID string, triggerMessageID string) (*types.MeetingRoom, *types.MeetingMessage, []*types.CustomAgent, error) {
 	room, err := e.roomRepo.GetByIDInternal(ctx, roomID)
 	if err != nil {
-		return err
+		return nil, nil, nil, err
 	}
 	trigger, err := e.messageRepo.GetByID(ctx, triggerMessageID)
 	if err != nil {
-		return err
+		return nil, nil, nil, err
 	}
 	participants, err := e.participantRepo.ListByRoom(ctx, roomID)
 	if err != nil {
-		return err
+		return nil, nil, nil, err
 	}
 	agents := filterAgentParticipants(participants)
-
-	e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnStarted, Data: map[string]interface{}{
-		"room_id": roomID, "trigger_message_id": triggerMessageID,
-	}})
-	defer e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnEnded, Data: map[string]interface{}{
-		"room_id": roomID,
-	}})
-
 	// selectSpeakers 现按 *types.CustomAgent 工作，按参会顺序加载 agent 对象（单个失败仅告警跳过）
 	agentObjs := make([]*types.CustomAgent, 0, len(agents))
 	for _, p := range agents {
@@ -124,9 +152,26 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 		}
 		agentObjs = append(agentObjs, agent)
 	}
+	return room, trigger, e.selectSpeakers(ctx, room, trigger, agentObjs), nil
+}
 
-	speakers := e.selectSpeakers(ctx, room, trigger, agentObjs)
-	e.runAgentTurns(ctx, room, trigger, speakers)
+// extractQueuedTrigger 返回 triggerID 之后最后一条用户消息；无则 nil。
+// 注意 ListByRoom 按时间升序（旧->新）返回。
+func extractQueuedTrigger(msgs []*types.MeetingMessage, triggerID string) *types.MeetingMessage {
+	triggerIdx := -1
+	for i, m := range msgs {
+		if m.ID == triggerID {
+			triggerIdx = i
+		}
+	}
+	if triggerIdx < 0 {
+		return nil
+	}
+	for i := len(msgs) - 1; i > triggerIdx; i-- {
+		if msgs[i].SenderKind == types.MeetingSenderUser {
+			return msgs[i]
+		}
+	}
 	return nil
 }
 
