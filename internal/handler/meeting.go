@@ -1,14 +1,17 @@
 package handler
 
 import (
+	stderrors "errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/application/service"
 	"github.com/Tencent/WeKnora/internal/errors"
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
@@ -23,18 +26,15 @@ func NewMeetingHandler(meetingService interfaces.MeetingService, engine interfac
 	return &MeetingHandler{meetingService: meetingService, engine: engine}
 }
 
-// MeetingCreatorLookup 供 RBAC RequireOwnershipOrRole 使用：返回会议创建者
-func (h *MeetingHandler) MeetingCreatorLookup(c *gin.Context) (string, error) {
-	ctx := c.Request.Context()
-	tenantID, ok := types.TenantIDFromContext(ctx)
-	if !ok {
-		return "", errors.NewUnauthorizedError("missing tenant")
+// ensureMeetingAccess 校验房间存在且归属当前租户；不存在/越权时写 404 并返回 false。
+// guard 在 Admin/API-key/EnableRBAC=false 时会跳过 creator lookup，
+// 故消息/SSE 等子资源端点必须自行做租户归属校验，避免跨租户读写。
+func (h *MeetingHandler) ensureMeetingAccess(c *gin.Context, tenantID uint64) bool {
+	if _, _, err := h.meetingService.GetMeeting(c.Request.Context(), tenantID, c.Param("id")); err != nil {
+		c.Error(errors.NewNotFoundError("meeting not found"))
+		return false
 	}
-	room, _, err := h.meetingService.GetMeeting(ctx, tenantID, c.Param("id"))
-	if err != nil {
-		return "", err
-	}
-	return room.CreatedBy, nil
+	return true
 }
 
 type createMeetingRequest struct {
@@ -91,7 +91,13 @@ func (h *MeetingHandler) GetMeeting(c *gin.Context) {
 	tenantID, _ := types.TenantIDFromContext(ctx)
 	room, participants, err := h.meetingService.GetMeeting(ctx, tenantID, c.Param("id"))
 	if err != nil {
-		c.Error(errors.NewNotFoundError("meeting not found"))
+		// 仅"不存在"映射 404；其它异常映射 500 通用文案并记录日志，避免泄露内部错误
+		if stderrors.Is(err, apprepo.ErrMeetingRoomNotFound) {
+			c.Error(errors.NewNotFoundError("meeting not found"))
+			return
+		}
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{"meeting_id": c.Param("id")})
+		c.Error(errors.NewInternalServerError("Failed to load meeting"))
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"room": room, "participants": participants}})
@@ -100,10 +106,15 @@ func (h *MeetingHandler) GetMeeting(c *gin.Context) {
 // ListMessages GET /api/v1/meetings/:id/messages?before=&limit=
 func (h *MeetingHandler) ListMessages(c *gin.Context) {
 	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	if !h.ensureMeetingAccess(c, tenantID) {
+		return
+	}
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
 	msgs, err := h.meetingService.ListMessages(ctx, c.Param("id"), c.Query("before"), limit)
 	if err != nil {
-		c.Error(errors.NewInternalServerError(err.Error()))
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{"meeting_id": c.Param("id")})
+		c.Error(errors.NewInternalServerError("Failed to list meeting messages"))
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": msgs})
@@ -117,6 +128,10 @@ type sendMessageRequest struct {
 // SendMessage POST /api/v1/meetings/:id/messages —— 202 异步：落库后触发讨论轮
 func (h *MeetingHandler) SendMessage(c *gin.Context) {
 	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	if !h.ensureMeetingAccess(c, tenantID) {
+		return
+	}
 	var req sendMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.Error(errors.NewBadRequestError(err.Error()))
@@ -125,7 +140,8 @@ func (h *MeetingHandler) SendMessage(c *gin.Context) {
 	userID, _ := types.UserIDFromContext(ctx)
 	msg, err := h.meetingService.SendUserMessage(ctx, c.Param("id"), userID, req.Content, req.MentionedAgentIDs)
 	if err != nil {
-		c.Error(errors.NewInternalServerError(err.Error()))
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{"meeting_id": c.Param("id")})
+		c.Error(errors.NewInternalServerError("Failed to send meeting message"))
 		return
 	}
 	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": msg})
@@ -134,6 +150,10 @@ func (h *MeetingHandler) SendMessage(c *gin.Context) {
 // StreamMessages GET /api/v1/meetings/:id/stream —— SSE 订阅会议事件
 func (h *MeetingHandler) StreamMessages(c *gin.Context) {
 	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	if !h.ensureMeetingAccess(c, tenantID) {
+		return
+	}
 	roomID := c.Param("id")
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")

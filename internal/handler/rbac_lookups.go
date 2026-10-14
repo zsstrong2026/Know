@@ -93,12 +93,41 @@ func (h *CustomAgentHandler) AgentCreatorLookup(c *gin.Context) (string, error) 
 	return agent.CreatedBy, nil
 }
 
+// MeetingCreatorLookup resolves :id -> MeetingRoom.CreatedBy, scoped to
+// the caller's tenant. The underlying GetMeeting already filters by
+// tenant_id, so a room belonging to another tenant surfaces as
+// ErrMeetingRoomNotFound and is translated to ErrResourceNotFound, which
+// lets the middleware pass through so the handler can issue a real 404.
+func (h *MeetingHandler) MeetingCreatorLookup(c *gin.Context) (string, error) {
+	id := c.Param("id")
+	if id == "" {
+		return "", errors.New("missing :id param for meeting creator lookup")
+	}
+	ctx := c.Request.Context()
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok {
+		return "", errors.New("workspace context missing")
+	}
+	room, _, err := h.meetingService.GetMeeting(ctx, tenantID, id)
+	if err != nil {
+		if errors.Is(err, apprepo.ErrMeetingRoomNotFound) {
+			return "", middleware.ErrResourceNotFound
+		}
+		return "", err
+	}
+	if room == nil {
+		return "", middleware.ErrResourceNotFound
+	}
+	return room.CreatedBy, nil
+}
+
 // Compile-time guards: the methods must satisfy middleware.CreatorLookup
 // so route wiring stays type-safe even if a signature drifts.
 var (
 	_ middleware.CreatorLookup = (*KnowledgeBaseHandler)(nil).KBCreatorLookup
 	_ middleware.CreatorLookup = (*KnowledgeBaseHandler)(nil).KBCreatorLookupFromKbIDParam
 	_ middleware.CreatorLookup = (*CustomAgentHandler)(nil).AgentCreatorLookup
+	_ middleware.CreatorLookup = (*MeetingHandler)(nil).MeetingCreatorLookup
 	_ middleware.CreatorLookup = (*KnowledgeHandler)(nil).KBCreatorLookupFromKnowledgeID
 	_ middleware.CreatorLookup = (*ChunkHandler)(nil).KBCreatorLookupFromKnowledgeIDParam
 	_ middleware.CreatorLookup = (*ChunkHandler)(nil).KBCreatorLookupFromChunkIDParam
