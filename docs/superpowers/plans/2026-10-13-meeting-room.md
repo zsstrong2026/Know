@@ -3465,6 +3465,8 @@ func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoo
 b.WriteString("\n请以你的身份与职责，针对当前议题发表意见，简明扼要。若需赞同或反驳其他参会人，请在该句中直接用 @对方姓名 提及。")
 ```
 
+> **补充（Phase 2 复审修复，commit `c6b8bc113`）**：仅追加 `@对方姓名` 引导语**不足以**让子轮在生产路径生效——`buildMeetingQuery` 生成的提示词从未向模型提供参会者展示名（讨论记录中 agent 消息经 `senderLabel` 渲染为 `智能体(<UUID>)`，且全文无参会者名册），而解析侧 `parseMentionedAgentIDs` 按参会者 `DisplayName` 匹配，模型无从产出可命中的 `@展示名`；测试未能暴露是因为替身里模型回答写死为 `@乙`/`@甲`。修复：`buildMeetingQuery` 增加 `participants []*types.MeetingParticipant` 参数，在【会议描述】/【早期讨论摘要】之后、【讨论记录】之前注入名册行 `【参会智能体】甲、乙`（仅取 `ParticipantKindAgent` 且 `DisplayName != ""`，去重、按参会顺序，排除主持人；无 agent 展示名时不输出该行）；`runAgentTurn` 透传 `participants`；`TestBuildMeetingQuery` 改为 4 参数并新增"query 含 agent 展示名、不含主持人展示名"断言，另新增 `TestBuildMeetingQueryNoAgentRoster`。因此上文 `runAgentTurn` 中调用点为 `buildMeetingQuery(room, replyTo.Content, contextMsgs, participants)`。
+
 - [ ] **Step 3: 全量测试 + 编译 + 提交**
 
 Run:
