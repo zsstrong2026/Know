@@ -393,7 +393,7 @@ func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoo
 	if err != nil {
 		return nil, err
 	}
-	query := buildMeetingQuery(room, replyTo.Content, contextMsgs)
+	query := buildMeetingQuery(room, replyTo.Content, contextMsgs, participants)
 
 	eventBus := event.NewEventBus()
 	var answer strings.Builder
@@ -595,8 +595,8 @@ func filterByIDs(agents []*types.CustomAgent, ids []string) []*types.CustomAgent
 	return out
 }
 
-// buildMeetingQuery 把会议主题 + 共享上下文 + 触发消息拼成单轮 query（MultiTurnEnabled=false）
-func buildMeetingQuery(room *types.MeetingRoom, triggerContent string, contextMsgs []*types.MeetingMessage) string {
+// buildMeetingQuery 把会议主题 + 共享上下文 + 参会名册 + 触发消息拼成单轮 query（MultiTurnEnabled=false）
+func buildMeetingQuery(room *types.MeetingRoom, triggerContent string, contextMsgs []*types.MeetingMessage, participants []*types.MeetingParticipant) string {
 	var b strings.Builder
 	b.WriteString("【会议主题】" + room.Title)
 	if room.Description != "" {
@@ -604,6 +604,10 @@ func buildMeetingQuery(room *types.MeetingRoom, triggerContent string, contextMs
 	}
 	if room.ContextSummary != "" {
 		b.WriteString("\n【早期讨论摘要】" + room.ContextSummary)
+	}
+	// 参会智能体名册：仅列出可被 @ 的 agent 展示名（主持人不是 @ 目标，不列入）
+	if names := collectAgentDisplayNames(participants); len(names) > 0 {
+		b.WriteString("\n【参会智能体】" + strings.Join(names, "、"))
 	}
 	if len(contextMsgs) > 0 {
 		b.WriteString("\n【讨论记录】")
@@ -618,6 +622,23 @@ func buildMeetingQuery(room *types.MeetingRoom, triggerContent string, contextMs
 	b.WriteString("\n【当前议题】" + triggerContent)
 	b.WriteString("\n请以你的身份与职责，针对当前议题发表意见，简明扼要。若需赞同或反驳其他参会人，请在该句中直接用 @对方姓名 提及。")
 	return b.String()
+}
+
+// collectAgentDisplayNames 收集参会智能体的展示名（仅 agent 类参会者，去重并保持参会顺序）
+func collectAgentDisplayNames(participants []*types.MeetingParticipant) []string {
+	seen := make(map[string]struct{}, len(participants))
+	names := make([]string, 0, len(participants))
+	for _, p := range participants {
+		if p.Kind != types.ParticipantKindAgent || p.DisplayName == "" {
+			continue
+		}
+		if _, dup := seen[p.DisplayName]; dup {
+			continue
+		}
+		seen[p.DisplayName] = struct{}{}
+		names = append(names, p.DisplayName)
+	}
+	return names
 }
 
 func senderLabel(m *types.MeetingMessage) string {

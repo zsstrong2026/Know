@@ -44,11 +44,30 @@ func TestShouldRunParallel(t *testing.T) {
 func TestBuildMeetingQuery(t *testing.T) {
 	room := roomFixture()
 	msgs := messagesFixture()
-	q := buildMeetingQuery(room, "讨论下部署方案", msgs)
+	participants := []*types.MeetingParticipant{
+		{Kind: types.ParticipantKindHost, DisplayName: "主持人甲"},
+		{Kind: types.ParticipantKindAgent, AgentID: "a1", DisplayName: "乙"},
+	}
+	q := buildMeetingQuery(room, "讨论下部署方案", msgs, participants)
 	// 应包含会议主题与共享上下文
 	assert.Contains(t, q, room.Title)
 	assert.Contains(t, q, "讨论下部署方案")
 	assert.Contains(t, q, msgs[0].Content)
+	// 关键回归断言：名册必须注入 agent 展示名，否则模型无从产出可命中的 @展示名
+	assert.Contains(t, q, "乙")
+	// 主持人不是 @ 目标，展示名不得出现在名册中
+	assert.NotContains(t, q, "主持人甲")
+}
+
+// TestBuildMeetingQueryNoAgentRoster 仅有主持人（无 agent 展示名）时不输出名册行
+func TestBuildMeetingQueryNoAgentRoster(t *testing.T) {
+	room := roomFixture()
+	msgs := messagesFixture()
+	participants := []*types.MeetingParticipant{
+		{Kind: types.ParticipantKindHost, DisplayName: "主持人甲"},
+	}
+	q := buildMeetingQuery(room, "讨论下部署方案", msgs, participants)
+	assert.NotContains(t, q, "【参会智能体】")
 }
 
 func roomFixture() *types.MeetingRoom {
