@@ -105,6 +105,19 @@ func candidateIDs(cs []speakerCandidate) []string {
 	return ids
 }
 
+// renderRecentForHost 把最近 n 条消息渲染为"名称: 内容"要点行（主持人收敛/打断提示复用）
+func (e *meetingEngine) renderRecentForHost(ctx context.Context, roomID string, recent []*types.MeetingMessage, n int) string {
+	var b strings.Builder
+	for _, m := range tailN(recent, n) {
+		name := senderLabel(m)
+		if m.SenderKind == types.MeetingSenderAgent {
+			name = e.agentDisplayName(ctx, roomID, m.SenderID)
+		}
+		fmt.Fprintf(&b, "- %s: %s\n", name, truncate(m.Content, 200))
+	}
+	return b.String()
+}
+
 // generateGuardMessage 护栏触发后由主持人生成"回到正题"收敛消息；主持人不可用或生成失败时返回兜底文案。
 func (e *meetingEngine) generateGuardMessage(ctx context.Context, room *types.MeetingRoom, nameA, nameB string, recent []*types.MeetingMessage) string {
 	fallback := fmt.Sprintf("主持人提醒：「%s」与「%s」的讨论已较深入，我们先回到主题「%s」。请用户指示下一步方向。", nameA, nameB, room.Title)
@@ -115,14 +128,26 @@ func (e *meetingEngine) generateGuardMessage(ctx context.Context, room *types.Me
 	// 组装收敛提示：主题 + 互呛双方 + 最近若干条发言（截断），要求主持人中立引导回主题
 	var b strings.Builder
 	fmt.Fprintf(&b, "会议主题：%s\n智能体「%s」和「%s」已连续多轮互相回应，内容如下（截取）：\n", room.Title, nameA, nameB)
-	for _, m := range tailN(recent, 6) {
-		name := senderLabel(m)
-		if m.SenderKind == types.MeetingSenderAgent {
-			name = e.agentDisplayName(ctx, room.ID, m.SenderID)
-		}
-		fmt.Fprintf(&b, "- %s: %s\n", name, truncate(m.Content, 200))
-	}
+	b.WriteString(e.renderRecentForHost(ctx, room.ID, recent, 6))
 	b.WriteString("\n请以主持人身份用 2-3 句话：肯定双方观点中有价值的部分，指出分歧焦点，然后把讨论引导回主题并向用户提问下一步。语气中立、简洁。")
+	resp, err := hostChat.Chat(ctx, []chat.Message{{Role: "user", Content: b.String()}}, &chat.ChatOptions{Temperature: 0.3})
+	if err != nil || resp == nil || strings.TrimSpace(resp.Content) == "" {
+		return fallback
+	}
+	return resp.Content
+}
+
+// generateInterruptMessage 用户主动打断（"回到正题"）后由主持人生成收敛消息；不可用/失败时返回兜底文案。
+func (e *meetingEngine) generateInterruptMessage(ctx context.Context, room *types.MeetingRoom, recent []*types.MeetingMessage) string {
+	fallback := fmt.Sprintf("主持人：已收到打断，我们先暂停当前讨论，回到主题「%s」。请用户指示下一步方向。", room.Title)
+	hostChat, err := e.resolveHostChat(ctx)
+	if err != nil {
+		return fallback
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "会议主题：%s\n用户已打断当前讨论并要求回到正题。最近讨论内容（截取）：\n", room.Title)
+	b.WriteString(e.renderRecentForHost(ctx, room.ID, recent, 6))
+	b.WriteString("\n请以主持人身份用 2-3 句话：简要总结当前讨论的分歧焦点，宣布暂停争论，并邀请用户给出下一步指示。语气中立、简洁。")
 	resp, err := hostChat.Chat(ctx, []chat.Message{{Role: "user", Content: b.String()}}, &chat.ChatOptions{Temperature: 0.3})
 	if err != nil || resp == nil || strings.TrimSpace(resp.Content) == "" {
 		return fallback

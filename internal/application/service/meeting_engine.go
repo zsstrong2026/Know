@@ -111,6 +111,13 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 			"room_id": roomID, "trigger_message_id": current,
 		}})
 
+		// 用户打断（"回到正题"）：落系统提示 + 主持人生成收敛消息 + 广播 guard.triggered，随后结束本轮
+		if e.isInterrupted(ctx, roomID) {
+			e.handleInterrupt(ctx, room, roomID)
+			e.clearInterrupt(ctx, roomID)
+			break
+		}
+
 		// 护栏：检测互呛（同一对智能体连续多来回且无用户/主持人插入）→ 主持人收敛 → 广播 guard.triggered。
 		// 放在 TurnEnded 之后，保证 TurnStarted/TurnEnded 始终配对；触发后结束本轮并等待用户指示（不再消化排队输入）。
 		if recentForGuard, gerr := e.messageRepo.ListByRoom(ctx, roomID, "", e.guardWindowSize(room)); gerr == nil {
@@ -283,8 +290,7 @@ func (e *meetingEngine) runSpeakerTasks(ctx context.Context, room *types.Meeting
 	for _, task := range tasks {
 		if e.isInterrupted(ctx, room.ID) {
 			logger.Infof(ctx, "meeting turn interrupted. room=%s", room.ID)
-			e.publishSystemMessage(ctx, room.ID, "讨论已被用户打断")
-			return out
+			return out // 打断收尾（系统提示 + 主持人收敛）统一由 RunTurn 处理
 		}
 		msg, err := e.runAgentTurn(ctx, room, task.replyTo, task.agent, participants)
 		if err != nil {
@@ -355,7 +361,7 @@ func (e *meetingEngine) runDiscussion(
 	for round := 0; round < maxRounds && len(tasks) > 0; round++ {
 		created := e.runSpeakerTasks(ctx, room, tasks, participants)
 		if e.isInterrupted(ctx, room.ID) {
-			return // sequential 分支已落库打断提示，此处仅停止继续展开子轮
+			return // 打断收尾统一由 RunTurn 处理
 		}
 		tasks = planReplyRound(created, participants, agentsByID)
 	}
@@ -465,6 +471,25 @@ func (e *meetingEngine) appendHostMessage(ctx context.Context, roomID string, co
 	}
 	e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventMessageCreated, Data: msg})
 	return msg, nil
+}
+
+// handleInterrupt 用户打断（"回到正题"）的收尾：落系统提示 + 主持人生成收敛消息并广播 guard.triggered
+func (e *meetingEngine) handleInterrupt(ctx context.Context, room *types.MeetingRoom, roomID string) {
+	e.publishSystemMessage(ctx, roomID, "讨论已被用户打断")
+	recent, err := e.messageRepo.ListByRoom(ctx, roomID, "", e.contextMax)
+	if err != nil {
+		logger.Warnf(ctx, "meeting interrupt list messages failed, room=%s err=%v", roomID, err)
+		recent = nil
+	}
+	content := e.generateInterruptMessage(ctx, room, recent)
+	hostMsg, herr := e.appendHostMessage(ctx, roomID, content)
+	if herr != nil {
+		logger.Warnf(ctx, "meeting interrupt host message failed, room=%s err=%v", roomID, herr)
+		return
+	}
+	e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventGuardTriggered, Data: map[string]interface{}{
+		"reason": "user_interrupt", "message": hostMsg,
+	}})
 }
 
 // agentDisplayName 参会者列表反查展示名，查不到回退 agentID 前 8 位

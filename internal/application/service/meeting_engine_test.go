@@ -232,8 +232,8 @@ func TestRunAgentTurnsParallelFailureDegrades(t *testing.T) {
 	assert.Contains(t, sysMsgs[0].Content, "发言失败")
 }
 
-// TestRunAgentTurnsSequentialInterrupted 验证 sequential 在打断标记存在时终止且不调用 AgentQA
-func TestRunAgentTurnsSequentialInterrupted(t *testing.T) {
+// TestRunSpeakerTasksSequentialInterruptedStopsSilently 验证 sequential 在打断标记存在时静默终止：不调用 AgentQA、不落任何消息
+func TestRunSpeakerTasksSequentialInterruptedStopsSilently(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
@@ -256,10 +256,7 @@ func TestRunAgentTurnsSequentialInterrupted(t *testing.T) {
 	e.runAgentTurns(ctx, room, trigger, []*types.CustomAgent{agentFixture("a1", "甲"), agentFixture("a2", "乙")})
 
 	assert.Equal(t, int32(0), atomic.LoadInt32(&calls), "打断后不应调用 AgentQA")
-	msgs := repo.snapshot()
-	require.Len(t, msgs, 1)
-	assert.Equal(t, types.MeetingSenderSystem, msgs[0].SenderKind)
-	assert.Contains(t, msgs[0].Content, "讨论已被用户打断")
+	assert.Empty(t, repo.snapshot(), "runSpeakerTasks 不再落库，打断收尾统一由 RunTurn 处理")
 }
 
 // ---- 排队语义测试替身 ----
@@ -529,4 +526,42 @@ func TestRunTurnNoGuardWhenNotBickering(t *testing.T) {
 
 	require.NoError(t, e.RunTurn(ctx, "room-n", "m1"))
 	assert.Equal(t, 0, countByKind(repo.snapshot(), types.MeetingSenderHost), "未构成互呛不应产生主持人收敛消息")
+}
+
+// TestRunTurnInterruptTriggersHostConvergence 真实路径：用户在讨论进行中打断 →
+// 系统提示 + 主持人收敛消息 + 广播 guard.triggered
+func TestRunTurnInterruptTriggersHostConvergence(t *testing.T) {
+	ctx := context.Background()
+	e, repo := newGuardEngineFixture(t, "room-i", []*types.MeetingMessage{
+		{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "触发"},
+	})
+	e.roomRepo = &fakeGuardRoomRepoForTurn{}
+	e.participantRepo = &fakeTwoAgentParticipantRepo{}
+	e.agentRepo = &fakeTwoAgentRepoForTurn{}
+	// 首个智能体发言时模拟用户点击"回到正题"（置打断标记）
+	e.sessionService = &fakeMeetingSession{agentQA: func(ctx context.Context, _ *types.QARequest, _ *event.EventBus) error {
+		return e.redis.Set(ctx, interruptKey("room-i"), "1", time.Minute).Err()
+	}}
+
+	ch, unsub := e.broadcaster.Subscribe("room-i")
+	defer unsub()
+
+	require.NoError(t, e.RunTurn(ctx, "room-i", "u1"))
+
+	msgs := repo.snapshot()
+	sysMsgs := messagesByKind(msgs, types.MeetingSenderSystem)
+	require.Len(t, sysMsgs, 1, "打断应落一条系统提示")
+	assert.Contains(t, sysMsgs[0].Content, "讨论已被用户打断")
+
+	hostMsgs := messagesByKind(msgs, types.MeetingSenderHost)
+	require.Len(t, hostMsgs, 1, "打断应产生恰好一条主持人收敛消息")
+	assert.Contains(t, hostMsgs[0].Content, "发布方案评审", "兜底收敛文案应包含会议主题")
+
+	var sawGuard bool
+	for len(ch) > 0 {
+		if evt := <-ch; evt.Type == MeetingEventGuardTriggered {
+			sawGuard = true
+		}
+	}
+	assert.True(t, sawGuard, "打断应广播 guard.triggered")
 }
