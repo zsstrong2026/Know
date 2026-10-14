@@ -7610,6 +7610,8 @@ export default {
     status: '状态',
     loadEarlier: '加载更早消息',
     discussing: '讨论进行中…',
+    interrupt: '打断讨论',
+    guardNotice: '主持人已介入，请指示下一步',
     inputPlaceholder: '输入你的观点或问题，Ctrl+Enter 发送',
     send: '发送',
     noAgents: '暂无智能体',

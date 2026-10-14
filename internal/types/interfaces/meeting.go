@@ -53,6 +53,8 @@ type MeetingService interface {
 	// SendUserMessage 落库用户消息并异步触发讨论轮，返回落库后的消息
 	SendUserMessage(ctx context.Context, roomID string, userID string, content string, mentionedAgentIDs []string) (*types.MeetingMessage, error)
 	ListMessages(ctx context.Context, roomID string, beforeID string, limit int) ([]*types.MeetingMessage, error)
+	// InterruptDiscussion 用户主动打断进行中的讨论轮
+	InterruptDiscussion(ctx context.Context, tenantID uint64, roomID string) error
 }
 
 // MeetingEngine 讨论引擎：同一会议同一时刻仅一个讨论轮次（Redis 锁保证）

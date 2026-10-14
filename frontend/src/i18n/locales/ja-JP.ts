@@ -242,6 +242,8 @@ export default {
     status: 'ステータス',
     loadEarlier: '過去のメッセージを読み込む',
     discussing: '討論中…',
+    interrupt: '議論を中断',
+    guardNotice: '進行役が介入しました。次の指示をお願いします。',
     inputPlaceholder: '意見や質問を入力。Ctrl+Enterで送信',
     send: '送信',
     noAgents: 'エージェントがいません',

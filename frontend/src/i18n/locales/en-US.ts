@@ -243,6 +243,8 @@ export default {
     status: 'Status',
     loadEarlier: 'Load Earlier Messages',
     discussing: 'Discussion in progress…',
+    interrupt: 'Interrupt',
+    guardNotice: 'The host has stepped in. Please advise on next steps.',
     inputPlaceholder: 'Type your opinion or question; press Ctrl+Enter to send',
     send: 'Send',
     noAgents: 'No agents',

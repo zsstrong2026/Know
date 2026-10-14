@@ -3,9 +3,16 @@
     <header class="room-header">
       <span class="title">{{ store.currentRoom?.title }}</span>
       <span class="topic">{{ store.currentRoom?.description }}</span>
+      <t-button size="small" theme="default" :disabled="!store.discussing" @click="interrupt">
+        {{ $t('meeting.interrupt') }}
+      </t-button>
     </header>
 
     <main ref="scrollRef" class="message-list">
+      <div v-if="store.guardNotice" class="guard-notice">
+        <span>{{ $t('meeting.guardNotice') }}</span>
+        <t-button size="small" variant="text" @click="store.clearGuardNotice()">✕</t-button>
+      </div>
       <div v-if="store.hasMore" class="load-earlier" @click="store.loadEarlier()">
         {{ $t('meeting.loadEarlier') }}
       </div>
@@ -45,7 +52,7 @@ import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useMeetingStore } from '@/stores/meeting';
-import { openMeetingStream } from '@/api/meeting';
+import { interruptMeeting, openMeetingStream } from '@/api/meeting';
 import type { MeetingMessage, MeetingParticipant } from '@/api/meeting';
 import MentionPicker from './components/MentionPicker.vue';
 
@@ -122,6 +129,15 @@ async function send() {
     MessagePlugin.error((e as Error)?.message || t('meeting.loadFailed'));
   }
 }
+
+// 主动打断进行中的讨论轮
+async function interrupt() {
+  try {
+    await interruptMeeting(roomId);
+  } catch (e) {
+    MessagePlugin.error((e as Error)?.message || t('meeting.loadFailed'));
+  }
+}
 </script>
 
 <style scoped>
@@ -137,5 +153,18 @@ async function send() {
   align-items: center;
   gap: 8px;
   margin-top: 8px;
+}
+
+.guard-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: #fff8e1; /* 淡黄底：主持人介入提示 */
+  color: #8d6e00;
+  font-size: 13px;
 }
 </style>

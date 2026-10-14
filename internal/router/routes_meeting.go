@@ -16,6 +16,7 @@ func RegisterMeetingRoutes(r *gin.RouterGroup, meetingHandler *handler.MeetingHa
 		meetings.GET("/:id", g.OwnedMeetingOrAdmin(), meetingHandler.GetMeeting)
 		meetings.GET("/:id/messages", g.OwnedMeetingOrAdmin(), meetingHandler.ListMessages)
 		meetings.POST("/:id/messages", g.OwnedMeetingOrAdmin(), meetingHandler.SendMessage)
+		meetings.POST("/:id/interrupt", g.OwnedMeetingOrAdmin(), meetingHandler.Interrupt)
 		meetings.GET("/:id/stream", g.OwnedMeetingOrAdmin(), meetingHandler.StreamMessages)
 	}
 }

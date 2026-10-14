@@ -126,6 +126,12 @@ export async function sendMessage(roomId: string, content: string, mentionAgentI
   ).then((r) => r.data);
 }
 
+// 打断进行中的讨论轮
+export async function interruptMeeting(roomId: string): Promise<void> {
+  const { post } = await loadRequest();
+  await post(`/api/v1/meetings/${roomId}/interrupt`, {});
+}
+
 // ===== SSE 订阅 =====
 
 export interface MeetingStreamHandlers {

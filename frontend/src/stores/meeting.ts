@@ -11,6 +11,7 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   const messages = ref<MeetingMessage[]>([]);
   const hasMore = ref(false);      // 顶部是否还有更早消息
   const discussing = ref(false);   // 是否有讨论轮在进行（禁用输入用）
+  const guardNotice = ref<unknown>(null); // 护栏触发提示（主持人介入）
 
   async function fetchRooms() {
     rooms.value = await listMeetings();
@@ -51,9 +52,17 @@ export const useMeetingStore = defineStore('meetingStore', () => {
       appendMessage(data as MeetingMessage);
     } else if (event === 'discussion.turn_started') {
       discussing.value = true;
+      guardNotice.value = null; // 新一轮开始清除旧的护栏提示
     } else if (event === 'discussion.turn_ended') {
       discussing.value = false;
+    } else if (event === 'guard.triggered') {
+      discussing.value = false;
+      guardNotice.value = data;
     }
+  }
+
+  function clearGuardNotice() {
+    guardNotice.value = null;
   }
 
   function leaveRoom() {
@@ -61,8 +70,9 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     messages.value = [];
     hasMore.value = false;
     discussing.value = false;
+    guardNotice.value = null;
   }
 
-  return { rooms, currentRoom, messages, hasMore, discussing,
-    fetchRooms, enterRoom, loadEarlier, speak, applyStreamEvent, leaveRoom };
+  return { rooms, currentRoom, messages, hasMore, discussing, guardNotice,
+    fetchRooms, enterRoom, loadEarlier, speak, applyStreamEvent, clearGuardNotice, leaveRoom };
 });

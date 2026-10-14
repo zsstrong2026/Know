@@ -7608,6 +7608,8 @@ export default {
     status: '상태',
     loadEarlier: '이전 메시지 불러오기',
     discussing: '토론 진행 중…',
+    interrupt: '토론 중단',
+    guardNotice: '사회자가 개입했습니다. 다음 지시를 내려주세요.',
     inputPlaceholder: '의견이나 질문을 입력하세요. Ctrl+Enter로 전송',
     send: '보내기',
     noAgents: '에이전트가 없습니다',

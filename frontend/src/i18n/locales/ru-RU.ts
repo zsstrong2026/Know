@@ -7608,6 +7608,8 @@ export default {
     status: 'Статус',
     loadEarlier: 'Загрузить более ранние',
     discussing: 'Идёт обсуждение…',
+    interrupt: 'Прервать обсуждение',
+    guardNotice: 'Ведущий вмешался. Укажите дальнейшие действия.',
     inputPlaceholder: 'Введите своё мнение или вопрос, Ctrl+Enter — отправить',
     send: 'Отправить',
     noAgents: 'Нет агентов',

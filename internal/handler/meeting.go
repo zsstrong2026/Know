@@ -147,6 +147,21 @@ func (h *MeetingHandler) SendMessage(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": msg})
 }
 
+// Interrupt POST /api/v1/meetings/:id/interrupt
+func (h *MeetingHandler) Interrupt(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	if !h.ensureMeetingAccess(c, tenantID) {
+		return
+	}
+	if err := h.meetingService.InterruptDiscussion(ctx, tenantID, c.Param("id")); err != nil {
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{"meeting_id": c.Param("id")})
+		c.Error(errors.NewInternalServerError("Failed to interrupt meeting"))
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": gin.H{"room_id": c.Param("id"), "interrupted": true}})
+}
+
 // StreamMessages GET /api/v1/meetings/:id/stream —— SSE 订阅会议事件
 func (h *MeetingHandler) StreamMessages(c *gin.Context) {
 	ctx := c.Request.Context()

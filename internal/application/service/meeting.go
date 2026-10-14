@@ -142,3 +142,11 @@ func (s *meetingService) ListMessages(ctx context.Context, roomID string, before
 	}
 	return s.messageRepo.ListByRoom(ctx, roomID, beforeID, limit)
 }
+
+// InterruptDiscussion 用户主动打断进行中的讨论轮（先做租户归属校验，再置打断标记）
+func (s *meetingService) InterruptDiscussion(ctx context.Context, tenantID uint64, roomID string) error {
+	if _, err := s.roomRepo.GetByID(ctx, roomID, tenantID); err != nil {
+		return err // 租户校验（仓储按 tenant+created_by 过滤）
+	}
+	return s.engine.Interrupt(ctx, roomID)
+}
