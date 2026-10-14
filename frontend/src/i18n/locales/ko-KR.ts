@@ -7610,6 +7610,7 @@ export default {
     discussing: '토론 진행 중…',
     inputPlaceholder: '의견이나 질문을 입력하세요. Ctrl+Enter로 전송',
     send: '보내기',
+    noAgents: '에이전트가 없습니다',
     senderHost: '진행자',
     senderSystem: '시스템',
     senderMe: '나',

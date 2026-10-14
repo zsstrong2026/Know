@@ -7610,6 +7610,7 @@ export default {
     discussing: 'Идёт обсуждение…',
     inputPlaceholder: 'Введите своё мнение или вопрос, Ctrl+Enter — отправить',
     send: 'Отправить',
+    noAgents: 'Нет агентов',
     senderHost: 'Ведущий',
     senderSystem: 'Система',
     senderMe: 'Я',

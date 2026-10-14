@@ -244,6 +244,7 @@ export default {
     discussing: '討論中…',
     inputPlaceholder: '意見や質問を入力。Ctrl+Enterで送信',
     send: '送信',
+    noAgents: 'エージェントがいません',
     senderHost: '司会',
     senderSystem: 'システム',
     senderMe: '自分',

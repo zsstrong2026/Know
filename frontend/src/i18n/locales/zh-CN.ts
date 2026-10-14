@@ -7612,6 +7612,7 @@ export default {
     discussing: '讨论进行中…',
     inputPlaceholder: '输入你的观点或问题，Ctrl+Enter 发送',
     send: '发送',
+    noAgents: '暂无智能体',
     senderHost: '主持人',
     senderSystem: '系统',
     senderMe: '我',

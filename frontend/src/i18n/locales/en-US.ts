@@ -245,6 +245,7 @@ export default {
     discussing: 'Discussion in progress…',
     inputPlaceholder: 'Type your opinion or question; press Ctrl+Enter to send',
     send: 'Send',
+    noAgents: 'No agents',
     senderHost: 'Host',
     senderSystem: 'System',
     senderMe: 'Me',
