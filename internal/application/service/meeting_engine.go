@@ -51,7 +51,7 @@ func NewMeetingEngine(
 		roomRepo: roomRepo, participantRepo: participantRepo,
 		messageRepo: messageRepo, agentRepo: agentRepo,
 		sessionService: sessionService, modelService: modelService,
-		redis: redisClient,
+		redis:         redisClient,
 		broadcaster:   NewMeetingBroadcaster(),
 		cfg:           cfg,
 		contextMax:    contextMax,
@@ -289,9 +289,16 @@ func filterAgentParticipants(ps []*types.MeetingParticipant) []*types.MeetingPar
 
 // selectSpeakers 三级策略：@ 指定 > 主持人 LLM 筛选 > 全员
 func (e *meetingEngine) selectSpeakers(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, agents []*types.CustomAgent) []*types.CustomAgent {
+	// 候选不足 1 个时筛选无意义，直接返回（避免无谓调用主持人）
+	if len(agents) <= 1 {
+		return agents
+	}
 	// 第一级：消息显式 @ 了哪些智能体（保持参会者顺序，保证确定性）
+	// 若 @ 的目标无有效命中（无效 id 或智能体已删除），降级到主持人筛选/全员
 	if len(trigger.MentionedAgentIDs) > 0 {
-		return filterByIDs(agents, trigger.MentionedAgentIDs)
+		if picked := filterByIDs(agents, trigger.MentionedAgentIDs); len(picked) > 0 {
+			return picked
+		}
 	}
 	// 第二级：主持人 LLM 按相关性挑选
 	candidates := make([]speakerCandidate, len(agents))

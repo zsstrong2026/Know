@@ -38,7 +38,7 @@ func (e *meetingEngine) resolveHostChat(ctx context.Context) (chat.Chat, error) 
 func (e *meetingEngine) selectSpeakersByLLM(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, candidates []speakerCandidate) []string {
 	hostChat, err := e.resolveHostChat(ctx)
 	if err != nil {
-		logger.Warnf(ctx, "[meeting] 主持人模型不可用，回退全员发言: %v", err)
+		logger.Warnf(ctx, "[meeting] host model unavailable, fallback to all agents: %v", err)
 		return nil
 	}
 	prompt := buildSpeakerSelectionPrompt(room.Description, trigger.Content, candidates)
@@ -46,7 +46,10 @@ func (e *meetingEngine) selectSpeakersByLLM(ctx context.Context, room *types.Mee
 		{Role: "user", Content: prompt},
 	}, &chat.ChatOptions{Temperature: 0})
 	if err != nil {
-		logger.Warnf(ctx, "[meeting] 主持人筛选失败，回退全员发言: %v", err)
+		logger.Warnf(ctx, "[meeting] host speaker selection failed, fallback to all agents: %v", err)
+		return nil
+	}
+	if resp == nil {
 		return nil
 	}
 	return parseSpeakerSelection(resp.Content, candidateIDs(candidates))
