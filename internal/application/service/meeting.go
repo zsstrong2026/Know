@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -149,4 +150,48 @@ func (s *meetingService) InterruptDiscussion(ctx context.Context, tenantID uint6
 		return err // 租户校验（仓储按 tenant+created_by 过滤）
 	}
 	return s.engine.Interrupt(ctx, roomID)
+}
+
+// validReviewStates 允许前端设置的评审状态（none 只是初始值，不允许回设）
+var validReviewStates = map[string]bool{
+	types.ReviewStatePending:  true,
+	types.ReviewStateAdopted:  true,
+	types.ReviewStateRejected: true,
+}
+
+// broadcasterProvider 引擎侧暴露广播器的收窄接口（与 handler.engineBroadcaster 同一模式）
+type broadcasterProvider interface{ Broadcaster() *MeetingBroadcaster }
+
+// publishEvent 经引擎广播器发 SSE 事件；引擎类型不符时静默跳过（不阻断主流程）
+func publishEvent(engine interfaces.MeetingEngine, roomID string, evt MeetingEvent) {
+	if bp, ok := engine.(broadcasterProvider); ok {
+		bp.Broadcaster().Publish(roomID, evt)
+	}
+}
+
+// UpdateReviewState 更新智能体消息的评审状态并广播；仅允许评审 agent 讨论消息
+func (s *meetingService) UpdateReviewState(ctx context.Context, tenantID uint64, roomID string, messageID string, state string) (*types.MeetingMessage, error) {
+	if !validReviewStates[state] {
+		return nil, fmt.Errorf("invalid review state: %s", state)
+	}
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID) // 租户校验（仓储按 tenant 过滤）
+	if err != nil {
+		return nil, err
+	}
+	msg, err := s.messageRepo.GetByID(ctx, messageID)
+	if err != nil {
+		return nil, err
+	}
+	if msg.MeetingRoomID != room.ID {
+		return nil, fmt.Errorf("message %s not in room %s", messageID, roomID)
+	}
+	if msg.SenderKind != types.MeetingSenderAgent || msg.IsSolution {
+		return nil, fmt.Errorf("only agent discussion messages can be reviewed")
+	}
+	if err := s.messageRepo.UpdateReviewState(ctx, messageID, state); err != nil {
+		return nil, err
+	}
+	msg.ReviewState = state
+	publishEvent(s.engine, roomID, MeetingEvent{Type: MeetingEventMessageReviewUpdated, Data: msg})
+	return msg, nil
 }

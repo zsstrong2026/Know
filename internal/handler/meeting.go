@@ -162,6 +162,27 @@ func (h *MeetingHandler) Interrupt(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": gin.H{"room_id": c.Param("id"), "interrupted": true}})
 }
 
+type updateReviewRequest struct {
+	ReviewState string `json:"review_state" binding:"required"`
+}
+
+// UpdateReviewState PUT /api/v1/meetings/:id/messages/:mid/review
+func (h *MeetingHandler) UpdateReviewState(c *gin.Context) {
+	ctx := c.Request.Context()
+	var req updateReviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	msg, err := h.meetingService.UpdateReviewState(ctx, tenantID, c.Param("id"), c.Param("mid"), req.ReviewState)
+	if err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": msg})
+}
+
 // StreamMessages GET /api/v1/meetings/:id/stream —— SSE 订阅会议事件
 func (h *MeetingHandler) StreamMessages(c *gin.Context) {
 	ctx := c.Request.Context()

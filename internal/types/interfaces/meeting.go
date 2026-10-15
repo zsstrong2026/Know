@@ -55,6 +55,8 @@ type MeetingService interface {
 	ListMessages(ctx context.Context, roomID string, beforeID string, limit int) ([]*types.MeetingMessage, error)
 	// InterruptDiscussion 用户主动打断进行中的讨论轮
 	InterruptDiscussion(ctx context.Context, tenantID uint64, roomID string) error
+	// UpdateReviewState 更新智能体消息的评审状态（pending/adopted/rejected；none 仅初始值不可回设）
+	UpdateReviewState(ctx context.Context, tenantID uint64, roomID string, messageID string, state string) (*types.MeetingMessage, error)
 }
 
 // MeetingEngine 讨论引擎：同一会议同一时刻仅一个讨论轮次（Redis 锁保证）
