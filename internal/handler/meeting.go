@@ -200,6 +200,18 @@ func (h *MeetingHandler) GenerateSolution(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": msg})
 }
 
+// ListArtifacts GET /api/v1/meetings/:id/artifacts
+func (h *MeetingHandler) ListArtifacts(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	list, err := h.meetingService.ListArtifacts(ctx, tenantID, c.Param("id"))
+	if err != nil {
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
+}
+
 // StreamMessages GET /api/v1/meetings/:id/stream —— SSE 订阅会议事件
 func (h *MeetingHandler) StreamMessages(c *gin.Context) {
 	ctx := c.Request.Context()

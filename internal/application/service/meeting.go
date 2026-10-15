@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -16,6 +17,7 @@ type meetingService struct {
 	participantRepo interfaces.MeetingParticipantRepository
 	messageRepo     interfaces.MeetingMessageRepository
 	agentRepo       interfaces.CustomAgentRepository
+	artifactRepo    interfaces.MeetingArtifactRepository
 	engine          interfaces.MeetingEngine
 }
 
@@ -24,11 +26,13 @@ func NewMeetingService(
 	participantRepo interfaces.MeetingParticipantRepository,
 	messageRepo interfaces.MeetingMessageRepository,
 	agentRepo interfaces.CustomAgentRepository,
+	artifactRepo interfaces.MeetingArtifactRepository,
 	engine interfaces.MeetingEngine,
 ) interfaces.MeetingService {
 	return &meetingService{
 		roomRepo: roomRepo, participantRepo: participantRepo,
-		messageRepo: messageRepo, agentRepo: agentRepo, engine: engine,
+		messageRepo: messageRepo, agentRepo: agentRepo,
+		artifactRepo: artifactRepo, engine: engine,
 	}
 }
 
@@ -203,4 +207,26 @@ func (s *meetingService) GenerateSolution(ctx context.Context, tenantID uint64, 
 		return nil, err
 	}
 	return s.engine.GenerateSolution(ctx, room, userID)
+}
+
+// ListArtifacts 本会议历史方案产物（含正文），按版本升序返回
+func (s *meetingService) ListArtifacts(ctx context.Context, tenantID uint64, roomID string) ([]*types.MeetingArtifactDetail, error) {
+	if _, err := s.roomRepo.GetByID(ctx, roomID, tenantID); err != nil { // 租户校验
+		return nil, err
+	}
+	artifacts, err := s.artifactRepo.ListByRoom(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	// 仓储按 version DESC 返回，接口约定升序（v1 -> vN），这里就地重排
+	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Version < artifacts[j].Version })
+	out := make([]*types.MeetingArtifactDetail, 0, len(artifacts))
+	for _, a := range artifacts {
+		d := &types.MeetingArtifactDetail{MeetingArtifact: a}
+		if msg, err := s.messageRepo.GetByID(ctx, a.SolutionMessageID); err == nil {
+			d.Content = msg.Content // 正文关联失败降级为空串，不拖垮整个列表
+		}
+		out = append(out, d)
+	}
+	return out, nil
 }

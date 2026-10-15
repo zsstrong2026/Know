@@ -59,6 +59,8 @@ type MeetingService interface {
 	UpdateReviewState(ctx context.Context, tenantID uint64, roomID string, messageID string, state string) (*types.MeetingMessage, error)
 	// GenerateSolution 主持人基于已采纳意见生成结构化方案（service 先做租户校验再委托引擎）
 	GenerateSolution(ctx context.Context, tenantID uint64, roomID string, userID string) (*types.MeetingMessage, error)
+	// ListArtifacts 本会议历史方案产物（含正文），按版本升序
+	ListArtifacts(ctx context.Context, tenantID uint64, roomID string) ([]*types.MeetingArtifactDetail, error)
 }
 
 // MeetingEngine 讨论引擎：同一会议同一时刻仅一个讨论轮次（Redis 锁保证）

@@ -152,3 +152,9 @@ func (a *MeetingArtifact) BeforeCreate(_ *gorm.DB) error {
 	}
 	return nil
 }
+
+// MeetingArtifactDetail 产物 + 方案正文（正文存消息表不重复存储，联查带出）
+type MeetingArtifactDetail struct {
+	*MeetingArtifact
+	Content string `json:"content"`
+}
