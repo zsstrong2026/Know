@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -345,4 +346,185 @@ func TestGenerateSolutionFallbackContent(t *testing.T) {
 	assert.NotEmpty(t, got.Content)
 	assert.Contains(t, got.Content, "背景与目标", "固定小节标题应保留")
 	assert.Contains(t, got.Content, "蓝绿发布", "采纳意见关键词应进入正文")
+}
+
+// ---- M5 验收测试（T5.4 单测等价覆盖：产物列表 + 回滚）----
+
+// ListByRoom 按房间过滤产物并以 version DESC 返回，对齐真实仓储约定
+// （service 层的"升序重排"分支因此可被真实触发）
+func (f *fakeArtifactRepo) ListByRoom(_ context.Context, roomID string) ([]*types.MeetingArtifact, error) {
+	out := make([]*types.MeetingArtifact, 0, len(f.created))
+	for _, a := range f.created {
+		if a.MeetingRoomID == roomID {
+			out = append(out, a)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Version > out[j].Version })
+	return out, nil
+}
+
+// solutionMsgPreset 预置 v1/v2 两条方案消息（正文存消息表，产物经 SolutionMessageID 关联）
+func solutionMsgPreset() []*types.MeetingMessage {
+	return []*types.MeetingMessage{
+		{ID: "s1", MeetingRoomID: "r1", SenderKind: types.MeetingSenderHost, IsSolution: true, SolutionVersion: 1, Content: "v1 方案正文"},
+		{ID: "s2", MeetingRoomID: "r1", SenderKind: types.MeetingSenderHost, IsSolution: true, SolutionVersion: 2, Content: "v2 方案正文"},
+	}
+}
+
+// artifactSvcFixture ListArtifacts/RollbackSolution 公用夹具：
+// 预置消息 + 指针指向 currentSolutionID 的房间 r1 + 注入带广播器的 engine（供 SSE 事件断言）
+type artifactSvcFixture struct {
+	svc      *meetingService
+	room     *types.MeetingRoom
+	roomRepo *fakeSolutionRoomRepo
+	msgRepo  *fakeSolutionMessageRepo
+	artRepo  *fakeArtifactRepo
+	events   chan MeetingEvent
+	unsub    func()
+}
+
+func newArtifactSvcFixture(preset []*types.MeetingMessage, currentSolutionID string) *artifactSvcFixture {
+	room := roomFixture()
+	room.CurrentSolutionMessageID = currentSolutionID
+	msgRepo := &fakeSolutionMessageRepo{}
+	msgRepo.preset = preset // preset 是嵌入字段，构造后赋值（对齐本文件既有写法）
+	roomRepo := &fakeSolutionRoomRepo{room: room}
+	artRepo := &fakeArtifactRepo{}
+	engine := &meetingEngine{broadcaster: NewMeetingBroadcaster()}
+	events, unsub := engine.broadcaster.Subscribe(room.ID)
+	svc := &meetingService{
+		roomRepo: roomRepo, messageRepo: msgRepo,
+		artifactRepo: artRepo, engine: engine,
+	}
+	return &artifactSvcFixture{
+		svc: svc, room: room, roomRepo: roomRepo, msgRepo: msgRepo,
+		artRepo: artRepo, events: events, unsub: unsub,
+	}
+}
+
+// seedV1V2Artifacts 预置 v1/v2 两版产物（各挂对应方案消息，含评审计数）
+func (f *artifactSvcFixture) seedV1V2Artifacts() {
+	f.seedArtifacts(
+		&types.MeetingArtifact{ID: "a1", MeetingRoomID: "r1", SolutionMessageID: "s1", Version: 1, AdoptedCount: 3, RejectedCount: 0},
+		&types.MeetingArtifact{ID: "a2", MeetingRoomID: "r1", SolutionMessageID: "s2", Version: 2, AdoptedCount: 2, RejectedCount: 1},
+	)
+}
+
+// seedArtifacts 顺序落库给定产物（ListByRoom 按 version DESC 读回）
+func (f *artifactSvcFixture) seedArtifacts(arts ...*types.MeetingArtifact) {
+	for _, a := range arts {
+		f.artRepo.Create(context.Background(), a) // fake 恒 nil，无需判错
+	}
+}
+
+// drainEvents 排空当前已广播事件（Publish 非阻塞写入，单消费者直接读）
+func drainEvents(ch chan MeetingEvent) []MeetingEvent {
+	out := make([]MeetingEvent, 0, len(ch))
+	for len(ch) > 0 {
+		out = append(out, <-ch)
+	}
+	return out
+}
+
+// TestListArtifacts 产物列表（T5.4 Step1 等价覆盖）：
+// v1/v2 升序展示且带正文/计数；正文关联失败降级空串；房间不属于租户整体报错
+func TestListArtifacts(t *testing.T) {
+	ctx := context.Background()
+
+	// 主路径：两条产物各挂方案消息正文，计数与关联 ID 保留
+	f := newArtifactSvcFixture(solutionMsgPreset(), "s2")
+	defer f.unsub()
+	f.seedV1V2Artifacts()
+
+	list, err := f.svc.ListArtifacts(ctx, 1, "r1")
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	// 仓储 DESC 读回 → 接口升序（v1 前 v2 后）；正文联查自对应方案消息
+	assert.Equal(t, 1, list[0].Version)
+	assert.Equal(t, "s1", list[0].SolutionMessageID)
+	assert.Equal(t, "v1 方案正文", list[0].Content)
+	assert.Equal(t, 3, list[0].AdoptedCount)
+	assert.Equal(t, 0, list[0].RejectedCount)
+	assert.Equal(t, 2, list[1].Version)
+	assert.Equal(t, "s2", list[1].SolutionMessageID)
+	assert.Equal(t, "v2 方案正文", list[1].Content)
+	assert.Equal(t, 2, list[1].AdoptedCount)
+	assert.Equal(t, 1, list[1].RejectedCount)
+	// 当前版本判定（实现无 is_current 字段，前端以 solution_message_id 比对房间指针）：仅 v2 与指针一致
+	assert.Equal(t, f.room.CurrentSolutionMessageID, list[1].SolutionMessageID)
+	assert.NotEqual(t, f.room.CurrentSolutionMessageID, list[0].SolutionMessageID)
+
+	// 正文关联失败（SolutionMessageID 指向不存在消息）→ Content 降级空串且不报错
+	f2 := newArtifactSvcFixture(nil, "")
+	f2.seedArtifacts(&types.MeetingArtifact{ID: "a9", MeetingRoomID: "r1", SolutionMessageID: "ghost", Version: 1})
+	list2, err := f2.svc.ListArtifacts(ctx, 1, "r1")
+	require.NoError(t, err)
+	require.Len(t, list2, 1)
+	assert.Empty(t, list2[0].Content, "正文关联失败应降级空串而非报错")
+
+	// 房间不属于租户（GetByID 报错）→ 列表整体报错
+	f3 := newArtifactSvcFixture(solutionMsgPreset(), "s2")
+	_, err = f3.svc.ListArtifacts(ctx, 1, "r-other")
+	assert.Error(t, err)
+}
+
+// TestRollbackSolution 方案回滚（T5.4 Step3 等价覆盖）：
+// 指针切换 + 系统消息 + message.created 广播；版本不存在/脏数据/租户失败均零副作用
+func TestRollbackSolution(t *testing.T) {
+	ctx := context.Background()
+
+	// 主路径：当前指针 v2 → 回滚 v1
+	f := newArtifactSvcFixture(solutionMsgPreset(), "s2")
+	defer f.unsub()
+	f.seedV1V2Artifacts()
+
+	require.NoError(t, f.svc.RollbackSolution(ctx, 1, "r1", 1))
+	// 指针切换：房间内存对象与 Update 落库两处一致
+	assert.Equal(t, "s1", f.room.CurrentSolutionMessageID)
+	require.NotNil(t, f.roomRepo.updated)
+	assert.Equal(t, "s1", f.roomRepo.updated.CurrentSolutionMessageID)
+	// 系统消息落库（fake Create 自动赋 ID，ID 可供前端定位消息）
+	created := f.msgRepo.snapshot()
+	require.Len(t, created, 1)
+	sysMsg := created[0]
+	assert.Equal(t, types.MeetingSenderSystem, sysMsg.SenderKind)
+	assert.Equal(t, "r1", sysMsg.MeetingRoomID)
+	assert.Equal(t, "已将当前方案回滚到 v1", sysMsg.Content)
+	assert.NotEmpty(t, sysMsg.ID)
+	// 广播 message.created 且 Data 即该系统消息（指针变更无独立 SSE 事件）
+	events := drainEvents(f.events)
+	require.Len(t, events, 1)
+	assert.Equal(t, MeetingEventMessageCreated, events[0].Type)
+	data, ok := events[0].Data.(*types.MeetingMessage)
+	require.True(t, ok, "事件数据应为系统消息")
+	assert.Equal(t, sysMsg, data)
+
+	// 版本不存在：报错且指针未变、无系统消息、无广播
+	f2 := newArtifactSvcFixture(solutionMsgPreset(), "s2")
+	f2.seedV1V2Artifacts()
+	err := f2.svc.RollbackSolution(ctx, 1, "r1", 3)
+	assert.ErrorContains(t, err, "solution version 3 not found")
+	assert.Equal(t, "s2", f2.room.CurrentSolutionMessageID)
+	assert.Nil(t, f2.roomRepo.updated)
+	assert.Empty(t, f2.msgRepo.snapshot())
+	assert.Empty(t, eventTypes(f2.events))
+
+	// 脏数据：产物的 SolutionMessageID 指向非方案消息（IsSolution=false）→ 拒绝
+	f3 := newArtifactSvcFixture([]*types.MeetingMessage{
+		{ID: "d1", MeetingRoomID: "r1", SenderKind: types.MeetingSenderAgent, Content: "普通讨论消息"},
+	}, "d1")
+	f3.seedArtifacts(&types.MeetingArtifact{ID: "a3", MeetingRoomID: "r1", SolutionMessageID: "d1", Version: 1})
+	err = f3.svc.RollbackSolution(ctx, 1, "r1", 1)
+	assert.ErrorContains(t, err, "invalid solution message for version 1")
+	assert.Equal(t, "d1", f3.room.CurrentSolutionMessageID)
+	assert.Nil(t, f3.roomRepo.updated)
+	assert.Empty(t, f3.msgRepo.snapshot())
+
+	// 租户校验失败：房间不属于租户 → 报错且零副作用
+	f4 := newArtifactSvcFixture(solutionMsgPreset(), "s2")
+	err = f4.svc.RollbackSolution(ctx, 2, "r-other", 1)
+	assert.Error(t, err)
+	assert.Equal(t, "s2", f4.room.CurrentSolutionMessageID)
+	assert.Nil(t, f4.roomRepo.updated)
+	assert.Empty(t, f4.msgRepo.snapshot())
 }
