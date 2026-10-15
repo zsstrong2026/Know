@@ -2,7 +2,7 @@ import { ref } from 'vue';
 import { defineStore } from 'pinia';
 import {
   listMeetings, getMeeting, listMessages, sendMessage,
-  updateReviewState, generateSolution,
+  updateReviewState, generateSolution, rollbackSolution,
   type MeetingRoom, type MeetingMessage,
 } from '@/api/meeting';
 
@@ -68,6 +68,14 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     }
   }
 
+  // 回滚方案版本：HTTP 成功后重拉房间（current_solution_message_id 变化）与消息列表，
+  // 回滚落一条系统消息，SSE 亦会回流，HTTP 刷新是兜底（同时去重）
+  async function rollback(version: number) {
+    if (!currentRoom.value) return;
+    await rollbackSolution(currentRoom.value.id, version);
+    await enterRoom(currentRoom.value.id);
+  }
+
   // SSE 事件入口：由视图层订阅后调用
   function applyStreamEvent(event: string, data: unknown) {
     if (event === 'message.created' && data) {
@@ -103,5 +111,5 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   }
 
   return { rooms, currentRoom, messages, hasMore, discussing, guardNotice, solutionGenerating,
-    fetchRooms, enterRoom, loadEarlier, speak, setReviewState, generate, applyStreamEvent, clearGuardNotice, leaveRoom };
+    fetchRooms, enterRoom, loadEarlier, speak, setReviewState, generate, rollback, applyStreamEvent, clearGuardNotice, leaveRoom };
 });

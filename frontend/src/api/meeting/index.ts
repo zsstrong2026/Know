@@ -17,6 +17,8 @@ export interface MeetingRoom {
   created_by: string;
   created_at: string;
   updated_at: string;
+  // 当前方案消息指针（空串表示尚未生成过方案）
+  current_solution_message_id: string;
   // 详情接口会一并返回参会者
   participants?: MeetingParticipant[];
 }
@@ -40,6 +42,19 @@ export interface MeetingMessage {
   is_solution: boolean;
   solution_version: number;
   created_at: string;
+}
+
+// 历史方案产物（正文存于 solution_message_id 指向的消息，列表接口联查带出）
+export interface MeetingArtifact {
+  id: string;
+  meeting_room_id: string;
+  solution_message_id: string;
+  version: number;
+  adopted_count: number;
+  rejected_count: number;
+  created_by: string;
+  created_at: string;
+  content: string;
 }
 
 export interface CreateMeetingInput {
@@ -145,6 +160,18 @@ export async function updateReviewState(roomId: string, messageId: string, revie
 export async function generateSolution(roomId: string) {
   const { post } = await loadRequest();
   return post<{ data: MeetingMessage }>(`/api/v1/meetings/${roomId}/solution`, {}).then((r) => r.data);
+}
+
+// 历史方案产物列表（含正文），后端按 version 升序返回
+export async function listArtifacts(roomId: string) {
+  const { get } = await loadRequest();
+  return get<{ data: MeetingArtifact[] }>(`/api/v1/meetings/${roomId}/artifacts`).then((r) => r.data);
+}
+
+// 把当前方案指针回滚到指定历史版本（成功后落一条系统消息，经 SSE 回流）
+export async function rollbackSolution(roomId: string, version: number): Promise<void> {
+  const { post } = await loadRequest();
+  await post(`/api/v1/meetings/${roomId}/solution/rollback`, { version });
 }
 
 // ===== SSE 订阅 =====

@@ -10,6 +10,9 @@
       <t-button size="small" theme="default" :disabled="!store.discussing" @click="interrupt">
         {{ $t('meeting.interrupt') }}
       </t-button>
+      <t-button size="small" theme="default" @click="showArtifacts = true">
+        {{ $t('meeting.artifacts') }}
+      </t-button>
     </header>
 
     <main ref="scrollRef" class="message-list">
@@ -41,6 +44,9 @@
       </div>
       <div v-if="store.discussing" class="discussing">{{ $t('meeting.discussing') }}</div>
     </main>
+
+    <ArtifactDrawer v-model:visible="showArtifacts" :room-id="roomId"
+      :current-solution-message-id="store.currentRoom?.current_solution_message_id ?? ''" />
 
     <footer class="input-bar">
       <!-- 已选 @ 的智能体 chip，可点关闭移除 -->
@@ -74,6 +80,7 @@ import { useMeetingStore } from '@/stores/meeting';
 import { interruptMeeting, openMeetingStream } from '@/api/meeting';
 import type { MeetingMessage, MeetingParticipant } from '@/api/meeting';
 import MentionPicker from './components/MentionPicker.vue';
+import ArtifactDrawer from './ArtifactDrawer.vue';
 
 const route = useRoute();
 const { t } = useI18n();
@@ -81,6 +88,7 @@ const store = useMeetingStore();
 const draft = ref('');
 // 本次发言 @ 提及的智能体（仅视图本地状态，发送时取其 agent_id 传给后端）
 const mentions = ref<MeetingParticipant[]>([]);
+const showArtifacts = ref(false); // 历史产物抽屉可见性（视图本地状态，不入 store）
 const scrollRef = ref<HTMLElement>();
 let closeStream: (() => void) | null = null;
 
