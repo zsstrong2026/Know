@@ -61,6 +61,8 @@ type MeetingService interface {
 	GenerateSolution(ctx context.Context, tenantID uint64, roomID string, userID string) (*types.MeetingMessage, error)
 	// ListArtifacts 本会议历史方案产物（含正文），按版本升序
 	ListArtifacts(ctx context.Context, tenantID uint64, roomID string) ([]*types.MeetingArtifactDetail, error)
+	// RollbackSolution 把房间当前方案指针切回指定历史版本
+	RollbackSolution(ctx context.Context, tenantID uint64, roomID string, version int) error
 }
 
 // MeetingEngine 讨论引擎：同一会议同一时刻仅一个讨论轮次（Redis 锁保证）

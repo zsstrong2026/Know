@@ -230,3 +230,46 @@ func (s *meetingService) ListArtifacts(ctx context.Context, tenantID uint64, roo
 	}
 	return out, nil
 }
+
+// RollbackSolution 把房间当前方案指针切到指定历史版本，并落系统消息广播
+func (s *meetingService) RollbackSolution(ctx context.Context, tenantID uint64, roomID string, version int) error {
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID)
+	if err != nil {
+		return err
+	}
+	artifacts, err := s.artifactRepo.ListByRoom(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	var target *types.MeetingArtifact
+	for _, a := range artifacts {
+		if a.Version == version {
+			target = a
+			break
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("solution version %d not found", version)
+	}
+	msg, err := s.messageRepo.GetByID(ctx, target.SolutionMessageID)
+	if err != nil {
+		return err
+	}
+	if !msg.IsSolution || msg.MeetingRoomID != roomID { // 防跨房间指针污染
+		return fmt.Errorf("invalid solution message for version %d", version)
+	}
+	room.CurrentSolutionMessageID = msg.ID
+	if err := s.roomRepo.Update(ctx, room); err != nil {
+		return err
+	}
+	// 系统消息告知回滚（SSE 对端经 message.created 同步）
+	sysMsg := &types.MeetingMessage{
+		MeetingRoomID: roomID,
+		SenderKind:    types.MeetingSenderSystem,
+		Content:       fmt.Sprintf("已将当前方案回滚到 v%d", version),
+	}
+	if err := s.messageRepo.Create(ctx, sysMsg); err == nil {
+		publishEvent(s.engine, roomID, MeetingEvent{Type: MeetingEventMessageCreated, Data: sysMsg})
+	}
+	return nil
+}

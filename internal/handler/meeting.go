@@ -212,6 +212,26 @@ func (h *MeetingHandler) ListArtifacts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
 }
 
+type rollbackSolutionRequest struct {
+	Version int `json:"version" binding:"required,min=1"`
+}
+
+// RollbackSolution POST /api/v1/meetings/:id/solution/rollback
+func (h *MeetingHandler) RollbackSolution(c *gin.Context) {
+	ctx := c.Request.Context()
+	var req rollbackSolutionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	if err := h.meetingService.RollbackSolution(ctx, tenantID, c.Param("id"), req.Version); err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 // StreamMessages GET /api/v1/meetings/:id/stream —— SSE 订阅会议事件
 func (h *MeetingHandler) StreamMessages(c *gin.Context) {
 	ctx := c.Request.Context()
