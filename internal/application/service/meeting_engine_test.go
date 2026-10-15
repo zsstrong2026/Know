@@ -71,7 +71,8 @@ func TestBuildMeetingQueryNoAgentRoster(t *testing.T) {
 }
 
 func roomFixture() *types.MeetingRoom {
-	return &types.MeetingRoom{ID: "r1", Title: "发布方案评审", KnowledgeBaseIDs: []string{"c"}}
+	// Status 显式 active：T6.1 归档守卫上线后，"进行中会议" fixture 必须带状态（DB 层有 default:active）
+	return &types.MeetingRoom{ID: "r1", Title: "发布方案评审", Status: types.MeetingStatusActive, KnowledgeBaseIDs: []string{"c"}}
 }
 
 func messagesFixture() []*types.MeetingMessage {

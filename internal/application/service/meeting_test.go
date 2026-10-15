@@ -61,10 +61,10 @@ func TestInterruptDiscussion(t *testing.T) {
 	assert.ErrorIs(t, err, repoErr)
 	assert.False(t, eng.called)
 
-	// 房间存在：调用引擎并透传其返回值
+	// 房间存在：调用引擎并透传其返回值（Status 显式 active：归档守卫只放行进行中会议）
 	engErr := errors.New("interrupt failed")
 	eng2 := &stubEngine{err: engErr}
-	svc2 := &meetingService{roomRepo: &stubRoomRepo{room: &types.MeetingRoom{ID: "room-2"}}, engine: eng2}
+	svc2 := &meetingService{roomRepo: &stubRoomRepo{room: &types.MeetingRoom{ID: "room-2", Status: types.MeetingStatusActive}}, engine: eng2}
 	err = svc2.InterruptDiscussion(context.Background(), 1, "room-2")
 	assert.ErrorIs(t, err, engErr)
 	assert.True(t, eng2.called)

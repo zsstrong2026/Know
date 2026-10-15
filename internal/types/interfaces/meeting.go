@@ -50,8 +50,8 @@ type MeetingService interface {
 	ListMeetings(ctx context.Context, tenantID uint64, createdBy string, status string, offset, limit int) ([]*types.MeetingRoom, int64, error)
 	UpdateMeeting(ctx context.Context, room *types.MeetingRoom) error
 	DeleteMeeting(ctx context.Context, tenantID uint64, id string) error
-	// SendUserMessage 落库用户消息并异步触发讨论轮，返回落库后的消息
-	SendUserMessage(ctx context.Context, roomID string, userID string, content string, mentionedAgentIDs []string) (*types.MeetingMessage, error)
+	// SendUserMessage 落库用户消息并异步触发讨论轮，返回落库后的消息（归档房间拒绝）
+	SendUserMessage(ctx context.Context, tenantID uint64, roomID string, userID string, content string, mentionedAgentIDs []string) (*types.MeetingMessage, error)
 	ListMessages(ctx context.Context, roomID string, beforeID string, limit int) ([]*types.MeetingMessage, error)
 	// InterruptDiscussion 用户主动打断进行中的讨论轮
 	InterruptDiscussion(ctx context.Context, tenantID uint64, roomID string) error
@@ -63,6 +63,10 @@ type MeetingService interface {
 	ListArtifacts(ctx context.Context, tenantID uint64, roomID string) ([]*types.MeetingArtifactDetail, error)
 	// RollbackSolution 把房间当前方案指针切回指定历史版本
 	RollbackSolution(ctx context.Context, tenantID uint64, roomID string, version int) error
+	// ArchiveRoom 归档会议（幂等）：置 archived + 落系统消息 + 广播
+	ArchiveRoom(ctx context.Context, tenantID uint64, roomID string) error
+	// ExportArtifact 导出方案为 .md，返回文件名与正文（只读操作，归档房间允许导出；T6.3 实现）
+	ExportArtifact(ctx context.Context, tenantID uint64, roomID string, artifactID string) (string, string, error)
 }
 
 // MeetingEngine 讨论引擎：同一会议同一时刻仅一个讨论轮次（Redis 锁保证）

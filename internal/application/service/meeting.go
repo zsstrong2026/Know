@@ -114,7 +114,14 @@ func (s *meetingService) DeleteMeeting(ctx context.Context, tenantID uint64, id 
 	return s.roomRepo.Delete(ctx, id, tenantID)
 }
 
-func (s *meetingService) SendUserMessage(ctx context.Context, roomID string, userID string, content string, mentionedAgentIDs []string) (*types.MeetingMessage, error) {
+func (s *meetingService) SendUserMessage(ctx context.Context, tenantID uint64, roomID string, userID string, content string, mentionedAgentIDs []string) (*types.MeetingMessage, error) {
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID)
+	if err != nil {
+		return nil, err // 租户校验（仓储按 tenant+created_by 过滤）
+	}
+	if err := ensureRoomActive(room); err != nil {
+		return nil, err // 归档守卫：archived 房间只读
+	}
 	msg := &types.MeetingMessage{
 		MeetingRoomID:     roomID,
 		SenderKind:        types.MeetingSenderUser,
@@ -150,8 +157,12 @@ func (s *meetingService) ListMessages(ctx context.Context, roomID string, before
 
 // InterruptDiscussion 用户主动打断进行中的讨论轮（先做租户归属校验，再置打断标记）
 func (s *meetingService) InterruptDiscussion(ctx context.Context, tenantID uint64, roomID string) error {
-	if _, err := s.roomRepo.GetByID(ctx, roomID, tenantID); err != nil {
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID)
+	if err != nil {
 		return err // 租户校验（仓储按 tenant+created_by 过滤）
+	}
+	if err := ensureRoomActive(room); err != nil {
+		return err // 归档守卫：archived 房间只读
 	}
 	return s.engine.Interrupt(ctx, roomID)
 }
@@ -182,6 +193,9 @@ func (s *meetingService) UpdateReviewState(ctx context.Context, tenantID uint64,
 	if err != nil {
 		return nil, err
 	}
+	if err := ensureRoomActive(room); err != nil {
+		return nil, err // 归档守卫：archived 房间只读
+	}
 	msg, err := s.messageRepo.GetByID(ctx, messageID)
 	if err != nil {
 		return nil, err
@@ -205,6 +219,9 @@ func (s *meetingService) GenerateSolution(ctx context.Context, tenantID uint64, 
 	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID)
 	if err != nil {
 		return nil, err
+	}
+	if err := ensureRoomActive(room); err != nil {
+		return nil, err // 归档守卫：archived 房间只读
 	}
 	return s.engine.GenerateSolution(ctx, room, userID)
 }
@@ -236,6 +253,9 @@ func (s *meetingService) RollbackSolution(ctx context.Context, tenantID uint64, 
 	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID)
 	if err != nil {
 		return err
+	}
+	if err := ensureRoomActive(room); err != nil {
+		return err // 归档守卫：archived 房间只读
 	}
 	artifacts, err := s.artifactRepo.ListByRoom(ctx, roomID)
 	if err != nil {

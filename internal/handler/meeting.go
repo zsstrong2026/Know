@@ -103,6 +103,66 @@ func (h *MeetingHandler) GetMeeting(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"room": room, "participants": participants}})
 }
 
+// updateMeetingRequest PATCH 白名单四字段（参会人不可改）
+type updateMeetingRequest struct {
+	Title            string `json:"title" binding:"required"`
+	Description      string `json:"description"`
+	BroadcastMode    string `json:"broadcast_mode" binding:"required,oneof=sequential parallel"`
+	GuardMaxExchange int    `json:"guard_max_exchange" binding:"required,min=1,max=10"`
+}
+
+// UpdateMeeting PATCH /api/v1/meetings/:id —— 白名单更新，归档房间只读
+func (h *MeetingHandler) UpdateMeeting(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	var req updateMeetingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	room, _, err := h.meetingService.GetMeeting(ctx, tenantID, c.Param("id"))
+	if err != nil {
+		c.Error(errors.NewNotFoundError("meeting not found"))
+		return
+	}
+	if room.Status != types.MeetingStatusActive {
+		c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
+		return
+	}
+	// 白名单拷贝四字段，其余字段不可改
+	room.Title = req.Title
+	room.Description = req.Description
+	room.BroadcastMode = req.BroadcastMode
+	room.GuardMaxExchange = req.GuardMaxExchange
+	if err := h.meetingService.UpdateMeeting(ctx, room); err != nil {
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": room})
+}
+
+// ArchiveMeeting POST /api/v1/meetings/:id/archive —— 幂等归档
+func (h *MeetingHandler) ArchiveMeeting(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	if err := h.meetingService.ArchiveRoom(ctx, tenantID, c.Param("id")); err != nil {
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "archived"})
+}
+
+// DeleteMeeting DELETE /api/v1/meetings/:id —— 软删
+func (h *MeetingHandler) DeleteMeeting(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	if err := h.meetingService.DeleteMeeting(ctx, tenantID, c.Param("id")); err != nil {
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "deleted"})
+}
+
 // ListMessages GET /api/v1/meetings/:id/messages?before=&limit=
 func (h *MeetingHandler) ListMessages(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -138,8 +198,12 @@ func (h *MeetingHandler) SendMessage(c *gin.Context) {
 		return
 	}
 	userID, _ := types.UserIDFromContext(ctx)
-	msg, err := h.meetingService.SendUserMessage(ctx, c.Param("id"), userID, req.Content, req.MentionedAgentIDs)
+	msg, err := h.meetingService.SendUserMessage(ctx, tenantID, c.Param("id"), userID, req.Content, req.MentionedAgentIDs)
 	if err != nil {
+		if err == service.ErrRoomArchived {
+			c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
+			return
+		}
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{"meeting_id": c.Param("id")})
 		c.Error(errors.NewInternalServerError("Failed to send meeting message"))
 		return
@@ -155,6 +219,10 @@ func (h *MeetingHandler) Interrupt(c *gin.Context) {
 		return
 	}
 	if err := h.meetingService.InterruptDiscussion(ctx, tenantID, c.Param("id")); err != nil {
+		if err == service.ErrRoomArchived {
+			c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
+			return
+		}
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{"meeting_id": c.Param("id")})
 		c.Error(errors.NewInternalServerError("Failed to interrupt meeting"))
 		return
@@ -177,6 +245,10 @@ func (h *MeetingHandler) UpdateReviewState(c *gin.Context) {
 	tenantID, _ := types.TenantIDFromContext(ctx)
 	msg, err := h.meetingService.UpdateReviewState(ctx, tenantID, c.Param("id"), c.Param("mid"), req.ReviewState)
 	if err != nil {
+		if err == service.ErrRoomArchived {
+			c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
+			return
+		}
 		c.Error(errors.NewBadRequestError(err.Error()))
 		return
 	}
@@ -190,6 +262,10 @@ func (h *MeetingHandler) GenerateSolution(c *gin.Context) {
 	userID, _ := types.UserIDFromContext(ctx)
 	msg, err := h.meetingService.GenerateSolution(ctx, tenantID, c.Param("id"), userID)
 	if err != nil {
+		if err == service.ErrRoomArchived {
+			c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
+			return
+		}
 		if err == service.ErrNoAdoptedMessages {
 			c.Error(errors.NewBadRequestError("请先在讨论中采纳至少一条意见"))
 			return
@@ -226,6 +302,10 @@ func (h *MeetingHandler) RollbackSolution(c *gin.Context) {
 	}
 	tenantID, _ := types.TenantIDFromContext(ctx)
 	if err := h.meetingService.RollbackSolution(ctx, tenantID, c.Param("id"), req.Version); err != nil {
+		if err == service.ErrRoomArchived {
+			c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
+			return
+		}
 		c.Error(errors.NewBadRequestError(err.Error()))
 		return
 	}
