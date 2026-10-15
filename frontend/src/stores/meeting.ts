@@ -15,8 +15,8 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   const guardNotice = ref<unknown>(null); // 护栏触发提示（主持人介入）
   const solutionGenerating = ref(false);  // 方案生成中（按钮 loading 用）
 
-  async function fetchRooms() {
-    rooms.value = await listMeetings();
+  async function fetchRooms(status = '') {
+    rooms.value = await listMeetings(status);
   }
 
   async function enterRoom(roomId: string) {

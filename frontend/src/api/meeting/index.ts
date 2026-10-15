@@ -57,6 +57,14 @@ export interface MeetingArtifact {
   content: string;
 }
 
+// 更新会议请求体：PATCH 四字段白名单，均可选（局部更新）
+export interface UpdateMeetingRequest {
+  title?: string;
+  description?: string;
+  broadcast_mode?: BroadcastMode;
+  guard_max_exchange?: number;
+}
+
 export interface CreateMeetingInput {
   title: string;
   description: string;
@@ -105,9 +113,10 @@ async function loadRequest() {
 // 注意：request.ts 的 get/post 解析出的是后端整个响应体 `{ success, data }`，
 // 这里统一解包为业务对象，调用方（Store）直接拿到数组/实体。
 
-export async function listMeetings() {
+export async function listMeetings(status = '') {
   const { get } = await loadRequest();
-  return get<{ data: MeetingRoom[] }>('/api/v1/meetings').then((r) => r.data);
+  const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+  return get<{ data: MeetingRoom[] }>(`/api/v1/meetings${qs}`).then((r) => r.data);
 }
 
 export async function createMeeting(input: CreateMeetingInput) {
@@ -172,6 +181,24 @@ export async function listArtifacts(roomId: string) {
 export async function rollbackSolution(roomId: string, version: number): Promise<void> {
   const { post } = await loadRequest();
   await post(`/api/v1/meetings/${roomId}/solution/rollback`, { version });
+}
+
+// 局部更新会议（标题/描述/发言模式/护栏上限）
+export async function updateMeeting(roomId: string, data: UpdateMeetingRequest) {
+  const { patch } = await loadRequest();
+  return patch<{ data: MeetingRoom }>(`/api/v1/meetings/${roomId}`, data).then((r) => r.data);
+}
+
+// 归档会议（幂等）：归档后进入只读态，写操作被后端 403 拒绝
+export async function archiveMeeting(roomId: string): Promise<void> {
+  const { post } = await loadRequest();
+  await post(`/api/v1/meetings/${roomId}/archive`, {});
+}
+
+// 删除会议（后端级联删除消息/参会者/产物，不可恢复）
+export async function deleteMeeting(roomId: string): Promise<void> {
+  const { del } = await loadRequest();
+  await del(`/api/v1/meetings/${roomId}`);
 }
 
 // ===== SSE 订阅 =====

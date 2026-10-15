@@ -3,8 +3,8 @@
     <header class="room-header">
       <span class="title">{{ store.currentRoom?.title }}</span>
       <span class="topic">{{ store.currentRoom?.description }}</span>
-      <t-button size="small" theme="primary" :loading="store.solutionGenerating" :disabled="store.discussing"
-        @click="generateSolution">
+      <t-button size="small" theme="primary" :loading="store.solutionGenerating"
+        :disabled="store.discussing || isArchived" @click="generateSolution">
         {{ $t('meeting.generateSolution') }}
       </t-button>
       <t-button size="small" theme="default" :disabled="!store.discussing" @click="interrupt">
@@ -14,6 +14,9 @@
         {{ $t('meeting.artifacts') }}
       </t-button>
     </header>
+
+    <!-- 归档只读态提示条 -->
+    <t-alert v-if="isArchived" :message="$t('meeting.archivedBanner')" theme="info" class="archived-banner" />
 
     <main ref="scrollRef" class="message-list">
       <div v-if="store.guardNotice" class="guard-notice">
@@ -32,14 +35,14 @@
           </t-tag>
         </div>
         <div class="bubble">{{ m.content }}</div>
-        <!-- 评审操作条：仅智能体讨论消息可评审，方案消息不参与 -->
+        <!-- 评审操作条：仅智能体讨论消息可评审，方案消息不参与；归档后禁用 -->
         <div v-if="m.sender_kind === 'agent' && !m.is_solution" class="review-bar">
           <t-button size="small" theme="success" :variant="m.review_state === 'adopted' ? 'base' : 'outline'"
-            @click="review(m, 'adopted')">{{ $t('meeting.adopt') }}</t-button>
+            :disabled="isArchived" @click="review(m, 'adopted')">{{ $t('meeting.adopt') }}</t-button>
           <t-button size="small" theme="danger" :variant="m.review_state === 'rejected' ? 'base' : 'outline'"
-            @click="review(m, 'rejected')">{{ $t('meeting.reject') }}</t-button>
+            :disabled="isArchived" @click="review(m, 'rejected')">{{ $t('meeting.reject') }}</t-button>
           <t-button size="small" theme="warning" :variant="m.review_state === 'pending' ? 'base' : 'outline'"
-            @click="review(m, 'pending')">{{ $t('meeting.pending') }}</t-button>
+            :disabled="isArchived" @click="review(m, 'pending')">{{ $t('meeting.pending') }}</t-button>
         </div>
       </div>
       <div v-if="store.discussing" class="discussing">{{ $t('meeting.discussing') }}</div>
@@ -58,12 +61,12 @@
       </div>
       <!-- t-textarea 的 keyup 会以组件参数回调（非原生事件），故在其外层原生 div 上监听并借冒泡触发 -->
       <div class="editor" @keyup.ctrl.enter="send">
-        <t-textarea v-model="draft" :autosize="{ minRows: 2, maxRows: 6 }" :disabled="store.discussing"
-          :placeholder="$t('meeting.inputPlaceholder')" />
+        <t-textarea v-model="draft" :autosize="{ minRows: 2, maxRows: 6 }"
+          :disabled="store.discussing || isArchived" :placeholder="$t('meeting.inputPlaceholder')" />
       </div>
       <div class="input-actions">
         <MentionPicker @pick="addMention" />
-        <t-button theme="primary" :disabled="store.discussing || !draft.trim()" @click="send">
+        <t-button theme="primary" :disabled="store.discussing || isArchived || !draft.trim()" @click="send">
           {{ $t('meeting.send') }}
         </t-button>
       </div>
@@ -72,7 +75,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
@@ -93,6 +96,9 @@ const scrollRef = ref<HTMLElement>();
 let closeStream: (() => void) | null = null;
 
 const roomId = route.params.roomId as string;
+
+// 归档只读态：输入/发送/评审/生成方案全部禁用，SSE 仍保持接收（归档系统消息可推送到场）
+const isArchived = computed(() => store.currentRoom?.status === 'archived');
 
 onMounted(async () => {
   // 进入房间失败时给出提示，且仅在成功后才建立 SSE 连接，避免空白页
@@ -121,6 +127,16 @@ watch(() => store.messages[store.messages.length - 1]?.id, () => nextTick(scroll
 function scrollToBottom() {
   const el = scrollRef.value;
   if (el) el.scrollTop = el.scrollHeight;
+}
+
+// 统一错误提示：后端对归档房间的写操作返回 403（message 含 archived），映射为只读提示
+function toastError(e: unknown) {
+  const msg = (e as Error)?.message || '';
+  if (msg.includes('archived')) {
+    MessagePlugin.warning(t('meeting.archivedForbidden'));
+    return;
+  }
+  MessagePlugin.error(msg || t('meeting.loadFailed'));
 }
 
 function senderLabel(m: MeetingMessage): string {
@@ -153,7 +169,7 @@ async function send() {
     await store.speak(content, ids);
   } catch (e) {
     draft.value = content;                          // 失败时回填，避免丢内容
-    MessagePlugin.error((e as Error)?.message || t('meeting.loadFailed'));
+    toastError(e);
   }
 }
 
@@ -162,7 +178,7 @@ async function review(m: MeetingMessage, state: string) {
   try {
     await store.setReviewState(m.id, state);
   } catch (e) {
-    MessagePlugin.error((e as Error)?.message || t('meeting.loadFailed'));
+    toastError(e);
   }
 }
 
@@ -171,7 +187,7 @@ async function generateSolution() {
   try {
     await store.generate();
   } catch (e) {
-    MessagePlugin.error((e as Error)?.message || t('meeting.loadFailed'));
+    toastError(e);
   }
 }
 
@@ -180,7 +196,7 @@ async function interrupt() {
   try {
     await interruptMeeting(roomId);
   } catch (e) {
-    MessagePlugin.error((e as Error)?.message || t('meeting.loadFailed'));
+    toastError(e);
   }
 }
 </script>
@@ -222,5 +238,9 @@ async function interrupt() {
   background: #fff8e1; /* 淡黄底：主持人介入提示 */
   color: #8d6e00;
   font-size: 13px;
+}
+
+.archived-banner {
+  margin-bottom: 8px;
 }
 </style>
