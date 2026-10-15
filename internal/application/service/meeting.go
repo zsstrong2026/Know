@@ -195,3 +195,12 @@ func (s *meetingService) UpdateReviewState(ctx context.Context, tenantID uint64,
 	publishEvent(s.engine, roomID, MeetingEvent{Type: MeetingEventMessageReviewUpdated, Data: msg})
 	return msg, nil
 }
+
+// GenerateSolution 先做租户归属校验取 room，再委托引擎生成方案（引擎无租户上下文）
+func (s *meetingService) GenerateSolution(ctx context.Context, tenantID uint64, roomID string, userID string) (*types.MeetingMessage, error) {
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return s.engine.GenerateSolution(ctx, room, userID)
+}

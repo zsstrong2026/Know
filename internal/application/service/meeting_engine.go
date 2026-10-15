@@ -25,6 +25,7 @@ type meetingEngine struct {
 	participantRepo interfaces.MeetingParticipantRepository
 	messageRepo     interfaces.MeetingMessageRepository
 	agentRepo       interfaces.CustomAgentRepository
+	artifactRepo    interfaces.MeetingArtifactRepository
 	sessionService  interfaces.SessionService
 	modelService    interfaces.ModelService
 	redis           *redis.Client
@@ -39,6 +40,7 @@ func NewMeetingEngine(
 	participantRepo interfaces.MeetingParticipantRepository,
 	messageRepo interfaces.MeetingMessageRepository,
 	agentRepo interfaces.CustomAgentRepository,
+	artifactRepo interfaces.MeetingArtifactRepository,
 	sessionService interfaces.SessionService,
 	modelService interfaces.ModelService,
 	redisClient *redis.Client,
@@ -52,6 +54,7 @@ func NewMeetingEngine(
 	return &meetingEngine{
 		roomRepo: roomRepo, participantRepo: participantRepo,
 		messageRepo: messageRepo, agentRepo: agentRepo,
+		artifactRepo:  artifactRepo,
 		sessionService: sessionService, modelService: modelService,
 		redis:         redisClient,
 		broadcaster:   NewMeetingBroadcaster(),

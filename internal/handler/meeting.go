@@ -183,6 +183,23 @@ func (h *MeetingHandler) UpdateReviewState(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": msg})
 }
 
+// GenerateSolution POST /api/v1/meetings/:id/solution —— 同步等待 LLM 结果
+func (h *MeetingHandler) GenerateSolution(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	userID, _ := types.UserIDFromContext(ctx)
+	msg, err := h.meetingService.GenerateSolution(ctx, tenantID, c.Param("id"), userID)
+	if err != nil {
+		if err == service.ErrNoAdoptedMessages {
+			c.Error(errors.NewBadRequestError("请先在讨论中采纳至少一条意见"))
+			return
+		}
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": msg})
+}
+
 // StreamMessages GET /api/v1/meetings/:id/stream —— SSE 订阅会议事件
 func (h *MeetingHandler) StreamMessages(c *gin.Context) {
 	ctx := c.Request.Context()

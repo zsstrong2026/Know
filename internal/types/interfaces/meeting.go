@@ -57,10 +57,14 @@ type MeetingService interface {
 	InterruptDiscussion(ctx context.Context, tenantID uint64, roomID string) error
 	// UpdateReviewState 更新智能体消息的评审状态（pending/adopted/rejected；none 仅初始值不可回设）
 	UpdateReviewState(ctx context.Context, tenantID uint64, roomID string, messageID string, state string) (*types.MeetingMessage, error)
+	// GenerateSolution 主持人基于已采纳意见生成结构化方案（service 先做租户校验再委托引擎）
+	GenerateSolution(ctx context.Context, tenantID uint64, roomID string, userID string) (*types.MeetingMessage, error)
 }
 
 // MeetingEngine 讨论引擎：同一会议同一时刻仅一个讨论轮次（Redis 锁保证）
 type MeetingEngine interface {
 	RunTurn(ctx context.Context, roomID string, triggerMessageID string) error
 	Interrupt(ctx context.Context, roomID string) error
+	// GenerateSolution 主持人生成结构化方案（引擎无租户上下文，room 由调用方校验后传入）
+	GenerateSolution(ctx context.Context, room *types.MeetingRoom, userID string) (*types.MeetingMessage, error)
 }
