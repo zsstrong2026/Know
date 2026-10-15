@@ -53,14 +53,31 @@ func (f *fakeSolutionRoomRepo) Update(_ context.Context, room *types.MeetingRoom
 	return nil
 }
 
-// fakeArtifactRepo 记录落库产物
+// fakeArtifactRepo 记录落库产物与最近一次导出格式
 type fakeArtifactRepo struct {
 	interfaces.MeetingArtifactRepository
-	created []*types.MeetingArtifact
+	created        []*types.MeetingArtifact
+	exportedFormat string // UpdateExportedFormat 最后一次写入值（ExportArtifact 断言用）
 }
 
 func (f *fakeArtifactRepo) Create(_ context.Context, a *types.MeetingArtifact) error {
 	f.created = append(f.created, a)
+	return nil
+}
+
+// GetByID 按 ID+roomID 查产物（对齐真实仓储 WHERE 语义：id 与 meeting_room_id 双过滤）
+func (f *fakeArtifactRepo) GetByID(_ context.Context, id string, roomID string) (*types.MeetingArtifact, error) {
+	for _, a := range f.created {
+		if a.ID == id && a.MeetingRoomID == roomID {
+			return a, nil
+		}
+	}
+	return nil, errors.New("artifact not found")
+}
+
+// UpdateExportedFormat 记录最后一次导出格式（真实实现为 UpdateColumn）
+func (f *fakeArtifactRepo) UpdateExportedFormat(_ context.Context, _ string, format string) error {
+	f.exportedFormat = format
 	return nil
 }
 
@@ -527,4 +544,46 @@ func TestRollbackSolution(t *testing.T) {
 	assert.Equal(t, "s2", f4.room.CurrentSolutionMessageID)
 	assert.Nil(t, f4.roomRepo.updated)
 	assert.Empty(t, f4.msgRepo.snapshot())
+}
+
+// ---- M6 验收测试（T6.3：方案导出 .md）----
+
+// TestExportArtifact 方案导出（T6.3 单测等价覆盖）：
+// 文件名/正文返回、exported_format 记录、归档房间可导出；产物归属/跨房间指针污染/租户校验均拒绝
+func TestExportArtifact(t *testing.T) {
+	ctx := context.Background()
+
+	// 主路径：导出 v2 → meeting-solution-v2.md + 对应方案消息正文；导出格式记录为 md
+	f := newArtifactSvcFixture(solutionMsgPreset(), "s2")
+	defer f.unsub()
+	f.seedV1V2Artifacts()
+
+	filename, content, err := f.svc.ExportArtifact(ctx, 1, "r1", "a2")
+	require.NoError(t, err)
+	assert.Equal(t, "meeting-solution-v2.md", filename)
+	assert.Equal(t, "v2 方案正文", content)
+	assert.Equal(t, "md", f.artRepo.exportedFormat, "导出格式应记录为 md")
+
+	// 归档房间允许导出（导出是只读操作，不受归档守卫限制）
+	f.room.Status = types.MeetingStatusArchived
+	_, _, err = f.svc.ExportArtifact(ctx, 1, "r1", "a2")
+	require.NoError(t, err, "归档房间应可导出")
+
+	// 产物不属于该房间：仓储按 roomID 过滤 → 报错
+	_, _, err = f.svc.ExportArtifact(ctx, 1, "r-other", "a2")
+	assert.Error(t, err)
+
+	// 跨房间指针污染：产物的 SolutionMessageID 指向别的房间的消息 → 拒绝
+	f2 := newArtifactSvcFixture([]*types.MeetingMessage{
+		{ID: "s1", MeetingRoomID: "r1", SenderKind: types.MeetingSenderHost, IsSolution: true, SolutionVersion: 1, Content: "v1 方案正文"},
+		{ID: "sx", MeetingRoomID: "r2", SenderKind: types.MeetingSenderHost, IsSolution: true, SolutionVersion: 1, Content: "别的房间"},
+	}, "s1")
+	defer f2.unsub()
+	f2.seedArtifacts(&types.MeetingArtifact{ID: "ax", MeetingRoomID: "r1", SolutionMessageID: "sx", Version: 1})
+	_, _, err = f2.svc.ExportArtifact(ctx, 1, "r1", "ax")
+	assert.ErrorContains(t, err, "invalid solution message")
+
+	// 租户校验失败：房间不属于该租户 → 报错
+	_, _, err = f.svc.ExportArtifact(ctx, 2, "r-other", "a2")
+	assert.Error(t, err)
 }

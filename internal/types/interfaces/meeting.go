@@ -41,6 +41,8 @@ type MeetingArtifactRepository interface {
 	Create(ctx context.Context, a *types.MeetingArtifact) error
 	GetByID(ctx context.Context, id string, roomID string) (*types.MeetingArtifact, error)
 	ListByRoom(ctx context.Context, roomID string) ([]*types.MeetingArtifact, error)
+	// UpdateExportedFormat 记录产物的导出格式（如 md）
+	UpdateExportedFormat(ctx context.Context, id string, format string) error
 }
 
 // MeetingService 会议室业务服务

@@ -201,6 +201,12 @@ export async function deleteMeeting(roomId: string): Promise<void> {
   await del(`/api/v1/meetings/${roomId}`);
 }
 
+// 下载方案 .md（服务端返回 Content-Disposition attachment 的 markdown 正文）
+export async function exportArtifact(roomId: string, artifactId: string): Promise<Blob> {
+  const { getDown } = await loadRequest();
+  return getDown(`/api/v1/meetings/${roomId}/artifacts/${artifactId}/export`);
+}
+
 // ===== SSE 订阅 =====
 
 export interface MeetingStreamHandlers {

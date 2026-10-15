@@ -41,6 +41,9 @@
             </span>
             <t-button v-if="!isCurrent(a)" size="small" theme="primary" variant="text"
               @click="rollback(a)">{{ $t('meeting.rollbackTo') }}</t-button>
+            <t-button size="small" theme="default" variant="text" @click="onExport(a)">
+              {{ $t('meeting.exportMd') }}
+            </t-button>
           </div>
           <span class="created-at">{{ a.created_at }}</span>
           <t-collapse expand-mutex>
@@ -58,7 +61,7 @@
 import { ref, computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
-import { listArtifacts, type MeetingArtifact } from '@/api/meeting';
+import { listArtifacts, exportArtifact, type MeetingArtifact } from '@/api/meeting';
 import { useMeetingStore } from '@/stores/meeting';
 
 const props = defineProps<{ visible: boolean; roomId: string; currentSolutionMessageId: string }>();
@@ -118,6 +121,21 @@ function rollback(a: MeetingArtifact) {
       }
     },
   });
+}
+
+// 导出方案为 .md：blob 触发浏览器下载（文件名与后端 Content-Disposition 一致）
+async function onExport(a: MeetingArtifact) {
+  try {
+    const blob = await exportArtifact(props.roomId, a.id);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `meeting-solution-v${a.version}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    MessagePlugin.error((e as Error)?.message || t('meeting.loadFailed'));
+  }
 }
 </script>
 

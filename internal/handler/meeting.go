@@ -2,6 +2,7 @@ package handler
 
 import (
 	stderrors "errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -161,6 +162,19 @@ func (h *MeetingHandler) DeleteMeeting(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "deleted"})
+}
+
+// ExportArtifact GET /api/v1/meetings/:id/artifacts/:aid/export —— 下载方案 .md（只读，归档房间可导出）
+func (h *MeetingHandler) ExportArtifact(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	filename, content, err := h.meetingService.ExportArtifact(ctx, tenantID, c.Param("id"), c.Param("aid"))
+	if err != nil {
+		c.Error(errors.NewNotFoundError("artifact not found"))
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(content))
 }
 
 // ListMessages GET /api/v1/meetings/:id/messages?before=&limit=

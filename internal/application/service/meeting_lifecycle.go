@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -44,7 +45,24 @@ func (s *meetingService) ArchiveRoom(ctx context.Context, tenantID uint64, roomI
 	return nil
 }
 
-// ExportArtifact 导出方案为 .md（返回文件名/正文；只读操作，归档房间允许导出）。实现见 T6.3
-func (s *meetingService) ExportArtifact(ctx context.Context, tenantID uint64, roomID string, artifactID string) (string, string, error) {
-	return "", "", errors.New("meeting: export artifact not implemented") // T6.3 实现
+// ExportArtifact 导出方案为 .md（返回文件名/正文；只读操作，归档房间允许导出）
+func (s *meetingService) ExportArtifact(ctx context.Context, tenantID uint64, roomID, artifactID string) (string, string, error) {
+	if _, err := s.roomRepo.GetByID(ctx, roomID, tenantID); err != nil {
+		return "", "", err // 租户校验（仓储按 tenant 过滤）
+	}
+	artifact, err := s.artifactRepo.GetByID(ctx, artifactID, roomID)
+	if err != nil {
+		return "", "", err
+	}
+	msg, err := s.messageRepo.GetByID(ctx, artifact.SolutionMessageID)
+	if err != nil {
+		return "", "", err
+	}
+	// 防跨房间指针污染：方案消息必须属于本房间且确为方案
+	if !msg.IsSolution || msg.MeetingRoomID != roomID {
+		return "", "", errors.New("meeting: artifact points to invalid solution message")
+	}
+	// 记录导出格式；失败不阻断导出
+	_ = s.artifactRepo.UpdateExportedFormat(ctx, artifactID, "md")
+	return fmt.Sprintf("meeting-solution-v%d.md", artifact.Version), msg.Content, nil
 }

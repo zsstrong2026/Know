@@ -207,3 +207,9 @@ func (r *meetingArtifactRepository) ListByRoom(ctx context.Context, roomID strin
 		Order("version DESC").Find(&as).Error
 	return as, err
 }
+
+// UpdateExportedFormat 单行更新导出格式（失败不影响导出主流程，调用方忽略错误）
+func (r *meetingArtifactRepository) UpdateExportedFormat(ctx context.Context, id string, format string) error {
+	return r.db.WithContext(ctx).Model(&types.MeetingArtifact{}).
+		Where("id = ?", id).UpdateColumn("exported_format", format).Error
+}

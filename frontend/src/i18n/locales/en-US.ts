@@ -290,6 +290,7 @@ export default {
     deleteDone: 'Deleted',
     archivedBanner: 'This meeting is archived and read-only',
     archivedForbidden: 'This meeting is archived and read-only',
+    exportMd: 'Export .md',
     actions: 'Actions',
   },
   docAssistant: {

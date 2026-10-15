@@ -7657,6 +7657,7 @@ export default {
     deleteDone: '已删除',
     archivedBanner: '会议已归档，仅可查看',
     archivedForbidden: '会议已归档，仅可查看',
+    exportMd: '导出 .md',
     actions: '操作',
   },
   docAssistant: {
