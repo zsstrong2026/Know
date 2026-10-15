@@ -3,6 +3,10 @@
     <header class="room-header">
       <span class="title">{{ store.currentRoom?.title }}</span>
       <span class="topic">{{ store.currentRoom?.description }}</span>
+      <t-button size="small" theme="primary" :loading="store.solutionGenerating" :disabled="store.discussing"
+        @click="generateSolution">
+        {{ $t('meeting.generateSolution') }}
+      </t-button>
       <t-button size="small" theme="default" :disabled="!store.discussing" @click="interrupt">
         {{ $t('meeting.interrupt') }}
       </t-button>
@@ -17,8 +21,23 @@
         {{ $t('meeting.loadEarlier') }}
       </div>
       <div v-for="m in store.messages" :key="m.id" class="msg" :class="m.sender_kind">
-        <div class="sender">{{ senderLabel(m) }}</div>
+        <div class="sender">
+          {{ senderLabel(m) }}
+          <!-- 方案消息：版本标记 -->
+          <t-tag v-if="m.is_solution" size="small" theme="primary" variant="dark" class="solution-tag">
+            {{ $t('meeting.solution') }} v{{ m.solution_version }}
+          </t-tag>
+        </div>
         <div class="bubble">{{ m.content }}</div>
+        <!-- 评审操作条：仅智能体讨论消息可评审，方案消息不参与 -->
+        <div v-if="m.sender_kind === 'agent' && !m.is_solution" class="review-bar">
+          <t-button size="small" theme="success" :variant="m.review_state === 'adopted' ? 'base' : 'outline'"
+            @click="review(m, 'adopted')">{{ $t('meeting.adopt') }}</t-button>
+          <t-button size="small" theme="danger" :variant="m.review_state === 'rejected' ? 'base' : 'outline'"
+            @click="review(m, 'rejected')">{{ $t('meeting.reject') }}</t-button>
+          <t-button size="small" theme="warning" :variant="m.review_state === 'pending' ? 'base' : 'outline'"
+            @click="review(m, 'pending')">{{ $t('meeting.pending') }}</t-button>
+        </div>
       </div>
       <div v-if="store.discussing" class="discussing">{{ $t('meeting.discussing') }}</div>
     </main>
@@ -130,6 +149,24 @@ async function send() {
   }
 }
 
+// 评审操作：错误 toast；状态由 store 本地更新 + SSE 幂等覆盖
+async function review(m: MeetingMessage, state: string) {
+  try {
+    await store.setReviewState(m.id, state);
+  } catch (e) {
+    MessagePlugin.error((e as Error)?.message || t('meeting.loadFailed'));
+  }
+}
+
+// 生成方案：错误提示在视图层（如无采纳消息的后端 400）；loading 复位在 store 的 finally 中完成
+async function generateSolution() {
+  try {
+    await store.generate();
+  } catch (e) {
+    MessagePlugin.error((e as Error)?.message || t('meeting.loadFailed'));
+  }
+}
+
 // 主动打断进行中的讨论轮
 async function interrupt() {
   try {
@@ -141,6 +178,17 @@ async function interrupt() {
 </script>
 
 <style scoped>
+/* 评审操作条：视觉轻量，紧贴气泡下方 */
+.review-bar {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.solution-tag {
+  margin-left: 6px;
+}
+
 .mention-chips {
   display: flex;
   flex-wrap: wrap;

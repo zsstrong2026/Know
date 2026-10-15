@@ -253,6 +253,11 @@ export default {
     senderMe: 'Me',
     loadFailed: 'Failed to load',
     createFailed: 'Failed to create',
+    adopt: 'Adopt',
+    reject: 'Reject',
+    pending: 'Pending',
+    solution: 'Solution',
+    generateSolution: 'Generate Solution',
   },
   docAssistant: {
     template: {

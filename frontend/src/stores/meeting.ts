@@ -2,6 +2,7 @@ import { ref } from 'vue';
 import { defineStore } from 'pinia';
 import {
   listMeetings, getMeeting, listMessages, sendMessage,
+  updateReviewState, generateSolution,
   type MeetingRoom, type MeetingMessage,
 } from '@/api/meeting';
 
@@ -12,6 +13,7 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   const hasMore = ref(false);      // 顶部是否还有更早消息
   const discussing = ref(false);   // 是否有讨论轮在进行（禁用输入用）
   const guardNotice = ref<unknown>(null); // 护栏触发提示（主持人介入）
+  const solutionGenerating = ref(false);  // 方案生成中（按钮 loading 用）
 
   async function fetchRooms() {
     rooms.value = await listMeetings();
@@ -46,10 +48,37 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     appendMessage(msg);
   }
 
+  // 评审状态流转：HTTP 成功后本地直接更新（SSE review_updated 回流为幂等覆盖）
+  async function setReviewState(messageId: string, state: string) {
+    if (!currentRoom.value) return;
+    const updated = await updateReviewState(currentRoom.value.id, messageId, state);
+    const m = messages.value.find(x => x.id === messageId);
+    if (m) m.review_state = updated.review_state;
+  }
+
+  // 方案消息经 SSE message.created 回流，这里只控制 loading；
+  // LLM 失败时 HTTP 报错同样走 finally 复位（solution.generating 无配对终态事件）
+  async function generate() {
+    if (!currentRoom.value) return;
+    solutionGenerating.value = true;
+    try {
+      await generateSolution(currentRoom.value.id);
+    } finally {
+      solutionGenerating.value = false;
+    }
+  }
+
   // SSE 事件入口：由视图层订阅后调用
   function applyStreamEvent(event: string, data: unknown) {
     if (event === 'message.created' && data) {
       appendMessage(data as MeetingMessage);
+    } else if (event === 'message.review_updated' && data) {
+      const m = messages.value.find(x => x.id === (data as MeetingMessage).id);
+      if (m) m.review_state = (data as MeetingMessage).review_state;
+    } else if (event === 'solution.generating') {
+      solutionGenerating.value = true;
+    } else if (event === 'solution.created') {
+      solutionGenerating.value = false;
     } else if (event === 'discussion.turn_started') {
       discussing.value = true;
       guardNotice.value = null; // 新一轮开始清除旧的护栏提示
@@ -73,6 +102,6 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     guardNotice.value = null;
   }
 
-  return { rooms, currentRoom, messages, hasMore, discussing, guardNotice,
-    fetchRooms, enterRoom, loadEarlier, speak, applyStreamEvent, clearGuardNotice, leaveRoom };
+  return { rooms, currentRoom, messages, hasMore, discussing, guardNotice, solutionGenerating,
+    fetchRooms, enterRoom, loadEarlier, speak, setReviewState, generate, applyStreamEvent, clearGuardNotice, leaveRoom };
 });

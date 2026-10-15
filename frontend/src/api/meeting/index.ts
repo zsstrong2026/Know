@@ -132,6 +132,21 @@ export async function interruptMeeting(roomId: string): Promise<void> {
   await post(`/api/v1/meetings/${roomId}/interrupt`, {});
 }
 
+// 更新消息评审状态（adopted/rejected/pending），返回更新后的消息
+export async function updateReviewState(roomId: string, messageId: string, reviewState: string) {
+  const { put } = await loadRequest();
+  return put<{ data: MeetingMessage }>(
+    `/api/v1/meetings/${roomId}/messages/${messageId}/review`,
+    { review_state: reviewState },
+  ).then((r) => r.data);
+}
+
+// 生成主持人方案消息（后端同步等待 LLM 结果；消息本体经 SSE message.created 回流）
+export async function generateSolution(roomId: string) {
+  const { post } = await loadRequest();
+  return post<{ data: MeetingMessage }>(`/api/v1/meetings/${roomId}/solution`, {}).then((r) => r.data);
+}
+
 // ===== SSE 订阅 =====
 
 export interface MeetingStreamHandlers {

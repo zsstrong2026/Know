@@ -7620,6 +7620,11 @@ export default {
     senderMe: '我',
     loadFailed: '加载失败',
     createFailed: '创建失败',
+    adopt: '采纳',
+    reject: '不采纳',
+    pending: '待定',
+    solution: '方案',
+    generateSolution: '生成方案',
   },
   docAssistant: {
     template: {
