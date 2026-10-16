@@ -19,6 +19,14 @@ const (
 	MeetingBroadcastSequential = "sequential"
 	MeetingBroadcastParallel   = "parallel"
 
+	// 发言权路由模式：host-assign 主持人指派 / mention 提及驱动 / free 自由抢麦
+	MeetingRoutingHostAssign = "host-assign"
+	MeetingRoutingMention    = "mention"
+	MeetingRoutingFree       = "free"
+
+	// 主持人介入间隔上限（子轮数）：超过该值视为非法/关闭，防止过于稀疏或异常配置
+	MeetingHostEveryNRoundsMax = 10
+
 	ParticipantKindHost  = "host"
 	ParticipantKindAgent = "agent"
 
@@ -66,7 +74,12 @@ type MeetingRoom struct {
 	Description              string         `gorm:"type:text" json:"description"`
 	Status                   string         `gorm:"type:varchar(16);default:active" json:"status"`
 	BroadcastMode            string         `gorm:"type:varchar(16);default:sequential" json:"broadcast_mode"`
+	RoutingMode              string         `gorm:"type:varchar(32);default:host-assign" json:"routing_mode"`
 	GuardMaxExchange         int            `gorm:"default:3" json:"guard_max_exchange"`
+	// 主持人介入间隔（子轮数）：每完成 N 轮主持人总结并重定向；0 表示不介入
+	HostEveryNRounds         int            `gorm:"default:0" json:"host_every_n_rounds"`
+	// 裁判 + 共识检测：开启后每个子轮结束由独立裁判判定是否收敛，收敛即落共识消息并终止讨论
+	ConsensusDetectionEnabled bool          `gorm:"default:false" json:"consensus_detection_enabled"`
 	KnowledgeBaseIDs         StringList     `gorm:"type:jsonb" json:"knowledge_base_ids"`
 	CurrentSolutionMessageID string         `gorm:"type:varchar(36)" json:"current_solution_message_id"`
 	ContextSummary           string         `gorm:"type:text" json:"context_summary"`
@@ -118,6 +131,7 @@ type MeetingMessage struct {
 	ReviewState       string     `gorm:"type:varchar(16);default:none" json:"review_state"`
 	IsSolution        bool       `gorm:"default:false" json:"is_solution"`
 	SolutionVersion   int        `gorm:"default:0" json:"solution_version"`
+	IsConsensus       bool       `gorm:"default:false" json:"is_consensus"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
 }

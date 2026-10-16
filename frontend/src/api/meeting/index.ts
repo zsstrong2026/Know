@@ -2,6 +2,8 @@
 
 // 广播模式：顺序发言 / 并行发言
 export type BroadcastMode = 'sequential' | 'parallel';
+// 发言权路由模式：主持人指派 / 提及驱动 / 自由抢麦
+export type RoutingMode = 'host-assign' | 'mention' | 'free';
 // 参会者类型：主持人（唯一）/ 智能体
 export type ParticipantKind = 'host' | 'agent';
 // 消息发送者类型
@@ -13,6 +15,11 @@ export interface MeetingRoom {
   description: string;
   status: 'active' | 'archived';
   broadcast_mode: BroadcastMode;
+  routing_mode: RoutingMode;
+  // 主持人介入间隔（子轮数）：0 表示不介入
+  host_every_n_rounds: number;
+  // 裁判 + 共识检测：开启后每轮结束由独立裁判判定是否收敛
+  consensus_detection_enabled: boolean;
   knowledge_base_ids: string[];
   created_by: string;
   created_at: string;
@@ -41,6 +48,8 @@ export interface MeetingMessage {
   review_state: 'none' | 'pending' | 'adopted' | 'rejected';
   is_solution: boolean;
   solution_version: number;
+  // 裁判判定的共识消息标记
+  is_consensus: boolean;
   created_at: string;
 }
 
@@ -57,12 +66,15 @@ export interface MeetingArtifact {
   content: string;
 }
 
-// 更新会议请求体：PATCH 四字段白名单，均可选（局部更新）
+// 更新会议请求体：PATCH 白名单字段，均可选（局部更新）
 export interface UpdateMeetingRequest {
   title?: string;
   description?: string;
   broadcast_mode?: BroadcastMode;
+  routing_mode?: RoutingMode;
   guard_max_exchange?: number;
+  host_every_n_rounds?: number;
+  consensus_detection_enabled?: boolean;
 }
 
 export interface CreateMeetingInput {
@@ -71,6 +83,11 @@ export interface CreateMeetingInput {
   agentIds: string[];
   knowledgeBaseIds: string[];
   broadcastMode: BroadcastMode;
+  routingMode: RoutingMode;
+  // 主持人介入间隔：0（关闭，默认）或 1..10（后端超范围一律按关闭处理）
+  hostEveryNRounds: number;
+  // 裁判 + 共识检测开关：默认关闭
+  consensusDetectionEnabled: boolean;
 }
 
 // ===== 纯函数：请求体组装（便于单测，不依赖任何浏览器 API）=====
@@ -87,7 +104,18 @@ export function buildCreatePayload(input: CreateMeetingInput) {
     agent_ids: agentIds,
     knowledge_base_ids: input.knowledgeBaseIds ?? [],
     broadcast_mode: input.broadcastMode,
+    routing_mode: input.routingMode,
+    host_every_n_rounds: input.hostEveryNRounds ?? 0,
+    consensus_detection_enabled: input.consensusDetectionEnabled ?? false,
   };
+}
+
+// 专家异构引导：判断已选智能体是否"模型同质"
+// 同质 = 所选至少 2 个，且其模型标识去重后仅剩 1 种（含"全部未指定→同用默认模型"）
+export function isModelHomogeneous(modelKeys: Array<string | undefined | null>): boolean {
+  if (modelKeys.length < 2) return false;
+  const distinct = new Set(modelKeys.map((k) => (k ?? '').trim() || '__default__'));
+  return distinct.size === 1;
 }
 
 // 组装发言请求体：@ 提及的智能体可选

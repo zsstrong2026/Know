@@ -19,17 +19,23 @@ func TestBuildSolutionPrompt(t *testing.T) {
 		{SenderID: "a1", Content: "建议蓝绿发布"},
 		{SenderID: "a2", Content: "需要回滚预案"},
 	}
-	nameOf := func(id string) string {
-		return map[string]string{"a1": "架构师", "a2": "测试专家"}[id]
+	rejected := []*types.MeetingMessage{
+		{SenderID: "a3", Content: "反对引入新网关"},
 	}
-	out := buildSolutionPrompt(room, adopted, nameOf)
+	nameOf := func(id string) string {
+		return map[string]string{"a1": "架构师", "a2": "测试专家", "a3": "运维"}[id]
+	}
+	out := buildSolutionPrompt(room, adopted, rejected, nameOf)
 	assert.Contains(t, out, "发布方案评审") // 主题入提示词
 	assert.Contains(t, out, "架构师：建议蓝绿发布")
 	assert.Contains(t, out, "测试专家：需要回滚预案")
-	assert.Contains(t, out, "## 背景与目标") // 固定结构四小节
+	assert.Contains(t, out, "运维：反对引入新网关") // 被否决意见作为分歧事实来源入提示词
+	assert.Contains(t, out, "## 背景与目标")   // 固定结构五小节
+	assert.Contains(t, out, "## 分歧与未达成一致的点")
 	assert.Contains(t, out, "## 方案要点")
 	assert.Contains(t, out, "## 风险与待确认事项")
 	assert.Contains(t, out, "## 下一步行动")
+	assert.Contains(t, out, "不得省略该节") // 强制分歧节，不得只写共识
 }
 
 // ---- M4 验收测试替身（T4.4 单测等价覆盖；沿用 meeting_engine_test.go 风格，嵌入接口仅覆写被调方法）----

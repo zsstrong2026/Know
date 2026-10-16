@@ -15,6 +15,7 @@ const (
 	MeetingEventTurnStarted          = "discussion.turn_started"
 	MeetingEventTurnEnded            = "discussion.turn_ended"
 	MeetingEventGuardTriggered       = "guard.triggered"
+	MeetingEventConsensusCreated     = "consensus.created"
 	MeetingEventSolutionGenerating   = "solution.generating"
 	MeetingEventSolutionCreated      = "solution.created"
 	MeetingEventPing                 = "ping"

@@ -48,8 +48,18 @@ func validateMeetingCreate(room *types.MeetingRoom, agentIDs []string) error {
 		room.BroadcastMode != types.MeetingBroadcastSequential {
 		room.BroadcastMode = types.MeetingBroadcastSequential
 	}
+	// 路由模式白名单归一化：非法/空值回退主持人指派
+	switch room.RoutingMode {
+	case types.MeetingRoutingMention, types.MeetingRoutingFree:
+	default:
+		room.RoutingMode = types.MeetingRoutingHostAssign
+	}
 	if room.GuardMaxExchange <= 0 {
 		room.GuardMaxExchange = 3
+	}
+	// 主持人介入间隔归一化：0（关闭）或 1..10；超范围一律视为关闭
+	if room.HostEveryNRounds < 0 || room.HostEveryNRounds > types.MeetingHostEveryNRoundsMax {
+		room.HostEveryNRounds = 0
 	}
 	if room.Status == "" {
 		room.Status = types.MeetingStatusActive

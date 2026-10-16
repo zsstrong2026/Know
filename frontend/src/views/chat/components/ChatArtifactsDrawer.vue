@@ -125,6 +125,13 @@
                         <span>{{ formatDateTime(item.created_at) }}</span>
                     </div>
                 </div>
+                <ArtifactKnowledgeEntry
+                    :link="getKnowledgeLink(item)"
+                    :busy="isKnowledgeBusy(item)"
+                    :editable="!!getKnowledgeLink(item)?.editable"
+                    @add="handleAddToKnowledge(item)"
+                    @open="handleOpenKnowledge(item)"
+                />
                 <t-button
                     class="artifact-preview-btn"
                     variant="text"
@@ -153,6 +160,13 @@
             </li>
         </ul>
     </t-drawer>
+
+    <ArtifactKnowledgeDialog
+        v-model:visible="knowledgeDialogVisible"
+        :file-name="pendingKnowledgeFileName"
+        :uploading="knowledgeDialogUploading"
+        @confirm="confirmKnowledgeUpload"
+    />
 </template>
 
 <script setup lang="ts">
@@ -181,7 +195,10 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { downloadArtifact, listMessageArtifacts, type ArtifactMeta } from '@/api/chat'
 import { getFileIcon } from '@/utils/files'
 import { resolveFilePreviewExt } from '@/utils/filePreview'
+import { useArtifactKnowledgeEntry } from '@/composables/useArtifactKnowledgeEntry'
 import DocumentPreview from '@/components/document-preview.vue'
+import ArtifactKnowledgeEntry from './ArtifactKnowledgeEntry.vue'
+import ArtifactKnowledgeDialog from './ArtifactKnowledgeDialog.vue'
 
 const LIST_WIDTH = 440
 const PREVIEW_WIDTH_KEY = 'weknora-chat-artifact-preview-width'
@@ -207,6 +224,41 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const previewActions = ref<HTMLElement | null>(null)
+
+const knowledgeEntry = useArtifactKnowledgeEntry()
+const knowledgeDialogVisible = knowledgeEntry.dialogVisible
+const pendingKnowledgeFileName = knowledgeEntry.pendingFileName
+const knowledgeDialogUploading = knowledgeEntry.dialogUploading
+const confirmKnowledgeUpload = knowledgeEntry.confirmUpload
+
+/** 产物「加入知识库」的定位信息（sessionId + messageId + index）。 */
+function toKnowledgeTarget(item: ArtifactMeta) {
+    return {
+        sessionId: props.sessionId,
+        messageId: props.messageId,
+        index: item.index,
+        fileName: item.file_name,
+        fileType: item.file_type,
+    }
+}
+
+function getKnowledgeLink(item: ArtifactMeta) {
+    return knowledgeEntry.getLink(toKnowledgeTarget(item))
+}
+
+function isKnowledgeBusy(item: ArtifactMeta): boolean {
+    return knowledgeEntry.isBusy(toKnowledgeTarget(item))
+}
+
+function handleAddToKnowledge(item: ArtifactMeta) {
+    void knowledgeEntry.start(toKnowledgeTarget(item))
+}
+
+function handleOpenKnowledge(item: ArtifactMeta) {
+    const target = toKnowledgeTarget(item)
+    const link = knowledgeEntry.getLink(target)
+    if (link) knowledgeEntry.reopenEditor(target, link)
+}
 
 /** TDesign always follows @close with update:visible=false; swallow that when popping preview. */
 let suppressDrawerClose = false

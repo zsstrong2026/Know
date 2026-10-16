@@ -13,6 +13,7 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   const hasMore = ref(false);      // 顶部是否还有更早消息
   const discussing = ref(false);   // 是否有讨论轮在进行（禁用输入用）
   const guardNotice = ref<unknown>(null); // 护栏触发提示（主持人介入）
+  const consensusNotice = ref<unknown>(null); // 裁判判定收敛提示（consensus.created）
   const solutionGenerating = ref(false);  // 方案生成中（按钮 loading 用）
 
   async function fetchRooms(status = '') {
@@ -90,16 +91,25 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     } else if (event === 'discussion.turn_started') {
       discussing.value = true;
       guardNotice.value = null; // 新一轮开始清除旧的护栏提示
+      consensusNotice.value = null; // 新一轮开始清除旧的共识提示
     } else if (event === 'discussion.turn_ended') {
       discussing.value = false;
     } else if (event === 'guard.triggered') {
       discussing.value = false;
       guardNotice.value = data;
+    } else if (event === 'consensus.created') {
+      // 裁判判定收敛：讨论轮终止，展示共识提示（共识消息本体由 message.created 回流）
+      discussing.value = false;
+      consensusNotice.value = data;
     }
   }
 
   function clearGuardNotice() {
     guardNotice.value = null;
+  }
+
+  function clearConsensusNotice() {
+    consensusNotice.value = null;
   }
 
   function leaveRoom() {
@@ -108,8 +118,9 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     hasMore.value = false;
     discussing.value = false;
     guardNotice.value = null;
+    consensusNotice.value = null;
   }
 
-  return { rooms, currentRoom, messages, hasMore, discussing, guardNotice, solutionGenerating,
-    fetchRooms, enterRoom, loadEarlier, speak, setReviewState, generate, rollback, applyStreamEvent, clearGuardNotice, leaveRoom };
+  return { rooms, currentRoom, messages, hasMore, discussing, guardNotice, consensusNotice, solutionGenerating,
+    fetchRooms, enterRoom, loadEarlier, speak, setReviewState, generate, rollback, applyStreamEvent, clearGuardNotice, clearConsensusNotice, leaveRoom };
 });

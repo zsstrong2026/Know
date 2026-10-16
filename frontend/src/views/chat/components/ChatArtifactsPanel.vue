@@ -123,6 +123,13 @@
               </span>
             </span>
           </button>
+          <ArtifactKnowledgeEntry
+            :link="getKnowledgeLink(item)"
+            :busy="isKnowledgeBusy(item)"
+            :editable="!!getKnowledgeLink(item)?.editable"
+            @add="handleAddToKnowledge(item)"
+            @open="handleOpenKnowledge(item)"
+          />
           <t-button
             class="artifact-download"
             variant="text"
@@ -154,6 +161,13 @@
         </li>
       </ul>
     </template>
+
+    <ArtifactKnowledgeDialog
+      v-model:visible="knowledgeDialogVisible"
+      :file-name="pendingKnowledgeFileName"
+      :uploading="knowledgeDialogUploading"
+      @confirm="confirmKnowledgeUpload"
+    />
   </div>
 </template>
 
@@ -169,9 +183,12 @@ import {
   type SessionArtifactItem,
 } from '@/utils/sessionArtifacts'
 import { useChatSandboxPanel, type ArtifactPanelFocusState } from '@/composables/useChatSandboxPanel'
+import { useArtifactKnowledgeEntry } from '@/composables/useArtifactKnowledgeEntry'
 import { useConfirmDelete } from '@/components/settings/useConfirmDelete'
 import DocumentPreview from '@/components/document-preview.vue'
 import ArtifactFileIcon from './ArtifactFileIcon.vue'
+import ArtifactKnowledgeEntry from './ArtifactKnowledgeEntry.vue'
+import ArtifactKnowledgeDialog from './ArtifactKnowledgeDialog.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -193,6 +210,11 @@ const emit = defineEmits<{ (e: 'deleted', payload: { messageId: string; index: n
 const { t } = useI18n()
 const panel = useChatSandboxPanel()
 const confirmDelete = useConfirmDelete()
+const knowledgeEntry = useArtifactKnowledgeEntry()
+const knowledgeDialogVisible = knowledgeEntry.dialogVisible
+const pendingKnowledgeFileName = knowledgeEntry.pendingFileName
+const knowledgeDialogUploading = knowledgeEntry.dialogUploading
+const confirmKnowledgeUpload = knowledgeEntry.confirmUpload
 const previewActions = ref<HTMLElement | null>(null)
 const listRef = ref<HTMLElement | null>(null)
 const previewItem = ref<SessionArtifactItem | null>(null)
@@ -216,6 +238,35 @@ const previewFileType = computed(() => {
 
 function downloadKey(item: SessionArtifactItem): string {
   return `${item.messageId}:${item.index}`
+}
+
+/** 产物「加入知识库」的定位信息（sessionId + messageId + index）。 */
+function toKnowledgeTarget(item: SessionArtifactItem) {
+  return {
+    sessionId: props.sessionId,
+    messageId: item.messageId,
+    index: item.index,
+    fileName: item.file_name,
+    fileType: item.file_type,
+  }
+}
+
+function getKnowledgeLink(item: SessionArtifactItem) {
+  return knowledgeEntry.getLink(toKnowledgeTarget(item))
+}
+
+function isKnowledgeBusy(item: SessionArtifactItem): boolean {
+  return knowledgeEntry.isBusy(toKnowledgeTarget(item))
+}
+
+function handleAddToKnowledge(item: SessionArtifactItem) {
+  void knowledgeEntry.start(toKnowledgeTarget(item))
+}
+
+function handleOpenKnowledge(item: SessionArtifactItem) {
+  const target = toKnowledgeTarget(item)
+  const link = knowledgeEntry.getLink(target)
+  if (link) knowledgeEntry.reopenEditor(target, link)
 }
 
 function isDownloading(item: SessionArtifactItem): boolean {
@@ -248,6 +299,8 @@ async function performDelete(item: SessionArtifactItem) {
   try {
     await deleteMessageArtifact(props.sessionId, item.messageId, item.index)
     if (previewItem.value && downloadKey(previewItem.value) === key) previewItem.value = null
+    // 产物已删除，一并清掉它的入库状态标注。
+    knowledgeEntry.removeEntry(toKnowledgeTarget(item))
     emit('deleted', { messageId: item.messageId, index: item.index })
     MessagePlugin.success(t('agent.artifactDrawer.deleted'))
   } catch (err) {

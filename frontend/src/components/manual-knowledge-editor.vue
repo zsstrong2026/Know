@@ -5,23 +5,20 @@ import { marked } from 'marked'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { useUIStore } from '@/stores/ui'
 import {
-  listKnowledgeBases,
   getKnowledgeDetails,
   getKnowledgeBaseById,
   createManualKnowledge,
   updateManualKnowledge,
 } from '@/api/knowledge-base'
 import { useUploadConfirmStore } from '@/stores/uploadConfirm'
-import { useOrganizationStore } from '@/stores/organization'
+import {
+  fetchWritableDocumentKnowledgeBases,
+  type KnowledgeBaseOption,
+} from '@/utils/knowledgeBaseOptions'
 import type { KnowledgeProcessOverrides } from '@/types/knowledgeProcess'
 import { sanitizeHTML, safeMarkdownToHTML, hydrateProtectedFileImages } from '@/utils/security'
 import { continueListOnEnter, countContent, indentOnTab } from '@/utils/markdownEditing'
 import { useI18n } from 'vue-i18n'
-
-interface KnowledgeBaseOption {
-  label: string
-  value: string
-}
 
 interface KnowledgeDetailResponse {
   id: string
@@ -56,7 +53,6 @@ const resolveManualKnowledgeStatus = (
 
 const uiStore = useUIStore()
 const uploadConfirmStore = useUploadConfirmStore()
-const organizationStore = useOrganizationStore()
 const { t } = useI18n()
 
 const visible = computed({
@@ -598,30 +594,8 @@ const lastUpdatedText = computed(() =>
 const loadKnowledgeBases = async () => {
   kbLoading.value = true
   try {
-    const [ownRes, sharedKbs] = await Promise.all([
-      listKnowledgeBases() as Promise<any>,
-      organizationStore.fetchSharedKnowledgeBases().catch(() => []),
-    ])
-
-    const isDocumentKb = (type?: string) => !type || type === 'document'
-
-    const ownKbs = Array.isArray(ownRes?.data) ? ownRes.data : []
-    const list: KnowledgeBaseOption[] = ownKbs
-      .filter((item: any) => isDocumentKb(item.type))
-      .map((item: any) => ({ label: item.name, value: item.id }))
-
-    // Knowledge bases shared to the user with write access (editor/admin)
-    // also accept manually-added content, so they must appear in the picker;
-    // viewer-only shares are excluded since the backend would reject writes.
-    const seen = new Set(list.map((o) => o.value))
-    for (const share of sharedKbs) {
-      const kb = share?.knowledge_base
-      const canWrite = share?.permission === 'editor' || share?.permission === 'admin'
-      if (!kb || !canWrite || !isDocumentKb(kb.type) || seen.has(kb.id)) continue
-      seen.add(kb.id)
-      list.push({ label: kb.name, value: kb.id })
-    }
-
+    // 与产物「加入知识库」共用同一份可写入知识库口径。
+    const list = await fetchWritableDocumentKnowledgeBases()
     kbOptions.value = list
 
     if (mode.value === 'create') {
@@ -850,6 +824,7 @@ const handleSave = async (targetStatus: ManualStatus) => {
       if (knowledgeID) {
         uiStore.notifyManualEditorSuccess({
           kbId,
+          kbName: kbOptions.value.find((item) => item.value === kbId)?.label,
           knowledgeId: knowledgeID,
           status: targetStatus,
         })

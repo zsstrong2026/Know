@@ -155,6 +155,25 @@ func (e *meetingEngine) generateInterruptMessage(ctx context.Context, room *type
 	return resp.Content
 }
 
+// generateInterventionMessage 每 N 轮介入：主持人生成「阶段总结 + 重定向」消息，防止讨论跑偏。
+// 主持人模型不可用或生成失败时返回兜底文案。
+func (e *meetingEngine) generateInterventionMessage(ctx context.Context, room *types.MeetingRoom, recent []*types.MeetingMessage, completed int) string {
+	fallback := fmt.Sprintf("主持人：讨论已完成 %d 轮，先做阶段小结。请大家围绕主题「%s」聚焦尚未对齐的分歧继续推进。", completed, room.Title)
+	hostChat, err := e.resolveHostChat(ctx)
+	if err != nil {
+		return fallback
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "会议主题：%s\n讨论已完成 %d 轮，以下是最近的发言（截取）：\n", room.Title, completed)
+	b.WriteString(e.renderRecentForHost(ctx, room.ID, recent, 6))
+	b.WriteString("\n请以主持人身份用 2-3 句话：概括目前已形成的共识与尚存的分歧，指出偏离主题之处（如有），并将讨论重新聚焦到主题上。语气中立、简洁，不要引入新议题。")
+	resp, err := hostChat.Chat(ctx, []chat.Message{{Role: "user", Content: b.String()}}, &chat.ChatOptions{Temperature: 0.3})
+	if err != nil || resp == nil || strings.TrimSpace(resp.Content) == "" {
+		return fallback
+	}
+	return resp.Content
+}
+
 // tailN 取切片最后 n 条（不足则原样返回）
 func tailN(msgs []*types.MeetingMessage, n int) []*types.MeetingMessage {
 	if len(msgs) <= n {

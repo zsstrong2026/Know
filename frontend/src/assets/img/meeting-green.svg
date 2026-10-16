@@ -1,0 +1,7 @@
+<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 会议室（选中态）：多人环绕（与智能体的星形图标区分） -->
+  <circle cx="7.6" cy="7.4" r="2.85" stroke="#07C05F" stroke-width="1.5"/>
+  <path d="M2.6 16.8C2.6 14.05 4.83 11.9 7.6 11.9C10.37 11.9 12.6 14.05 12.6 16.8" stroke="#07C05F" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M13.05 5.3A2.6 2.6 0 0 1 13.05 10.5" stroke="#07C05F" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M14.4 12.7C16.2 13.35 17.3 14.85 17.3 16.8" stroke="#07C05F" stroke-width="1.5" stroke-linecap="round"/>
+</svg>
