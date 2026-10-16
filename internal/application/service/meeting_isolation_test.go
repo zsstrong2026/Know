@@ -45,6 +45,11 @@ func (f *isolationRoomRepo) ListByCreator(_ context.Context, tenantID uint64, cr
 	return out, int64(len(out)), nil
 }
 
+func (f *isolationRoomRepo) Create(_ context.Context, room *types.MeetingRoom) error {
+	f.rooms[room.ID] = room
+	return nil
+}
+
 func (f *isolationRoomRepo) Update(_ context.Context, room *types.MeetingRoom) error {
 	if _, ok := f.rooms[room.ID]; !ok {
 		return errors.New("record not found")

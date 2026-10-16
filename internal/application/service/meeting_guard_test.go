@@ -55,4 +55,16 @@ func TestDetectBickering(t *testing.T) {
 	hit, pair = detectBickering([]*types.MeetingMessage{mk("a", "s1"), mk("b", "s2")}, 1)
 	assert.True(t, hit)
 	assert.Equal(t, [2]string{"s1", "s2"}, pair)
+
+	// 场景 6：maxExchange < 1 归一为 1（防御非法配置）
+	hit, _ = detectBickering([]*types.MeetingMessage{mk("a", "s1"), mk("b", "s2")}, 0)
+	assert.True(t, hit)
+
+	// 场景 7：同一人连发（非严格交替）→ 不触发
+	hit, _ = detectBickering([]*types.MeetingMessage{mk("a", "s1"), mk("b", "s1")}, 1)
+	assert.False(t, hit)
+
+	// 场景 8：整段从第一条起全是智能体消息（无用户介入，回溯自然到头）→ 仅 1 来回未达阈值
+	hit, _ = detectBickering([]*types.MeetingMessage{mk("a", "s1"), mk("b", "s2")}, 2)
+	assert.False(t, hit)
 }
