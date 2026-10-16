@@ -66,3 +66,12 @@ miniprogram/project.private.config.json
 
 # Locally built BrowserSkill runtime and extension bundles
 /artifacts/browserskill/
+
+# 本地 OCR/VLM 调试产物
+/blobs/
+/ocr_test_result/
+/standard_out*/
+
+# 本地 Python 环境与二进制工具包
+/paddleocr-env/
+/tools/
