@@ -34,8 +34,10 @@ ENV VITE_IS_DOCKER=true
 # Vite production builds of this SPA routinely exceed Node's default heap.
 ENV NODE_OPTIONS="--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE}"
 
-# The lockfile pins the remote SheetJS archive and its integrity hash.
+# The lockfile pins the SheetJS archive; it is vendored under vendor/ because
+# cdn.sheetjs.com is not reachable from the build network.
 COPY package.json package-lock.json ./
+COPY vendor ./vendor
 RUN if [ -n "$NPM_REGISTRY" ]; then \
       npm ci --registry="$NPM_REGISTRY"; \
     else \
