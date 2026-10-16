@@ -38,6 +38,7 @@ const (
 	ConnectorTypeRSS         = "rss"
 	ConnectorTypeGitLab      = "gitlab"
 	ConnectorTypeIMA         = "ima"
+	ConnectorTypeSeafile     = "seafile"
 	// ConnectorTypeTopicSearch searches the public web for user-defined topics and
 	// ingests the result pages' text. It holds no secrets: the search provider's
 	// credentials live in the web_search_providers entity, selected per data source
