@@ -23,15 +23,45 @@
           {{ $t(`artifactLibrary.categories.${c}`) }}
         </button>
       </div>
-      <t-input
-        v-model="keyword"
-        class="search-input"
-        :placeholder="$t('artifactLibrary.searchPlaceholder')"
-        :aria-label="$t('artifactLibrary.searchPlaceholder')"
-        clearable
-      >
-        <template #prefix-icon><t-icon name="search" size="16px" /></template>
-      </t-input>
+      <div class="toolbar-right">
+        <t-input
+          v-model="keyword"
+          class="search-input"
+          :placeholder="$t('artifactLibrary.searchPlaceholder')"
+          :aria-label="$t('artifactLibrary.searchPlaceholder')"
+          clearable
+        >
+          <template #prefix-icon><t-icon name="search" size="16px" /></template>
+        </t-input>
+        <div class="toolbar-actions">
+          <template v-if="selectMode">
+            <span class="selection-count">
+              {{ $t('artifactLibrary.selectedCount', { count: selectedKeys.size }) }}
+            </span>
+            <t-button variant="text" size="small" @click="toggleSelectAll">
+              {{ allLoadedSelected ? $t('artifactLibrary.deselectAll') : $t('artifactLibrary.selectAll') }}
+            </t-button>
+            <t-button
+              theme="primary"
+              variant="outline"
+              size="small"
+              :loading="batchDownloading"
+              :disabled="selectedKeys.size === 0"
+              @click="handleBatchDownload"
+            >
+              <template #icon><t-icon name="download" size="16px" /></template>
+              {{ $t('artifactLibrary.batchDownload') }}
+            </t-button>
+            <t-button variant="text" size="small" @click="exitSelectMode">
+              {{ $t('artifactLibrary.exitSelect') }}
+            </t-button>
+          </template>
+          <t-button v-else variant="outline" size="small" @click="enterSelectMode">
+            <template #icon><t-icon name="check-rectangle" size="16px" /></template>
+            {{ $t('artifactLibrary.selectMode') }}
+          </t-button>
+        </div>
+      </div>
     </div>
 
     <div ref="scrollRoot" class="library-main">
@@ -75,9 +105,23 @@
               v-for="item in section.items"
               :key="`${item.message_id}:${item.index}`"
               class="artifact-row"
-              @click="openPreview(item)"
+              :class="{ 'is-selected': isSelected(item) }"
+              @click="onRowClick(item)"
             >
-              <button type="button" class="artifact-open" :title="$t('artifactLibrary.preview')">
+              <!-- 复选框只作展示：勾选统一由整行的点击处理，
+                   否则复选框自身的点击会与行点击叠加导致重复切换。 -->
+              <t-checkbox
+                v-if="selectMode"
+                class="row-checkbox"
+                :checked="isSelected(item)"
+                :aria-label="item.file_name"
+                tabindex="-1"
+              />
+              <button
+                type="button"
+                class="artifact-open"
+                :title="selectMode ? undefined : $t('artifactLibrary.preview')"
+              >
                 <ArtifactFileIcon :file-name="item.file_name" />
                 <span class="artifact-body">
                   <span class="artifact-name" :title="item.file_name">{{ item.file_name }}</span>
@@ -95,6 +139,7 @@
                 </span>
               </button>
               <button
+                v-if="!selectMode"
                 type="button"
                 class="session-link"
                 :title="$t('artifactLibrary.openSession')"
@@ -104,6 +149,7 @@
                 <span>{{ item.session_title || $t('artifactLibrary.untitledSession') }}</span>
               </button>
               <t-button
+                v-if="!selectMode"
                 class="row-action"
                 variant="text"
                 shape="square"
@@ -116,6 +162,7 @@
                 <template #icon><t-icon name="download" size="16px" /></template>
               </t-button>
               <t-button
+                v-if="!selectMode"
                 class="row-action row-action--danger"
                 variant="text"
                 shape="square"
@@ -222,7 +269,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { downloadArtifact } from '@/api/chat'
-import { deleteArtifactLibraryItem, listArtifactLibrary, type ArtifactLibraryItem } from '@/api/artifacts'
+import {
+  BATCH_DOWNLOAD_LIMIT,
+  batchDownloadArtifacts,
+  deleteArtifactLibraryItem,
+  listArtifactLibrary,
+  type ArtifactLibraryItem,
+} from '@/api/artifacts'
 import {
   ARTIFACT_CATEGORIES,
   artifactCategoryExtensions,
@@ -260,8 +313,16 @@ const previewVisible = ref(false)
 const previewActions = ref<HTMLElement | null>(null)
 const scrollRoot = ref<HTMLElement | null>(null)
 const sentinel = ref<HTMLElement | null>(null)
+// 多选状态：选中集合按 itemKey 存放，切换筛选或重新加载时会清空，
+// 避免「看到的行」和「勾选的行」对不上。
+const selectMode = ref(false)
+const selectedKeys = reactive(new Set<string>())
+const batchDownloading = ref(false)
 
 const sections = computed(() => groupArtifactsByDate(items.value))
+const allLoadedSelected = computed(
+  () => items.value.length > 0 && items.value.every((item) => selectedKeys.has(itemKey(item))),
+)
 const hasMore = computed(() => items.value.length < total.value)
 const isFiltered = computed(() => category.value !== 'all' || keyword.value.trim() !== '')
 const previewFileType = computed(() => {
@@ -311,6 +372,7 @@ function reload() {
   items.value = []
   total.value = 0
   page.value = 0
+  selectedKeys.clear()
   void fetchPage(1)
 }
 
@@ -373,25 +435,101 @@ function isDownloading(item: ArtifactLibraryItem) {
   return !!downloading[itemKey(item)]
 }
 
+// 触发浏览器保存二进制响应；延迟释放 object URL，
+// 立即回收会让部分浏览器在保存开始前就拿到空文件。
+function saveBlobAs(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = fileName || 'artifact'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+// 与后端 zipArchiveName 保持一致：artifacts-YYYYMMDD-HHmmss.zip
+function batchArchiveName() {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const stamp =
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+    `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+  return `artifacts-${stamp}.zip`
+}
+
 async function handleDownload(item: ArtifactLibraryItem) {
   const key = itemKey(item)
   if (downloading[key]) return
   downloading[key] = true
   try {
     const blob = await downloadArtifact(item.session_id, item.message_id, item.index)
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = item.file_name || 'artifact'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    saveBlobAs(blob, item.file_name || 'artifact')
   } catch (err) {
     console.error('[ArtifactLibrary] download failed:', err)
     MessagePlugin.error(t('artifactLibrary.downloadFailed'))
   } finally {
     downloading[key] = false
+  }
+}
+
+function isSelected(item: ArtifactLibraryItem) {
+  return selectedKeys.has(itemKey(item))
+}
+
+// 选择模式下整行可点：切换勾选，而不是打开预览。
+function onRowClick(item: ArtifactLibraryItem) {
+  if (selectMode.value) toggleSelect(item)
+  else openPreview(item)
+}
+
+function toggleSelect(item: ArtifactLibraryItem) {
+  const key = itemKey(item)
+  if (selectedKeys.has(key)) selectedKeys.delete(key)
+  else selectedKeys.add(key)
+}
+
+function enterSelectMode() {
+  selectMode.value = true
+}
+
+function exitSelectMode() {
+  selectMode.value = false
+  selectedKeys.clear()
+}
+
+// 只作用于已加载的行：列表是分页加载的，尚未加载的行无从勾选。
+function toggleSelectAll() {
+  if (allLoadedSelected.value) {
+    selectedKeys.clear()
+    return
+  }
+  items.value.forEach((item) => selectedKeys.add(itemKey(item)))
+}
+
+// 批量下载：选中的产物交给后端打成一个 ZIP。
+// 超过上限先在本地拦下，避免请求白跑一趟再报错。
+async function handleBatchDownload() {
+  const targets = items.value.filter((item) => selectedKeys.has(itemKey(item)))
+  if (!targets.length) {
+    MessagePlugin.warning(t('artifactLibrary.batchDownloadEmpty'))
+    return
+  }
+  if (targets.length > BATCH_DOWNLOAD_LIMIT) {
+    MessagePlugin.warning(t('artifactLibrary.batchDownloadTooMany', { limit: BATCH_DOWNLOAD_LIMIT }))
+    return
+  }
+  if (batchDownloading.value) return
+  batchDownloading.value = true
+  try {
+    const blob = await batchDownloadArtifacts(targets)
+    saveBlobAs(blob, batchArchiveName())
+    exitSelectMode()
+  } catch (err) {
+    console.error('[ArtifactLibrary] batch download failed:', err)
+    MessagePlugin.error(t('artifactLibrary.downloadFailed'))
+  } finally {
+    batchDownloading.value = false
   }
 }
 
@@ -427,6 +565,7 @@ async function performDelete(item: ArtifactLibraryItem) {
       items.value.splice(at, 1)
       total.value = Math.max(0, total.value - 1)
     }
+    selectedKeys.delete(key)
     if (previewItem.value && itemKey(previewItem.value) === key) previewVisible.value = false
     MessagePlugin.success(t('artifactLibrary.deleted'))
   } catch (err) {
@@ -532,6 +671,27 @@ onBeforeUnmount(() => {
   max-width: 100%;
 }
 
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--app-space-3);
+  margin-left: auto;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-1);
+}
+
+.selection-count {
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-sm);
+  white-space: nowrap;
+}
+
 .library-main {
   flex: 1;
   min-height: 0;
@@ -586,6 +746,20 @@ onBeforeUnmount(() => {
       background: transparent;
     }
   }
+
+  &.is-selected {
+    background: color-mix(in srgb, var(--td-brand-color) 8%, var(--td-bg-color-container));
+
+    &:hover {
+      background: color-mix(in srgb, var(--td-brand-color) 14%, var(--td-bg-color-container));
+    }
+  }
+}
+
+.row-checkbox {
+  flex-shrink: 0;
+  // 让点击穿透到整行：勾选只由行的点击处理，避免重复切换。
+  pointer-events: none;
 }
 
 .artifact-open {
@@ -725,6 +899,12 @@ onBeforeUnmount(() => {
   .artifact-library {
     margin: 0;
     padding: var(--app-space-4) var(--app-space-4) 0;
+  }
+
+  // 窄屏下让搜索框独占一行：它靠 100% 宽度生效，必须先让容器占满整行。
+  .toolbar-right {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .search-input {

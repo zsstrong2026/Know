@@ -120,6 +120,11 @@ func RegisterSessionRoutes(
 	artifacts := g.apiKeyGroup(r.Group("/artifacts", g.Viewer()), apiKeyChat(apiKeyFullAccess()))
 	{
 		artifacts.GET("", handler.ListArtifactLibrary)
+		// Batch download zips the ticked library rows into one archive. Like
+		// the per-session download it re-checks every artifact's ownership,
+		// which is why it takes session/message/index triples instead of
+		// opaque archive ids.
+		artifacts.POST("/download", handler.BatchDownloadArtifacts)
 		// The artifact to delete is addressed by query parameters rather than a
 		// path: the library row already carries session_id/message_id/index, and
 		// a path would have to repeat the /sessions tree under a second prefix.

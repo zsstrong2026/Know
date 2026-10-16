@@ -241,6 +241,16 @@ export async function getDown(url: string): Promise<Blob> {
   return res
 }
 
+// POST + blob：用于「请求体较大 / 需要筛选条件」的下载场景（如产物批量打包）。
+// 下载响应体是二进制，但失败时服务端仍返回 JSON，交给统一的响应拦截器还原错误信息。
+export async function postDown(url: string, data?: any, config?: any): Promise<Blob> {
+  const res = await instance.post<Blob>(url, data, {
+    responseType: "blob",
+    ...(config || {}),
+  }) as unknown as Blob;
+  return res
+}
+
 export function postUpload(
   url: string,
   data = {},

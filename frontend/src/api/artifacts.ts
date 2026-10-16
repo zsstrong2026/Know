@@ -1,4 +1,4 @@
-import { del, get } from '@/utils/request'
+import { del, get, postDown } from '@/utils/request'
 
 /**
  * One file in the artifact library: the latest version of a file a skill
@@ -68,4 +68,24 @@ export function deleteArtifactLibraryItem(item: ArtifactLibraryItem) {
     index: String(item.index),
   })
   return del<ArtifactDeleteResult>(`/api/v1/artifacts?${query.toString()}`)
+}
+
+/** 后端一次批量打包的上限，与 handler 侧常量保持一致。 */
+export const BATCH_DOWNLOAD_LIMIT = 100
+
+/**
+ * 把选中的产物打包成一个 ZIP 返回。
+ *
+ * 请求体只带定位三元组（会话 / 消息 / 下标），后端会逐个复查会话归属：
+ * 期间被删除或失去权限的文件会被跳过，其余仍然会打进包里。
+ * 因此「下载成功」不代表每个文件都在，调用方无需逐个核对。
+ */
+export function batchDownloadArtifacts(items: ArtifactLibraryItem[]): Promise<Blob> {
+  return postDown('/api/v1/artifacts/download', {
+    items: items.map((item) => ({
+      session_id: item.session_id,
+      message_id: item.message_id,
+      index: item.index,
+    })),
+  })
 }
