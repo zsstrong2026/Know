@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-//go:embed all:weknora-shared all:weknora-rag-search
+//go:embed all:weknora-shared all:weknora-rag-search all:frontend-slides
 var fsys embed.FS
 
 // Skill is one bundled skill: its directory name, the description parsed from
