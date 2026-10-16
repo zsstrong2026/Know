@@ -1303,6 +1303,35 @@ func (r *wikiPageRepository) DeleteIssuesByKnowledgeBaseID(
 	return r.deleteByTenantAndKnowledgeBase(ctx, tenantID, kbID, &types.WikiPageIssue{})
 }
 
+// DeleteIssuesBySlug soft-deletes every issue filed against a single page.
+// DeletePage cascades here: once the page is gone its issues can never be
+// acted on (the "go fix" navigation target no longer exists), so keeping
+// them would only pollute the pending queue. Empty kbID/slug is a no-op so
+// a bad caller can never turn this into a table-wide delete.
+func (r *wikiPageRepository) DeleteIssuesBySlug(ctx context.Context, kbID string, slug string) error {
+	if kbID == "" || slug == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Where("knowledge_base_id = ? AND slug = ?", kbID, slug).
+		Delete(&types.WikiPageIssue{}).Error
+}
+
+// ReassignIssuesSlug moves all of a page's issues from oldSlug to newSlug
+// within a KB. wiki_rename_page calls this before deleting the old page so
+// the issues follow the surviving content instead of being cascade-deleted
+// with the old slug. Empty kbID/oldSlug/newSlug is a no-op.
+func (r *wikiPageRepository) ReassignIssuesSlug(
+	ctx context.Context, kbID string, oldSlug string, newSlug string,
+) error {
+	if kbID == "" || oldSlug == "" || newSlug == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&types.WikiPageIssue{}).
+		Where("knowledge_base_id = ? AND slug = ?", kbID, oldSlug).
+		Update("slug", newSlug).Error
+}
+
 // escapeLikePattern escapes LIKE / ILIKE metacharacters so the returned string
 // can be safely concatenated with % wildcards without unintended matches.
 // Order matters: escape the backslash first, then the wildcards.

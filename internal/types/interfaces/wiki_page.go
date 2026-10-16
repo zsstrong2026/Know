@@ -244,6 +244,11 @@ type WikiPageService interface {
 
 	// UpdateIssueStatus updates the status of an issue of kbID (e.g. pending -> resolved/ignored).
 	UpdateIssueStatus(ctx context.Context, kbID string, issueID string, status string) error
+
+	// ReassignIssuesSlug moves all of a page's issues from oldSlug to
+	// newSlug. wiki_rename_page calls this before removing the old page so
+	// the issues survive the rename.
+	ReassignIssuesSlug(ctx context.Context, kbID string, oldSlug string, newSlug string) error
 }
 
 // WikiPageRepository defines the wiki page data persistence interface.
@@ -447,6 +452,18 @@ type WikiPageRepository interface {
 	// tenantID+kbID. Issues reference the KB and must be cleaned up
 	// alongside pages to avoid orphans.
 	DeleteIssuesByKnowledgeBaseID(ctx context.Context, tenantID uint64, kbID string) error
+
+	// DeleteIssuesBySlug soft-deletes every issue filed against a single
+	// page. DeletePage calls this so a removed page never leaves dead
+	// entries in the pending-issues queue — the page they reference can no
+	// longer be opened. Scoped by kbID+slug; empty kbID/slug is a no-op.
+	DeleteIssuesBySlug(ctx context.Context, kbID string, slug string) error
+
+	// ReassignIssuesSlug moves all of a page's issues from oldSlug to
+	// newSlug within a KB. Used by wiki_rename_page: the content survives
+	// the rename, so its issues should follow the new slug instead of
+	// dying with the old one. Empty kbID/oldSlug/newSlug is a no-op.
+	ReassignIssuesSlug(ctx context.Context, kbID string, oldSlug string, newSlug string) error
 
 	// CreateIssue inserts a new wiki page issue record.
 	CreateIssue(ctx context.Context, issue *types.WikiPageIssue) error

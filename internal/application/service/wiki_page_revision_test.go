@@ -21,7 +21,7 @@ func newWikiRevisionTestService(t *testing.T) (context.Context, wikiRevisionTest
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&types.WikiFolder{}, &types.WikiPage{}, &types.WikiPageRevision{}))
+	require.NoError(t, db.AutoMigrate(&types.WikiFolder{}, &types.WikiPage{}, &types.WikiPageRevision{}, &types.WikiPageIssue{}))
 	repo := repository.NewWikiPageRepository(db)
 	svc := NewWikiPageService(repo, nil, nil, nil, nil)
 	return context.Background(), wikiRevisionTestHarness{svc: svc}, db
@@ -229,4 +229,41 @@ func TestDeletePageDropsRevisionHistory(t *testing.T) {
 	var after int64
 	require.NoError(t, db.Model(&types.WikiPageRevision{}).Where("page_id = ?", page.ID).Count(&after).Error)
 	require.Zero(t, after, "a deleted page must not leave unreachable content snapshots behind")
+}
+
+// A deleted page can no longer be opened from the issues queue's "go fix"
+// action, so DeletePage must cascade-soft-delete its issues while leaving
+// other pages' issues alone.
+func TestDeletePageCascadesIssues(t *testing.T) {
+	ctx, h, db := newWikiRevisionTestService(t)
+	const kb = "kb-del-issue"
+
+	_, err := h.svc.CreatePage(ctx, &types.WikiPage{
+		KnowledgeBaseID: kb, TenantID: 1, Slug: "concept/doomed",
+		Title: "Doomed", PageType: types.WikiPageTypeConcept, Content: "v1", Summary: "s",
+	})
+	require.NoError(t, err)
+	_, err = h.svc.CreateIssue(ctx, &types.WikiPageIssue{
+		TenantID: 1, KnowledgeBaseID: kb, Slug: "concept/doomed",
+		IssueType: "lint", Description: "dead soon", Status: "pending", ReportedBy: "test",
+	})
+	require.NoError(t, err)
+	_, err = h.svc.CreateIssue(ctx, &types.WikiPageIssue{
+		TenantID: 1, KnowledgeBaseID: kb, Slug: "concept/keeper",
+		IssueType: "lint", Description: "must survive", Status: "pending", ReportedBy: "test",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, h.svc.DeletePage(ctx, kb, "concept/doomed"))
+
+	remaining, err := h.svc.ListIssues(ctx, kb, "", "")
+	require.NoError(t, err)
+	require.Len(t, remaining, 1)
+	require.Equal(t, "concept/keeper", remaining[0].Slug)
+
+	// Soft delete: the row is still recoverable via an unscoped lookup.
+	var unscoped int64
+	require.NoError(t, db.Unscoped().Model(&types.WikiPageIssue{}).
+		Where("knowledge_base_id = ? AND slug = ?", kb, "concept/doomed").Count(&unscoped).Error)
+	require.Equal(t, int64(1), unscoped)
 }

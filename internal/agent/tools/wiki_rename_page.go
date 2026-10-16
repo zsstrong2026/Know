@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
@@ -137,15 +138,27 @@ func (t *wikiRenamePageTool) Execute(ctx context.Context, args json.RawMessage) 
 	}
 	updatedCount := len(updatedSlugs)
 
+	// Carry the page's issues over to the new slug BEFORE deleting the old
+	// page — DeletePage cascades issue cleanup, so unmigrated issues would
+	// die with the old slug even though the content lives on. Best-effort:
+	// a failed migration degrades to the pre-cascade behavior, not a
+	// failed rename.
+	if err := t.wikiPageService.ReassignIssuesSlug(ctx, kbID, params.Slug, params.NewSlug); err != nil {
+		logger.Warnf(ctx, "rename wiki page: migrate issues %s -> %s failed: %v", params.Slug, params.NewSlug, err)
+	}
+
 	// Delete old page
 	err = t.wikiPageService.DeletePage(ctx, kbID, params.Slug)
 	if err != nil {
 		rollbackErr := rollbackWikiContentChanges(ctx, t.wikiPageService, changes)
+		// Restore issues to the old slug first, otherwise the cleanup
+		// DeletePage below would cascade-delete them with the new page.
+		restoreErr := t.wikiPageService.ReassignIssuesSlug(ctx, kbID, params.NewSlug, params.Slug)
 		cleanupErr := t.wikiPageService.DeletePage(ctx, kbID, params.NewSlug)
 		return &types.ToolResult{
 			Success: false,
 			Error: "Rename aborted because the old page could not be deleted: " +
-				joinWikiMutationErrors(err, rollbackErr, cleanupErr),
+				joinWikiMutationErrors(err, rollbackErr, restoreErr, cleanupErr),
 		}, nil
 	}
 	t.routes.forget(params.Slug, kbID)

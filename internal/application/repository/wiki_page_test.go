@@ -783,3 +783,86 @@ func TestUpdateIssueStatus_ScopedToKnowledgeBase(t *testing.T) {
 	// databases count matched rows, and updated_at changes anyway.
 	require.NoError(t, repo.UpdateIssueStatus(context.Background(), "kb-a", "issue-1", "resolved"))
 }
+
+// DeletePage cascades issue cleanup per slug; the cascade must stay scoped
+// to the exact kbID+slug pair and must soft-delete (rows remain recoverable).
+func TestDeleteIssuesBySlug(t *testing.T) {
+	db := setupWikiPagesTestDB(t)
+	repo := NewWikiPageRepository(db)
+	ctx := context.Background()
+
+	seed := func(id, kb, slug string) {
+		require.NoError(t, repo.CreateIssue(ctx, &types.WikiPageIssue{
+			ID: id, TenantID: 1, KnowledgeBaseID: kb, Slug: slug,
+			IssueType: "lint", Description: id, Status: "pending",
+			ReportedBy: "test", CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		}))
+	}
+	seed("i-target", "kb-a", "concept/doomed")
+	seed("i-sibling", "kb-a", "concept/keeper")
+	seed("i-other-kb", "kb-b", "concept/doomed")
+
+	// Empty kbID/slug must not become a table-wide delete.
+	require.NoError(t, repo.DeleteIssuesBySlug(ctx, "", "concept/doomed"))
+	require.NoError(t, repo.DeleteIssuesBySlug(ctx, "kb-a", ""))
+
+	require.NoError(t, repo.DeleteIssuesBySlug(ctx, "kb-a", "concept/doomed"))
+
+	issues, err := repo.ListIssues(ctx, "kb-a", "", "")
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "i-sibling", issues[0].ID)
+
+	// Same slug in another KB is untouched.
+	other, err := repo.ListIssues(ctx, "kb-b", "", "")
+	require.NoError(t, err)
+	require.Len(t, other, 1)
+
+	// Soft delete: the row survives an unscoped lookup.
+	var count int64
+	require.NoError(t, db.Unscoped().Model(&types.WikiPageIssue{}).
+		Where("id = ?", "i-target").Count(&count).Error)
+	assert.Equal(t, int64(1), count)
+}
+
+// wiki_rename_page migrates issues to the new slug before removing the old
+// page; the move must stay scoped to the KB and tolerate empty arguments.
+func TestReassignIssuesSlug(t *testing.T) {
+	db := setupWikiPagesTestDB(t)
+	repo := NewWikiPageRepository(db)
+	ctx := context.Background()
+
+	seed := func(id, kb, slug string) {
+		require.NoError(t, repo.CreateIssue(ctx, &types.WikiPageIssue{
+			ID: id, TenantID: 1, KnowledgeBaseID: kb, Slug: slug,
+			IssueType: "lint", Description: id, Status: "pending",
+			ReportedBy: "test", CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		}))
+	}
+	seed("i-move-1", "kb-a", "concept/old")
+	seed("i-move-2", "kb-a", "concept/old")
+	seed("i-stay", "kb-a", "concept/other")
+	seed("i-other-kb", "kb-b", "concept/old")
+
+	// Empty arguments are a no-op.
+	require.NoError(t, repo.ReassignIssuesSlug(ctx, "", "concept/old", "concept/new"))
+	require.NoError(t, repo.ReassignIssuesSlug(ctx, "kb-a", "", "concept/new"))
+	require.NoError(t, repo.ReassignIssuesSlug(ctx, "kb-a", "concept/old", ""))
+
+	require.NoError(t, repo.ReassignIssuesSlug(ctx, "kb-a", "concept/old", "concept/new"))
+
+	moved, err := repo.ListIssues(ctx, "kb-a", "concept/new", "")
+	require.NoError(t, err)
+	assert.Len(t, moved, 2)
+	old, err := repo.ListIssues(ctx, "kb-a", "concept/old", "")
+	require.NoError(t, err)
+	assert.Empty(t, old)
+
+	// Unrelated slug and other KB keep their issues.
+	stay, err := repo.ListIssues(ctx, "kb-a", "concept/other", "")
+	require.NoError(t, err)
+	assert.Len(t, stay, 1)
+	otherKB, err := repo.ListIssues(ctx, "kb-b", "concept/old", "")
+	require.NoError(t, err)
+	assert.Len(t, otherKB, 1)
+}

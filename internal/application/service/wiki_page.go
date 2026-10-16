@@ -416,6 +416,13 @@ func (s *wikiPageService) DeletePage(ctx context.Context, kbID string, slug stri
 		logger.Warnf(ctx, "delete wiki page revisions for %s failed: %v", page.ID, err)
 	}
 
+	// Cascade to the issues queue: a deleted page can no longer be opened
+	// from the "go fix" action, so its issues would be dead entries.
+	// Best-effort, same rationale as the revision cleanup above.
+	if err := s.repo.DeleteIssuesBySlug(ctx, kbID, slug); err != nil {
+		logger.Warnf(ctx, "delete wiki page issues for %s failed: %v", slug, err)
+	}
+
 	// Delete synced chunk
 	s.deleteChunkForPage(ctx, page)
 
@@ -1371,6 +1378,11 @@ func (s *wikiPageService) ListIssues(ctx context.Context, kbID string, slug stri
 // UpdateIssueStatus updates an issue's status
 func (s *wikiPageService) UpdateIssueStatus(ctx context.Context, kbID string, issueID string, status string) error {
 	return s.repo.UpdateIssueStatus(ctx, kbID, issueID, status)
+}
+
+// ReassignIssuesSlug moves a page's issues to a new slug (rename cascade)
+func (s *wikiPageService) ReassignIssuesSlug(ctx context.Context, kbID string, oldSlug string, newSlug string) error {
+	return s.repo.ReassignIssuesSlug(ctx, kbID, oldSlug, newSlug)
 }
 
 // --- Folder tree (wiki_folders) ---
