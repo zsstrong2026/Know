@@ -566,3 +566,300 @@ func TestRunTurnInterruptTriggersHostConvergence(t *testing.T) {
 	}
 	assert.True(t, sawGuard, "打断应广播 guard.triggered")
 }
+
+// fakeHostInterventionRoomRepo 房间带主持人介入间隔配置（每 2 个子轮介入一次）
+type fakeHostInterventionRoomRepo struct {
+	interfaces.MeetingRoomRepository
+}
+
+func (f *fakeHostInterventionRoomRepo) GetByIDInternal(_ context.Context, id string) (*types.MeetingRoom, error) {
+	return &types.MeetingRoom{
+		ID: id, TenantID: 1, Title: "发布方案评审",
+		BroadcastMode:    types.MeetingBroadcastSequential,
+		GuardMaxExchange: 3,
+		HostEveryNRounds: 2,
+	}, nil
+}
+
+// TestRunDiscussionHostIntervenesEveryNRounds 真实路径：两个智能体前两个子轮互相 @，
+// 每完成 2 个子轮主持人插入一条总结/重定向消息；第三个子轮无提及自然终止 → 仅介入一次。
+func TestRunDiscussionHostIntervenesEveryNRounds(t *testing.T) {
+	ctx := context.Background()
+	e, repo := newGuardEngineFixture(t, "room-h", []*types.MeetingMessage{
+		{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "触发"},
+	})
+	e.roomRepo = &fakeHostInterventionRoomRepo{} // HostEveryNRounds=2, GuardMaxExchange=3
+	e.participantRepo = &fakeTwoAgentParticipantRepo{}
+	e.agentRepo = &fakeTwoAgentRepoForTurn{}
+	// 前 4 次调用（子轮 1、2）互相 @ 以延续讨论；其后不再 @ → 子轮 3 自然终止
+	var calls int32
+	e.sessionService = &fakeMeetingSession{agentQA: func(_ context.Context, req *types.QARequest, bus *event.EventBus) error {
+		content := "我的观点"
+		if atomic.AddInt32(&calls, 1) <= 4 {
+			if req.CustomAgent.ID == "agent-B" {
+				content += " @甲"
+			} else {
+				content += " @乙"
+			}
+		}
+		return bus.Emit(context.Background(), event.Event{
+			Type: event.EventAgentFinalAnswer,
+			Data: event.AgentFinalAnswerData{Content: content},
+		})
+	}}
+
+	require.NoError(t, e.RunTurn(ctx, "room-h", "u1"))
+
+	msgs := repo.snapshot()
+	require.Equal(t, 6, countByKind(msgs, types.MeetingSenderAgent), "3 个子轮 × 2 个智能体")
+	hostMsgs := messagesByKind(msgs, types.MeetingSenderHost)
+	require.Len(t, hostMsgs, 1, "每 2 轮介入一次：3 个子轮只在第 2 轮后介入 1 次")
+	assert.Contains(t, hostMsgs[0].Content, "发布方案评审", "兜底介入文案应包含会议主题")
+}
+
+// fakeNoInterventionRoomRepo 关闭主持人介入（0）；护栏阈值放宽到 4，
+// 使「前 4 条互 @、其后不再 @」的 6 条讨论消息不足以触发护栏，避免干扰断言。
+type fakeNoInterventionRoomRepo struct {
+	interfaces.MeetingRoomRepository
+}
+
+func (f *fakeNoInterventionRoomRepo) GetByIDInternal(_ context.Context, id string) (*types.MeetingRoom, error) {
+	return &types.MeetingRoom{
+		ID: id, TenantID: 1, Title: "发布方案评审",
+		BroadcastMode:    types.MeetingBroadcastSequential,
+		GuardMaxExchange: 4,
+		HostEveryNRounds: 0,
+	}, nil
+}
+
+// TestRunDiscussionNoInterventionWhenDisabled 关闭介入（HostEveryNRounds=0）时讨论照常推进但不产生主持人消息
+func TestRunDiscussionNoInterventionWhenDisabled(t *testing.T) {
+	ctx := context.Background()
+	e, repo := newGuardEngineFixture(t, "room-off", []*types.MeetingMessage{
+		{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "触发"},
+	})
+	e.roomRepo = &fakeNoInterventionRoomRepo{}
+	e.participantRepo = &fakeTwoAgentParticipantRepo{}
+	e.agentRepo = &fakeTwoAgentRepoForTurn{}
+	var calls int32
+	e.sessionService = &fakeMeetingSession{agentQA: func(_ context.Context, req *types.QARequest, bus *event.EventBus) error {
+		content := "我的观点"
+		if atomic.AddInt32(&calls, 1) <= 4 {
+			if req.CustomAgent.ID == "agent-B" {
+				content += " @甲"
+			} else {
+				content += " @乙"
+			}
+		}
+		return bus.Emit(context.Background(), event.Event{
+			Type: event.EventAgentFinalAnswer,
+			Data: event.AgentFinalAnswerData{Content: content},
+		})
+	}}
+
+	require.NoError(t, e.RunTurn(ctx, "room-off", "u1"))
+
+	assert.Equal(t, 6, countByKind(repo.snapshot(), types.MeetingSenderAgent), "讨论仍应正常推进 3 个子轮")
+	assert.Equal(t, 0, countByKind(repo.snapshot(), types.MeetingSenderHost), "关闭介入不应产生主持人消息")
+}
+
+// TestIsPassReply 验证弃权判定：仅整条为 PASS（允许空白/标点/全角符号）才判为弃权
+func TestIsPassReply(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"PASS", true},
+		{" pass ", true},
+		{"PASS。", true},
+		{"**PASS**", true},
+		{"Pass\n", true},
+		{"", false},
+		{"我认为可以 PASS 这个议题", false}, // 正文出现 PASS 不应误判
+		{"PASS 之后还有内容", false},
+		{"我先赞同 @甲 的观点", false},
+	}
+	for _, c := range cases {
+		assert.Equalf(t, c.want, isPassReply(c.in), "input=%q", c.in)
+	}
+}
+
+// ---- 裁判 + 共识检测测试（③）----
+
+// fakeConsensusRoomRepo 开启裁判 + 共识检测的房间；guardMaxExchange 控制子轮硬上限
+type fakeConsensusRoomRepo struct {
+	interfaces.MeetingRoomRepository
+	guardMaxExchange int
+}
+
+func (f *fakeConsensusRoomRepo) GetByIDInternal(_ context.Context, id string) (*types.MeetingRoom, error) {
+	return &types.MeetingRoom{
+		ID: id, TenantID: 1, Title: "发布方案评审",
+		BroadcastMode:             types.MeetingBroadcastSequential,
+		GuardMaxExchange:          f.guardMaxExchange,
+		ConsensusDetectionEnabled: true,
+	}, nil
+}
+
+// newConsensusEngineFixture 组装「裁判判定收敛」场景：两个互相 @ 的智能体 + 返回 verdict 的裁判模型。
+// mentionUntil<=0 表示始终互相 @；>0 表示仅前 mentionUntil 次发言互相 @。
+func newConsensusEngineFixture(
+	t *testing.T, roomID, verdict string, roomRepo interfaces.MeetingRoomRepository, mentionUntil int32,
+) (*meetingEngine, *fakeMeetingMessageRepo) {
+	t.Helper()
+	e, repo := newGuardEngineFixture(t, roomID, []*types.MeetingMessage{
+		{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "触发"},
+	})
+	e.roomRepo = roomRepo
+	e.participantRepo = &fakeTwoAgentParticipantRepo{}
+	e.agentRepo = &fakeTwoAgentRepoForTurn{}
+	e.modelService = &stubModelService{
+		availableModels: []*types.Model{{ID: "m1", Type: types.ModelTypeKnowledgeQA, IsDefault: true}},
+		chatModel:       &hostChatStub{content: verdict},
+	}
+	var calls int32
+	e.sessionService = &fakeMeetingSession{agentQA: func(_ context.Context, req *types.QARequest, bus *event.EventBus) error {
+		content := "我的观点"
+		if mentionUntil <= 0 || atomic.AddInt32(&calls, 1) <= mentionUntil {
+			if req.CustomAgent.ID == "agent-B" {
+				content += " @甲"
+			} else {
+				content += " @乙"
+			}
+		}
+		return bus.Emit(context.Background(), event.Event{
+			Type: event.EventAgentFinalAnswer,
+			Data: event.AgentFinalAnswerData{Content: content},
+		})
+	}}
+	return e, repo
+}
+
+// TestRunDiscussionConsensusConvergesStopsTurn 裁判判定收敛：首个子轮后即落 is_consensus 消息 +
+// 广播 consensus.created 并终止讨论（不展开子轮、不触发护栏）
+func TestRunDiscussionConsensusConvergesStopsTurn(t *testing.T) {
+	ctx := context.Background()
+	e, repo := newConsensusEngineFixture(t, "room-c",
+		`{"converged":true,"reason":"已无实质分歧","consensus":"采用蓝绿发布"}`,
+		&fakeConsensusRoomRepo{guardMaxExchange: 3}, 0)
+
+	ch, unsub := e.broadcaster.Subscribe("room-c")
+	defer unsub()
+
+	require.NoError(t, e.RunTurn(ctx, "room-c", "u1"))
+
+	msgs := repo.snapshot()
+	assert.Equal(t, 2, countByKind(msgs, types.MeetingSenderAgent), "收敛应发生于首个子轮后，不再展开子轮")
+	hostMsgs := messagesByKind(msgs, types.MeetingSenderHost)
+	require.Len(t, hostMsgs, 1, "应收敛出一条主持人共识消息")
+	assert.True(t, hostMsgs[0].IsConsensus, "共识消息须标记 is_consensus")
+	assert.Contains(t, hostMsgs[0].Content, "采用蓝绿发布")
+
+	var sawConsensus, sawGuard bool
+	for len(ch) > 0 {
+		switch evt := <-ch; evt.Type {
+		case MeetingEventConsensusCreated:
+			sawConsensus = true
+		case MeetingEventGuardTriggered:
+			sawGuard = true
+		}
+	}
+	assert.True(t, sawConsensus, "应广播 consensus.created")
+	assert.False(t, sawGuard, "收敛终止后不应再触发护栏")
+}
+
+// TestRunDiscussionConsensusNotConvergedKeepsGoing 裁判判未收敛：讨论照常推进，不产生共识消息
+func TestRunDiscussionConsensusNotConvergedKeepsGoing(t *testing.T) {
+	ctx := context.Background()
+	// 前 4 次互相 @ → 3 个子轮（6 条）；GuardMaxExchange=4 使护栏不触发，避免干扰断言
+	e, repo := newConsensusEngineFixture(t, "room-nc",
+		`{"converged":false,"reason":"仍有分歧"}`,
+		&fakeConsensusRoomRepo{guardMaxExchange: 4}, 4)
+
+	require.NoError(t, e.RunTurn(ctx, "room-nc", "u1"))
+
+	msgs := repo.snapshot()
+	assert.Equal(t, 6, countByKind(msgs, types.MeetingSenderAgent), "未收敛应推进到硬上限 3 个子轮")
+	assert.Equal(t, 0, countByKind(msgs, types.MeetingSenderHost), "未收敛不应产生主持人共识消息")
+}
+
+// TestRunDiscussionConsensusDisabledNoReferee 关闭共识检测时不调用裁判：讨论照常推进且无共识消息
+func TestRunDiscussionConsensusDisabledNoReferee(t *testing.T) {
+	ctx := context.Background()
+	e, repo := newGuardEngineFixture(t, "room-cd", []*types.MeetingMessage{
+		{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "触发"},
+	})
+	e.roomRepo = &fakeNoInterventionRoomRepo{} // GuardMaxExchange=4, HostEveryNRounds=0, 共识检测关闭
+	e.participantRepo = &fakeTwoAgentParticipantRepo{}
+	e.agentRepo = &fakeTwoAgentRepoForTurn{}
+	// 注入可用的裁判模型：若误触发裁判，将产生共识消息从而断言失败
+	e.modelService = &stubModelService{
+		availableModels: []*types.Model{{ID: "m1", Type: types.ModelTypeKnowledgeQA, IsDefault: true}},
+		chatModel:       &hostChatStub{content: `{"converged":true,"consensus":"不该出现"}`},
+	}
+	var calls int32
+	e.sessionService = &fakeMeetingSession{agentQA: func(_ context.Context, req *types.QARequest, bus *event.EventBus) error {
+		content := "我的观点"
+		if atomic.AddInt32(&calls, 1) <= 4 {
+			if req.CustomAgent.ID == "agent-B" {
+				content += " @甲"
+			} else {
+				content += " @乙"
+			}
+		}
+		return bus.Emit(context.Background(), event.Event{
+			Type: event.EventAgentFinalAnswer,
+			Data: event.AgentFinalAnswerData{Content: content},
+		})
+	}}
+
+	require.NoError(t, e.RunTurn(ctx, "room-cd", "u1"))
+
+	assert.Equal(t, 6, countByKind(repo.snapshot(), types.MeetingSenderAgent), "关闭共识检测不影响讨论推进")
+	assert.Equal(t, 0, countByKind(repo.snapshot(), types.MeetingSenderHost), "关闭共识检测不应产生共识消息")
+}
+
+func TestRunAgentTurnsPassSilentlySkipped(t *testing.T) {
+	modes := []struct {
+		name string
+		mode string
+	}{
+		{"parallel", types.MeetingBroadcastParallel},
+		{"sequential", types.MeetingBroadcastSequential},
+	}
+	for _, tc := range modes {
+		t.Run(tc.name, func(t *testing.T) {
+			// sequential 分支需查打断标记（依赖 redis），故统一走 miniredis
+			mr := miniredis.RunT(t)
+			rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+			t.Cleanup(func() { _ = rdb.Close() })
+
+			repo := &fakeMeetingMessageRepo{}
+			room := &types.MeetingRoom{ID: "r-pass-" + tc.name, BroadcastMode: tc.mode}
+			trigger := triggerFixture("议题")
+
+			sess := &fakeMeetingSession{}
+			sess.agentQA = func(_ context.Context, req *types.QARequest, bus *event.EventBus) error {
+				content := "我的观点"
+				if req.CustomAgent.ID == "a2" { // a2 无信息增量，回 PASS
+					content = "PASS"
+				}
+				return bus.Emit(context.Background(), event.Event{
+					Type: event.EventAgentFinalAnswer,
+					Data: event.AgentFinalAnswerData{Content: content},
+				})
+			}
+			e := &meetingEngine{messageRepo: repo, sessionService: sess, redis: rdb, broadcaster: NewMeetingBroadcaster(), contextMax: 50}
+
+			e.runAgentTurns(context.Background(), room, trigger,
+				[]*types.CustomAgent{agentFixture("a1", "甲"), agentFixture("a2", "乙")})
+
+			msgs := repo.snapshot()
+			assert.Equal(t, 1, countByKind(msgs, types.MeetingSenderAgent), "弃权者不应落库，仅正常发言者落库")
+			assert.Equal(t, 0, countByKind(msgs, types.MeetingSenderSystem), "弃权不应产生失败提示")
+			agentMsgs := messagesByKind(msgs, types.MeetingSenderAgent)
+			require.Len(t, agentMsgs, 1)
+			assert.NotEqual(t, "PASS", agentMsgs[0].Content, "落库内容不应是 PASS")
+		})
+	}
+}

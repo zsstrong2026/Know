@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -95,6 +96,7 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 	e.clearInterrupt(ctx, roomID)
 
 	current := triggerMessageID
+	converged := false // 裁判判定本轮讨论是否已收敛（由 runDiscussion 返回）
 	for {
 		if e.isInterrupted(ctx, roomID) {
 			// 用户已打断：清除标记并停止继续消化排队输入
@@ -109,10 +111,15 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 		e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnStarted, Data: map[string]interface{}{
 			"room_id": roomID, "trigger_message_id": current,
 		}})
-		e.runDiscussion(ctx, room, in.trigger, in.speakers, in.agents, in.participants)
+		converged = e.runDiscussion(ctx, room, in.trigger, in.speakers, in.agents, in.participants)
 		e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnEnded, Data: map[string]interface{}{
 			"room_id": roomID, "trigger_message_id": current,
 		}})
+
+		// 裁判判定已收敛：本轮结束，等待用户指示（不消化排队输入、不跑护栏）
+		if converged {
+			break
+		}
 
 		// 用户打断（"回到正题"）：落系统提示 + 主持人生成收敛消息 + 广播 guard.triggered，随后结束本轮
 		if e.isInterrupted(ctx, roomID) {
@@ -221,8 +228,20 @@ func shouldRunParallel(mode string, speakerCount int) bool {
 	return mode == types.MeetingBroadcastParallel && speakerCount > 1
 }
 
+// errAgentPass 智能体弃权（回复 PASS）：静默跳过，不落库、不提示，不占用讨论产出
+var errAgentPass = errors.New("meeting: agent passed")
+
 // mentionTokenRe 匹配 @某人（@ 后接连续的字母/数字/下划线/连字符/汉字）
 var mentionTokenRe = regexp.MustCompile(`@([\p{L}\p{N}_\-]+)`)
+
+// passReplyRe 判定弃权回复：整条回复除空白/标点/符号（含全角与 Markdown 强调符）外只剩 PASS
+var passReplyRe = regexp.MustCompile(`(?i)^[\s\p{Z}\p{P}\p{S}]*pass[\s\p{Z}\p{P}\p{S}]*$`)
+
+// isPassReply 判断智能体回复是否为弃权（PASS）。
+// 采用整条严格匹配，避免把正文里偶然出现 "PASS" 字样的正常发言误判为弃权。
+func isPassReply(content string) bool {
+	return passReplyRe.MatchString(content)
+}
 
 // parseMentionedAgentIDs 从回复文本解析 @展示名 提及并映射为 agentID（按参会顺序去重，排除自己）。
 // participants 为空或无有效匹配时返回 nil。
@@ -278,6 +297,9 @@ func (e *meetingEngine) runSpeakerTasks(ctx context.Context, room *types.Meeting
 			go func(i int, task meetingSpeaker) {
 				defer wg.Done()
 				msg, err := e.runAgentTurn(ctx, room, task.replyTo, task.agent, participants)
+				if errors.Is(err, errAgentPass) {
+					return // 弃权：静默跳过，不计失败、不提示
+				}
 				if err != nil {
 					e.handleSpeakFailure(ctx, room, task.agent, err)
 					return
@@ -296,6 +318,9 @@ func (e *meetingEngine) runSpeakerTasks(ctx context.Context, room *types.Meeting
 			return out // 打断收尾（系统提示 + 主持人收敛）统一由 RunTurn 处理
 		}
 		msg, err := e.runAgentTurn(ctx, room, task.replyTo, task.agent, participants)
+		if errors.Is(err, errAgentPass) {
+			continue // 弃权：静默跳过，不计失败、不提示
+		}
 		if err != nil {
 			e.handleSpeakFailure(ctx, room, task.agent, err)
 			continue
@@ -347,11 +372,12 @@ func planReplyRound(created []*types.MeetingMessage, participants []*types.Meeti
 }
 
 // runDiscussion 执行一轮完整讨论：首轮由 selectSpeakers 决定的发言者回应触发消息，
-// 之后按"提及链"展开子轮，直至自然终止（无提及）/达到护栏上限/用户打断。
+// 之后按"提及链"展开子轮，直至自然终止（无提及）/达到护栏上限/用户打断/裁判判定收敛。
+// 返回 true 表示裁判判定讨论已收敛（调用方据此终止本轮且不再消化排队输入）。
 func (e *meetingEngine) runDiscussion(
 	ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage,
 	speakers, allAgents []*types.CustomAgent, participants []*types.MeetingParticipant,
-) {
+) bool {
 	agentsByID := make(map[string]*types.CustomAgent, len(allAgents))
 	for _, a := range allAgents {
 		agentsByID[a.ID] = a
@@ -360,13 +386,70 @@ func (e *meetingEngine) runDiscussion(
 	for _, a := range speakers {
 		tasks = append(tasks, meetingSpeaker{agent: a, replyTo: trigger})
 	}
-	maxRounds := e.guardMaxExchange(room) // 子轮硬上限：防 LLM 无限互相回应
+	maxRounds := e.guardMaxExchange(room)         // 子轮硬上限：防 LLM 无限互相回应
+	everyN := room.HostEveryNRounds               // 主持人介入间隔：0 表示不介入
+	consensusOn := room.ConsensusDetectionEnabled // 裁判 + 共识检测开关
+	completed := 0                                // 已完成的子轮数（用于每 N 轮介入节流）
 	for round := 0; round < maxRounds && len(tasks) > 0; round++ {
 		created := e.runSpeakerTasks(ctx, room, tasks, participants)
+		completed++
 		if e.isInterrupted(ctx, room.ID) {
-			return // 打断收尾统一由 RunTurn 处理
+			return false // 打断收尾统一由 RunTurn 处理
 		}
 		tasks = planReplyRound(created, participants, agentsByID)
+		// 裁判 + 共识检测：每子轮结束交由独立裁判判定是否收敛；收敛则落共识消息并终止讨论
+		if consensusOn && len(tasks) > 0 && e.detectAndPublishConsensus(ctx, room, completed) {
+			return true
+		}
+		// 每 N 轮介入：仅当讨论仍会继续时插入「阶段总结 + 重定向」，防止跑偏
+		if len(tasks) > 0 && shouldHostIntervene(everyN, completed) {
+			e.publishHostIntervention(ctx, room, completed)
+		}
+	}
+	return false
+}
+
+// detectAndPublishConsensus 每子轮结束调独立裁判判定收敛；
+// 收敛则落 is_consensus 消息并广播 consensus.created，返回 true。
+func (e *meetingEngine) detectAndPublishConsensus(ctx context.Context, room *types.MeetingRoom, completed int) bool {
+	recent, err := e.messageRepo.ListByRoom(ctx, room.ID, "", e.contextMax)
+	if err != nil {
+		logger.Warnf(ctx, "meeting referee list messages failed, room=%s err=%v", room.ID, err)
+		return false
+	}
+	verdict := e.judgeConsensus(ctx, room, recent, completed)
+	if !verdict.Converged {
+		return false
+	}
+	msg, err := e.appendConsensusMessage(ctx, room.ID, consensusMessageContent(room, verdict))
+	if err != nil {
+		logger.Warnf(ctx, "meeting consensus message failed, room=%s err=%v", room.ID, err)
+		return false
+	}
+	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventConsensusCreated, Data: map[string]interface{}{
+		"room_id": room.ID, "message": msg,
+		"reason": verdict.Reason, "completed_rounds": completed,
+	}})
+	return true
+}
+
+// shouldHostIntervene 判断完成 completed 个子轮后是否需要主持人介入：
+// everyN<=0 表示关闭；每完成 everyN 轮介入一次。
+func shouldHostIntervene(everyN, completed int) bool {
+	return everyN > 0 && completed > 0 && completed%everyN == 0
+}
+
+// publishHostIntervention 每 N 轮介入：主持人生成阶段总结/重定向消息并落库广播。
+// 主持人模型不可用时降级为固定文案；消息经 message.created 回流，并自然进入后续子轮的共享上下文。
+func (e *meetingEngine) publishHostIntervention(ctx context.Context, room *types.MeetingRoom, completed int) {
+	recent, err := e.messageRepo.ListByRoom(ctx, room.ID, "", e.contextMax)
+	if err != nil {
+		logger.Warnf(ctx, "meeting host intervention list messages failed, room=%s err=%v", room.ID, err)
+		recent = nil
+	}
+	content := e.generateInterventionMessage(ctx, room, recent, completed)
+	if _, err := e.appendHostMessage(ctx, room.ID, content); err != nil {
+		logger.Warnf(ctx, "meeting host intervention message failed, room=%s err=%v", room.ID, err)
 	}
 }
 
@@ -435,6 +518,11 @@ func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoo
 	if runErr != nil {
 		return nil, runErr
 	}
+	// 弃权：智能体以 PASS 表示"无信息增量"，静默跳过（不落库、不广播、不占用讨论产出）
+	if isPassReply(answer.String()) {
+		logger.Infof(ctx, "[meeting] agent %s passed (room=%s, reply_to=%s)", agent.ID, room.ID, replyTo.ID)
+		return nil, errAgentPass
+	}
 
 	msg := &types.MeetingMessage{
 		MeetingRoomID:     room.ID,
@@ -468,6 +556,18 @@ func (e *meetingEngine) publishSystemMessage(ctx context.Context, roomID string,
 func (e *meetingEngine) appendHostMessage(ctx context.Context, roomID string, content string) (*types.MeetingMessage, error) {
 	msg := &types.MeetingMessage{
 		MeetingRoomID: roomID, SenderKind: types.MeetingSenderHost, Content: content,
+	}
+	if err := e.messageRepo.Create(ctx, msg); err != nil {
+		return nil, err
+	}
+	e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventMessageCreated, Data: msg})
+	return msg, nil
+}
+
+// appendConsensusMessage 落库 sender_kind=host 且 is_consensus=true 的共识消息并广播 message.created
+func (e *meetingEngine) appendConsensusMessage(ctx context.Context, roomID, content string) (*types.MeetingMessage, error) {
+	msg := &types.MeetingMessage{
+		MeetingRoomID: roomID, SenderKind: types.MeetingSenderHost, Content: content, IsConsensus: true,
 	}
 	if err := e.messageRepo.Create(ctx, msg); err != nil {
 		return nil, err
@@ -536,7 +636,13 @@ func (e *meetingEngine) clearInterrupt(ctx context.Context, roomID string) {
 
 // ---- 纯逻辑函数（单测覆盖）----
 
-// cloneAgentForMeeting 克隆智能体配置：关闭多轮（会议上下文经 query 注入），保持其余配置
+// cloneAgentForMeeting 克隆智能体配置：关闭多轮（会议上下文经 query 注入），并清除会话级沙箱配置。
+//
+// 清空 SandboxConfigID 的原因：会议发言运行在内存态会话上（见 runAgentTurn 的伪造 Session），
+// sessions 表中并不存在该会话行；而具名沙箱（Cube/E2B/Docker）在首次解析时会执行
+// pinner.Pin 写入 sessions.sandbox_config_id，会话行缺失即返回 record not found，
+// 直接导致该智能体发言失败。会议内无持久会话，也就不存在可归属的会话级沙箱，
+// 因此这里统一不启用（与"未选择沙箱配置"的智能体行为一致）。
 func cloneAgentForMeeting(agent *types.CustomAgent) *types.CustomAgent {
 	clone := *agent
 	cfg := agent.Config // 值拷贝
@@ -544,6 +650,7 @@ func cloneAgentForMeeting(agent *types.CustomAgent) *types.CustomAgent {
 	cfg.HistoryTurns = 0
 	// 会议级 KB 由引擎注入 req.KnowledgeBaseIDs；避免"仅@时检索"吞掉注入的 KB
 	cfg.RetrieveKBOnlyWhenMentioned = false
+	cfg.SandboxConfigID = ""
 	clone.Config = cfg
 	return &clone
 }
@@ -584,28 +691,45 @@ func filterAgentParticipants(ps []*types.MeetingParticipant) []*types.MeetingPar
 	return out
 }
 
-// selectSpeakers 三级策略：@ 指定 > 主持人 LLM 筛选 > 全员
+// selectSpeakers 按房间配置的路由模式选择发言人
+//   - host-assign（默认，含旧数据空值）：消息显式 @ 时优先响应，否则由主持人 LLM 指派，均无果则全员兜底
+//   - mention：仅 @ 命中的智能体发言；无人被 @ 时由主持人指派兜底，避免讨论冷场
+//   - free：不筛选，全员自由抢麦
 func (e *meetingEngine) selectSpeakers(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, agents []*types.CustomAgent) []*types.CustomAgent {
 	// 候选不足 1 个时筛选无意义，直接返回（避免无谓调用主持人）
 	if len(agents) <= 1 {
 		return agents
 	}
-	// 第一级：消息显式 @ 了哪些智能体（保持参会者顺序，保证确定性）
-	// 若 @ 的目标无有效命中（无效 id 或智能体已删除），降级到主持人筛选/全员
-	if len(trigger.MentionedAgentIDs) > 0 {
+	switch room.RoutingMode {
+	case types.MeetingRoutingFree:
+		return agents
+	case types.MeetingRoutingMention:
 		if picked := filterByIDs(agents, trigger.MentionedAgentIDs); len(picked) > 0 {
 			return picked
 		}
+		return e.assignSpeakersByHost(ctx, room, trigger, agents)
+	default:
+		// 显式 @ 优先（保持参会者顺序，保证确定性）
+		if len(trigger.MentionedAgentIDs) > 0 {
+			if picked := filterByIDs(agents, trigger.MentionedAgentIDs); len(picked) > 0 {
+				return picked
+			}
+		}
+		return e.assignSpeakersByHost(ctx, room, trigger, agents)
 	}
-	// 第二级：主持人 LLM 按相关性挑选
+}
+
+// assignSpeakersByHost 主持人 LLM 按相关性指派发言人；不可用或未命中时回退全员
+func (e *meetingEngine) assignSpeakersByHost(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, agents []*types.CustomAgent) []*types.CustomAgent {
 	candidates := make([]speakerCandidate, len(agents))
 	for i, a := range agents {
 		candidates[i] = speakerCandidate{ID: a.ID, Name: a.Name, Description: a.Description}
 	}
 	if ids := e.selectSpeakersByLLM(ctx, room, trigger, candidates); ids != nil {
-		return filterByIDs(agents, ids)
+		if picked := filterByIDs(agents, ids); len(picked) > 0 {
+			return picked
+		}
 	}
-	// 第三级：全员
 	return agents
 }
 
@@ -649,6 +773,8 @@ func buildMeetingQuery(room *types.MeetingRoom, triggerContent string, contextMs
 	}
 	b.WriteString("\n【当前议题】" + triggerContent)
 	b.WriteString("\n请以你的身份与职责，针对当前议题发表意见，简明扼要。若需赞同或反驳其他参会人，请在该句中直接用 @对方姓名 提及。")
+	// 弃权约定：无信息增量时回 PASS，避免"为发言而发言"注水
+	b.WriteString("\n如果你相较上述讨论记录没有新增观点（无信息增量），请仅回复 PASS，不要输出任何其他内容。")
 	return b.String()
 }
 

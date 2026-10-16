@@ -153,22 +153,24 @@ const router = createRouter({
           meta: { requiresInit: true, requiresAuth: true, requiredCapability: 'agents' }
         },
         {
+          // 会议室一体化页面：左侧会议卡片列表常驻，右侧为子路由出口（空态 / 详情）
           path: "meetings",
-          name: "meetingList",
-          component: () => import("../views/meeting/MeetingListView.vue"),
-          meta: { requiresInit: true, requiresAuth: true }
-        },
-        {
-          path: "meetings/new",
-          name: "meetingCreate",
-          component: () => import("../views/meeting/MeetingCreateView.vue"),
-          meta: { requiresInit: true, requiresAuth: true }
-        },
-        {
-          path: "meetings/:roomId",
-          name: "meetingRoom",
-          component: () => import("../views/meeting/MeetingRoomView.vue"),
-          meta: { requiresInit: true, requiresAuth: true }
+          component: () => import("../views/meeting/MeetingLayoutView.vue"),
+          meta: { requiresInit: true, requiresAuth: true },
+          children: [
+            {
+              path: "",
+              name: "meetingList",
+              component: () => import("../views/meeting/MeetingEmptyView.vue"),
+              meta: { requiresInit: true, requiresAuth: true }
+            },
+            {
+              path: ":roomId",
+              name: "meetingRoom",
+              component: () => import("../views/meeting/MeetingRoomView.vue"),
+              meta: { requiresInit: true, requiresAuth: true }
+            },
+          ],
         },
         {
           path: "integrations",

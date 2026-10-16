@@ -35,7 +35,7 @@ export const useMenuStore = defineStore('menuStore', () => {
     // Artifacts only exist where skills run in a sandbox.
     { title: '', titleKey: 'menu.artifacts', icon: 'artifact', path: 'artifacts', requiredCapability: 'settings.sandbox' },
     { title: '', titleKey: 'menu.agents', icon: 'agent', path: 'agents', requiredCapability: 'agents' },
-    { title: '', titleKey: 'menu.meetings', icon: 'agent', path: 'meetings' },
+    { title: '', titleKey: 'menu.meetings', icon: 'meeting', path: 'meetings' },
     { title: '', titleKey: 'toolbox.title', icon: 'toolbox', path: 'toolbox' },
     { title: '', titleKey: 'menu.organizations', icon: 'organization', path: 'organizations', requiredCapability: 'organizations' },
     { title: '', titleKey: 'menu.settings', icon: 'setting', path: 'settings' },

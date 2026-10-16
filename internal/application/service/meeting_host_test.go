@@ -97,6 +97,36 @@ func TestSelectSpeakersUsesHostSelection(t *testing.T) {
 	assert.Equal(t, []*types.CustomAgent{agents[1]}, got)
 }
 
+// 路由模式：mention 仅 @ 命中者发言；free 全员；host-assign 保持既有三级链
+func TestSelectSpeakersRoutingModes(t *testing.T) {
+	agents := []*types.CustomAgent{{ID: "a1"}, {ID: "a2"}}
+	engine := &meetingEngine{modelService: &stubModelService{}}
+
+	// mention：@ 命中者发言
+	got := engine.selectSpeakers(context.Background(),
+		&types.MeetingRoom{RoutingMode: types.MeetingRoutingMention},
+		&types.MeetingMessage{MentionedAgentIDs: []string{"a2"}}, agents)
+	assert.Equal(t, []*types.CustomAgent{agents[1]}, got)
+
+	// mention：无人被 @ 时走主持人兜底（此处主持人不可用 → 全员）
+	got = engine.selectSpeakers(context.Background(),
+		&types.MeetingRoom{RoutingMode: types.MeetingRoutingMention},
+		&types.MeetingMessage{}, agents)
+	assert.Equal(t, agents, got)
+
+	// free：忽略 @，直接全员
+	got = engine.selectSpeakers(context.Background(),
+		&types.MeetingRoom{RoutingMode: types.MeetingRoutingFree},
+		&types.MeetingMessage{MentionedAgentIDs: []string{"a1"}}, agents)
+	assert.Equal(t, agents, got)
+
+	// host-assign：显式 @ 仍优先（保持既有行为）
+	got = engine.selectSpeakers(context.Background(),
+		&types.MeetingRoom{RoutingMode: types.MeetingRoutingHostAssign},
+		&types.MeetingMessage{MentionedAgentIDs: []string{"a1"}}, agents)
+	assert.Equal(t, []*types.CustomAgent{agents[0]}, got)
+}
+
 func TestSelectSpeakersByLLMReturnsNilOnChatError(t *testing.T) {
 	engine := &meetingEngine{modelService: &stubModelService{
 		availableModels: []*types.Model{{ID: "m1", Type: types.ModelTypeKnowledgeQA, IsDefault: true}},
@@ -124,4 +154,37 @@ func TestParseSpeakerSelectionEdgeCases(t *testing.T) {
 	}
 	// 去重
 	assert.Equal(t, []string{"a1"}, parseSpeakerSelection(`["a1","a1"]`, valid))
+}
+
+// TestShouldHostIntervene 介入节流：everyN<=0 关闭；每完成 everyN 个子轮介入一次
+func TestShouldHostIntervene(t *testing.T) {
+	cases := []struct {
+		everyN, completed int
+		want              bool
+	}{
+		{0, 2, false},  // 关闭
+		{-1, 2, false}, // 非法值视为关闭
+		{2, 0, false},  // 尚未完成任何子轮
+		{2, 1, false},
+		{2, 2, true},
+		{2, 3, false},
+		{2, 4, true},
+		{3, 6, true},
+		{3, 5, false},
+		{1, 1, true}, // 每轮介入
+	}
+	for _, c := range cases {
+		assert.Equalf(t, c.want, shouldHostIntervene(c.everyN, c.completed), "everyN=%d completed=%d", c.everyN, c.completed)
+	}
+}
+
+// TestGenerateInterventionMessageFallback 主持人模型不可用时返回兜底文案（含轮次与主题），而非 panic
+func TestGenerateInterventionMessageFallback(t *testing.T) {
+	e := &meetingEngine{modelService: &stubModelService{}}
+	room := &types.MeetingRoom{ID: "r", Title: "发布方案评审"}
+
+	got := e.generateInterventionMessage(context.Background(), room, nil, 2)
+	assert.NotEmpty(t, got)
+	assert.Contains(t, got, "发布方案评审")
+	assert.Contains(t, got, "2", "兜底文案应包含已完成轮次")
 }

@@ -1,6 +1,14 @@
 import { defineStore } from 'pinia'
 import { clampSidebarWidth, SIDEBAR_COLLAPSED_WIDTH, SIDEBAR_COLLAPSE_THRESHOLD } from '../utils/sidebarWidth'
 
+/** 手工知识编辑器保存成功后的回写载荷（kbName 供调用方展示知识库名）。 */
+export interface ManualEditorSuccessPayload {
+  kbId: string
+  kbName?: string
+  knowledgeId: string
+  status: 'draft' | 'publish'
+}
+
 export const useUIStore = defineStore('ui', {
   state: () => ({
     showSettingsModal: false,
@@ -20,7 +28,7 @@ export const useUIStore = defineStore('ui', {
     manualEditorInitialTitle: '',
     manualEditorInitialContent: '',
     manualEditorInitialStatus: 'draft' as 'draft' | 'publish',
-    manualEditorOnSuccess: null as null | ((payload: { kbId: string; knowledgeId: string; status: 'draft' | 'publish' }) => void),
+    manualEditorOnSuccess: null as null | ((payload: ManualEditorSuccessPayload) => void),
     sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true',
     sidebarWidth: clampSidebarWidth(Number(localStorage.getItem('sidebar_width'))),
     sidebarResizing: false,
@@ -82,7 +90,7 @@ export const useUIStore = defineStore('ui', {
       title?: string
       content?: string
       status?: 'draft' | 'publish'
-      onSuccess?: (payload: { kbId: string; knowledgeId: string; status: 'draft' | 'publish' }) => void
+      onSuccess?: (payload: ManualEditorSuccessPayload) => void
     } = {}) {
       this.manualEditorMode = options.mode || 'create'
       this.manualEditorKBId = options.kbId ?? null
@@ -103,7 +111,7 @@ export const useUIStore = defineStore('ui', {
       this.manualEditorOnSuccess = null
     },
 
-    notifyManualEditorSuccess(payload: { kbId: string; knowledgeId: string; status: 'draft' | 'publish' }) {
+    notifyManualEditorSuccess(payload: ManualEditorSuccessPayload) {
       if (typeof this.manualEditorOnSuccess === 'function') {
         try {
           this.manualEditorOnSuccess(payload)

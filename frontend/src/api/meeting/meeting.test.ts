@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCreatePayload, buildMessagePayload, streamUrl } from './index';
+import { buildCreatePayload, buildMessagePayload, streamUrl, isModelHomogeneous, type CreateMeetingInput } from './index';
 
 test('buildCreatePayload 组装创建会议请求体', () => {
   const p = buildCreatePayload({
@@ -9,17 +9,41 @@ test('buildCreatePayload 组装创建会议请求体', () => {
     agentIds: ['a1', 'a2'],
     knowledgeBaseIds: ['kb1'],
     broadcastMode: 'sequential',
+    routingMode: 'host-assign',
+    hostEveryNRounds: 3,
+    consensusDetectionEnabled: true,
   });
   assert.equal(p.title, '新客服方案评审'); // 标题去首尾空格
   assert.equal(p.description, '客服机器人选型');
   assert.deepEqual(p.agent_ids, ['a1', 'a2']);
   assert.deepEqual(p.knowledge_base_ids, ['kb1']);
   assert.equal(p.broadcast_mode, 'sequential');
+  assert.equal(p.routing_mode, 'host-assign');
+  assert.equal(p.host_every_n_rounds, 3); // 主持人介入间隔透传
+  assert.equal(p.consensus_detection_enabled, true); // 共识检测开关透传
 });
 
 test('buildCreatePayload 拒绝空标题/空智能体', () => {
-  assert.throws(() => buildCreatePayload({ title: ' ', description: '', agentIds: [], knowledgeBaseIds: [], broadcastMode: 'sequential' }), /title/);
-  assert.throws(() => buildCreatePayload({ title: 't', description: '', agentIds: [], knowledgeBaseIds: [], broadcastMode: 'sequential' }), /agent/);
+  // 显式标注类型而非 as const，避免 readonly 数组无法赋给可变字段类型
+  const base: CreateMeetingInput = {
+    title: 't', description: '', agentIds: ['a1'], knowledgeBaseIds: [],
+    broadcastMode: 'sequential', routingMode: 'free', hostEveryNRounds: 0,
+    consensusDetectionEnabled: false,
+  };
+  assert.throws(() => buildCreatePayload({ ...base, title: ' ' }), /title/);
+  assert.throws(() => buildCreatePayload({ ...base, agentIds: [] }), /agent/);
+  assert.equal(buildCreatePayload(base).host_every_n_rounds, 0); // 默认不介入
+  assert.equal(buildCreatePayload(base).consensus_detection_enabled, false); // 默认关闭共识检测
+});
+
+test('isModelHomogeneous 判定模型同质（≥2 个且模型标识唯一）', () => {
+  assert.equal(isModelHomogeneous([]), false);                       // 空选择：不提示
+  assert.equal(isModelHomogeneous(['m1']), false);                   // 单个：无同质概念
+  assert.equal(isModelHomogeneous([undefined, undefined]), true);    // 均跟随默认模型
+  assert.equal(isModelHomogeneous(['', '  ']), true);                // 空白等价于默认
+  assert.equal(isModelHomogeneous(['m1', 'm1']), true);              // 同模型
+  assert.equal(isModelHomogeneous(['m1', 'm2']), false);             // 异构：不提示
+  assert.equal(isModelHomogeneous(['m1', undefined]), false);        // 一绑定一默认：异构
 });
 
 test('buildMessagePayload 组装发言请求体（含 mentions）', () => {
