@@ -1,0 +1,21 @@
+# config/builtin_models.yaml — 声明式内置模型，每次应用启动时重新写入 models 表。
+# 方案 B：把 embedding 切换到本地 Ollama 的 bge-m3，消除云端限流（EMBEDDING_RATE_LIMIT）。
+#
+# 说明：
+#   - source: local 时仅使用环境变量 OLLAMA_BASE_URL（见 .env，指向 host.docker.internal:11434）。
+#   - dimension 必须与被拉取模型的实际输出维度一致；bge-m3 已实测为 1024。
+#   - truncate_prompt_tokens 控制 Ollama 的 num_ctx 与截断开关；写 0 会被兜底成 511，
+#     而本系统父子块策略的父块最长 4096 token，会被截断导致检索质量下降。
+#     bge-m3 原生上下文为 8192，这里显式设为 8192 以避免任何截断。
+#   - is_default: true 让新建知识库默认使用该模型（已有知识库保留各自 embedding_model_id，不受影响）。
+
+builtin_models:
+  - id: builtin-ollama-embedding-bge-m3
+    type: Embedding
+    source: local
+    is_default: true
+    name: bge-m3:latest
+    parameters:
+      embedding_parameters:
+        dimension: 1024
+        truncate_prompt_tokens: 8192
