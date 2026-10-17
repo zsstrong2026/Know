@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -201,6 +202,57 @@ func (s *meetingService) UpdateMeeting(ctx context.Context, room *types.MeetingR
 
 func (s *meetingService) DeleteMeeting(ctx context.Context, tenantID uint64, id string) error {
 	return s.roomRepo.Delete(ctx, id, tenantID)
+}
+
+// ConfirmFlow 「开始会议」：awaiting_confirmation → active（幂等），以最近一条开场消息为触发自动开跑首轮。
+func (s *meetingService) ConfirmFlow(ctx context.Context, tenantID uint64, roomID string) error {
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID)
+	if err != nil {
+		return err // 租户校验（仓储按 tenant+created_by 过滤）
+	}
+	switch room.Status {
+	case types.MeetingStatusActive:
+		return nil // 幂等：已确认直接返回
+	case types.MeetingStatusArchived:
+		return ErrRoomArchived
+	}
+	room.Status = types.MeetingStatusActive
+	if err := s.roomRepo.Update(ctx, room); err != nil {
+		return err
+	}
+	// 触发消息取最近一条开场（含主题分析 + 建议流程，天然的讨论起点）；无开场则等用户首条发言
+	triggerID := s.latestOpeningMessageID(ctx, roomID)
+	if triggerID == "" {
+		return nil
+	}
+	go func() {
+		bgCtx := logger.CloneContext(ctx)
+		defer func() {
+			// 兜底 recover：讨论轮异步重管线，单次 panic 不应拖垮服务进程
+			if r := recover(); r != nil {
+				logger.Errorf(bgCtx, "meeting RunTurn panic, room=%s recover=%v", roomID, r)
+			}
+		}()
+		if err := s.engine.RunTurn(bgCtx, roomID, triggerID); err != nil {
+			logger.Errorf(bgCtx, "meeting RunTurn failed, room=%s err=%v", roomID, err)
+		}
+	}()
+	return nil
+}
+
+// latestOpeningMessageID 倒序找最近一条开场消息 ID（payload.stage=opening）；无则空串
+func (s *meetingService) latestOpeningMessageID(ctx context.Context, roomID string) string {
+	msgs, err := s.messageRepo.ListByRoom(ctx, roomID, "", 100)
+	if err != nil {
+		return ""
+	}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		var p openingPayload
+		if json.Unmarshal(msgs[i].Payload, &p) == nil && p.Stage == MeetingOpeningStage {
+			return msgs[i].ID
+		}
+	}
+	return ""
 }
 
 func (s *meetingService) SendUserMessage(ctx context.Context, tenantID uint64, roomID string, userID string, content string, mentionedAgentIDs []string) (*types.MeetingMessage, error) {

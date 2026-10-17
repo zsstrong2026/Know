@@ -1,13 +1,18 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
 // jsonMarshalForTest 直接透传标准库 Marshal，便于契约测试断言 payload 形状
@@ -43,20 +48,99 @@ func TestOpeningPayloadMarshal(t *testing.T) {
 }
 
 func TestLatestOpeningMessageID(t *testing.T) {
-	// 纯逻辑：payload 解析由 latestOpeningMessageID 承担，这里验证其倒序取最近开场
-	msgs := []*types.MeetingMessage{
+	// 覆盖真实方法 latestOpeningMessageID：仓储返回正序（旧 -> 新），方法倒序取最近一条开场消息
+	svc := &meetingService{messageRepo: &fakeMeetingMessageRepo{preset: []*types.MeetingMessage{
 		{ID: "m1", Payload: []byte(`{"stage":"opening"}`)},
 		{ID: "m2", Payload: []byte(`{}`)},
 		{ID: "m3", Payload: []byte(`{"stage":"opening"}`)},
-	}
-	// 最近一条开场是 m3
-	idx := -1
-	for i := len(msgs) - 1; i >= 0; i-- {
-		var p openingPayload
-		if json.Unmarshal(msgs[i].Payload, &p) == nil && p.Stage == MeetingOpeningStage {
-			idx = i
-			break
+	}}}
+	assert.Equal(t, "m3", svc.latestOpeningMessageID(context.Background(), "r1"))
+
+	// 无开场消息时返回空串（供 ConfirmFlow 判断不触发 RunTurn）
+	empty := &meetingService{messageRepo: &fakeMeetingMessageRepo{}}
+	assert.Equal(t, "", empty.latestOpeningMessageID(context.Background(), "r1"))
+}
+
+func TestConfirmFlowMatrix(t *testing.T) {
+	ctx := context.Background()
+
+	newFixture := func(status string) (*meetingService, *isolationRoomRepo, *stubConfirmEngine) {
+		rooms := &isolationRoomRepo{rooms: map[string]*types.MeetingRoom{}}
+		require.NoError(t, rooms.Create(ctx, &types.MeetingRoom{ID: "r1", TenantID: 1, Status: status}))
+		engine := &stubConfirmEngine{}
+		svc := &meetingService{
+			roomRepo:    rooms,
+			messageRepo: &fakeMeetingMessageRepo{},
+			engine:      engine,
 		}
+		return svc, rooms, engine
 	}
-	assert.Equal(t, 2, idx)
+
+	t.Run("active 幂等", func(t *testing.T) {
+		svc, rooms, engine := newFixture(types.MeetingStatusActive)
+		assert.NoError(t, svc.ConfirmFlow(ctx, 1, "r1"))
+		assert.Equal(t, types.MeetingStatusActive, rooms.rooms["r1"].Status)
+		assert.Equal(t, 0, engine.turns(), "已激活房间不重复触发讨论轮")
+	})
+
+	t.Run("archived 拒绝", func(t *testing.T) {
+		svc, _, engine := newFixture(types.MeetingStatusArchived)
+		assert.Equal(t, ErrRoomArchived, svc.ConfirmFlow(ctx, 1, "r1"))
+		assert.Equal(t, 0, engine.turns())
+	})
+
+	t.Run("待确认 → active（无开场消息时不空转触发）", func(t *testing.T) {
+		svc, rooms, engine := newFixture(types.MeetingStatusAwaitingConfirmation)
+		assert.NoError(t, svc.ConfirmFlow(ctx, 1, "r1"))
+		assert.Equal(t, types.MeetingStatusActive, rooms.rooms["r1"].Status)
+		waitFor(t, func() bool { return engine.turns() == 0 }, "无开场消息不应触发 RunTurn")
+	})
+
+	t.Run("跨租户拒绝", func(t *testing.T) {
+		svc, _, engine := newFixture(types.MeetingStatusAwaitingConfirmation)
+		assert.Error(t, svc.ConfirmFlow(ctx, 2, "r1"))
+		assert.Equal(t, 0, engine.turns())
+	})
+
+	t.Run("待确认且有开场消息 → 触发首轮", func(t *testing.T) {
+		rooms := &isolationRoomRepo{rooms: map[string]*types.MeetingRoom{}}
+		require.NoError(t, rooms.Create(ctx, &types.MeetingRoom{ID: "r1", TenantID: 1, Status: types.MeetingStatusAwaitingConfirmation}))
+		engine := &stubConfirmEngine{}
+		svc := &meetingService{
+			roomRepo: rooms,
+			messageRepo: &fakeMeetingMessageRepo{preset: []*types.MeetingMessage{
+				{ID: "open-1", MeetingRoomID: "r1", SenderKind: types.MeetingSenderHost, Payload: []byte(`{"stage":"opening"}`)},
+			}},
+			engine: engine,
+		}
+		assert.NoError(t, svc.ConfirmFlow(ctx, 1, "r1"))
+		waitFor(t, func() bool { return engine.turns() == 1 }, "应以最近开场消息为触发异步开跑")
+	})
+}
+
+// stubConfirmEngine 记录 RunTurn 触发次数（触发消息为最近开场；无开场时不触发）。
+// RunTurn 在后台 goroutine 执行、测试主线程读取计数，故用 atomic 消除 -race 下的数据竞争。
+type stubConfirmEngine struct {
+	interfaces.MeetingEngine
+	turnCount atomic.Int64
+}
+
+func (e *stubConfirmEngine) RunTurn(context.Context, string, string) error {
+	e.turnCount.Add(1)
+	return nil
+}
+
+// turns 线程安全读取已触发的讨论轮次数
+func (e *stubConfirmEngine) turns() int { return int(e.turnCount.Load()) }
+
+// waitFor 轮询等待异步动作完成（上限 2s）
+func waitFor(t *testing.T, cond func() bool, msg string) {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		if cond() {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal(msg)
 }

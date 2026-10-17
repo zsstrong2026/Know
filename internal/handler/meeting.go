@@ -198,6 +198,22 @@ func (h *MeetingHandler) ReplaceParticipants(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": participants})
 }
 
+// ConfirmFlow POST /api/v1/meetings/:id/confirm —— 确认开场流程（幂等置 active + 自动开跑首轮）
+func (h *MeetingHandler) ConfirmFlow(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	if err := h.meetingService.ConfirmFlow(ctx, tenantID, c.Param("id")); err != nil {
+		if err == service.ErrRoomArchived {
+			c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
+			return
+		}
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{"meeting_id": c.Param("id")})
+		c.Error(errors.NewInternalServerError("Failed to confirm meeting flow"))
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "message": "confirmed"})
+}
+
 // ArchiveMeeting POST /api/v1/meetings/:id/archive —— 幂等归档
 func (h *MeetingHandler) ArchiveMeeting(c *gin.Context) {
 	ctx := c.Request.Context()

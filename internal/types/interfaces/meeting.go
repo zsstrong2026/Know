@@ -70,6 +70,8 @@ type MeetingService interface {
 	// ReplaceParticipants 全量替换参会智能体：主持人不可移除、至少 1 个 agent、
 	// 讨论进行中 409（ErrTurnRunning）、归档只读；awaiting_confirmation 允许
 	ReplaceParticipants(ctx context.Context, tenantID uint64, roomID string, agentIDs []string) ([]*types.MeetingParticipant, error)
+	// ConfirmFlow 确认开场流程：幂等置 active，并以最近一条开场消息为触发自动开跑首轮
+	ConfirmFlow(ctx context.Context, tenantID uint64, roomID string) error
 	// ArchiveRoom 归档会议（幂等）：置 archived + 落系统消息 + 广播
 	ArchiveRoom(ctx context.Context, tenantID uint64, roomID string) error
 	// ExportArtifact 导出方案为 .md，返回文件名与正文（只读操作，归档房间允许导出；T6.3 实现）

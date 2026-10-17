@@ -16,6 +16,7 @@ func RegisterMeetingRoutes(r *gin.RouterGroup, meetingHandler *handler.MeetingHa
 		meetings.GET("/:id", g.OwnedMeetingOrAdmin(), meetingHandler.GetMeeting)
 		meetings.PATCH("/:id", g.OwnedMeetingOrAdmin(), meetingHandler.UpdateMeeting)
 		meetings.PUT("/:id/participants", g.OwnedMeetingOrAdmin(), meetingHandler.ReplaceParticipants)
+		meetings.POST("/:id/confirm", g.OwnedMeetingOrAdmin(), meetingHandler.ConfirmFlow)
 		meetings.POST("/:id/archive", g.OwnedMeetingOrAdmin(), meetingHandler.ArchiveMeeting)
 		meetings.DELETE("/:id", g.OwnedMeetingOrAdmin(), meetingHandler.DeleteMeeting)
 		meetings.GET("/:id/messages", g.OwnedMeetingOrAdmin(), meetingHandler.ListMessages)
