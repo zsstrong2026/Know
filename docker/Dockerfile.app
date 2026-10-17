@@ -10,7 +10,7 @@ RUN if [ -n "$APK_MIRROR_ARG" ]; then \
         apt-get update && \
         apt-get install -y --no-install-recommends ca-certificates && \
         rm -rf /var/lib/apt/lists/* && \
-        sed -i "s@deb.debian.org@${APK_MIRROR_ARG}@g" /etc/apt/sources.list.d/debian.sources; \
+        sed -i -e "s@deb.debian.org@$(printf '%s' "$APK_MIRROR_ARG" | sed 's@^https\?://@@')@g" -e "s@http://@https://@g" /etc/apt/sources.list.d/debian.sources; \
     fi && \
     apt-get update && \
     apt-get install -y --no-install-recommends git python3 ca-certificates curl build-essential cmake pkg-config && \
@@ -21,7 +21,9 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --pr
 COPY scripts/build_browserskill.sh scripts/browserskill-release.json ./scripts/
 ARG TARGETOS
 ARG TARGETARCH
-RUN bash scripts/build_browserskill.sh /opt/weknora/browserskill "${TARGETOS}/${TARGETARCH}"
+# 支持镜像加速：默认官方仓库，构建时可用 --build-arg 覆盖
+ARG BROWSERSKILL_REPO_URL=https://github.com/Tencent/BrowserSkill.git
+RUN BROWSERSKILL_REPO_URL="$BROWSERSKILL_REPO_URL" bash scripts/build_browserskill.sh /opt/weknora/browserskill "${TARGETOS}/${TARGETARCH}"
 
 # Build stage
 FROM golang:1.26-bookworm AS builder
@@ -41,7 +43,7 @@ ENV GOSUMDB=${GOSUMDB_ARG}
 
 # Install dependencies
 RUN if [ -n "$APK_MIRROR_ARG" ]; then \
-        sed -i "s@deb.debian.org@${APK_MIRROR_ARG}@g" /etc/apt/sources.list.d/debian.sources; \
+        sed -i -e "s@deb.debian.org@$(printf '%s' "$APK_MIRROR_ARG" | sed 's@^https\?://@@')@g" -e "s@http://@https://@g" /etc/apt/sources.list.d/debian.sources; \
     fi && \
     apt-get update && \
     apt-get install -y git build-essential libsqlite3-dev curl
@@ -89,13 +91,17 @@ ENV PATH=/usr/local/cargo/bin:$PATH
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     if [ "$WITH_ANYDOC" = "1" ]; then \
-        export RUSTUP_DIST_SERVER=https://mirrors.tuna.tsinghua.edu.cn/rustup && \
-        export RUSTUP_UPDATE_ROOT=https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup && \
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --default-toolchain stable && \
+        export RUSTUP_DIST_SERVER=https://rsproxy.cn && \
+        export RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup && \
+        curl --proto '=https' --tlsv1.2 -sSf --retry 3 -o /tmp/rustup-init.sh https://rsproxy.cn/rustup-init.sh && \
+        n=0; until sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain stable; do \
+            n=$((n+1)); [ "$n" -ge 5 ] && exit 1; echo "rustup retry #$n, waiting..."; sleep 8; \
+        done && \
         mkdir -p "$CARGO_HOME" && \
-        printf '[source.crates-io]\nreplace-with = "rsproxy-sparse"\n\n[source.rsproxy-sparse]\nregistry = "sparse+https://rsproxy.cn/index/"\n\n[net]\ngit-fetch-with-cli = true\n' > "$CARGO_HOME/config.toml" && \
-        ./scripts/build-anydoc-lib.sh; \
+        printf '[source.crates-io]\nreplace-with = "rsproxy-sparse"\n\n[source.rsproxy-sparse]\nregistry = "sparse+https://rsproxy.cn/index/"\n\n[net]\ngit-fetch-with-cli = true\nretry = 5\n' > "$CARGO_HOME/config.toml" && \
+        n=0; until ./scripts/build-anydoc-lib.sh; do \
+            n=$((n+1)); [ "$n" -ge 3 ] && exit 1; echo "anydoc lib build retry #$n, waiting..."; sleep 8; \
+        done; \
     fi
 
 # Build the application with version info
@@ -129,10 +135,10 @@ RUN apt-get update && \
 
 # Then switch to mirror if specified and install other packages
 RUN if [ -n "$APK_MIRROR_ARG" ]; then \
-        sed -i "s@deb.debian.org@${APK_MIRROR_ARG}@g" /etc/apt/sources.list.d/debian.sources; \
+        sed -i -e "s@deb.debian.org@$(printf '%s' "$APK_MIRROR_ARG" | sed 's@^https\?://@@')@g" -e "s@http://@https://@g" /etc/apt/sources.list.d/debian.sources; \
     fi && \
     apt-get update && \
-    apt-get install -y --no-install-recommends \
+    apt-get install -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -y --no-install-recommends \
         build-essential postgresql-client default-mysql-client tzdata sed curl bash vim wget \
         libsqlite3-0 \
         python3 python3-pip python3-dev libffi-dev libssl-dev \
