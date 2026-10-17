@@ -83,8 +83,13 @@ $env:MINERU_MODEL_LOCK_DIR = 'C:\mineru-venv\models\.locks'
 $env:MINERU_MODEL_SOURCE = 'modelscope'
 $env:HF_HOME = 'd:\知识库\Know\.cache\hf'
 $env:MODELSCOPE_CACHE = 'd:\知识库\Know\.cache\ms-real'
-$apiArgs = '--host 0.0.0.0 --port 8001 --tier standard --vlm-server-url http://127.0.0.1:18899'
-$ok2 = Start-StackService -Name 'mineru_api' -Exe 'C:\mineru-venv\Scripts\mineru-api.exe' -Arguments $apiArgs -Port 8001 -WaitSec 240
+# 上传目录必须是绝对可写路径：MinerU 的 FileStore 会在该目录下创建 blobs，
+# 若进程工作目录不可写（计划任务/登录触发时 cwd 常为 C:\Windows\System32）
+# 会直接 PermissionError 启动即崩，表现为 8001 起不来、WeKnora 判定 MinerU 不可用。
+$uploadDir = 'C:\mineru-venv\uploads'
+New-Item -ItemType Directory -Force -Path $uploadDir | Out-Null
+$apiArgs = '--host 0.0.0.0 --port 8001 --tier standard --vlm-server-url http://127.0.0.1:18899 --upload-dir "{0}"' -f $uploadDir
+$ok2 = Start-StackService -Name 'mineru_api' -Exe 'C:\mineru-venv\Scripts\mineru-api.exe' -Arguments $apiArgs -Port 8001 -WorkDir $PSScriptRoot -WaitSec 240
 
 # --- 3) V1→V2 适配器 @8002（WeKnora 面板填 http://host.docker.internal:8002）---
 $adapterPath = Join-Path $PSScriptRoot 'mineru_v1_adapter.py'
