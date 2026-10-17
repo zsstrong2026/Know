@@ -2,7 +2,7 @@
   <!-- 会议详情弹窗：会议设置总入口（标题/描述/参会智能体/讨论模式/路由/护栏/介入/共识） -->
   <t-dialog :visible="visible" :header="$t('meeting.detailTitle')" :width="640"
     :close-on-overlay-click="false" attach="body"
-    :confirm-btn="{ content: $t('meeting.save'), loading: saving, disabled: isArchived }"
+    :confirm-btn="{ content: $t('meeting.save'), loading: saving, disabled: isArchived || loadingDetail }"
     :cancel-btn="{ content: $t('meeting.cancel') }" @confirm="submit" @close="emit('update:visible', false)">
     <t-form :data="form" :label-width="130" class="detail-form">
       <t-form-item :label="$t('meeting.title')" required>
@@ -55,8 +55,8 @@ import { computed, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { MessagePlugin } from 'tdesign-vue-next';
 import {
-  replaceParticipants, updateMeeting,
-  type BroadcastMode, type RoutingMode, type MeetingRoom,
+  getMeeting, replaceParticipants, updateMeeting,
+  type BroadcastMode, type RoutingMode, type MeetingParticipant, type MeetingRoom,
 } from '@/api/meeting';
 import { listAgents, type CustomAgent } from '@/api/agent';
 
@@ -83,6 +83,8 @@ const form = reactive({
 });
 
 const isArchived = computed(() => props.room?.status === 'archived');
+// 详情加载中：参会者尚未回填，此时禁止提交，避免误判为「已清空参会人」
+const loadingDetail = ref(false);
 
 // t-radio-group 变更值类型较宽，用带类型 setter 的 computed 收敛回联合类型
 const broadcastMode = computed<BroadcastMode>({
@@ -99,20 +101,45 @@ let initialAgentIds: string[] = [];
 // 每次打开：用房间当前值回填表单，并懒加载智能体选项
 watch(() => props.visible, (v) => {
   if (!v || !props.room) return;
-  form.title = props.room.title;
-  form.description = props.room.description ?? '';
-  form.agentIds = (props.room.participants ?? [])
+  applyRoom(props.room);
+  participantsLockedHint.value = false;
+  void loadOptions();
+  void loadDetail();
+});
+
+// 用房间对象回填全部设置字段
+function applyRoom(room: MeetingRoom) {
+  form.title = room.title;
+  form.description = room.description ?? '';
+  form.broadcastMode = room.broadcast_mode ?? 'sequential';
+  form.routingMode = room.routing_mode ?? 'host-assign';
+  form.guardMaxExchange = room.guard_max_exchange ?? 3;
+  form.hostEveryNRounds = room.host_every_n_rounds ?? 0;
+  form.consensusDetectionEnabled = room.consensus_detection_enabled ?? false;
+  setAgentIds(room.participants);
+}
+
+// 参会者回填：列表卡片对象不带 participants，故打开时补拉一次详情
+async function loadDetail() {
+  if (!props.room || props.room.participants) return; // 已由详情接口带出则无需重复请求
+  loadingDetail.value = true;
+  try {
+    const detail = await getMeeting(props.room.id);
+    setAgentIds(detail.participants);
+  } catch {
+    MessagePlugin.error(t('meeting.loadFailed'));
+  } finally {
+    loadingDetail.value = false;
+  }
+}
+
+// 仅取 agent 型参会者（主持人不可移除）；记录初始值用于变更判定
+function setAgentIds(participants?: MeetingParticipant[]) {
+  form.agentIds = (participants ?? [])
     .filter((p) => p.kind === 'agent' && p.agent_id)
     .map((p) => p.agent_id);
   initialAgentIds = [...form.agentIds];
-  form.broadcastMode = props.room.broadcast_mode ?? 'sequential';
-  form.routingMode = props.room.routing_mode ?? 'host-assign';
-  form.guardMaxExchange = props.room.guard_max_exchange ?? 3;
-  form.hostEveryNRounds = props.room.host_every_n_rounds ?? 0;
-  form.consensusDetectionEnabled = props.room.consensus_detection_enabled ?? false;
-  participantsLockedHint.value = false;
-  void loadOptions();
-});
+}
 
 watch(() => form.agentIds, () => { participantsLockedHint.value = false; });
 

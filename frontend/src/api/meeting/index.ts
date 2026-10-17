@@ -13,7 +13,8 @@ export interface MeetingRoom {
   id: string;
   title: string;
   description: string;
-  status: 'active' | 'archived';
+  // awaiting_confirmation：创建后待确认开场流程（M1 起新建会议默认进入该态）
+  status: 'active' | 'awaiting_confirmation' | 'archived';
   broadcast_mode: BroadcastMode;
   routing_mode: RoutingMode;
   // 护栏阈值：单轮内最多允许的发言交换次数
