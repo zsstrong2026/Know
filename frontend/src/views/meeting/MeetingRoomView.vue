@@ -23,6 +23,9 @@
     <!-- 归档只读态提示条 -->
     <t-alert v-if="isArchived" :message="$t('meeting.archivedBanner')" theme="info" class="archived-banner" />
 
+    <!-- 待确认提示条：开场流程尚未确认 -->
+    <t-alert v-if="isAwaiting" :message="$t('meeting.awaitingBanner')" theme="warning" class="archived-banner" />
+
     <div ref="scrollRef" class="msg-scroll">
       <div class="msg-list">
         <div v-if="store.guardNotice" class="guard-notice">
@@ -80,6 +83,17 @@
                 <t-button size="small" theme="warning" :variant="m.review_state === 'pending' ? 'base' : 'outline'"
                   :disabled="isArchived" @click="review(m, 'pending')">{{ $t('meeting.pending') }}</t-button>
               </div>
+              <!-- 开场确认按钮组：仅待确认状态下、最近一条开场消息下方展示 -->
+              <div v-if="m.sender_kind === 'host' && isLatestOpening(m) && isAwaiting" class="opening-actions">
+                <t-button size="small" theme="primary" :loading="confirming" :disabled="adjustMode"
+                  @click="startMeeting">
+                  {{ $t('meeting.startMeeting') }}
+                </t-button>
+                <t-button size="small" theme="default" variant="outline" :class="{ 'is-active': adjustMode }"
+                  @click="adjustMode = !adjustMode">
+                  {{ $t('meeting.adjustFlow') }}
+                </t-button>
+              </div>
             </div>
           </div>
         </template>
@@ -103,10 +117,15 @@
             @{{ m.display_name }}
           </t-tag>
         </div>
+        <div v-if="adjustMode" class="adjust-chip">
+          <t-tag size="small" theme="warning" variant="light" closable @close="adjustMode = false">
+            {{ $t('meeting.adjustFlowMode') }}
+          </t-tag>
+        </div>
         <!-- t-textarea 的 keyup 会以组件参数回调（非原生事件），故在其外层原生 div 上监听并借冒泡触发 -->
         <div class="editor" @keyup.ctrl.enter="send">
           <t-textarea v-model="draft" :autosize="{ minRows: 2, maxRows: 6 }"
-            :disabled="store.discussing || isArchived" :placeholder="$t('meeting.inputPlaceholder')" />
+            :disabled="store.discussing || isArchived" :placeholder="inputPlaceholder" />
         </div>
         <div class="input-actions">
           <MentionPicker @pick="addMention" />
@@ -153,6 +172,14 @@ const roomId = computed(() => (route.params.roomId as string) || '');
 
 // 归档只读态：输入/发送/评审/生成方案全部禁用，SSE 仍保持接收（归档系统消息可推送到场）
 const isArchived = computed(() => store.currentRoom?.status === 'archived');
+
+// 待确认态：等待用户确认开场流程（确认后转 active）
+const isAwaiting = computed(() => store.currentRoom?.status === 'awaiting_confirmation');
+const confirming = ref(false); // 「开始会议」按钮 loading
+const adjustMode = ref(false); // 「调整流程」输入模式
+
+const inputPlaceholder = computed(() =>
+  adjustMode.value ? t('meeting.adjustFlowPlaceholder') : t('meeting.inputPlaceholder'));
 
 // Markdown 渲染器与结果缓存：同一消息内容未变时直接复用 HTML，避免重复 parse
 const markdownRenderer = createChatMarkdownRenderer();
@@ -202,6 +229,8 @@ async function openRoom(id: string) {
   mentions.value = [];
   draft.value = '';
   showArtifacts.value = false;
+  adjustMode.value = false;
+  confirming.value = false;
   store.leaveRoom();
   try {
     await store.enterRoom(id);
@@ -265,6 +294,31 @@ function removeMention(agentId: string) {
   mentions.value = mentions.value.filter(m => m.agent_id !== agentId);
 }
 
+// 开场消息判定与「最近一条」限定（调整流程会产生多条 opening，只渲染最后一组的按钮）
+function isOpening(m: MeetingMessage): boolean {
+  return (m.payload as { stage?: string } | null | undefined)?.stage === 'opening';
+}
+
+function isLatestOpening(m: MeetingMessage): boolean {
+  if (!isOpening(m)) return false;
+  const list = store.messages;
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (isOpening(list[i])) return list[i].id === m.id;
+  }
+  return false;
+}
+
+async function startMeeting() {
+  confirming.value = true;
+  try {
+    await store.confirm();
+  } catch (e) {
+    toastError(e);
+  } finally {
+    confirming.value = false;
+  }
+}
+
 async function send() {
   const content = draft.value.trim();
   if (!content) return;
@@ -272,7 +326,8 @@ async function send() {
   draft.value = '';
   mentions.value = [];                            // 发送后清空已选 @ 的智能体
   try {
-    await store.speak(content, ids);
+    await store.speak(content, ids, adjustMode.value);
+    adjustMode.value = false;
   } catch (e) {
     draft.value = content;                          // 失败时回填，避免丢内容
     toastError(e);
@@ -535,6 +590,16 @@ async function interrupt() {
 .review-bar {
   display: flex;
   gap: var(--app-space-1);
+}
+
+.opening-actions {
+  display: flex;
+  gap: var(--app-space-2);
+}
+
+.adjust-chip {
+  display: flex;
+  margin-bottom: var(--app-space-2);
 }
 
 /* ---------- 输入区 ---------- */

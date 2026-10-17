@@ -2,7 +2,7 @@ import { ref } from 'vue';
 import { defineStore } from 'pinia';
 import {
   listMeetings, getMeeting, listMessages, sendMessage,
-  updateReviewState, generateSolution, rollbackSolution,
+  updateReviewState, generateSolution, rollbackSolution, confirmMeetingFlow,
   type MeetingRoom, type MeetingMessage,
 } from '@/api/meeting';
 
@@ -42,11 +42,20 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     messages.value.push(msg);
   }
 
-  async function speak(content: string, mentionAgentIds: string[] = []) {
+  async function speak(content: string, mentionAgentIds: string[] = [], adjustFlow = false) {
     if (!currentRoom.value) return;
     // 后端不会通过 SSE 回推用户自身的消息，这里本地插入返回值，避免自己发言不显示
-    const msg = await sendMessage(currentRoom.value.id, content, mentionAgentIds);
+    const msg = await sendMessage(currentRoom.value.id, content, mentionAgentIds, adjustFlow);
     appendMessage(msg);
+  }
+
+  // 「开始会议」：确认流程后本地置 active（按钮组/提示条随之消失；讨论经 SSE 回流）
+  async function confirm() {
+    if (!currentRoom.value) return;
+    await confirmMeetingFlow(currentRoom.value.id);
+    if (currentRoom.value) {
+      currentRoom.value = { ...currentRoom.value, status: 'active' };
+    }
   }
 
   // 评审状态流转：HTTP 成功后本地直接更新（SSE review_updated 回流为幂等覆盖）
@@ -101,6 +110,8 @@ export const useMeetingStore = defineStore('meetingStore', () => {
       // 裁判判定收敛：讨论轮终止，展示共识提示（共识消息本体由 message.created 回流）
       discussing.value = false;
       consensusNotice.value = data;
+    } else if (event === 'discussion.flow_confirmation') {
+      // 开场确认事件：无独立状态，开场消息本体经 message.created 回流，按钮组由 payload.stage 渲染
     }
   }
 
@@ -122,5 +133,5 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   }
 
   return { rooms, currentRoom, messages, hasMore, discussing, guardNotice, consensusNotice, solutionGenerating,
-    fetchRooms, enterRoom, loadEarlier, speak, setReviewState, generate, rollback, applyStreamEvent, clearGuardNotice, clearConsensusNotice, leaveRoom };
+    fetchRooms, enterRoom, loadEarlier, speak, confirm, setReviewState, generate, rollback, applyStreamEvent, clearGuardNotice, clearConsensusNotice, leaveRoom };
 });

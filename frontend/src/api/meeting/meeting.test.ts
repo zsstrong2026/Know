@@ -52,6 +52,14 @@ test('buildMessagePayload 组装发言请求体（含 mentions）', () => {
   assert.deepEqual(p.mentioned_agent_ids, ['agent-9']);
 });
 
+test('buildMessagePayload 支持 adjust_flow', () => {
+  const plain = buildMessagePayload('大家好', ['agent-9']);
+  assert.equal(plain.adjust_flow, false); // 默认普通发言
+  const adjust = buildMessagePayload('先聊性能', [], true);
+  assert.equal(adjust.adjust_flow, true); // 调整流程模式
+  assert.deepEqual(adjust.mentioned_agent_ids, []);
+});
+
 test('streamUrl 指向会议室 SSE 端点', () => {
   assert.equal(streamUrl('room-1'), '/api/v1/meetings/room-1/stream');
 });

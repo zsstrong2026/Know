@@ -53,6 +53,8 @@ export interface MeetingMessage {
   solution_version: number;
   // 裁判判定的共识消息标记
   is_consensus: boolean;
+  // jsonb 载荷：开场消息为 { stage: 'opening' }（其余消息为 null/缺省）
+  payload?: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -121,9 +123,9 @@ export function isModelHomogeneous(modelKeys: Array<string | undefined | null>):
   return distinct.size === 1;
 }
 
-// 组装发言请求体：@ 提及的智能体可选
-export function buildMessagePayload(content: string, mentionAgentIds: string[] = []) {
-  return { content, mentioned_agent_ids: mentionAgentIds };
+// 组装发言请求体：@ 提及可选；adjust_flow 仅待确认状态下的「调整流程」模式为 true
+export function buildMessagePayload(content: string, mentionAgentIds: string[] = [], adjustFlow = false) {
+  return { content, mentioned_agent_ids: mentionAgentIds, adjust_flow: adjustFlow };
 }
 
 // 会议室 SSE 订阅地址（相对路径，实际请求时拼接 API base）
@@ -172,13 +174,19 @@ export async function listMessages(roomId: string, beforeId = '', limit = 100) {
     .then((r) => r.data);
 }
 
-export async function sendMessage(roomId: string, content: string, mentionAgentIds: string[] = []) {
+export async function sendMessage(roomId: string, content: string, mentionAgentIds: string[] = [], adjustFlow = false) {
   const { post } = await loadRequest();
   // 后端固定 202 Accepted，讨论结果经 SSE 推送
   return post<{ data: MeetingMessage }>(
     `/api/v1/meetings/${roomId}/messages`,
-    buildMessagePayload(content, mentionAgentIds),
+    buildMessagePayload(content, mentionAgentIds, adjustFlow),
   ).then((r) => r.data);
+}
+
+// 确认开场流程（幂等置 active + 后端自动开跑首轮）
+export async function confirmMeetingFlow(roomId: string): Promise<void> {
+  const { post } = await loadRequest();
+  await post(`/api/v1/meetings/${roomId}/confirm`, {});
 }
 
 // 打断进行中的讨论轮
