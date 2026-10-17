@@ -19,19 +19,28 @@ type speakerCandidate struct {
 	Description string // 取自 agent 描述，供主持人判断相关性
 }
 
-// resolveHostChat 获取租户默认对话模型作为主持人大脑。
-// 模式仿 agent_eval.go resolveJudgeModel：ListModels → KnowledgeQA 默认模型 → GetChatModel。
-func (e *meetingEngine) resolveHostChat(ctx context.Context) (chat.Chat, error) {
+// resolveHostModelID 取租户默认 KnowledgeQA 模型 ID（开场与产物执行智能体复用同一模型解析）
+func (e *meetingEngine) resolveHostModelID(ctx context.Context) (string, error) {
 	models, err := e.modelService.ListModels(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list models: %w", err)
+		return "", fmt.Errorf("list models: %w", err)
 	}
 	for _, m := range models {
 		if m.Type == types.ModelTypeKnowledgeQA && m.IsDefault {
-			return e.modelService.GetChatModel(ctx, m.ID)
+			return m.ID, nil
 		}
 	}
-	return nil, fmt.Errorf("no default KnowledgeQA model for meeting host")
+	return "", fmt.Errorf("no default KnowledgeQA model for meeting host")
+}
+
+// resolveHostChat 获取租户默认对话模型作为主持人大脑。
+// 模式仿 agent_eval.go resolveJudgeModel：ListModels → KnowledgeQA 默认模型 → GetChatModel。
+func (e *meetingEngine) resolveHostChat(ctx context.Context) (chat.Chat, error) {
+	modelID, err := e.resolveHostModelID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return e.modelService.GetChatModel(ctx, modelID)
 }
 
 // selectSpeakersByLLM 让主持人从候选中挑选本轮发言者；失败/解析失败返回 nil 由调用方回退全员。
