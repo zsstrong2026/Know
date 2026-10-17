@@ -165,6 +165,39 @@ func (h *MeetingHandler) UpdateMeeting(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": room})
 }
 
+type replaceParticipantsRequest struct {
+	AgentIDs []string `json:"agent_ids"`
+}
+
+// ReplaceParticipants PUT /api/v1/meetings/:id/participants —— 全量替换参会智能体
+func (h *MeetingHandler) ReplaceParticipants(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	var req replaceParticipantsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	participants, err := h.meetingService.ReplaceParticipants(ctx, tenantID, c.Param("id"), req.AgentIDs)
+	if err != nil {
+		if err == service.ErrRoomArchived {
+			c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
+			return
+		}
+		if err == service.ErrTurnRunning {
+			c.Error(errors.NewConflictError("讨论进行中，暂不能修改参会智能体"))
+			return
+		}
+		if err == service.ErrNoAgents {
+			c.Error(errors.NewBadRequestError("至少保留一个参会智能体"))
+			return
+		}
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": participants})
+}
+
 // ArchiveMeeting POST /api/v1/meetings/:id/archive —— 幂等归档
 func (h *MeetingHandler) ArchiveMeeting(c *gin.Context) {
 	ctx := c.Request.Context()
