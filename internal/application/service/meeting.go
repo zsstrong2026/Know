@@ -97,6 +97,18 @@ func (s *meetingService) CreateMeeting(ctx context.Context, room *types.MeetingR
 	if err := s.participantRepo.CreateBatch(ctx, participants); err != nil {
 		return nil, err
 	}
+	// 创建成功即异步触发主持人开场（M3）：不阻塞创建返回；失败由引擎落 system 兜底，房间保持待确认
+	go func() {
+		bgCtx := logger.CloneContext(ctx)
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Errorf(bgCtx, "meeting GenerateOpening panic, room=%s recover=%v", room.ID, r)
+			}
+		}()
+		if err := s.engine.GenerateOpening(bgCtx, room, ""); err != nil {
+			logger.Errorf(bgCtx, "meeting GenerateOpening failed, room=%s err=%v", room.ID, err)
+		}
+	}()
 	return room, nil
 }
 

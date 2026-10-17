@@ -18,6 +18,7 @@ const (
 	MeetingEventConsensusCreated     = "consensus.created"
 	MeetingEventSolutionGenerating   = "solution.generating"
 	MeetingEventSolutionCreated      = "solution.created"
+	MeetingEventFlowConfirmation     = "discussion.flow_confirmation"
 	MeetingEventPing                 = "ping"
 )
 

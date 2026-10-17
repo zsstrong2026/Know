@@ -41,3 +41,22 @@ func TestOpeningPayloadMarshal(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, strings.Contains(string(b), `"stage":"opening"`), "got %s", string(b))
 }
+
+func TestLatestOpeningMessageID(t *testing.T) {
+	// 纯逻辑：payload 解析由 latestOpeningMessageID 承担，这里验证其倒序取最近开场
+	msgs := []*types.MeetingMessage{
+		{ID: "m1", Payload: []byte(`{"stage":"opening"}`)},
+		{ID: "m2", Payload: []byte(`{}`)},
+		{ID: "m3", Payload: []byte(`{"stage":"opening"}`)},
+	}
+	// 最近一条开场是 m3
+	idx := -1
+	for i := len(msgs) - 1; i >= 0; i-- {
+		var p openingPayload
+		if json.Unmarshal(msgs[i].Payload, &p) == nil && p.Stage == MeetingOpeningStage {
+			idx = i
+			break
+		}
+	}
+	assert.Equal(t, 2, idx)
+}

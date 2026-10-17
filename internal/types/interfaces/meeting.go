@@ -84,4 +84,7 @@ type MeetingEngine interface {
 	GenerateSolution(ctx context.Context, room *types.MeetingRoom, userID string) (*types.MeetingMessage, error)
 	// IsTurnRunning 查询讨论轮锁是否被持有（参会人变更 409 预检用）
 	IsTurnRunning(ctx context.Context, roomID string) (bool, error)
+	// GenerateOpening 主持人生成开场消息（主题分析 + 建议流程）并落库广播；
+	// feedbackMessageID 非空 = 按用户「调整流程」意见重出开场
+	GenerateOpening(ctx context.Context, room *types.MeetingRoom, feedbackMessageID string) error
 }
