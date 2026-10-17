@@ -46,6 +46,9 @@
           </div>
           <!-- 管理操作：hover 或选中时浮现，@click.stop 阻断卡片跳转 -->
           <div class="rc-actions" @click.stop>
+            <t-button size="small" variant="text" @click="openDetail(room)">
+              {{ $t('meeting.detail') }}
+            </t-button>
             <t-button v-if="room.status === 'active'" size="small" variant="text" theme="primary"
               @click="archive(room)">
               {{ $t('meeting.archive') }}
@@ -66,6 +69,7 @@
     </section>
 
     <MeetingCreateDialog v-model:visible="showCreate" @created="onCreated" />
+    <MeetingDetailDialog v-model:visible="showDetail" :room="detailRoom" @saved="refresh" />
   </div>
 </template>
 
@@ -77,6 +81,7 @@ import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { useMeetingStore } from '@/stores/meeting';
 import { archiveMeeting, deleteMeeting, type MeetingRoom } from '@/api/meeting';
 import MeetingCreateDialog from './components/MeetingCreateDialog.vue';
+import MeetingDetailDialog from './components/MeetingDetailDialog.vue';
 
 const store = useMeetingStore();
 const router = useRouter();
@@ -86,6 +91,8 @@ const { t } = useI18n();
 const keyword = ref('');
 const filter = ref(''); // ''=全部 / active / archived
 const showCreate = ref(false);
+const showDetail = ref(false);
+const detailRoom = ref<MeetingRoom | null>(null);
 
 // 筛选档位文案随语言切换刷新，故放 computed
 const filterOptions = computed(() => [
@@ -125,6 +132,12 @@ function setFilter(value: string) {
 function openRoom(roomId: string) {
   if (roomId === activeRoomId.value) return;
   router.push({ name: 'meetingRoom', params: { roomId } });
+}
+
+// 打开详情弹窗（@click.stop 已由 rc-actions 容器承担阻断跳转）
+function openDetail(room: MeetingRoom) {
+  detailRoom.value = room;
+  showDetail.value = true;
 }
 
 function modeLabel(mode: MeetingRoom['broadcast_mode']) {

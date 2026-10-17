@@ -16,6 +16,8 @@ export interface MeetingRoom {
   status: 'active' | 'archived';
   broadcast_mode: BroadcastMode;
   routing_mode: RoutingMode;
+  // 护栏阈值：单轮内最多允许的发言交换次数
+  guard_max_exchange: number;
   // 主持人介入间隔（子轮数）：0 表示不介入
   host_every_n_rounds: number;
   // 裁判 + 共识检测：开启后每轮结束由独立裁判判定是否收敛
@@ -215,6 +217,15 @@ export async function rollbackSolution(roomId: string, version: number): Promise
 export async function updateMeeting(roomId: string, data: UpdateMeetingRequest) {
   const { patch } = await loadRequest();
   return patch<{ data: MeetingRoom }>(`/api/v1/meetings/${roomId}`, data).then((r) => r.data);
+}
+
+// 全量替换参会智能体（至少一个；讨论进行中后端 409）
+export async function replaceParticipants(roomId: string, agentIds: string[]) {
+  const { put } = await loadRequest();
+  return put<{ data: MeetingParticipant[] }>(
+    `/api/v1/meetings/${roomId}/participants`,
+    { agent_ids: agentIds },
+  ).then((r) => r.data);
 }
 
 // 归档会议（幂等）：归档后进入只读态，写操作被后端 403 拒绝
