@@ -32,16 +32,11 @@
             <span>{{ room.title }}</span>
           </div>
           <div v-if="room.description" class="rc-desc">{{ room.description }}</div>
+          <!-- G1：卡片页脚只保留状态标签 + 时间，移除发言模式/路由/主持人介入三个 chip -->
           <div class="rc-foot">
             <t-tag :theme="statusTheme(room.status)" size="small" variant="light">
               {{ statusLabel(room.status) }}
             </t-tag>
-            <span class="rc-mode">{{ modeLabel(room.broadcast_mode) }}</span>
-            <span class="rc-mode">{{ routingLabel(room.routing_mode) }}</span>
-            <!-- 主持人每 N 轮介入（0 表示关闭，不展示标签） -->
-            <span v-if="room.host_every_n_rounds > 0" class="rc-mode">
-              {{ $t('meeting.hostInterveneEvery', { n: room.host_every_n_rounds }) }}
-            </span>
             <span class="rc-time">{{ formatTime(room.created_at) }}</span>
           </div>
           <!-- 管理操作：hover 或选中时浮现，@click.stop 阻断卡片跳转 -->
@@ -156,19 +151,6 @@ function statusTheme(status: MeetingRoom['status']): 'success' | 'warning' | 'de
     case 'active': return 'success';
     case 'awaiting_confirmation': return 'warning';
     default: return 'default';
-  }
-}
-
-function modeLabel(mode: MeetingRoom['broadcast_mode']) {
-  return mode === 'parallel' ? t('meeting.modeParallel') : t('meeting.modeSequential');
-}
-
-// 发言权路由模式标签（旧数据/空值按主持人指派展示）
-function routingLabel(mode: MeetingRoom['routing_mode']) {
-  switch (mode) {
-    case 'mention': return t('meeting.routingMention');
-    case 'free': return t('meeting.routingFree');
-    default: return t('meeting.routingHostAssign');
   }
 }
 
@@ -395,11 +377,6 @@ function remove(room: MeetingRoom) {
   display: flex;
   align-items: center;
   gap: var(--app-space-2);
-}
-
-.rc-mode {
-  font-size: var(--app-text-sm);
-  color: var(--td-text-color-placeholder);
 }
 
 .rc-time {
