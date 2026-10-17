@@ -73,7 +73,7 @@ type MeetingRoom struct {
 	CreatedBy                string         `gorm:"type:varchar(36);index" json:"created_by"`
 	Title                    string         `gorm:"type:varchar(255)" json:"title"`
 	Description              string         `gorm:"type:text" json:"description"`
-	Status                   string         `gorm:"type:varchar(16);default:active" json:"status"`
+	Status                   string         `gorm:"type:varchar(32);default:active" json:"status"`
 	BroadcastMode            string         `gorm:"type:varchar(16);default:sequential" json:"broadcast_mode"`
 	RoutingMode              string         `gorm:"type:varchar(32);default:host-assign" json:"routing_mode"`
 	GuardMaxExchange         int            `gorm:"default:3" json:"guard_max_exchange"`
