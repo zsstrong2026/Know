@@ -174,10 +174,12 @@ func (s *DocAssistantService) generateOneChapter(
 	query := buildChapterQuery(theme, extra, chapter)
 	logger.Infof(ctx, "[DocAssistant] retrieving chapter=%q query=%q", chapter.Title, truncateRunes(query, 120))
 
-	results, err := s.sessionSvc.SearchKnowledge(ctx, kbIDs, nil, nil, query)
+	// v0.8.3 上游将 SearchKnowledge 新增 opts 参数，返回值改为 *RetrievalResult
+	retrieval, err := s.sessionSvc.SearchKnowledge(ctx, kbIDs, nil, nil, query, nil)
 	if err != nil {
 		return types.DocChapter{}, fmt.Errorf("retrieve failed: %w", err)
 	}
+	results := retrieval.Results
 
 	material := buildMaterialContext(results)
 	insufficient := len(results) == 0 || runeLen(material) < minMaterialRunes
