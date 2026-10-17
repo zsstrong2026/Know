@@ -430,6 +430,8 @@ export default {
     filterAll: 'すべて',
     filterActive: '進行中',
     filterArchived: 'アーカイブ済み',
+    filterAwaiting: '確認待ち',
+    retry: '再試行',
     archive: 'アーカイブ',
     archiveConfirm: 'アーカイブすると会議は閲覧のみになります。アーカイブしますか？',
     archiveDone: 'アーカイブしました',

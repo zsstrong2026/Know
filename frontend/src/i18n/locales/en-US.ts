@@ -430,6 +430,8 @@ export default {
     filterAll: 'All',
     filterActive: 'Active',
     filterArchived: 'Archived',
+    filterAwaiting: 'Pending confirmation',
+    retry: 'Retry',
     archive: 'Archive',
     archiveConfirm: 'The meeting becomes read-only after archiving. Archive it?',
     archiveDone: 'Archived',

@@ -2,7 +2,7 @@
   <!-- 会议详情弹窗：会议设置总入口（标题/描述/参会智能体/讨论模式/路由/护栏/介入/共识） -->
   <t-dialog :visible="visible" :header="$t('meeting.detailTitle')" :width="640"
     :close-on-overlay-click="false" attach="body"
-    :confirm-btn="{ content: $t('meeting.save'), loading: saving, disabled: isArchived || loadingDetail }"
+    :confirm-btn="{ content: $t('meeting.save'), loading: saving, disabled: !canSubmit }"
     :cancel-btn="{ content: $t('meeting.cancel') }" @confirm="submit" @close="emit('update:visible', false)">
     <t-form :data="form" :label-width="130" class="detail-form">
       <t-form-item :label="$t('meeting.title')" required>
@@ -13,11 +13,17 @@
           :disabled="isArchived" :placeholder="$t('meeting.topicPlaceholder')" />
       </t-form-item>
       <t-form-item :label="$t('meeting.selectAgents')" required>
-        <t-select v-model="form.agentIds" multiple filterable :disabled="isArchived"
+        <t-select v-model="form.agentIds" multiple filterable
+          :disabled="isArchived || detailState !== 'ready'"
           :placeholder="$t('meeting.selectAgents')">
           <t-option v-for="a in agents" :key="a.id" :value="a.id" :label="a.name" />
         </t-select>
         <div v-if="participantsLockedHint" class="field-hint">{{ $t('meeting.participantsLocked') }}</div>
+        <!-- 详情补拉失败：参会人未知，禁止提交并提供重试，避免以空列表覆盖原有参会人 -->
+        <div v-else-if="detailState === 'failed'" class="field-hint">
+          {{ $t('meeting.loadFailed') }}
+          <a class="field-hint-link" @click="loadDetail">{{ $t('meeting.retry') }}</a>
+        </div>
       </t-form-item>
       <t-form-item :label="$t('meeting.broadcastMode')">
         <t-radio-group v-model="broadcastMode" :disabled="isArchived">
@@ -83,8 +89,10 @@ const form = reactive({
 });
 
 const isArchived = computed(() => props.room?.status === 'archived');
-// 详情加载中：参会者尚未回填，此时禁止提交，避免误判为「已清空参会人」
-const loadingDetail = ref(false);
+// 参会者回填状态：卡片列表对象不带 participants，须补拉详情成功后才能提交，
+// 否则保存会走「全量替换」把原有参会人清空。idle 仅出现于纯新建态。
+const detailState = ref<'idle' | 'loading' | 'ready' | 'failed'>('idle');
+const canSubmit = computed(() => !isArchived.value && detailState.value === 'ready');
 
 // t-radio-group 变更值类型较宽，用带类型 setter 的 computed 收敛回联合类型
 const broadcastMode = computed<BroadcastMode>({
@@ -117,19 +125,25 @@ function applyRoom(room: MeetingRoom) {
   form.hostEveryNRounds = room.host_every_n_rounds ?? 0;
   form.consensusDetectionEnabled = room.consensus_detection_enabled ?? false;
   setAgentIds(room.participants);
+  // 详情接口已带出参会者时直接可用，否则等 loadDetail 补拉
+  detailState.value = room.participants ? 'ready' : 'idle';
 }
 
 // 参会者回填：列表卡片对象不带 participants，故打开时补拉一次详情
 async function loadDetail() {
-  if (!props.room || props.room.participants) return; // 已由详情接口带出则无需重复请求
-  loadingDetail.value = true;
+  const room = props.room;
+  if (!room || room.participants) return; // 已由详情接口带出则无需重复请求
+  const roomId = room.id; // 捕获本次请求对应的房间，用于丢弃切换房间后的陈旧响应
+  detailState.value = 'loading';
   try {
-    const detail = await getMeeting(props.room.id);
+    const detail = await getMeeting(roomId);
+    if (props.room?.id !== roomId || !props.visible) return;
     setAgentIds(detail.participants);
+    detailState.value = 'ready';
   } catch {
+    if (props.room?.id !== roomId || !props.visible) return;
+    detailState.value = 'failed';
     MessagePlugin.error(t('meeting.loadFailed'));
-  } finally {
-    loadingDetail.value = false;
   }
 }
 
@@ -156,6 +170,7 @@ async function loadOptions() {
 
 async function submit() {
   if (!props.room) return;
+  if (!canSubmit.value) return; // 参会人未就绪（加载中/加载失败）时不允许提交
   if (!form.title.trim()) {
     MessagePlugin.warning(t('meeting.title'));
     return;
@@ -173,10 +188,10 @@ async function submit() {
       try {
         await replaceParticipants(props.room.id, form.agentIds);
       } catch (e) {
-        const msg = (e as Error)?.message || '';
-        if (msg.includes('409') || msg.includes('讨论') || msg.includes('Conflict')) {
+        // 讨论进行中：后端返回 409，仅提示并保留用户输入，不关闭弹窗
+        if ((e as { status?: number })?.status === 409) {
           participantsLockedHint.value = true;
-          return; // 保留弹窗与用户输入
+          return;
         }
         throw e;
       }
@@ -211,5 +226,11 @@ async function submit() {
   font-size: 12px;
   line-height: 18px;
   color: var(--td-warning-color);
+}
+
+.field-hint-link {
+  margin-left: 6px;
+  color: var(--td-brand-color);
+  cursor: pointer;
 }
 </style>

@@ -33,8 +33,8 @@
           </div>
           <div v-if="room.description" class="rc-desc">{{ room.description }}</div>
           <div class="rc-foot">
-            <t-tag :theme="room.status === 'active' ? 'success' : 'default'" size="small" variant="light">
-              {{ room.status === 'active' ? $t('meeting.filterActive') : $t('meeting.filterArchived') }}
+            <t-tag :theme="statusTheme(room.status)" size="small" variant="light">
+              {{ statusLabel(room.status) }}
             </t-tag>
             <span class="rc-mode">{{ modeLabel(room.broadcast_mode) }}</span>
             <span class="rc-mode">{{ routingLabel(room.routing_mode) }}</span>
@@ -49,7 +49,7 @@
             <t-button size="small" variant="text" @click="openDetail(room)">
               {{ $t('meeting.detail') }}
             </t-button>
-            <t-button v-if="room.status === 'active'" size="small" variant="text" theme="primary"
+            <t-button v-if="room.status !== 'archived'" size="small" variant="text" theme="primary"
               @click="archive(room)">
               {{ $t('meeting.archive') }}
             </t-button>
@@ -98,6 +98,8 @@ const detailRoom = ref<MeetingRoom | null>(null);
 const filterOptions = computed(() => [
   { value: '', label: t('meeting.filterAll') },
   { value: 'active', label: t('meeting.filterActive') },
+  // M1 起新建会议默认进入待确认态，单列一档否则会被「进行中」筛掉
+  { value: 'awaiting_confirmation', label: t('meeting.filterAwaiting') },
   { value: 'archived', label: t('meeting.filterArchived') },
 ]);
 
@@ -138,6 +140,23 @@ function openRoom(roomId: string) {
 function openDetail(room: MeetingRoom) {
   detailRoom.value = room;
   showDetail.value = true;
+}
+
+// 会议状态标签：三态（进行中 / 待确认 / 已归档）
+function statusLabel(status: MeetingRoom['status']) {
+  switch (status) {
+    case 'active': return t('meeting.filterActive');
+    case 'awaiting_confirmation': return t('meeting.filterAwaiting');
+    default: return t('meeting.filterArchived');
+  }
+}
+
+function statusTheme(status: MeetingRoom['status']): 'success' | 'warning' | 'default' {
+  switch (status) {
+    case 'active': return 'success';
+    case 'awaiting_confirmation': return 'warning';
+    default: return 'default';
+  }
 }
 
 function modeLabel(mode: MeetingRoom['broadcast_mode']) {

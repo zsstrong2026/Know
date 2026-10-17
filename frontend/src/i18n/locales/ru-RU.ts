@@ -8099,6 +8099,8 @@ export default {
     filterAll: 'Все',
     filterActive: 'Активные',
     filterArchived: 'В архиве',
+    filterAwaiting: 'Ожидает подтверждения',
+    retry: 'Повторить',
     archive: 'В архив',
     archiveConfirm: 'После архивации встреча станет доступна только для чтения. Архивировать?',
     archiveDone: 'В архиве',

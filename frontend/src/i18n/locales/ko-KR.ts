@@ -8099,6 +8099,8 @@ export default {
     filterAll: '전체',
     filterActive: '진행 중',
     filterArchived: '보관됨',
+    filterAwaiting: '확인 대기',
+    retry: '다시 시도',
     archive: '보관',
     archiveConfirm: '보관하면 회의는 읽기 전용이 됩니다. 보관하시겠습니까?',
     archiveDone: '보관했습니다',

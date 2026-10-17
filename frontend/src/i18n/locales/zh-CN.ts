@@ -8101,6 +8101,8 @@ export default {
     filterAll: '全部',
     filterActive: '进行中',
     filterArchived: '已归档',
+    filterAwaiting: '待确认',
+    retry: '重试',
     archive: '归档',
     archiveConfirm: '归档后会议进入只读，确认归档？',
     archiveDone: '已归档',
