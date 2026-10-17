@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -146,6 +147,20 @@ func waitFor(t *testing.T, cond func() bool, msg string) {
 	t.Fatal(msg)
 }
 
+// idAssignMessageRepo 在落库时模拟 GORM BeforeCreate 回填消息 ID，
+// 便于断言「以本条用户消息为反馈重出开场」的链路（共享 fake 不回填 ID）
+type idAssignMessageRepo struct {
+	*fakeMeetingMessageRepo
+	seq atomic.Int64
+}
+
+func (r *idAssignMessageRepo) Create(ctx context.Context, msg *types.MeetingMessage) error {
+	if msg.ID == "" {
+		msg.ID = "msg-" + strconv.FormatInt(r.seq.Add(1), 10)
+	}
+	return r.fakeMeetingMessageRepo.Create(ctx, msg)
+}
+
 // TestSendUserMessageImplicitConfirmAndAdjustFlow 覆盖 SendUserMessage 的三种状态语义：
 // 待确认直接发言=隐式确认并开跑、待确认+adjust_flow=重出开场不激活、active 忽略 adjust_flow、archived 拒绝。
 func TestSendUserMessageImplicitConfirmAndAdjustFlow(t *testing.T) {
@@ -158,7 +173,7 @@ func TestSendUserMessageImplicitConfirmAndAdjustFlow(t *testing.T) {
 		engine := &stubMultiEngine{calls: c}
 		svc := &meetingService{
 			roomRepo:    rooms,
-			messageRepo: &fakeMeetingMessageRepo{},
+			messageRepo: &idAssignMessageRepo{fakeMeetingMessageRepo: &fakeMeetingMessageRepo{}},
 			engine:      engine,
 		}
 		return svc, rooms, c
@@ -175,10 +190,12 @@ func TestSendUserMessageImplicitConfirmAndAdjustFlow(t *testing.T) {
 
 	t.Run("待确认 + adjust_flow = 保持待确认并重出流程", func(t *testing.T) {
 		svc, rooms, c := mk(types.MeetingStatusAwaitingConfirmation)
-		_, err := svc.SendUserMessage(ctx, 1, "r1", "u1", "先聊性能", nil, true)
+		sent, err := svc.SendUserMessage(ctx, 1, "r1", "u1", "先聊性能", nil, true)
 		require.NoError(t, err)
+		require.NotEmpty(t, sent.ID, "落库应回填消息 ID")
 		assert.Equal(t, types.MeetingStatusAwaitingConfirmation, rooms.rooms["r1"].Status, "调整流程不激活")
 		waitFor(t, func() bool { return c.openingsCount() == 1 }, "应以该消息为反馈重出开场")
+		assert.Equal(t, sent.ID, c.feedback(), "GenerateOpening 应以上述用户消息为反馈重出开场")
 		assert.Equal(t, 0, c.turnsCount(), "调整流程不触发讨论轮")
 	})
 
@@ -195,6 +212,7 @@ func TestSendUserMessageImplicitConfirmAndAdjustFlow(t *testing.T) {
 		_, err := svc.SendUserMessage(ctx, 1, "r1", "u1", "hi", nil, false)
 		assert.Equal(t, ErrRoomArchived, err)
 		assert.Equal(t, 0, c.turnsCount())
+		assert.Equal(t, 0, c.openingsCount())
 	})
 }
 
@@ -211,6 +229,13 @@ func (c *turnCalls) turnsCount() int { return int(c.turns.Load()) }
 
 // openingsCount 线程安全读取开场重出次数
 func (c *turnCalls) openingsCount() int { return int(c.openings.Load()) }
+
+// feedback 线程安全读取最后一次开场重出所使用的反馈消息 ID
+func (c *turnCalls) feedback() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastFeedback
+}
 
 // stubMultiEngine 嵌入接口，仅覆写 RunTurn / GenerateOpening（分别记录讨论轮与开场调用）
 type stubMultiEngine struct {
