@@ -873,7 +873,7 @@ func TestMovePagesMovesAllIntoFolder(t *testing.T) {
 
 	ctx := context.Background()
 	repo := repository.NewWikiPageRepository(db)
-	svc := NewWikiPageService(repo, nil, nil, nil, nil)
+	svc := NewWikiPageService(repo, nil, nil, nil, nil, nil)
 	now := time.Now()
 
 	folder, err := svc.CreateFolder(ctx, "kb-batch", 1, types.WikiFolderRootID, "概念")
@@ -910,7 +910,7 @@ func TestMovePagesRejectsWholeBatchOnUnknownSlug(t *testing.T) {
 
 	ctx := context.Background()
 	repo := repository.NewWikiPageRepository(db)
-	svc := NewWikiPageService(repo, nil, nil, nil, nil)
+	svc := NewWikiPageService(repo, nil, nil, nil, nil, nil)
 	now := time.Now()
 
 	folder, err := svc.CreateFolder(ctx, "kb-batch", 1, types.WikiFolderRootID, "概念")
@@ -937,7 +937,7 @@ func TestMovePagesRejectsUnknownFolder(t *testing.T) {
 
 	ctx := context.Background()
 	repo := repository.NewWikiPageRepository(db)
-	svc := NewWikiPageService(repo, nil, nil, nil, nil)
+	svc := NewWikiPageService(repo, nil, nil, nil, nil, nil)
 	now := time.Now()
 
 	require.NoError(t, repo.Create(ctx, &types.WikiPage{
@@ -961,7 +961,7 @@ func TestMovePagesToRootClearsFolder(t *testing.T) {
 
 	ctx := context.Background()
 	repo := repository.NewWikiPageRepository(db)
-	svc := NewWikiPageService(repo, nil, nil, nil, nil)
+	svc := NewWikiPageService(repo, nil, nil, nil, nil, nil)
 	now := time.Now()
 
 	folder, err := svc.CreateFolder(ctx, "kb-batch", 1, types.WikiFolderRootID, "概念")
