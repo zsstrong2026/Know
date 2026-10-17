@@ -100,6 +100,73 @@ func (s *meetingService) CreateMeeting(ctx context.Context, room *types.MeetingR
 	return room, nil
 }
 
+var (
+	// ErrTurnRunning 讨论轮进行中（handler 判等映射 409）
+	ErrTurnRunning = errors.New("meeting: discussion turn is running")
+	// ErrNoAgents 全量替换至少保留一个智能体（handler 判等映射 400）
+	ErrNoAgents = errors.New("meeting: at least one agent is required")
+)
+
+// ReplaceParticipants 全量替换参会智能体（host 记录由仓储层强制保留，请求无法移除主持人）。
+// 顺序：归档拒绝 → ≥1 agent → 讨论锁 409 → 全量预校验 → 先删后插。
+func (s *meetingService) ReplaceParticipants(ctx context.Context, tenantID uint64, roomID string, agentIDs []string) ([]*types.MeetingParticipant, error) {
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID)
+	if err != nil {
+		return nil, err // 租户校验（仓储按 tenant+created_by 过滤）
+	}
+	if err := ensureRoomActive(room); err != nil {
+		return nil, err // archived 只读；awaiting_confirmation 允许
+	}
+	ids := dedupeAgentIDs(agentIDs)
+	if len(ids) == 0 {
+		return nil, ErrNoAgents
+	}
+	running, err := s.engine.IsTurnRunning(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	if running {
+		return nil, ErrTurnRunning
+	}
+	// 先全量预校验并构建参与者，避免"删了一半发现 agent 不存在"的部分替换
+	agents := make([]*types.CustomAgent, 0, len(ids))
+	for _, id := range ids {
+		agent, err := s.agentRepo.GetAgentByID(ctx, id, room.TenantID)
+		if err != nil {
+			return nil, errors.New("agent not found: " + id)
+		}
+		agents = append(agents, agent)
+	}
+	if err := s.participantRepo.DeleteAgentsByRoom(ctx, roomID); err != nil {
+		return nil, err
+	}
+	ps := make([]*types.MeetingParticipant, 0, len(agents))
+	for i, agent := range agents {
+		ps = append(ps, &types.MeetingParticipant{
+			MeetingRoomID: roomID, Kind: types.ParticipantKindAgent,
+			AgentID: agent.ID, DisplayName: agent.Name, Avatar: agent.Avatar, OrderIndex: i + 1,
+		})
+	}
+	if err := s.participantRepo.CreateBatch(ctx, ps); err != nil {
+		return nil, err
+	}
+	return s.participantRepo.ListByRoom(ctx, roomID)
+}
+
+// dedupeAgentIDs 去重保序（全量替换语义下重复 ID 无意义）
+func dedupeAgentIDs(ids []string) []string {
+	seen := make(map[string]bool, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
 func (s *meetingService) GetMeeting(ctx context.Context, tenantID uint64, id string) (*types.MeetingRoom, []*types.MeetingParticipant, error) {
 	room, err := s.roomRepo.GetByID(ctx, id, tenantID)
 	if err != nil {

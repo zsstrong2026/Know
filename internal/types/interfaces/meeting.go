@@ -67,6 +67,9 @@ type MeetingService interface {
 	ListArtifacts(ctx context.Context, tenantID uint64, roomID string) ([]*types.MeetingArtifactDetail, error)
 	// RollbackSolution 把房间当前方案指针切回指定历史版本
 	RollbackSolution(ctx context.Context, tenantID uint64, roomID string, version int) error
+	// ReplaceParticipants 全量替换参会智能体：主持人不可移除、至少 1 个 agent、
+	// 讨论进行中 409（ErrTurnRunning）、归档只读；awaiting_confirmation 允许
+	ReplaceParticipants(ctx context.Context, tenantID uint64, roomID string, agentIDs []string) ([]*types.MeetingParticipant, error)
 	// ArchiveRoom 归档会议（幂等）：置 archived + 落系统消息 + 广播
 	ArchiveRoom(ctx context.Context, tenantID uint64, roomID string) error
 	// ExportArtifact 导出方案为 .md，返回文件名与正文（只读操作，归档房间允许导出；T6.3 实现）
