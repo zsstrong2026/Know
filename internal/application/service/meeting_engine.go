@@ -464,6 +464,18 @@ func (e *meetingEngine) Interrupt(ctx context.Context, roomID string) error {
 	return e.redis.Set(ctx, interruptKey(roomID), "1", 10*time.Minute).Err()
 }
 
+// IsTurnRunning 查询讨论轮锁是否被持有（无 Redis 的单测/降级环境按"无进行中讨论"处理）
+func (e *meetingEngine) IsTurnRunning(ctx context.Context, roomID string) (bool, error) {
+	if e.redis == nil {
+		return false, nil
+	}
+	n, err := e.redis.Exists(ctx, turnLockKey(roomID)).Result()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 func (e *meetingEngine) isInterrupted(ctx context.Context, roomID string) bool {
 	n, err := e.redis.Exists(ctx, interruptKey(roomID)).Result()
 	if err != nil {

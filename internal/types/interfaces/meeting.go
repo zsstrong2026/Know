@@ -79,4 +79,6 @@ type MeetingEngine interface {
 	Interrupt(ctx context.Context, roomID string) error
 	// GenerateSolution 主持人生成结构化方案（引擎无租户上下文，room 由调用方校验后传入）
 	GenerateSolution(ctx context.Context, room *types.MeetingRoom, userID string) (*types.MeetingMessage, error)
+	// IsTurnRunning 查询讨论轮锁是否被持有（参会人变更 409 预检用）
+	IsTurnRunning(ctx context.Context, roomID string) (bool, error)
 }
