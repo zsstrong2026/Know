@@ -96,6 +96,13 @@ func (r *meetingParticipantRepository) CountAgentsByRoom(ctx context.Context, ro
 	return n, err
 }
 
+// DeleteAgentsByRoom 全量替换参会智能体时清理旧 agent 行（主持人记录不受影响）
+func (r *meetingParticipantRepository) DeleteAgentsByRoom(ctx context.Context, roomID string) error {
+	return r.db.WithContext(ctx).
+		Where("meeting_room_id = ? AND kind = ?", roomID, types.ParticipantKindAgent).
+		Delete(&types.MeetingParticipant{}).Error
+}
+
 type meetingMessageRepository struct{ db *gorm.DB }
 
 func NewMeetingMessageRepository(db *gorm.DB) interfaces.MeetingMessageRepository {

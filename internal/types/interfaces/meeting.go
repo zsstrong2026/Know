@@ -21,6 +21,8 @@ type MeetingParticipantRepository interface {
 	CreateBatch(ctx context.Context, ps []*types.MeetingParticipant) error
 	ListByRoom(ctx context.Context, roomID string) ([]*types.MeetingParticipant, error)
 	CountAgentsByRoom(ctx context.Context, roomID string) (int64, error)
+	// DeleteAgentsByRoom 全量替换前置清理：仅删 agent 类参会者，host 记录始终保留
+	DeleteAgentsByRoom(ctx context.Context, roomID string) error
 }
 
 type MeetingMessageRepository interface {
