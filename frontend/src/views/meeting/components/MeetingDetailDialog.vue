@@ -90,7 +90,7 @@ const form = reactive({
 
 const isArchived = computed(() => props.room?.status === 'archived');
 // 参会者回填状态：卡片列表对象不带 participants，须补拉详情成功后才能提交，
-// 否则保存会走「全量替换」把原有参会人清空。idle 仅出现于纯新建态。
+// 否则保存会走「全量替换」把原有参会人清空。idle 表示参会者未知且尚未发起补拉。
 const detailState = ref<'idle' | 'loading' | 'ready' | 'failed'>('idle');
 const canSubmit = computed(() => !isArchived.value && detailState.value === 'ready');
 
