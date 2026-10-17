@@ -11,9 +11,10 @@ import (
 // ErrRoomArchived 会议已归档：一切写操作拒绝（只以原值返回、从不 wrap，handler 判等 == 映射 403）
 var ErrRoomArchived = errors.New("meeting: room archived")
 
-// ensureRoomActive 归档守卫：非 active 状态的房间拒绝写操作
+// ensureRoomActive 可写守卫：仅 archived（只读终态）拒绝；
+// active 与 awaiting_confirmation 均可写（待确认态允许发言/评审/调整流程/改设置）。
 func ensureRoomActive(room *types.MeetingRoom) error {
-	if room.Status != types.MeetingStatusActive {
+	if room.Status == types.MeetingStatusArchived {
 		return ErrRoomArchived
 	}
 	return nil

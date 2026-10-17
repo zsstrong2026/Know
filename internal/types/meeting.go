@@ -13,8 +13,9 @@ import (
 // ---- 常量 ----
 
 const (
-	MeetingStatusActive   = "active"
-	MeetingStatusArchived = "archived"
+	MeetingStatusActive               = "active"
+	MeetingStatusAwaitingConfirmation = "awaiting_confirmation" // 创建后待确认开场流程；直接打字或 confirm 后转 active
+	MeetingStatusArchived             = "archived"
 
 	MeetingBroadcastSequential = "sequential"
 	MeetingBroadcastParallel   = "parallel"
