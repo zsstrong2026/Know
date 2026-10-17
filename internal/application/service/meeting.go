@@ -255,7 +255,7 @@ func (s *meetingService) latestOpeningMessageID(ctx context.Context, roomID stri
 	return ""
 }
 
-func (s *meetingService) SendUserMessage(ctx context.Context, tenantID uint64, roomID string, userID string, content string, mentionedAgentIDs []string) (*types.MeetingMessage, error) {
+func (s *meetingService) SendUserMessage(ctx context.Context, tenantID uint64, roomID string, userID string, content string, mentionedAgentIDs []string, adjustFlow bool) (*types.MeetingMessage, error) {
 	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID)
 	if err != nil {
 		return nil, err // 租户校验（仓储按 tenant+created_by 过滤）
@@ -272,6 +272,28 @@ func (s *meetingService) SendUserMessage(ctx context.Context, tenantID uint64, r
 	}
 	if err := s.messageRepo.Create(ctx, msg); err != nil {
 		return nil, err
+	}
+	// 「调整流程」：保持 awaiting_confirmation，主持人结合该意见重出开场（新的 opening 消息）
+	if adjustFlow && room.Status == types.MeetingStatusAwaitingConfirmation {
+		go func() {
+			bgCtx := logger.CloneContext(ctx)
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Errorf(bgCtx, "meeting GenerateOpening panic, room=%s recover=%v", roomID, r)
+				}
+			}()
+			if err := s.engine.GenerateOpening(bgCtx, room, msg.ID); err != nil {
+				logger.Errorf(bgCtx, "meeting GenerateOpening failed, room=%s err=%v", roomID, err)
+			}
+		}()
+		return msg, nil
+	}
+	// 直接打字 = 隐式确认：awaiting_confirmation → active，再进入正常讨论轮
+	if room.Status == types.MeetingStatusAwaitingConfirmation {
+		room.Status = types.MeetingStatusActive
+		if err := s.roomRepo.Update(ctx, room); err != nil {
+			return nil, err
+		}
 	}
 	// 异步触发讨论轮；CloneContext 保留 trace，避免请求 ctx 取消中断讨论
 	go func() {

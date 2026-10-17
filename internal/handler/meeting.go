@@ -269,6 +269,8 @@ func (h *MeetingHandler) ListMessages(c *gin.Context) {
 type sendMessageRequest struct {
 	Content           string   `json:"content" binding:"required"`
 	MentionedAgentIDs []string `json:"mentioned_agent_ids"`
+	// 「调整流程」标记：仅待确认状态下生效，主持人据此重出开场
+	AdjustFlow bool `json:"adjust_flow"`
 }
 
 // SendMessage POST /api/v1/meetings/:id/messages —— 202 异步：落库后触发讨论轮
@@ -284,7 +286,7 @@ func (h *MeetingHandler) SendMessage(c *gin.Context) {
 		return
 	}
 	userID, _ := types.UserIDFromContext(ctx)
-	msg, err := h.meetingService.SendUserMessage(ctx, tenantID, c.Param("id"), userID, req.Content, req.MentionedAgentIDs)
+	msg, err := h.meetingService.SendUserMessage(ctx, tenantID, c.Param("id"), userID, req.Content, req.MentionedAgentIDs, req.AdjustFlow)
 	if err != nil {
 		if err == service.ErrRoomArchived {
 			c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))

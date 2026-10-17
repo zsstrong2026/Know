@@ -54,8 +54,9 @@ type MeetingService interface {
 	ListMeetings(ctx context.Context, tenantID uint64, createdBy string, status string, offset, limit int) ([]*types.MeetingRoom, int64, error)
 	UpdateMeeting(ctx context.Context, room *types.MeetingRoom) error
 	DeleteMeeting(ctx context.Context, tenantID uint64, id string) error
-	// SendUserMessage 落库用户消息并异步触发讨论轮，返回落库后的消息（归档房间拒绝）
-	SendUserMessage(ctx context.Context, tenantID uint64, roomID string, userID string, content string, mentionedAgentIDs []string) (*types.MeetingMessage, error)
+	// SendUserMessage 落库用户消息并异步触发讨论轮，返回落库后的消息（归档房间拒绝）。
+	// adjustFlow=true 且房间待确认时：不激活、不讨论，转由主持人按该意见重出开场（M3）
+	SendUserMessage(ctx context.Context, tenantID uint64, roomID string, userID string, content string, mentionedAgentIDs []string, adjustFlow bool) (*types.MeetingMessage, error)
 	ListMessages(ctx context.Context, roomID string, beforeID string, limit int) ([]*types.MeetingMessage, error)
 	// InterruptDiscussion 用户主动打断进行中的讨论轮
 	InterruptDiscussion(ctx context.Context, tenantID uint64, roomID string) error

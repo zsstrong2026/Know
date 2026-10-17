@@ -70,7 +70,7 @@ func (f *isolationRoomRepo) Delete(_ context.Context, id string, tenantID uint64
 }
 
 // isolationFixture 组装 meetingService：roomRepo 为本组隔离仓储，participantRepo 复用现成 fake
-//（GetMeeting 成功路径会查参与者列表），messageRepo 供归档系统消息落库断言；
+// （GetMeeting 成功路径会查参与者列表），messageRepo 供归档系统消息落库断言；
 // 跨租户/归档/删除场景在触达 engine 前即早退，engine 无需注入。
 type isolationFixture struct {
 	svc   *meetingService
@@ -147,11 +147,11 @@ func TestArchivedRoomRejectsMessage(t *testing.T) {
 	f := newIsolationFixture(&types.MeetingRoom{ID: "r1", TenantID: 1, CreatedBy: "user-a", Status: types.MeetingStatusArchived})
 
 	// 归档房间：发言被守卫拦截，返回 ErrRoomArchived（早退于落库与讨论轮触发之前）
-	_, err := f.svc.SendUserMessage(ctx, 1, "r1", "user-a", "还能说话吗", nil)
+	_, err := f.svc.SendUserMessage(ctx, 1, "r1", "user-a", "还能说话吗", nil, false)
 	assert.ErrorIs(t, err, ErrRoomArchived)
 
 	// 跨租户发言：被租户校验拦截（GetByID 早退于归档守卫之前），错误非归档语义
-	_, err = f.svc.SendUserMessage(ctx, 2, "r1", "user-a", "越权发言", nil)
+	_, err = f.svc.SendUserMessage(ctx, 2, "r1", "user-a", "越权发言", nil, false)
 	assert.Error(t, err)
 	assert.NotErrorIs(t, err, ErrRoomArchived)
 }

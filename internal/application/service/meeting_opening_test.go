@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -143,4 +144,89 @@ func waitFor(t *testing.T, cond func() bool, msg string) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal(msg)
+}
+
+// TestSendUserMessageImplicitConfirmAndAdjustFlow 覆盖 SendUserMessage 的三种状态语义：
+// 待确认直接发言=隐式确认并开跑、待确认+adjust_flow=重出开场不激活、active 忽略 adjust_flow、archived 拒绝。
+func TestSendUserMessageImplicitConfirmAndAdjustFlow(t *testing.T) {
+	ctx := context.Background()
+	// mk 按初始房间状态构造服务与调用记录器
+	mk := func(status string) (*meetingService, *isolationRoomRepo, *turnCalls) {
+		rooms := &isolationRoomRepo{rooms: map[string]*types.MeetingRoom{}}
+		require.NoError(t, rooms.Create(ctx, &types.MeetingRoom{ID: "r1", TenantID: 1, Status: status}))
+		c := &turnCalls{}
+		engine := &stubMultiEngine{calls: c}
+		svc := &meetingService{
+			roomRepo:    rooms,
+			messageRepo: &fakeMeetingMessageRepo{},
+			engine:      engine,
+		}
+		return svc, rooms, c
+	}
+
+	t.Run("待确认 + 普通发言 = 隐式确认并开跑", func(t *testing.T) {
+		svc, rooms, c := mk(types.MeetingStatusAwaitingConfirmation)
+		_, err := svc.SendUserMessage(ctx, 1, "r1", "u1", "开始吧", nil, false)
+		require.NoError(t, err)
+		assert.Equal(t, types.MeetingStatusActive, rooms.rooms["r1"].Status, "直接打字即确认")
+		waitFor(t, func() bool { return c.turnsCount() == 1 }, "隐式确认后应触发讨论轮")
+		assert.Equal(t, 0, c.openingsCount())
+	})
+
+	t.Run("待确认 + adjust_flow = 保持待确认并重出流程", func(t *testing.T) {
+		svc, rooms, c := mk(types.MeetingStatusAwaitingConfirmation)
+		_, err := svc.SendUserMessage(ctx, 1, "r1", "u1", "先聊性能", nil, true)
+		require.NoError(t, err)
+		assert.Equal(t, types.MeetingStatusAwaitingConfirmation, rooms.rooms["r1"].Status, "调整流程不激活")
+		waitFor(t, func() bool { return c.openingsCount() == 1 }, "应以该消息为反馈重出开场")
+		assert.Equal(t, 0, c.turnsCount(), "调整流程不触发讨论轮")
+	})
+
+	t.Run("active + adjust_flow = 按普通消息处理", func(t *testing.T) {
+		svc, _, c := mk(types.MeetingStatusActive)
+		_, err := svc.SendUserMessage(ctx, 1, "r1", "u1", "继续", nil, true)
+		require.NoError(t, err)
+		waitFor(t, func() bool { return c.turnsCount() == 1 }, "active 态忽略 adjust_flow 走讨论")
+		assert.Equal(t, 0, c.openingsCount())
+	})
+
+	t.Run("archived 拒绝", func(t *testing.T) {
+		svc, _, c := mk(types.MeetingStatusArchived)
+		_, err := svc.SendUserMessage(ctx, 1, "r1", "u1", "hi", nil, false)
+		assert.Equal(t, ErrRoomArchived, err)
+		assert.Equal(t, 0, c.turnsCount())
+	})
+}
+
+// turnCalls 记录引擎调用（RunTurn/GenerateOpening 各计一次，并留存最后一次调整反馈 ID）。
+// RunTurn/GenerateOpening 在后台 goroutine 执行、测试主线程读取计数，故计数用 atomic、反馈用互斥保护，避免 -race 数据竞争。
+type turnCalls struct {
+	turns, openings atomic.Int64
+	mu              sync.Mutex
+	lastFeedback    string
+}
+
+// turnsCount 线程安全读取已触发的讨论轮次数
+func (c *turnCalls) turnsCount() int { return int(c.turns.Load()) }
+
+// openingsCount 线程安全读取开场重出次数
+func (c *turnCalls) openingsCount() int { return int(c.openings.Load()) }
+
+// stubMultiEngine 嵌入接口，仅覆写 RunTurn / GenerateOpening（分别记录讨论轮与开场调用）
+type stubMultiEngine struct {
+	interfaces.MeetingEngine
+	calls *turnCalls
+}
+
+func (e *stubMultiEngine) RunTurn(context.Context, string, string) error {
+	e.calls.turns.Add(1)
+	return nil
+}
+
+func (e *stubMultiEngine) GenerateOpening(_ context.Context, _ *types.MeetingRoom, feedbackMessageID string) error {
+	e.calls.openings.Add(1)
+	e.calls.mu.Lock()
+	e.calls.lastFeedback = feedbackMessageID
+	e.calls.mu.Unlock()
+	return nil
 }
