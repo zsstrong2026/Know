@@ -85,7 +85,7 @@ func TestCreateMeetingBuildsParticipants(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.MeetingBroadcastSequential, created.BroadcastMode, "缺省广播模式回退 sequential")
 	assert.Equal(t, 3, created.GuardMaxExchange, "缺省护栏回退 3")
-	assert.Equal(t, types.MeetingStatusActive, created.Status, "缺省状态回退 active")
+	assert.Equal(t, types.MeetingStatusAwaitingConfirmation, created.Status, "缺省状态回退 awaiting_confirmation（创建后进入待确认流程）")
 	require.Len(t, parts.batched, 3)
 	assert.Equal(t, types.ParticipantKindHost, parts.batched[0].Kind)
 	assert.Equal(t, 0, parts.batched[0].OrderIndex)

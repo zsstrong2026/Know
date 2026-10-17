@@ -62,7 +62,7 @@ func validateMeetingCreate(room *types.MeetingRoom, agentIDs []string) error {
 		room.HostEveryNRounds = 0
 	}
 	if room.Status == "" {
-		room.Status = types.MeetingStatusActive
+		room.Status = types.MeetingStatusAwaitingConfirmation // 创建即待确认；开场与确认交互见 M3
 	}
 	return nil
 }
