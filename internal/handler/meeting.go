@@ -136,7 +136,8 @@ func (h *MeetingHandler) UpdateMeeting(c *gin.Context) {
 		c.Error(errors.NewNotFoundError("meeting not found"))
 		return
 	}
-	if room.Status != types.MeetingStatusActive {
+	// 仅 archived 只读；awaiting_confirmation 允许改设置（详情弹窗在待确认态可编辑，见 M2）
+	if room.Status == types.MeetingStatusArchived {
 		c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
 		return
 	}
