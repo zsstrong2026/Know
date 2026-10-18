@@ -3,7 +3,8 @@ import { defineStore } from 'pinia';
 import {
   listMeetings, getMeeting, listMessages, sendMessage,
   updateReviewState, generateSolution, rollbackSolution, confirmMeetingFlow,
-  type MeetingRoom, type MeetingMessage,
+  listArtifacts, requestArtifact as apiRequestArtifact, regenerateArtifact as apiRegenerateArtifact,
+  type MeetingRoom, type MeetingMessage, type MeetingArtifact, type ArtifactKindType,
 } from '@/api/meeting';
 
 export const useMeetingStore = defineStore('meetingStore', () => {
@@ -15,6 +16,7 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   const guardNotice = ref<unknown>(null); // 护栏触发提示（主持人介入）
   const consensusNotice = ref<unknown>(null); // 裁判判定收敛提示（consensus.created）
   const solutionGenerating = ref(false);  // 方案生成中（按钮 loading 用）
+  const artifacts = ref<MeetingArtifact[]>([]); // 当前房间产物（solution + generated 统一）
 
   async function fetchRooms(status = '') {
     rooms.value = await listMeetings(status);
@@ -78,6 +80,54 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     }
   }
 
+  // 拉取当前房间全部产物（抽屉打开/回滚后刷新）
+  async function fetchArtifacts(roomId: string) {
+    artifacts.value = await listArtifacts(roomId);
+  }
+
+  // 按 id 就地 upsert（HTTP 返回值与 SSE 事件共用；SSE 可能先于 HTTP 到达）
+  // 入参放宽为增量补丁：事件只带部分字段时，仅覆盖它实际携带的键，其余键沿用卡片旧值
+  function upsertArtifact(a: (Partial<MeetingArtifact> & { id: string }) | null | undefined) {
+    if (!a?.id) return;
+    const i = artifacts.value.findIndex((x) => x.id === a.id);
+    // 增量补丁与全量返回走同一合并路径；断言收窄仅用于表达「缺失键依赖后续补齐」
+    if (i >= 0) artifacts.value[i] = { ...artifacts.value[i], ...a } as MeetingArtifact;
+    else artifacts.value.push(a as MeetingArtifact);
+  }
+
+  // SSE 产物事件 → 卡片增量补丁（generating/failed 事件只带部分字段）
+  function artifactFromEvent(event: string, data: unknown): (Partial<MeetingArtifact> & { id: string }) | null {
+    const d = data as Record<string, unknown> | null;
+    if (!d) return null;
+    if (event === 'artifact.created') return d as unknown as MeetingArtifact; // 后端推完整产物对象
+    const id = String(d.artifact_id ?? '');
+    if (!id) return null;
+    return {
+      id,
+      meeting_room_id: currentRoom.value?.id ?? '',
+      kind: 'generated',
+      status: event === 'artifact.generating' ? 'generating' : 'failed',
+      error: String(d.error ?? ''),
+      // 仅当事件确实携带该键时写入，避免用空串把卡片已有的标题/形态清零
+      ...(typeof d.kind_type === 'string' ? { kind_type: d.kind_type as ArtifactKindType } : {}),
+      ...(typeof d.title === 'string' ? { title: d.title } : {}),
+    };
+  }
+
+  // 发起产物生成：HTTP 202 返回 generating 行，本地立即插入 loading 占位卡片
+  async function requestArtifact(kindType: ArtifactKindType, title: string, requirement: string) {
+    if (!currentRoom.value) return;
+    const a = await apiRequestArtifact(currentRoom.value.id, kindType, title, requirement);
+    upsertArtifact(a);
+  }
+
+  // 重新生成：原行重置为 generating
+  async function regenerateArtifact(artifactId: string) {
+    if (!currentRoom.value) return;
+    const a = await apiRegenerateArtifact(currentRoom.value.id, artifactId);
+    upsertArtifact(a);
+  }
+
   // 回滚方案版本：HTTP 成功后重拉房间（current_solution_message_id 变化）与消息列表，
   // 回滚落一条系统消息，SSE 亦会回流，HTTP 刷新是兜底（同时去重）
   async function rollback(version: number) {
@@ -110,6 +160,8 @@ export const useMeetingStore = defineStore('meetingStore', () => {
       // 裁判判定收敛：讨论轮终止，展示共识提示（共识消息本体由 message.created 回流）
       discussing.value = false;
       consensusNotice.value = data;
+    } else if (event === 'artifact.generating' || event === 'artifact.created' || event === 'artifact.failed') {
+      upsertArtifact(artifactFromEvent(event, data));
     } else if (event === 'discussion.flow_confirmation') {
       // 开场确认事件：无独立状态，开场消息本体经 message.created 回流，按钮组由 payload.stage 渲染
     }
@@ -130,8 +182,10 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     discussing.value = false;
     guardNotice.value = null;
     consensusNotice.value = null;
+    artifacts.value = [];
   }
 
-  return { rooms, currentRoom, messages, hasMore, discussing, guardNotice, consensusNotice, solutionGenerating,
-    fetchRooms, enterRoom, loadEarlier, speak, confirm, setReviewState, generate, rollback, applyStreamEvent, clearGuardNotice, clearConsensusNotice, leaveRoom };
+  return { rooms, currentRoom, messages, hasMore, discussing, guardNotice, consensusNotice, solutionGenerating, artifacts,
+    fetchRooms, enterRoom, loadEarlier, speak, confirm, setReviewState, generate, rollback, applyStreamEvent, clearGuardNotice, clearConsensusNotice, leaveRoom,
+    fetchArtifacts, requestArtifact, regenerateArtifact };
 });
