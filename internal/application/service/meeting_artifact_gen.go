@@ -1,12 +1,24 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/Tencent/WeKnora/internal/agent/skills"
+	"github.com/Tencent/WeKnora/internal/common/redislock"
+	"github.com/Tencent/WeKnora/internal/event"
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 )
+
+// ErrArtifactBusy 房间已有产物生成任务进行中（handler 判等映射 409）
+var ErrArtifactBusy = errors.New("meeting: another artifact generation is running")
 
 // artifactLockKey 房间级产物生成互斥锁（同房间串行，避免采集器 diff 去重互相干扰）
 func artifactLockKey(roomID string) string { return fmt.Sprintf("meeting:%s:artifact_lock", roomID) }
@@ -188,4 +200,199 @@ func buildMeetingArtifactAgent(tenantID uint64, modelID, sandboxConfigID string)
 	// EnsureDefaults 对 smart-reasoning 会强制开启多轮历史；产物生成是单次任务，须在其后显式关闭
 	agent.Config.MultiTurnEnabled = false
 	return agent
+}
+
+// ensureArtifactSession 懒创建（并持久化到房间）会议产物后台会话；已存在则直接复用。
+// 会话属主 = 会议创建者（复用既有会话产物下载链路的属主校验），描述带隐藏标记。
+func (e *meetingEngine) ensureArtifactSession(ctx context.Context, room *types.MeetingRoom) (string, error) {
+	if room.ArtifactSessionID != "" {
+		return room.ArtifactSessionID, nil
+	}
+	sess, err := e.sessionService.CreateSession(ctx, &types.Session{
+		TenantID:    room.TenantID,
+		UserID:      room.CreatedBy,
+		Title:       "会议产物生成",
+		Description: types.MeetingArtifactSessionMarker + room.ID,
+	})
+	if err != nil {
+		return "", err
+	}
+	room.ArtifactSessionID = sess.ID
+	if err := e.roomRepo.Update(ctx, room); err != nil {
+		return "", err
+	}
+	return sess.ID, nil
+}
+
+// meetingArtifactSandboxConfigID 取租户第一个具名沙箱配置作为产物执行沙箱；
+// 无配置回退空（文本形态仍可产出，文件形态将失败并写入 error）
+func (e *meetingEngine) meetingArtifactSandboxConfigID(ctx context.Context, tenantID uint64) string {
+	if e.sandboxConfigRepo == nil {
+		return ""
+	}
+	list, err := e.sandboxConfigRepo.ListByTenant(ctx, tenantID)
+	if err != nil || len(list) == 0 {
+		return ""
+	}
+	return list[0].ID
+}
+
+// buildArtifactQuery 拉取会议上下文（最近记录 + 采纳意见）并组装产物生成 query
+func (e *meetingEngine) buildArtifactQuery(ctx context.Context, room *types.MeetingRoom, a *types.MeetingArtifact) string {
+	recent, err := e.messageRepo.ListByRoom(ctx, room.ID, "", e.contextMax)
+	if err != nil {
+		logger.Warnf(ctx, "meeting artifact list messages failed, room=%s err=%v", room.ID, err)
+		recent = nil
+	}
+	adopted, err := e.messageRepo.ListByReviewState(ctx, room.ID, types.ReviewStateAdopted)
+	if err != nil {
+		adopted = nil
+	}
+	labelOf := func(m *types.MeetingMessage) string {
+		if m.SenderKind == types.MeetingSenderAgent {
+			return e.agentDisplayName(ctx, room.ID, m.SenderID)
+		}
+		return senderLabel(m)
+	}
+	return buildArtifactPrompt(room, recent, adopted, a.KindType, a.Title, a.Requirement,
+		labelOf, artifactKindInstruction(a.KindType, a.Title))
+}
+
+// runArtifactAgentQA 在后台会话上执行 AgentQA 并捕获最终回答（模式同 runAgentTurn）。
+// 知识库刻意不注入：生成素材为会议记录 + 采纳意见；纯 agent 模式同时避开 rerank 模型硬性校验。
+func (e *meetingEngine) runArtifactAgentQA(ctx context.Context, room *types.MeetingRoom, agent *types.CustomAgent, sessionID, assistantMessageID, query string) (string, error) {
+	eventBus := event.NewEventBus()
+	var answer strings.Builder
+	var runErr error
+	eventBus.On(event.EventAgentFinalAnswer, func(_ context.Context, evt event.Event) error {
+		if data, ok := evt.Data.(event.AgentFinalAnswerData); ok {
+			answer.WriteString(data.Content)
+		}
+		return nil
+	})
+	eventBus.On(event.EventError, func(_ context.Context, evt event.Event) error {
+		if data, ok := evt.Data.(event.ErrorData); ok {
+			runErr = fmt.Errorf("stage=%s err=%v", data.Stage, data.Error)
+		}
+		return nil
+	})
+	req := &types.QARequest{
+		Session:            &types.Session{ID: sessionID, TenantID: room.TenantID},
+		Query:              query,
+		AssistantMessageID: assistantMessageID,
+		CustomAgent:        agent,
+	}
+	if err := e.sessionService.AgentQA(ctx, req, eventBus); err != nil {
+		return "", err
+	}
+	if runErr != nil {
+		return "", runErr
+	}
+	if strings.TrimSpace(answer.String()) == "" {
+		return "", errors.New("meeting: artifact agent produced no answer")
+	}
+	return answer.String(), nil
+}
+
+// failArtifact 生成失败收口：置 failed + error 字段 + 广播 artifact.failed
+func (e *meetingEngine) failArtifact(ctx context.Context, room *types.MeetingRoom, a *types.MeetingArtifact, cause error) error {
+	a.Status = types.MeetingArtifactStatusFailed
+	a.Error = cause.Error()
+	if err := e.artifactRepo.Update(ctx, a); err != nil {
+		logger.Errorf(ctx, "meeting artifact fail-mark update failed, room=%s artifact=%s err=%v", room.ID, a.ID, err)
+	}
+	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventArtifactFailed, Data: map[string]interface{}{
+		"artifact_id": a.ID, "error": a.Error,
+	}})
+	return cause
+}
+
+// RunArtifactGeneration 产物生成主链路：
+// room 级互斥 → 懒创建后台会话 → 合成执行智能体 → AgentQA（工具/技能/沙箱）
+// → 采集器采集 → 后台会话落 assistant 消息（携带产物索引）→ 回写 MeetingArtifact → 广播。
+// 任一环节失败走 failArtifact（置 failed + 广播），锁由 defer 释放（30min lease 兜底）。
+func (e *meetingEngine) RunArtifactGeneration(ctx context.Context, room *types.MeetingRoom, a *types.MeetingArtifact) error {
+	// Lite 模式下 e.redis 为 typed-nil，直接传入 redislock 会绕过其 nil 校验并在 SetNX 处 panic
+	if e.redis == nil {
+		return e.failArtifact(ctx, room, a, errors.New("meeting: redis unavailable for artifact generation"))
+	}
+	token, err := redislock.NewToken()
+	if err != nil {
+		return e.failArtifact(ctx, room, a, err)
+	}
+	ok, err := redislock.TryAcquire(ctx, e.redis, artifactLockKey(room.ID), token, 30*time.Minute)
+	if err != nil {
+		return e.failArtifact(ctx, room, a, err)
+	}
+	if !ok {
+		// 同步预检之后的竞态窗口内被抢锁：本任务失败，前端可重试
+		return e.failArtifact(ctx, room, a, ErrArtifactBusy)
+	}
+	defer func() {
+		if _, rerr := redislock.Release(ctx, e.redis, artifactLockKey(room.ID), token); rerr != nil {
+			logger.Warnf(ctx, "meeting artifact lock release failed, room=%s err=%v", room.ID, rerr)
+		}
+	}()
+
+	sessionID, err := e.ensureArtifactSession(ctx, room)
+	if err != nil {
+		return e.failArtifact(ctx, room, a, err)
+	}
+	modelID, err := e.resolveHostModelID(ctx)
+	if err != nil {
+		return e.failArtifact(ctx, room, a, err)
+	}
+	if e.collector == nil || e.messageService == nil {
+		return e.failArtifact(ctx, room, a, errors.New("meeting: artifact pipeline dependencies unavailable"))
+	}
+	execAgent := buildMeetingArtifactAgent(room.TenantID, modelID, e.meetingArtifactSandboxConfigID(ctx, room.TenantID))
+
+	assistantMsgID := uuid.New().String()
+	answer, err := e.runArtifactAgentQA(ctx, room, execAgent, sessionID, assistantMsgID, e.buildArtifactQuery(ctx, room, a))
+	if err != nil {
+		return e.failArtifact(ctx, room, a, err)
+	}
+
+	// 采集沙箱输出目录（对齐 agent_stream_handler：CollectTarget 一次解析出目录与跳过决策）
+	var collected types.MessageArtifacts
+	if collectDir, skip := e.collector.CollectTarget(ctx, sessionID); !skip {
+		if collectDir == "" {
+			collectDir = skills.ArtifactOutputDir()
+		}
+		collected, err = e.collector.Collect(ctx, sessionID, assistantMsgID, room.TenantID, collectDir)
+		if err != nil {
+			// 采集失败降级为无文件：文本形态仍可交付，文件形态由下方 needsFile 判定失败
+			logger.Warnf(ctx, "meeting artifact collect failed, room=%s err=%v", room.ID, err)
+		}
+	}
+
+	// 落后台会话 assistant 消息：产物行按 (session, message) JOIN 寻址的前提（GetSessionArtifacts 联 messages）
+	// AgentTenantID 记有效租户：产物下载鉴权在缺 resource 行时以其作为属主兜底（access/files.go）
+	msg := &types.Message{
+		ID: assistantMsgID, SessionID: sessionID, AgentTenantID: room.TenantID,
+		Role: "assistant", Content: answer, AgentID: execAgent.ID, IsCompleted: true,
+		Artifacts: collected,
+	}
+	if _, err := e.messageService.CreateMessage(ctx, msg); err != nil {
+		return e.failArtifact(ctx, room, a, err)
+	}
+
+	file, hasFile := pickArtifactFile(collected, a.KindType)
+	if artifactNeedsFile(a.KindType) && !hasFile {
+		return e.failArtifact(ctx, room, a, fmt.Errorf("meeting: expected %s file but sandbox produced none", a.KindType))
+	}
+
+	a.Status = types.MeetingArtifactStatusReady
+	a.Error = ""
+	a.SourceMessageID = assistantMsgID
+	if hasFile {
+		a.FileName, a.FileType, a.FileSize = file.FileName, file.FileType, file.FileSize
+		a.URL, a.ContentHash = file.URL, file.ContentHash
+	}
+	if err := e.artifactRepo.Update(ctx, a); err != nil {
+		// 末次回写失败同样置 failed 并广播：否则产物永久停在 generating，前端无法重试
+		return e.failArtifact(ctx, room, a, err)
+	}
+	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventArtifactCreated, Data: a})
+	return nil
 }

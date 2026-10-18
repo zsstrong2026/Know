@@ -95,4 +95,6 @@ type MeetingEngine interface {
 	GenerateOpening(ctx context.Context, room *types.MeetingRoom, feedbackMessageID string) error
 	// IsArtifactRunning 查询房间产物生成锁是否被持有（生成 409 预检用）
 	IsArtifactRunning(ctx context.Context, roomID string) (bool, error)
+	// RunArtifactGeneration 产物生成主链路（互斥 → 后台会话 → AgentQA → 采集 → 回写 → 广播）
+	RunArtifactGeneration(ctx context.Context, room *types.MeetingRoom, artifact *types.MeetingArtifact) error
 }
