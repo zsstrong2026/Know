@@ -14,6 +14,9 @@
         <t-button size="small" theme="default" variant="outline" :disabled="!store.discussing" @click="interrupt">
           {{ $t('meeting.interrupt') }}
         </t-button>
+        <t-button size="small" theme="default" variant="outline" :disabled="isArchived" @click="showGenerate = true">
+          {{ $t('meeting.generateArtifact') }}
+        </t-button>
         <t-button size="small" theme="default" variant="outline" @click="showArtifacts = true">
           {{ $t('meeting.artifacts') }}
         </t-button>
@@ -108,6 +111,8 @@
     <ArtifactDrawer v-model:visible="showArtifacts" :room-id="roomId"
       :current-solution-message-id="store.currentRoom?.current_solution_message_id ?? ''" />
 
+    <ArtifactGenerateDialog v-model:visible="showGenerate" @requested="showArtifacts = true" />
+
     <footer class="input-bar">
       <div class="input-inner">
         <!-- 已选 @ 的智能体 chip，可点关闭移除 -->
@@ -155,6 +160,7 @@ import { useChatCitationPopover } from '@/composables/useChatCitationPopover';
 import ChatCitationFloat from '@/components/ChatCitationFloat.vue';
 import MentionPicker from './components/MentionPicker.vue';
 import ArtifactDrawer from './ArtifactDrawer.vue';
+import ArtifactGenerateDialog from './components/ArtifactGenerateDialog.vue';
 
 const route = useRoute();
 const { t } = useI18n();
@@ -164,6 +170,7 @@ const draft = ref('');
 // 本次发言 @ 提及的智能体（仅视图本地状态，发送时取其 agent_id 传给后端）
 const mentions = ref<MeetingParticipant[]>([]);
 const showArtifacts = ref(false); // 历史产物抽屉可见性（视图本地状态，不入 store）
+const showGenerate = ref(false); // 产物生成弹窗可见性（视图本地状态）
 const scrollRef = ref<HTMLElement | null>(null);
 let closeStream: (() => void) | null = null;
 
@@ -229,6 +236,7 @@ async function openRoom(id: string) {
   mentions.value = [];
   draft.value = '';
   showArtifacts.value = false;
+  showGenerate.value = false;
   adjustMode.value = false;
   confirming.value = false;
   store.leaveRoom();
