@@ -236,6 +236,9 @@ func SessionRequiresAdminConsoleRead(s *Session, imPlatform string) bool {
 	if IsSkillMaintenanceDescription(s.Description) {
 		return true
 	}
+	if IsMeetingArtifactSessionDescription(s.Description) {
+		return true // 会议产物后台会话：对普通用户隐藏，仅管理控制台可见
+	}
 	return strings.TrimSpace(imPlatform) != ""
 }
 
@@ -245,18 +248,24 @@ func IsSkillMaintenanceDescription(description string) bool {
 	return strings.HasPrefix(description, SkillMaintenanceSessionMarker)
 }
 
-// SanitizeClientSessionDescription keeps the skill-maintenance marker off
-// client-writable descriptions. A row that is already a maintenance session
-// keeps its stored description so a PUT cannot un-hide it; any other row
-// drops a planted marker rather than accepting it.
+// SanitizeClientSessionDescription keeps the reserved markers (skill
+// maintenance, meeting-artifact backend sessions) off client-writable
+// descriptions. A row that is already a maintenance session keeps its stored
+// description so a PUT cannot un-hide it; any other row drops a planted marker
+// rather than accepting it.
 func SanitizeClientSessionDescription(incoming, existing string) string {
-	if IsSkillMaintenanceDescription(existing) {
+	if isReservedSessionDescription(existing) {
 		return existing
 	}
-	if IsSkillMaintenanceDescription(incoming) {
+	if isReservedSessionDescription(incoming) {
 		return ""
 	}
 	return incoming
+}
+
+// isReservedSessionDescription 判断是否为后端保留的会话描述标记（客户端不可自行写入）
+func isReservedSessionDescription(description string) bool {
+	return IsSkillMaintenanceDescription(description) || IsMeetingArtifactSessionDescription(description)
 }
 
 // SessionListQuery bundles the parameters for listing sessions.

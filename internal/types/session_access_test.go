@@ -73,4 +73,16 @@ func TestSanitizeClientSessionDescription(t *testing.T) {
 	if got := SanitizeClientSessionDescription("unhide", planted); got != planted {
 		t.Fatalf("maintenance row must keep its marker, got %q", got)
 	}
+
+	// 会议产物后台会话标记同样属保留前缀：客户端不可写入，已在库的行不可被 PUT 解除隐藏
+	artifactPlanted := MeetingArtifactSessionMarker + "room-1"
+	if got := SanitizeClientSessionDescription(artifactPlanted, ""); got != "" {
+		t.Fatalf("planted artifact marker on create = %q, want empty", got)
+	}
+	if got := SanitizeClientSessionDescription(artifactPlanted, "ordinary"); got != "" {
+		t.Fatalf("planted artifact marker on update = %q, want empty", got)
+	}
+	if got := SanitizeClientSessionDescription("unhide", artifactPlanted); got != artifactPlanted {
+		t.Fatalf("artifact row must keep its marker, got %q", got)
+	}
 }

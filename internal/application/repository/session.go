@@ -190,9 +190,10 @@ func (r *sessionRepository) QueryPaged(
 		// rows must be absent from all of them, including the unfiltered
 		// listing.
 		db = db.Where(
-			"(s.description IS NULL OR (s.description NOT LIKE ? AND s.description NOT LIKE ?))",
+			"(s.description IS NULL OR (s.description NOT LIKE ? AND s.description NOT LIKE ? AND s.description NOT LIKE ?))",
 			types.SkillMaintenanceSessionMarker+"%",
 			types.AgentEvalSessionMarker+"%",
+			types.MeetingArtifactSessionMarker+"%",
 		)
 		if kw := strings.TrimSpace(q.Keyword); kw != "" {
 			db = db.Where(titleLikeExpr, "%"+escapeLikeKeyword(kw)+"%", likeEscapeChar)
