@@ -1,0 +1,13 @@
+ALTER TABLE meeting_artifacts DROP COLUMN IF EXISTS source_message_id;
+ALTER TABLE meeting_artifacts DROP COLUMN IF EXISTS error;
+ALTER TABLE meeting_artifacts DROP COLUMN IF EXISTS status;
+ALTER TABLE meeting_artifacts DROP COLUMN IF EXISTS content_hash;
+ALTER TABLE meeting_artifacts DROP COLUMN IF EXISTS url;
+ALTER TABLE meeting_artifacts DROP COLUMN IF EXISTS file_size;
+ALTER TABLE meeting_artifacts DROP COLUMN IF EXISTS file_type;
+ALTER TABLE meeting_artifacts DROP COLUMN IF EXISTS file_name;
+ALTER TABLE meeting_artifacts DROP COLUMN IF EXISTS requirement;
+ALTER TABLE meeting_artifacts DROP COLUMN IF EXISTS title;
+ALTER TABLE meeting_artifacts DROP COLUMN IF EXISTS kind_type;
+ALTER TABLE meeting_artifacts DROP COLUMN IF EXISTS kind;
+ALTER TABLE meeting_rooms DROP COLUMN IF EXISTS artifact_session_id;
