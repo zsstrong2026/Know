@@ -19,6 +19,9 @@ const (
 	MeetingEventSolutionGenerating   = "solution.generating"
 	MeetingEventSolutionCreated      = "solution.created"
 	MeetingEventFlowConfirmation     = "discussion.flow_confirmation"
+	MeetingEventArtifactGenerating   = "artifact.generating"
+	MeetingEventArtifactCreated      = "artifact.created"
+	MeetingEventArtifactFailed       = "artifact.failed"
 	MeetingEventPing                 = "ping"
 )
 

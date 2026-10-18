@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/common/redislock"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/event"
@@ -34,6 +35,10 @@ type meetingEngine struct {
 	cfg             *config.Config
 	contextMax      int // LLM 上下文消息上限（MEETING_CONTEXT_MAX_MESSAGES，默认 50）
 	turnLockLease   time.Duration
+
+	messageService    interfaces.MessageService                // 后台会话 assistant 消息落库（产物链路）
+	sandboxConfigRepo repository.TenantSandboxConfigRepository // 租户沙箱配置解析（产物执行沙箱）
+	collector         *ArtifactCollector                       // 沙箱产物采集（可能为 typed nil，使用前判空）
 }
 
 func NewMeetingEngine(
@@ -44,6 +49,9 @@ func NewMeetingEngine(
 	artifactRepo interfaces.MeetingArtifactRepository,
 	sessionService interfaces.SessionService,
 	modelService interfaces.ModelService,
+	messageService interfaces.MessageService,
+	sandboxConfigRepo repository.TenantSandboxConfigRepository,
+	collector *ArtifactCollector,
 	redisClient *redis.Client,
 	cfg *config.Config,
 ) interfaces.MeetingEngine {
@@ -55,13 +63,17 @@ func NewMeetingEngine(
 	return &meetingEngine{
 		roomRepo: roomRepo, participantRepo: participantRepo,
 		messageRepo: messageRepo, agentRepo: agentRepo,
-		artifactRepo:  artifactRepo,
+		artifactRepo:   artifactRepo,
 		sessionService: sessionService, modelService: modelService,
 		redis:         redisClient,
 		broadcaster:   NewMeetingBroadcaster(),
 		cfg:           cfg,
 		contextMax:    contextMax,
 		turnLockLease: 5 * time.Minute,
+
+		messageService:    messageService,
+		sandboxConfigRepo: sandboxConfigRepo,
+		collector:         collector,
 	}
 }
 
@@ -470,6 +482,18 @@ func (e *meetingEngine) IsTurnRunning(ctx context.Context, roomID string) (bool,
 		return false, nil
 	}
 	n, err := e.redis.Exists(ctx, turnLockKey(roomID)).Result()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// IsArtifactRunning 查询房间产物生成锁是否被持有（无 Redis 环境按"未在生成"处理）
+func (e *meetingEngine) IsArtifactRunning(ctx context.Context, roomID string) (bool, error) {
+	if e.redis == nil {
+		return false, nil
+	}
+	n, err := e.redis.Exists(ctx, artifactLockKey(roomID)).Result()
 	if err != nil {
 		return false, err
 	}
