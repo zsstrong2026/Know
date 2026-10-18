@@ -49,6 +49,10 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     // 后端不会通过 SSE 回推用户自身的消息，这里本地插入返回值，避免自己发言不显示
     const msg = await sendMessage(currentRoom.value.id, content, mentionAgentIds, adjustFlow);
     appendMessage(msg);
+    // 直接打字（非调整流程）等同隐式确认：后端已置 active，同步本地状态以免待确认横幅残留到刷新
+    if (!adjustFlow && currentRoom.value.status === 'awaiting_confirmation') {
+      currentRoom.value = { ...currentRoom.value, status: 'active' };
+    }
   }
 
   // 「开始会议」：确认流程后本地置 active（按钮组/提示条随之消失；讨论经 SSE 回流）
