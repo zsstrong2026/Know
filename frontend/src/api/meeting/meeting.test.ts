@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCreatePayload, buildMessagePayload, streamUrl, isModelHomogeneous, type CreateMeetingInput } from './index';
+import { buildCreatePayload, buildMessagePayload, streamUrl, isModelHomogeneous, artifactDownloadUrl, type CreateMeetingInput } from './index';
 
 test('buildCreatePayload 组装创建会议请求体', () => {
   const p = buildCreatePayload({
@@ -62,4 +62,8 @@ test('buildMessagePayload 支持 adjust_flow', () => {
 
 test('streamUrl 指向会议室 SSE 端点', () => {
   assert.equal(streamUrl('room-1'), '/api/v1/meetings/room-1/stream');
+});
+
+test('artifactDownloadUrl 指向会议产物下载端点', () => {
+  assert.equal(artifactDownloadUrl('room-1', 'art-9'), '/api/v1/meetings/room-1/artifacts/art-9/download');
 });

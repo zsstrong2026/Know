@@ -8,13 +8,23 @@ export type RoutingMode = 'host-assign' | 'mention' | 'free';
 export type ParticipantKind = 'host' | 'agent';
 // 消息发送者类型
 export type SenderKind = 'user' | 'agent' | 'host' | 'system';
+// 会议房间状态：待确认（开场流程未确认）/ 进行中 / 已归档（只读终态）
+export type MeetingStatus = 'active' | 'awaiting_confirmation' | 'archived';
+// 产物类别：solution = 评审汇总方案；generated = 用户指定形态生成
+export type ArtifactKind = 'solution' | 'generated';
+// 产物生成状态机：generating → ready | failed
+export type ArtifactStatus = 'generating' | 'ready' | 'failed';
+// 8 种产物形态（与后端 types/meeting.go 常量一致）
+export type ArtifactKindType =
+  | 'report_markdown' | 'minutes' | 'todo_list'
+  | 'docx' | 'xlsx' | 'pptx' | 'html_report' | 'chart_image';
 
 export interface MeetingRoom {
   id: string;
   title: string;
   description: string;
   // awaiting_confirmation：创建后待确认开场流程（M1 起新建会议默认进入该态）
-  status: 'active' | 'awaiting_confirmation' | 'archived';
+  status: MeetingStatus;
   broadcast_mode: BroadcastMode;
   routing_mode: RoutingMode;
   // 护栏阈值：单轮内最多允许的发言交换次数
@@ -58,16 +68,30 @@ export interface MeetingMessage {
   created_at: string;
 }
 
-// 历史方案产物（正文存于 solution_message_id 指向的消息，列表接口联查带出）
+// 会议产物（solution 与 generated 统一模型；列表接口不保证 content，详情接口带正文）
 export interface MeetingArtifact {
   id: string;
   meeting_room_id: string;
+  // solution 产物指向会议方案消息；generated 为空串
   solution_message_id: string;
   version: number;
   adopted_count: number;
   rejected_count: number;
   created_by: string;
   created_at: string;
+  kind: ArtifactKind;
+  kind_type: ArtifactKindType | '';
+  title: string;
+  requirement: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  url: string;
+  content_hash: string;
+  status: ArtifactStatus;
+  error: string;
+  // generated 产物的后台会话消息 ID（下载/详情寻址）
+  source_message_id: string;
   content: string;
 }
 
@@ -253,6 +277,34 @@ export async function deleteMeeting(roomId: string): Promise<void> {
 export async function exportArtifact(roomId: string, artifactId: string): Promise<Blob> {
   const { getDown } = await loadRequest();
   return getDown(`/api/v1/meetings/${roomId}/artifacts/${artifactId}/export`);
+}
+
+// 发起产物生成（后端 202 异步；终态经 SSE artifact.created / artifact.failed 推送）
+export async function requestArtifact(roomId: string, kindType: ArtifactKindType, title: string, requirement: string) {
+  const { post } = await loadRequest();
+  return post<{ data: MeetingArtifact }>(`/api/v1/meetings/${roomId}/artifacts`, {
+    kind_type: kindType, title, requirement,
+  }).then((r) => r.data);
+}
+
+// 按原参数重新生成（202 异步，沿用原产物行）
+export async function regenerateArtifact(roomId: string, artifactId: string) {
+  const { post } = await loadRequest();
+  return post<{ data: MeetingArtifact }>(
+    `/api/v1/meetings/${roomId}/artifacts/${artifactId}/regenerate`, {},
+  ).then((r) => r.data);
+}
+
+// 产物详情（含正文；generated 正文为生成时 agent 的最终回答）
+export async function getArtifactDetail(roomId: string, artifactId: string) {
+  const { get } = await loadRequest();
+  return get<{ data: MeetingArtifact }>(`/api/v1/meetings/${roomId}/artifacts/${artifactId}`)
+    .then((r) => r.data);
+}
+
+// generated 产物下载地址（服务端 302 到会话产物下载端点，fetch 自动跟随时携带鉴权头）
+export function artifactDownloadUrl(roomId: string, artifactId: string): string {
+  return `/api/v1/meetings/${roomId}/artifacts/${artifactId}/download`;
 }
 
 // ===== SSE 订阅 =====
