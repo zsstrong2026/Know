@@ -26,6 +26,10 @@ func RegisterMeetingRoutes(r *gin.RouterGroup, meetingHandler *handler.MeetingHa
 		meetings.POST("/:id/solution", g.OwnedMeetingOrAdmin(), meetingHandler.GenerateSolution)
 		meetings.GET("/:id/artifacts", g.OwnedMeetingOrAdmin(), meetingHandler.ListArtifacts)
 		meetings.GET("/:id/artifacts/:aid/export", g.OwnedMeetingOrAdmin(), meetingHandler.ExportArtifact)
+		meetings.POST("/:id/artifacts", g.OwnedMeetingOrAdmin(), meetingHandler.RequestArtifact)
+		meetings.GET("/:id/artifacts/:aid", g.OwnedMeetingOrAdmin(), meetingHandler.GetArtifactDetail)
+		meetings.GET("/:id/artifacts/:aid/download", g.OwnedMeetingOrAdmin(), meetingHandler.DownloadArtifact)
+		meetings.POST("/:id/artifacts/:aid/regenerate", g.OwnedMeetingOrAdmin(), meetingHandler.RegenerateArtifact)
 		meetings.POST("/:id/solution/rollback", g.OwnedMeetingOrAdmin(), meetingHandler.RollbackSolution)
 		meetings.GET("/:id/stream", g.OwnedMeetingOrAdmin(), meetingHandler.StreamMessages)
 	}

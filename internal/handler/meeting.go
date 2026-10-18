@@ -376,6 +376,92 @@ func (h *MeetingHandler) ListArtifacts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
 }
 
+type requestArtifactRequest struct {
+	KindType    string `json:"kind_type" binding:"required"`
+	Title       string `json:"title"`
+	Requirement string `json:"requirement"`
+}
+
+// writeArtifactError 产物端点统一错误映射（按服务层哨兵判等）
+func (h *MeetingHandler) writeArtifactError(c *gin.Context, err error) {
+	switch {
+	case err == service.ErrRoomArchived:
+		c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
+	case err == service.ErrArtifactBusy:
+		c.Error(errors.NewConflictError("已有产物正在生成，请稍候再试"))
+	case err == service.ErrInvalidArtifactKind, err == service.ErrNotRegenerable:
+		c.Error(errors.NewBadRequestError(err.Error()))
+	case stderrors.Is(err, apprepo.ErrMeetingRoomNotFound), stderrors.Is(err, apprepo.ErrMeetingArtifactNotFound):
+		// 会议不存在/跨租户与产物不存在统一 404：与守卫契约及读路径语义保持一致，避免回传内部错误原文
+		c.Error(errors.NewNotFoundError("meeting or artifact not found"))
+	default:
+		c.Error(errors.NewInternalServerError(err.Error()))
+	}
+}
+
+// RequestArtifact POST /api/v1/meetings/:id/artifacts —— 202 异步生成（终态经 SSE 推送）
+func (h *MeetingHandler) RequestArtifact(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	userID, _ := types.UserIDFromContext(ctx)
+	var req requestArtifactRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	a, err := h.meetingService.RequestArtifact(ctx, tenantID, c.Param("id"), userID, req.KindType, req.Title, req.Requirement)
+	if err != nil {
+		h.writeArtifactError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": a})
+}
+
+// RegenerateArtifact POST /api/v1/meetings/:id/artifacts/:aid/regenerate —— 202 按原参数重跑
+func (h *MeetingHandler) RegenerateArtifact(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	userID, _ := types.UserIDFromContext(ctx)
+	a, err := h.meetingService.RegenerateArtifact(ctx, tenantID, c.Param("id"), userID, c.Param("aid"))
+	if err != nil {
+		h.writeArtifactError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": a})
+}
+
+// GetArtifactDetail GET /api/v1/meetings/:id/artifacts/:aid —— 产物详情（含正文）
+func (h *MeetingHandler) GetArtifactDetail(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	d, err := h.meetingService.GetArtifactDetail(ctx, tenantID, c.Param("id"), c.Param("aid"))
+	if err != nil {
+		if stderrors.Is(err, apprepo.ErrMeetingArtifactNotFound) || stderrors.Is(err, apprepo.ErrMeetingRoomNotFound) {
+			c.Error(errors.NewNotFoundError("artifact not found"))
+			return
+		}
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{"meeting_id": c.Param("id")})
+		c.Error(errors.NewInternalServerError("Failed to load artifact"))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": d})
+}
+
+// DownloadArtifact GET /api/v1/meetings/:id/artifacts/:aid/download
+// —— 302 跳转既有会话产物下载端点：后台会话属主即会议创建者，
+// 鉴权/租户存储后端解析/tombstone 检查全部复用（spec §2.3 下载复用）。
+func (h *MeetingHandler) DownloadArtifact(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	location, err := h.meetingService.ResolveArtifactDownload(ctx, tenantID, c.Param("id"), c.Param("aid"))
+	if err != nil {
+		// 不可下载/源消息或文件缺失统一 404，避免泄露内部失败细节
+		c.Error(errors.NewNotFoundError("artifact not found"))
+		return
+	}
+	c.Redirect(http.StatusFound, location)
+}
+
 type rollbackSolutionRequest struct {
 	Version int `json:"version" binding:"required,min=1"`
 }
