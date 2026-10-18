@@ -80,6 +80,14 @@ type MeetingService interface {
 	ArchiveRoom(ctx context.Context, tenantID uint64, roomID string) error
 	// ExportArtifact 导出方案为 .md，返回文件名与正文（只读操作，归档房间允许导出；T6.3 实现）
 	ExportArtifact(ctx context.Context, tenantID uint64, roomID string, artifactID string) (string, string, error)
+	// RequestArtifact 发起产物生成（202 异步）：校验 + 落 generating 行 + 委托引擎后台执行
+	RequestArtifact(ctx context.Context, tenantID uint64, roomID string, userID string, kindType, title, requirement string) (*types.MeetingArtifact, error)
+	// RegenerateArtifact 按原参数重新生成指定 generated 产物（202 异步，沿用原行与版本号）
+	RegenerateArtifact(ctx context.Context, tenantID uint64, roomID string, userID string, artifactID string) (*types.MeetingArtifact, error)
+	// GetArtifactDetail 产物详情（solution 联查会议消息正文；generated 联查后台会话消息正文）
+	GetArtifactDetail(ctx context.Context, tenantID uint64, roomID string, artifactID string) (*types.MeetingArtifactDetail, error)
+	// ResolveArtifactDownload 解析 generated 产物下载跳转地址（后台会话消息的产物索引）
+	ResolveArtifactDownload(ctx context.Context, tenantID uint64, roomID string, artifactID string) (string, error)
 }
 
 // MeetingEngine 讨论引擎：同一会议同一时刻仅一个讨论轮次（Redis 锁保证）

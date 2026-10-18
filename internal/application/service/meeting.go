@@ -19,6 +19,7 @@ type meetingService struct {
 	messageRepo     interfaces.MeetingMessageRepository
 	agentRepo       interfaces.CustomAgentRepository
 	artifactRepo    interfaces.MeetingArtifactRepository
+	messageService  interfaces.MessageService // 产物详情/下载：读取后台会话消息
 	engine          interfaces.MeetingEngine
 }
 
@@ -28,12 +29,14 @@ func NewMeetingService(
 	messageRepo interfaces.MeetingMessageRepository,
 	agentRepo interfaces.CustomAgentRepository,
 	artifactRepo interfaces.MeetingArtifactRepository,
+	messageService interfaces.MessageService,
 	engine interfaces.MeetingEngine,
 ) interfaces.MeetingService {
 	return &meetingService{
 		roomRepo: roomRepo, participantRepo: participantRepo,
 		messageRepo: messageRepo, agentRepo: agentRepo,
-		artifactRepo: artifactRepo, engine: engine,
+		artifactRepo: artifactRepo, messageService: messageService,
+		engine: engine,
 	}
 }
 
@@ -402,9 +405,12 @@ func (s *meetingService) ListArtifacts(ctx context.Context, tenantID uint64, roo
 	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Version < artifacts[j].Version })
 	out := make([]*types.MeetingArtifactDetail, 0, len(artifacts))
 	for _, a := range artifacts {
+		a = types.NormalizeMeetingArtifact(a) // 历史行 kind/status 兜底
 		d := &types.MeetingArtifactDetail{MeetingArtifact: a}
-		if msg, err := s.messageRepo.GetByID(ctx, a.SolutionMessageID); err == nil {
-			d.Content = msg.Content // 正文关联失败降级为空串，不拖垮整个列表
+		if a.SolutionMessageID != "" {
+			if msg, err := s.messageRepo.GetByID(ctx, a.SolutionMessageID); err == nil {
+				d.Content = msg.Content // 正文关联失败降级为空串，不拖垮整个列表
+			}
 		}
 		out = append(out, d)
 	}
