@@ -87,6 +87,17 @@ func (f *fakeArtifactRepo) UpdateExportedFormat(_ context.Context, _ string, for
 	return nil
 }
 
+// MaxVersionByRoom 房间内已落库产物的最大版本（对齐真实仓储 MAX(version) 语义；空房回 0）
+func (f *fakeArtifactRepo) MaxVersionByRoom(_ context.Context, roomID string) (int, error) {
+	maxV := 0
+	for _, a := range f.created {
+		if a.MeetingRoomID == roomID && a.Version > maxV {
+			maxV = a.Version
+		}
+	}
+	return maxV, nil
+}
+
 // fakeSolutionMessageRepo 在 fakeMeetingMessageRepo 上补 Create 自动赋 ID（模拟 GORM BeforeCreate），
 // 使方案消息与产物/房间指针的关联断言有意义（msg.ID 非空）
 type fakeSolutionMessageRepo struct {
@@ -318,7 +329,7 @@ func TestGenerateSolutionVersioning(t *testing.T) {
 	// SSE 事件序列：solution.generating → message.created → solution.created
 	assert.Equal(t, wantEvents, eventTypes(ch))
 
-	// 第二次生成：MaxSolutionVersion 此时返回已落库的 1 → v2
+	// 第二次生成：MaxVersionByRoom 此时返回已落库产物的 1 → v2
 	msg2, err := e.GenerateSolution(ctx, room, "user-1")
 	require.NoError(t, err)
 	assert.Equal(t, 2, msg2.SolutionVersion)
@@ -332,8 +343,8 @@ func TestGenerateSolutionVersioning(t *testing.T) {
 // TestGenerateSolutionFallbackContent 方案内容可用性（T4.4 Step 3 内容断言等价覆盖）。
 // 实现现状：GenerateSolution 在主持人模型不可用时直接报错（无内部兜底文案，与 generateGuardMessage
 // 的降级路径不同），因此分两层验证：
-//  1) 无可用模型 → 干净失败，不产生消息/产物半落库状态，仅有 solution.generating 事件；
-//  2) 以固定兜底文案作为模型输出 → 方案正文非空且包含固定小节与采纳意见关键词（正文通路不丢内容）。
+//  1. 无可用模型 → 干净失败，不产生消息/产物半落库状态，仅有 solution.generating 事件；
+//  2. 以固定兜底文案作为模型输出 → 方案正文非空且包含固定小节与采纳意见关键词（正文通路不丢内容）。
 func TestGenerateSolutionFallbackContent(t *testing.T) {
 	ctx := context.Background()
 

@@ -62,7 +62,8 @@ func (e *meetingEngine) GenerateSolution(ctx context.Context, room *types.Meetin
 		return nil, fmt.Errorf("host generate solution: %w", err)
 	}
 
-	version, err := e.messageRepo.MaxSolutionVersion(ctx, room.ID)
+	// 产物行与方案消息共用 version 序列：以 meeting_artifacts 最大版本为准（UNIQUE(room_id, version)）
+	version, err := e.artifactRepo.MaxVersionByRoom(ctx, room.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -88,6 +89,8 @@ func (e *meetingEngine) GenerateSolution(ctx context.Context, room *types.Meetin
 		Version:           version,
 		AdoptedCount:      int(adoptedCount),
 		RejectedCount:     int(rejectedCount),
+		Kind:              types.MeetingArtifactKindSolution,
+		Status:            types.MeetingArtifactStatusReady,
 		CreatedBy:         userID,
 	}
 	if err := e.artifactRepo.Create(ctx, artifact); err != nil {

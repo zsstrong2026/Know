@@ -220,3 +220,17 @@ func (r *meetingArtifactRepository) UpdateExportedFormat(ctx context.Context, id
 	return r.db.WithContext(ctx).Model(&types.MeetingArtifact{}).
 		Where("id = ?", id).UpdateColumn("exported_format", format).Error
 }
+
+// Update 全量保存产物行（生成链路回写状态/文件元信息/失败原因用）
+func (r *meetingArtifactRepository) Update(ctx context.Context, a *types.MeetingArtifact) error {
+	return r.db.WithContext(ctx).Save(a).Error
+}
+
+// MaxVersionByRoom 房间内产物最大版本号；空房回 0
+func (r *meetingArtifactRepository) MaxVersionByRoom(ctx context.Context, roomID string) (int, error) {
+	var v int
+	err := r.db.WithContext(ctx).Model(&types.MeetingArtifact{}).
+		Where("meeting_room_id = ?", roomID).
+		Select("COALESCE(MAX(version), 0)").Scan(&v).Error
+	return v, err
+}

@@ -45,6 +45,9 @@ type MeetingArtifactRepository interface {
 	ListByRoom(ctx context.Context, roomID string) ([]*types.MeetingArtifact, error)
 	// UpdateExportedFormat 记录产物的导出格式（如 md）
 	UpdateExportedFormat(ctx context.Context, id string, format string) error
+	Update(ctx context.Context, a *types.MeetingArtifact) error
+	// MaxVersionByRoom 房间内产物最大版本号（solution 与 generated 共用序列，规避 UNIQUE(room,version) 冲突）
+	MaxVersionByRoom(ctx context.Context, roomID string) (int, error)
 }
 
 // MeetingService 会议室业务服务
