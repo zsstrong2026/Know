@@ -22,7 +22,7 @@ TARGETS = {
     '0.22.6': ('paradedb/paradedb:v0.22.6-pg17', None),
     '0.25.11': ('paradedb/paradedb:v0.25.11-pg17', '0.8.4'),
 }
-UPGRADES = ['000099_pg_search_0226.up.sql', '000115_pg_search_02511.up.sql']
+UPGRADES = ['000099_pg_search_0226.up.sql', '000123_pg_search_02511.up.sql']
 
 def sql(query, db='weknora'):
     p = subprocess.run(['docker', 'exec', '-i', CONTAINER, 'psql', '-X', '-qAt', '-U', 'postgres', '-d', db, '-v', 'ON_ERROR_STOP=1'], input=query, text=True, capture_output=True)

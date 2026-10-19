@@ -20,14 +20,14 @@ WeKnora 使用版本化迁移维护数据库结构，PostgreSQL 与 SQLite 分�
 
 ```text
 migrations/
-├── versioned/     # PostgreSQL/ParadeDB 版本化迁移：000000-000118 共 119 版（238 个 .up/.down.sql 文件）
-├── sqlite/        # SQLite 迁移：000000_init（压平的全量 schema）+ 000001-000036 增量版本
+├── versioned/     # PostgreSQL/ParadeDB 版本化迁移：000000-000126 共 127 版（254 个 .up/.down.sql 文件）
+├── sqlite/        # SQLite 迁移：000000_init（压平的全量 schema）+ 000001-000041 增量版本
 ├── paradedb/      # ParadeDB 附加脚本：00-init-db.sql、01-migrate-to-paradedb.sql（存量库切换）
 └── mysql/         # 00-init-db.sql，遗留的一次性 MySQL 建表脚本（未接入代码）
 ```
 
-- PostgreSQL 的 `versioned/` 从 `000000_init` 到 `000118_mcp_oauth_timestamp_tz`；
-- `sqlite/` 以 `000000_init` 作为压平后的全量初始化（JSONB→TEXT、SERIAL→AUTOINCREMENT 等方言差异已适配），其后追加增量版本（当前到 `000036_messages_attachment_lookup`），同样由 golang-migrate 顺序执行；
+- PostgreSQL 的 `versioned/` 从 `000000_init` 到 `000126_mcp_oauth_timestamp_tz`；
+- `sqlite/` 以 `000000_init` 作为压平后的全量初始化（JSONB→TEXT、SERIAL→AUTOINCREMENT 等方言差异已适配），其后追加增量版本（当前到 `000041_messages_attachment_lookup`），同样由 golang-migrate 顺序执行；
 - `uuid-ossp`、`vector`、`pg_trgm`、`pg_search` 等扩展由 `versioned/` 迁移自行创建（000000、000002）；BM25 索引使用中文 Lindera 分词器建在 `embeddings.content` 上；
 - `paradedb/00-init-db.sql` 除扩展外还含一份旧版建表语句，**没有被 compose 或代码引用**。不要把它挂成数据库 initdb 脚本：它先建出的旧表会让 `000000_init` 失败。
 
