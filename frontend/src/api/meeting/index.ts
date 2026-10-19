@@ -23,6 +23,10 @@ export interface MeetingRoom {
   id: string;
   title: string;
   description: string;
+  // 收敛后的会议主题：主持人开场澄清后落库；为空表示未澄清（沿用原始 title/description）
+  topic_brief: string;
+  // 会议级联网总闸：开启后全部参会智能体在检索知识库之外可联网搜索
+  web_search_enabled: boolean;
   // awaiting_confirmation：创建后待确认开场流程（M1 起新建会议默认进入该态）
   status: MeetingStatus;
   broadcast_mode: BroadcastMode;
@@ -117,6 +121,8 @@ export interface CreateMeetingInput {
   hostEveryNRounds: number;
   // 裁判 + 共识检测开关：默认关闭
   consensusDetectionEnabled: boolean;
+  // 会议级联网开关：默认关闭；开启后强制全部参会智能体联网（需系统已配置搜索服务）
+  webSearchEnabled: boolean;
 }
 
 // ===== 纯函数：请求体组装（便于单测，不依赖任何浏览器 API）=====
@@ -136,6 +142,7 @@ export function buildCreatePayload(input: CreateMeetingInput) {
     routing_mode: input.routingMode,
     host_every_n_rounds: input.hostEveryNRounds ?? 0,
     consensus_detection_enabled: input.consensusDetectionEnabled ?? false,
+    web_search_enabled: input.webSearchEnabled ?? false,
   };
 }
 

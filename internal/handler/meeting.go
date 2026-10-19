@@ -47,6 +47,7 @@ type createMeetingRequest struct {
 	HostEveryNRounds          int      `json:"host_every_n_rounds"`
 	ConsensusDetectionEnabled bool     `json:"consensus_detection_enabled"`
 	KnowledgeBaseIDs          []string `json:"knowledge_base_ids"`
+	WebSearchEnabled          bool     `json:"web_search_enabled"`
 	AgentIDs                  []string `json:"agent_ids" binding:"required,min=1"`
 }
 
@@ -67,6 +68,7 @@ func (h *MeetingHandler) CreateMeeting(c *gin.Context) {
 		RoutingMode: req.RoutingMode, HostEveryNRounds: req.HostEveryNRounds,
 		ConsensusDetectionEnabled: req.ConsensusDetectionEnabled,
 		KnowledgeBaseIDs:          types.StringList(req.KnowledgeBaseIDs),
+		WebSearchEnabled:          req.WebSearchEnabled,
 	}
 	created, err := h.meetingService.CreateMeeting(ctx, room, req.AgentIDs)
 	if err != nil {

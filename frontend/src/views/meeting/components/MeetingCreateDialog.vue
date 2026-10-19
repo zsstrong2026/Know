@@ -59,6 +59,10 @@
         <t-switch v-model="form.consensusDetectionEnabled" />
         <div class="routing-hint">{{ $t('meeting.consensusDetectionHint') }}</div>
       </t-form-item>
+      <t-form-item :label="$t('meeting.webSearch')">
+        <t-switch v-model="form.webSearchEnabled" />
+        <div class="routing-hint">{{ $t('meeting.webSearchHint') }}</div>
+      </t-form-item>
     </t-form>
   </t-dialog>
 </template>
@@ -91,6 +95,7 @@ const form = reactive({
   routingMode: 'host-assign' as RoutingMode,
   hostEveryNRounds: 0, // 0=主持人不介入（默认），每 N 个子轮总结并重定向
   consensusDetectionEnabled: false, // 裁判 + 共识检测开关（默认关闭）
+  webSearchEnabled: false, // 会议级联网开关（默认关闭）；开启后强制全部参会智能体联网
 });
 
 // 可选的主持人介入间隔（子轮数）；0 单独作为“不介入”选项
@@ -146,6 +151,7 @@ function resetForm() {
   form.routingMode = 'host-assign';
   form.hostEveryNRounds = 0;
   form.consensusDetectionEnabled = false;
+  form.webSearchEnabled = false;
 }
 
 async function submit() {

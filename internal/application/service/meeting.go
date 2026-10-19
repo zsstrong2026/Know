@@ -245,17 +245,35 @@ func (s *meetingService) ConfirmFlow(ctx context.Context, tenantID uint64, roomI
 
 // latestOpeningMessageID 倒序找最近一条开场消息 ID（payload.stage=opening）；无则空串
 func (s *meetingService) latestOpeningMessageID(ctx context.Context, roomID string) string {
+	if msg := s.latestOpeningMessage(ctx, roomID); msg != nil {
+		return msg.ID
+	}
+	return ""
+}
+
+// latestOpeningMessage 倒序找最近一条开场消息（payload.stage=opening）；无则 nil
+func (s *meetingService) latestOpeningMessage(ctx context.Context, roomID string) *types.MeetingMessage {
 	msgs, err := s.messageRepo.ListByRoom(ctx, roomID, "", 100)
 	if err != nil {
-		return ""
+		return nil
 	}
 	for i := len(msgs) - 1; i >= 0; i-- {
 		var p openingPayload
 		if json.Unmarshal(msgs[i].Payload, &p) == nil && p.Stage == MeetingOpeningStage {
-			return msgs[i].ID
+			return msgs[i]
 		}
 	}
-	return ""
+	return nil
+}
+
+// openingNeedsClarification 最近一条开场消息是否处于「等待用户澄清主题」态（payload.needs_clarification）
+func (s *meetingService) openingNeedsClarification(ctx context.Context, roomID string) bool {
+	msg := s.latestOpeningMessage(ctx, roomID)
+	if msg == nil {
+		return false
+	}
+	var p openingPayload
+	return json.Unmarshal(msg.Payload, &p) == nil && p.NeedsClarification
 }
 
 func (s *meetingService) SendUserMessage(ctx context.Context, tenantID uint64, roomID string, userID string, content string, mentionedAgentIDs []string, adjustFlow bool) (*types.MeetingMessage, error) {
@@ -276,8 +294,10 @@ func (s *meetingService) SendUserMessage(ctx context.Context, tenantID uint64, r
 	if err := s.messageRepo.Create(ctx, msg); err != nil {
 		return nil, err
 	}
-	// 「调整流程」：保持 awaiting_confirmation，主持人结合该意见重出开场（新的 opening 消息）
-	if adjustFlow && room.Status == types.MeetingStatusAwaitingConfirmation {
+	// 「调整流程」或「回答澄清」：保持 awaiting_confirmation，主持人结合该意见重出开场（新的 opening 消息）。
+	// 澄清态（最近开场 needs_clarification）下用户直接打字语义为「补充说明」，而非隐式确认开会。
+	if room.Status == types.MeetingStatusAwaitingConfirmation &&
+		(adjustFlow || s.openingNeedsClarification(ctx, roomID)) {
 		go func() {
 			bgCtx := logger.CloneContext(ctx)
 			defer func() {

@@ -132,6 +132,8 @@ type MeetingRoom struct {
 	CreatedBy        string `gorm:"type:varchar(36);index" json:"created_by"`
 	Title            string `gorm:"type:varchar(255)" json:"title"`
 	Description      string `gorm:"type:text" json:"description"`
+	// TopicBrief 主持人澄清后收敛的一句话主题；澄清未完成或用户跳过时为空（讨论回退到 Title+Description）
+	TopicBrief       string `gorm:"type:text" json:"topic_brief"`
 	Status           string `gorm:"type:varchar(32);default:active" json:"status"`
 	BroadcastMode    string `gorm:"type:varchar(16);default:sequential" json:"broadcast_mode"`
 	RoutingMode      string `gorm:"type:varchar(32);default:host-assign" json:"routing_mode"`
@@ -141,8 +143,10 @@ type MeetingRoom struct {
 	// 裁判 + 共识检测：开启后每个子轮结束由独立裁判判定是否收敛，收敛即落共识消息并终止讨论
 	ConsensusDetectionEnabled bool       `gorm:"default:false" json:"consensus_detection_enabled"`
 	KnowledgeBaseIDs          StringList `gorm:"type:jsonb" json:"knowledge_base_ids"`
-	CurrentSolutionMessageID  string     `gorm:"type:varchar(36)" json:"current_solution_message_id"`
-	ContextSummary            string     `gorm:"type:text" json:"context_summary"`
+	// WebSearchEnabled 会议级联网搜索总闸（默认关闭）：开启后强制全部参会智能体启用联网检索（需系统已配置搜索服务）
+	WebSearchEnabled         bool       `gorm:"default:false" json:"web_search_enabled"`
+	CurrentSolutionMessageID string     `gorm:"type:varchar(36)" json:"current_solution_message_id"`
+	ContextSummary           string     `gorm:"type:text" json:"context_summary"`
 	// ArtifactSessionID 懒创建的产物生成后台会话（空 = 尚未生成过产物）；
 	// 会话带隐藏标记不出现在聊天侧栏，属主为会议创建者
 	ArtifactSessionID string         `gorm:"type:varchar(36)" json:"artifact_session_id"`

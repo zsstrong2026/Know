@@ -96,6 +96,8 @@
                   @click="adjustMode = !adjustMode">
                   {{ $t('meeting.adjustFlow') }}
                 </t-button>
+                <!-- 澄清态：提示可在下方输入框回答，或直接「开始会议」跳过澄清 -->
+                <p v-if="needsClarification" class="opening-hint">{{ $t('meeting.clarifyHint') }}</p>
               </div>
             </div>
           </div>
@@ -125,6 +127,12 @@
         <div v-if="adjustMode" class="adjust-chip">
           <t-tag size="small" theme="warning" variant="light" closable @close="adjustMode = false">
             {{ $t('meeting.adjustFlowMode') }}
+          </t-tag>
+        </div>
+        <!-- 澄清态提示：告知用户当前输入用于补充会议主题（回答后主持人重出开场） -->
+        <div v-else-if="needsClarification" class="adjust-chip">
+          <t-tag size="small" theme="primary" variant="light">
+            {{ $t('meeting.clarifyMode') }}
           </t-tag>
         </div>
         <!-- t-textarea 的 keyup 会以组件参数回调（非原生事件），故在其外层原生 div 上监听并借冒泡触发 -->
@@ -185,8 +193,14 @@ const isAwaiting = computed(() => store.currentRoom?.status === 'awaiting_confir
 const confirming = ref(false); // 「开始会议」按钮 loading
 const adjustMode = ref(false); // 「调整流程」输入模式
 
-const inputPlaceholder = computed(() =>
-  adjustMode.value ? t('meeting.adjustFlowPlaceholder') : t('meeting.inputPlaceholder'));
+// 澄清态：待确认 + 最近开场标记 needs_clarification，此时输入框语义为「补充说明主题」
+const needsClarification = computed(() => isAwaiting.value && store.needsClarification);
+
+const inputPlaceholder = computed(() => {
+  if (adjustMode.value) return t('meeting.adjustFlowPlaceholder');
+  if (needsClarification.value) return t('meeting.clarifyPlaceholder');
+  return t('meeting.inputPlaceholder');
+});
 
 // Markdown 渲染器与结果缓存：同一消息内容未变时直接复用 HTML，避免重复 parse
 const markdownRenderer = createChatMarkdownRenderer();
@@ -602,7 +616,17 @@ async function interrupt() {
 
 .opening-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--app-space-2);
+}
+
+/* 澄清态提示：整行展示在按钮下方 */
+.opening-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--td-text-color-placeholder);
 }
 
 .adjust-chip {

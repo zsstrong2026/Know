@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import {
   listMeetings, getMeeting, listMessages, sendMessage,
@@ -17,6 +17,16 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   const consensusNotice = ref<unknown>(null); // 裁判判定收敛提示（consensus.created）
   const solutionGenerating = ref(false);  // 方案生成中（按钮 loading 用）
   const artifacts = ref<MeetingArtifact[]>([]); // 当前房间产物（solution + generated 统一）
+
+  // 最近一条开场消息是否处于「等待用户澄清主题」态（与后端 openingNeedsClarification 对齐）；
+  // 澄清态下用户直接输入语义为「补充说明」，而非隐式确认开会。
+  const needsClarification = computed(() => {
+    for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+      const p = messages.value[i].payload as { stage?: string; needs_clarification?: boolean } | null | undefined;
+      if (p?.stage === 'opening') return p.needs_clarification === true;
+    }
+    return false;
+  });
 
   async function fetchRooms(status = '') {
     rooms.value = await listMeetings(status);
@@ -49,8 +59,10 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     // 后端不会通过 SSE 回推用户自身的消息，这里本地插入返回值，避免自己发言不显示
     const msg = await sendMessage(currentRoom.value.id, content, mentionAgentIds, adjustFlow);
     appendMessage(msg);
-    // 直接打字（非调整流程）等同隐式确认：后端已置 active，同步本地状态以免待确认横幅残留到刷新
-    if (!adjustFlow && currentRoom.value.status === 'awaiting_confirmation') {
+    // 直接打字（非调整流程、非澄清回答）等同隐式确认：后端已置 active，同步本地状态以免待确认横幅残留到刷新；
+    // 澄清态下后端保持 awaiting_confirmation 并重出开场，前端不得翻转状态
+    const clarify = !adjustFlow && needsClarification.value;
+    if (!adjustFlow && !clarify && currentRoom.value.status === 'awaiting_confirmation') {
       currentRoom.value = { ...currentRoom.value, status: 'active' };
     }
   }
@@ -190,6 +202,7 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   }
 
   return { rooms, currentRoom, messages, hasMore, discussing, guardNotice, consensusNotice, solutionGenerating, artifacts,
+    needsClarification,
     fetchRooms, enterRoom, loadEarlier, speak, confirm, setReviewState, generate, rollback, applyStreamEvent, clearGuardNotice, clearConsensusNotice, leaveRoom,
     fetchArtifacts, requestArtifact, regenerateArtifact };
 });

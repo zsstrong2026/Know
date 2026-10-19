@@ -47,6 +47,39 @@ func TestOpeningPayloadMarshal(t *testing.T) {
 	b, err := jsonMarshalForTest(p)
 	assert.NoError(t, err)
 	assert.True(t, strings.Contains(string(b), `"stage":"opening"`), "got %s", string(b))
+	// 默认（needs_clarification=false）不应出现该字段，避免污染既有前端契约
+	assert.NotContains(t, string(b), "needs_clarification")
+
+	p2, err := jsonMarshalForTest(openingPayload{Stage: MeetingOpeningStage, NeedsClarification: true})
+	assert.NoError(t, err)
+	assert.Contains(t, string(p2), `"needs_clarification":true`)
+}
+
+func TestParseOpeningMarkers(t *testing.T) {
+	// 澄清标记：剥离标签 token、保留内部问题文本，并置位 needs_clarification
+	clean, brief, need := parseOpeningMarkers("## 主题分析\n背景\n## 需要澄清的问题\n<need_clarification>\n1. 目标？推荐：xxx\n</need_clarification>\n## 建议流程\n...")
+	assert.True(t, need)
+	assert.Empty(t, brief)
+	assert.Contains(t, clean, "1. 目标？推荐：xxx", "内部文本须保留")
+	assert.NotContains(t, clean, "<need_clarification>", "标记 token 须剥离")
+	assert.NotContains(t, clean, "</need_clarification>")
+
+	// 无标记：正文原样保留、不需要澄清
+	clean2, brief2, need2 := parseOpeningMarkers("## 主题分析\n明确\n## 建议流程\n...")
+	assert.False(t, need2)
+	assert.Empty(t, brief2)
+	assert.Contains(t, clean2, "## 主题分析")
+
+	// topic_brief：剥离标签并把内部一句话主题抽出，落库正文不含标记
+	clean3, brief3, need3 := parseOpeningMarkers("## 主题分析\n<topic_brief>评估 v2 发布风险</topic_brief>\n背景\n## 建议流程\n...")
+	assert.False(t, need3)
+	assert.Equal(t, "评估 v2 发布风险", brief3)
+	assert.NotContains(t, clean3, "<topic_brief>")
+	assert.Contains(t, clean3, "评估 v2 发布风险", "落库正文应保留主题一句话")
+
+	// 兜底：仅出现小节标题未见标记时也判定需要澄清
+	_, _, need4 := parseOpeningMarkers("## 需要澄清的问题\n1. 范围？")
+	assert.True(t, need4, "标题兜底应识别澄清意图")
 }
 
 func TestLatestOpeningMessageID(t *testing.T) {

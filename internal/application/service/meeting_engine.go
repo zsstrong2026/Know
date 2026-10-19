@@ -513,7 +513,7 @@ func (e *meetingEngine) isInterrupted(ctx context.Context, roomID string) bool {
 // runAgentTurn 单个智能体发言：回应 replyTo 这条消息；解析回复中的 @ 提及写入 MentionedAgentIDs
 // agent 为已加载的智能体对象（只读）
 func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoom, replyTo *types.MeetingMessage, agent *types.CustomAgent, participants []*types.MeetingParticipant) (*types.MeetingMessage, error) {
-	meetingAgent := cloneAgentForMeeting(agent)
+	meetingAgent := e.cloneAgentForMeeting(agent, room)
 	kbIDs := unionKnowledgeBaseIDs(meetingAgent.Config.KBSelectionMode, meetingAgent.Config.KnowledgeBases, room.KnowledgeBaseIDs)
 
 	// 共享上下文：最近 N 条（正序）
@@ -547,6 +547,9 @@ func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoo
 		AssistantMessageID: uuid.New().String(),
 		CustomAgent:        meetingAgent,
 		KnowledgeBaseIDs:   kbIDs,
+		// 会议级联网总闸：与 meetingAgent.Config.WebSearchEnabled 同时为真时联网工具才注册
+		// （AgentQA 侧 buildAgentConfig 为合取逻辑）
+		WebSearchEnabled: room.WebSearchEnabled,
 	}
 	if err := e.sessionService.AgentQA(ctx, req, eventBus); err != nil {
 		return nil, err
@@ -672,14 +675,15 @@ func (e *meetingEngine) clearInterrupt(ctx context.Context, roomID string) {
 
 // ---- 纯逻辑函数（单测覆盖）----
 
-// cloneAgentForMeeting 克隆智能体配置：关闭多轮（会议上下文经 query 注入），并清除会话级沙箱配置。
+// cloneAgentForMeeting 克隆智能体配置：关闭多轮（会议上下文经 query 注入）、清除会话级沙箱配置，
+// 并按会议级配置强制联网总闸、追加会议聚焦约束。
 //
 // 清空 SandboxConfigID 的原因：会议发言运行在内存态会话上（见 runAgentTurn 的伪造 Session），
 // sessions 表中并不存在该会话行；而具名沙箱（Cube/E2B/Docker）在首次解析时会执行
 // pinner.Pin 写入 sessions.sandbox_config_id，会话行缺失即返回 record not found，
 // 直接导致该智能体发言失败。会议内无持久会话，也就不存在可归属的会话级沙箱，
 // 因此这里统一不启用（与"未选择沙箱配置"的智能体行为一致）。
-func cloneAgentForMeeting(agent *types.CustomAgent) *types.CustomAgent {
+func (e *meetingEngine) cloneAgentForMeeting(agent *types.CustomAgent, room *types.MeetingRoom) *types.CustomAgent {
 	clone := *agent
 	cfg := agent.Config // 值拷贝
 	cfg.MultiTurnEnabled = false
@@ -687,9 +691,23 @@ func cloneAgentForMeeting(agent *types.CustomAgent) *types.CustomAgent {
 	// 会议级 KB 由引擎注入 req.KnowledgeBaseIDs；避免"仅@时检索"吞掉注入的 KB
 	cfg.RetrieveKBOnlyWhenMentioned = false
 	cfg.SandboxConfigID = ""
+	// 会议级联网总闸：强制参会智能体启用联网检索（AgentQA 侧还需 req.WebSearchEnabled 同为真）
+	cfg.WebSearchEnabled = room.WebSearchEnabled
+	// 会议聚焦约束：仅在智能体已解析出自定义系统提示词时追加，
+	// 避免凭空设置 SystemPrompt 反而替换掉平台默认 base 提示词（见 prompts.BuildSystemPromptSections）。
+	if base, _ := e.cfg.ResolveCustomAgentPrompts(agent); base != "" {
+		cfg.SystemPrompt = base + "\n\n" + meetingFocusSystemPrompt
+	}
 	clone.Config = cfg
 	return &clone
 }
+
+// meetingFocusSystemPrompt 会议聚焦系统约束：围绕收敛主题作答、对他人回应从简、无增量弃权
+const meetingFocusSystemPrompt = "【会议聚焦要求】你正在参加一场多人会议，请严格遵守：\n" +
+	"1. 所有发言必须围绕会议主题展开，不引入与主题无关的内容；\n" +
+	"2. 核心观点不超过 3 条，直接给出结论与理由，不做发散；\n" +
+	"3. 回应其他参会人时最多 2 条、每条不超过 30 字，并直接 @对方姓名；\n" +
+	"4. 若相较已有讨论没有新增观点（无信息增量），仅回复 PASS，不要输出其他内容。"
 
 // unionKnowledgeBaseIDs 双层并集：智能体 KB ∪ 会议级 KB
 // all 模式返回 nil（AgentQA 回退为智能体全部 KB，天然包含会议级 KB）
@@ -786,7 +804,12 @@ func filterByIDs(agents []*types.CustomAgent, ids []string) []*types.CustomAgent
 // buildMeetingQuery 把会议主题 + 共享上下文 + 参会名册 + 触发消息拼成单轮 query（MultiTurnEnabled=false）
 func buildMeetingQuery(room *types.MeetingRoom, triggerContent string, contextMsgs []*types.MeetingMessage, participants []*types.MeetingParticipant) string {
 	var b strings.Builder
-	b.WriteString("【会议主题】" + room.Title)
+	// 澄清收敛后以 TopicBrief 替代宽泛标题作为讨论主题，避免讨论发散
+	topic := room.Title
+	if strings.TrimSpace(room.TopicBrief) != "" {
+		topic = room.TopicBrief
+	}
+	b.WriteString("【会议主题】" + topic)
 	if room.Description != "" {
 		b.WriteString("\n【会议描述】" + room.Description)
 	}
@@ -808,9 +831,11 @@ func buildMeetingQuery(room *types.MeetingRoom, triggerContent string, contextMs
 		}
 	}
 	b.WriteString("\n【当前议题】" + triggerContent)
-	b.WriteString("\n请以你的身份与职责，针对当前议题发表意见，简明扼要。若需赞同或反驳其他参会人，请在该句中直接用 @对方姓名 提及。")
-	// 弃权约定：无信息增量时回 PASS，避免"为发言而发言"注水
-	b.WriteString("\n如果你相较上述讨论记录没有新增观点（无信息增量），请仅回复 PASS，不要输出任何其他内容。")
+	// 聚焦软约束：针对主题作答、回应从简、无增量弃权，抑制相互讨论中的发散
+	b.WriteString("\n请以你的身份与职责，严格围绕【会议主题】作答，不要引入与主题无关的内容：")
+	b.WriteString("\n- 核心观点不超过 3 条，直接给出结论与理由，不做发散；")
+	b.WriteString("\n- 若需赞同或反驳其他参会人，最多 2 条、每条不超过 30 字，并在该句中直接用 @对方姓名 提及；")
+	b.WriteString("\n- 若相较上述讨论记录没有新增观点（无信息增量），请仅回复 PASS，不要输出任何其他内容。")
 	return b.String()
 }
 
