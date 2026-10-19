@@ -20,6 +20,7 @@ import {
   FILE_PREVIEW_SNIFF_BYTES,
   getHighlightLang as resolveHighlightLang,
   getPreviewMimeType,
+  normalizeSvgBlob,
   prettyPrintJson,
   resolveFilePreviewExt,
   resolvePreviewKind,
@@ -452,7 +453,12 @@ async function loadPreview() {
         }
         break;
       }
-      case 'image':
+      case 'image': {
+        // SVG 需补齐 xmlns 后才能在 <img> 中渲染，其余图片直接走 blob URL。
+        const imageBlob = ft === 'svg' ? await normalizeSvgBlob(blob) : blob;
+        blobUrl.value = URL.createObjectURL(imageBlob);
+        break;
+      }
       case 'audio':
       case 'video': {
         blobUrl.value = URL.createObjectURL(blob);

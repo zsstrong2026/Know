@@ -5,6 +5,7 @@ import {
   getHighlightLang,
   getPreviewMimeType,
   isKnownPreviewableExt,
+  normalizeSvgBlob,
   prettyPrintJson,
   resolveFilePreviewExt,
   resolvePreviewKind,
@@ -16,6 +17,30 @@ test('resolveFilePreviewExt prefers explicit type and strips a leading dot', () 
   assert.equal(resolveFilePreviewExt('chart.html', '.HTML'), 'html')
   assert.equal(resolveFilePreviewExt('kb_stats.csv', ''), 'csv')
   assert.equal(resolveFilePreviewExt('noext', ''), '')
+})
+
+test('resolveFilePreviewExt maps MIME types and falls back past octet-stream', () => {
+  // blob.type MIME 值反查为扩展名
+  assert.equal(resolveFilePreviewExt('', 'image/svg+xml'), 'svg')
+  assert.equal(resolveFilePreviewExt('', 'application/pdf'), 'pdf')
+  assert.equal(resolveFilePreviewExt('', 'text/plain; charset=utf-8'), 'txt')
+  // 后端对 svg 强制 octet-stream 时回退文件名后缀
+  assert.equal(resolveFilePreviewExt('chart.svg', 'application/octet-stream'), 'svg')
+  // 文件名无后缀且 MIME 未知时交给 sniff 兜底
+  assert.equal(resolveFilePreviewExt('noext', 'application/octet-stream'), '')
+})
+
+test('normalizeSvgBlob adds the xmlns required by <img> rendering', async () => {
+  const missing = new Blob(['<svg viewBox="0 0 10 10"><rect width="10" height="10"/></svg>'], { type: 'application/octet-stream' })
+  const fixed = await normalizeSvgBlob(missing)
+  assert.equal(fixed.type, 'image/svg+xml')
+  assert.match(await fixed.text(), /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/)
+
+  const present = new Blob(['<svg xmlns="http://www.w3.org/2000/svg"></svg>'])
+  assert.equal(await normalizeSvgBlob(present), present)
+
+  const notSvg = new Blob(['plain text'])
+  assert.equal(await normalizeSvgBlob(notSvg), notSvg)
 })
 
 test('resolvePreviewKind covers office, tables, html, media, and code', () => {

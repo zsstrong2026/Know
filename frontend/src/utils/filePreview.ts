@@ -140,6 +140,13 @@ const MIME_BY_EXT: Record<string, string> = {
   mermaid: 'text/plain',
 }
 
+// MIME → 扩展名反查表（首个扩展名优先）。调用方可能直接传 blob.type
+// 这类 MIME 值（如 "image/svg+xml"），需要还原成扩展名才能查预览类型。
+const EXT_BY_MIME: Record<string, string> = {}
+for (const [ext, mime] of Object.entries(MIME_BY_EXT)) {
+  if (!(mime in EXT_BY_MIME)) EXT_BY_MIME[mime] = ext
+}
+
 const HIGHLIGHT_LANG_BY_EXT: Record<string, string> = {
   js: 'javascript',
   mjs: 'javascript',
@@ -234,17 +241,25 @@ const DEFAULT_EXT_BY_KIND: Record<FilePreviewKind, string> = {
 
 const SNIFF_BYTES = 16384
 
-/** Strip a leading dot and lowercase. Prefers an explicit type over the filename suffix. */
+/**
+ * Strip a leading dot and lowercase. Prefers an explicit extension over the
+ * filename suffix. A MIME value (e.g. blob.type like "image/svg+xml" or the
+ * SVG-neutralising "application/octet-stream") is not an extension: fall back
+ * to the filename suffix first, then map known MIMEs back to an extension.
+ */
 export function resolveFilePreviewExt(fileName?: string, fileType?: string): string {
   const normalizedType = String(fileType || '')
     .trim()
     .replace(/^\./, '')
     .toLowerCase()
-  if (normalizedType) return normalizedType
+  if (normalizedType && !normalizedType.includes('/')) return normalizedType
   const name = String(fileName || '')
   const dot = name.lastIndexOf('.')
-  if (dot < 0 || dot === name.length - 1) return ''
-  return name.slice(dot + 1).toLowerCase()
+  if (dot >= 0 && dot !== name.length - 1) return name.slice(dot + 1).toLowerCase()
+  if (normalizedType.includes('/')) {
+    return EXT_BY_MIME[normalizedType.split(';')[0].trim()] || ''
+  }
+  return ''
 }
 
 export function resolvePreviewKind(ext: string): FilePreviewKind {
@@ -409,6 +424,24 @@ export function sniffPreview(bytes: Uint8Array): FilePreviewSniff {
     return { kind: 'text', ext: 'ipynb' }
   }
   return { kind: 'text', ext: DEFAULT_EXT_BY_KIND.text }
+}
+
+/**
+ * <img> 仅渲染带 xmlns 命名空间的 SVG 文档（按 XML 严格解析），而 AI 生成的
+ * SVG 常省略该属性，导致预览空白。这里在根元素缺失 xmlns 时自动补齐；
+ * 解析失败或已带命名空间时原样返回。
+ */
+export async function normalizeSvgBlob(blob: Blob): Promise<Blob> {
+  try {
+    const text = await blob.text()
+    const head = text.slice(0, 2048)
+    if (/<svg[^>]*\sxmlns=/i.test(head)) return blob
+    const fixed = text.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"')
+    if (fixed === text) return blob
+    return new Blob([fixed], { type: 'image/svg+xml' })
+  } catch {
+    return blob
+  }
 }
 
 export { SNIFF_BYTES as FILE_PREVIEW_SNIFF_BYTES }
