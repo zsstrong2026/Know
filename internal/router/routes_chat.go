@@ -129,6 +129,9 @@ func RegisterSessionRoutes(
 		// path: the library row already carries session_id/message_id/index, and
 		// a path would have to repeat the /sessions tree under a second prefix.
 		artifacts.DELETE("", handler.DeleteLibraryArtifact)
+		// Batch delete mirrors batch download above: one body of session/message/
+		// index triples, each re-checked for ownership, per-item failures skipped.
+		artifacts.POST("/batch-delete", handler.BatchDeleteArtifacts)
 	}
 }
 

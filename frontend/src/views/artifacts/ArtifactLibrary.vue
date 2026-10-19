@@ -52,6 +52,17 @@
               <template #icon><t-icon name="download" size="16px" /></template>
               {{ $t('artifactLibrary.batchDownload') }}
             </t-button>
+            <t-button
+              variant="outline"
+              size="small"
+              class="batch-delete-btn"
+              :loading="batchDeleting"
+              :disabled="selectedKeys.size === 0"
+              @click="handleBatchDelete"
+            >
+              <template #icon><t-icon name="delete" size="16px" /></template>
+              {{ $t('artifactLibrary.batchDelete') }}
+            </t-button>
             <t-button variant="text" size="small" @click="exitSelectMode">
               {{ $t('artifactLibrary.exitSelect') }}
             </t-button>
@@ -271,6 +282,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { downloadArtifact } from '@/api/chat'
 import {
   BATCH_DOWNLOAD_LIMIT,
+  batchDeleteArtifacts,
   batchDownloadArtifacts,
   deleteArtifactLibraryItem,
   listArtifactLibrary,
@@ -318,6 +330,7 @@ const sentinel = ref<HTMLElement | null>(null)
 const selectMode = ref(false)
 const selectedKeys = reactive(new Set<string>())
 const batchDownloading = ref(false)
+const batchDeleting = ref(false)
 
 const sections = computed(() => groupArtifactsByDate(items.value))
 const allLoadedSelected = computed(
@@ -537,6 +550,53 @@ function isDeleting(item: ArtifactLibraryItem) {
   return !!deleting[itemKey(item)]
 }
 
+// 批量删除：与批量下载共用选择状态和上限，先确认再交给后端逐条删除。
+// 后端只返回真正删掉的条目，这里按返回值把行从列表中移除。
+function handleBatchDelete() {
+  const targets = items.value.filter((item) => selectedKeys.has(itemKey(item)))
+  if (!targets.length) {
+    MessagePlugin.warning(t('artifactLibrary.batchDownloadEmpty'))
+    return
+  }
+  if (targets.length > BATCH_DOWNLOAD_LIMIT) {
+    MessagePlugin.warning(t('artifactLibrary.batchDownloadTooMany', { limit: BATCH_DOWNLOAD_LIMIT }))
+    return
+  }
+  if (batchDeleting.value) return
+  confirmDelete({
+    title: t('artifactLibrary.batchDeleteTitle'),
+    body: t('artifactLibrary.batchDeleteConfirm', { count: targets.length }),
+    onConfirm: () => performBatchDelete(targets),
+  })
+}
+
+async function performBatchDelete(targets: ArtifactLibraryItem[]) {
+  batchDeleting.value = true
+  try {
+    const res = await batchDeleteArtifacts(targets)
+    // 按响应中的定位三元组移除对应行，而不是整表重载，避免丢弃滚动位置。
+    const removed = new Set((res?.data?.deleted ?? []).map((d) => `${d.message_id}:${d.index}`))
+    if (removed.size) {
+      items.value = items.value.filter((row) => !removed.has(itemKey(row)))
+      total.value = Math.max(0, total.value - removed.size)
+    }
+    const skipped = targets.length - removed.size
+    if (removed.size && skipped > 0) {
+      MessagePlugin.warning(t('artifactLibrary.batchDeletePartial', { deleted: removed.size, skipped }))
+    } else if (removed.size) {
+      MessagePlugin.success(t('artifactLibrary.batchDeleteDone', { count: removed.size }))
+    } else {
+      MessagePlugin.error(t('artifactLibrary.deleteFailed'))
+    }
+    exitSelectMode()
+  } catch (err) {
+    console.error('[ArtifactLibrary] batch delete failed:', err)
+    MessagePlugin.error(t('artifactLibrary.deleteFailed'))
+  } finally {
+    batchDeleting.value = false
+  }
+}
+
 // A library row is the file, not one regeneration of it, so the confirmation
 // says how many versions go with it. The bytes are reclaimed server side, which
 // is why this asks at all.
@@ -685,6 +745,12 @@ onBeforeUnmount(() => {
   color: var(--td-text-color-secondary);
   font-size: var(--app-text-sm);
   white-space: nowrap;
+}
+
+// 批量删除按钮与删除行内按钮一致地呈现危险色提示。
+.batch-delete-btn.t-button:not(.t-is-disabled):not(.t-is-loading):hover {
+  color: var(--td-error-color);
+  border-color: var(--td-error-color);
 }
 
 .library-main {
