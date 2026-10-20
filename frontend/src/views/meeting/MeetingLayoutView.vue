@@ -32,25 +32,25 @@
             <span>{{ room.title }}</span>
           </div>
           <div v-if="room.description" class="rc-desc">{{ room.description }}</div>
-          <!-- G1：卡片页脚只保留状态标签 + 时间，移除发言模式/路由/主持人介入三个 chip -->
+          <!-- 卡片页脚：状态标签 + 管理操作（紧随状态右侧）+ 时间，避免长标题与操作重叠 -->
           <div class="rc-foot">
             <t-tag :theme="statusTheme(room.status)" size="small" variant="light">
               {{ statusLabel(room.status) }}
             </t-tag>
+            <!-- 管理操作：紧随状态标签右侧，hover 或选中时浮现，@click.stop 阻断卡片跳转 -->
+            <div class="rc-actions" @click.stop>
+              <t-button size="small" variant="text" @click="openDetail(room)">
+                {{ $t('meeting.detail') }}
+              </t-button>
+              <t-button v-if="room.status !== 'archived'" size="small" variant="text" theme="primary"
+                @click="archive(room)">
+                {{ $t('meeting.archive') }}
+              </t-button>
+              <t-button size="small" variant="text" theme="danger" @click="remove(room)">
+                {{ $t('meeting.delete') }}
+              </t-button>
+            </div>
             <span class="rc-time">{{ formatTime(room.created_at) }}</span>
-          </div>
-          <!-- 管理操作：hover 或选中时浮现，@click.stop 阻断卡片跳转 -->
-          <div class="rc-actions" @click.stop>
-            <t-button size="small" variant="text" @click="openDetail(room)">
-              {{ $t('meeting.detail') }}
-            </t-button>
-            <t-button v-if="room.status !== 'archived'" size="small" variant="text" theme="primary"
-              @click="archive(room)">
-              {{ $t('meeting.archive') }}
-            </t-button>
-            <t-button size="small" variant="text" theme="danger" @click="remove(room)">
-              {{ $t('meeting.delete') }}
-            </t-button>
           </div>
         </div>
         <div v-if="!filteredRooms.length" class="rc-empty">
@@ -349,7 +349,6 @@ function remove(room: MeetingRoom) {
   align-items: center;
   gap: var(--app-space-1);
   min-width: 0;
-  padding-right: 76px; // 给右上角管理操作留位
   font-size: var(--app-text-base);
   font-weight: 600;
   color: var(--td-text-color-primary);
@@ -376,7 +375,8 @@ function remove(room: MeetingRoom) {
   margin-top: var(--app-space-2);
   display: flex;
   align-items: center;
-  gap: var(--app-space-2);
+  flex-wrap: wrap;
+  gap: var(--app-space-1) var(--app-space-2);
 }
 
 .rc-time {
@@ -387,13 +387,17 @@ function remove(room: MeetingRoom) {
 }
 
 .rc-actions {
-  position: absolute;
-  top: 6px;
-  right: 6px;
   display: flex;
+  align-items: center;
   gap: 0;
   opacity: 0;
   transition: opacity var(--app-motion-fast);
+
+  // 文本按钮在卡片页脚内更紧凑，避免挤占时间显示
+  :deep(.t-button) {
+    padding: 0 var(--app-space-1);
+    height: 22px;
+  }
 }
 
 /* ---------- 右侧子路由出口 ---------- */
