@@ -1,6 +1,7 @@
 <template>
   <!-- 会议室一体化页面：左侧会议卡片列表常驻，右侧为子路由出口（空态 / 会议详情） -->
-  <div class="meeting-shell">
+  <div class="meeting-shell" :class="{ 'has-references-panel': drawerVisible }"
+    :style="{ '--references-panel-width': `${drawerPanelWidth}px` }">
     <aside class="room-sidebar">
       <div class="sb-head">
         <div class="sb-title-row">
@@ -65,6 +66,9 @@
 
     <MeetingCreateDialog v-model:visible="showCreate" @created="onCreated" />
     <MeetingDetailDialog v-model:visible="showDetail" :room="detailRoom" @saved="refresh" />
+
+    <!-- 引用侧边栏：与「新对话」一致，点击引用 chip 从右侧调出原文定位 -->
+    <ChatReferencesDrawer />
   </div>
 </template>
 
@@ -77,11 +81,17 @@ import { useMeetingStore } from '@/stores/meeting';
 import { archiveMeeting, deleteMeeting, type MeetingRoom } from '@/api/meeting';
 import MeetingCreateDialog from './components/MeetingCreateDialog.vue';
 import MeetingDetailDialog from './components/MeetingDetailDialog.vue';
+import ChatReferencesDrawer from '@/components/ChatReferencesDrawer.vue';
+import { provideChatReferencesDrawer } from '@/composables/useChatReferencesDrawer';
 
 const store = useMeetingStore();
 const router = useRouter();
 const route = useRoute();
 const { t } = useI18n();
+
+// 引用侧边栏状态由布局层提供，子路由（会议室详情）内的引用点击才能取到同一实例
+const referencesDrawer = provideChatReferencesDrawer();
+const { visible: drawerVisible, panelWidth: drawerPanelWidth } = referencesDrawer;
 
 const keyword = ref('');
 const filter = ref(''); // ''=全部 / active / archived
@@ -227,6 +237,15 @@ function remove(room: MeetingRoom) {
   min-height: 0;
   display: flex;
   background: var(--td-bg-color-container);
+  transition: padding-right var(--app-motion-base);
+
+  /* 侧边栏为 fixed 定位，宽屏时给内容让位，避免引用面板遮挡对话与列表 */
+  &.has-references-panel {
+    @media (min-width: 960px) {
+      padding-right: var(--references-panel-width, 420px);
+      box-sizing: border-box;
+    }
+  }
 }
 
 /* ---------- 左侧会议卡片列表 ---------- */

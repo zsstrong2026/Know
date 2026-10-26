@@ -5,7 +5,7 @@ import {
   setCitationChunkCache,
 } from '@/utils/citationChunkCache'
 import { useChatReferencesDrawer } from '@/composables/useChatReferencesDrawer'
-import type { ReferenceHighlightTarget } from '@/utils/referenceSources'
+import type { KnowledgeReferenceLike, ReferenceHighlightTarget } from '@/utils/referenceSources'
 import { citationAnchorText } from '@/utils/citationAnchor'
 
 export type CitationFloatState = {
@@ -23,6 +23,8 @@ export type CitationFloatState = {
 type CitationPopoverOptions = {
   mode: 'chat' | 'embed'
   getKnowledgeReferences?: () => CitationKnowledgeRef[] | null | undefined
+  /** Fallback when the message carries no reference list (e.g. meeting rooms). */
+  loadReferences?: (target: ReferenceHighlightTarget) => Promise<KnowledgeReferenceLike[] | null | undefined>
   getCacheScope: () => string
   fetchChunk: (chunkId: string) => Promise<{ data?: { content?: unknown } } | undefined>
   notFoundError?: () => string
@@ -172,9 +174,18 @@ export function useCitationPopover(rootRef: Ref<HTMLElement | null>, options: Ci
     scheduleClose()
   }
 
-  const openDrawerForCitation = (payload: ReferenceHighlightTarget) => {
-    const refs = options?.getKnowledgeReferences?.() || []
-    if (!referencesDrawer || !refs.length) return false
+  // 优先使用消息自带的引用数据；无引用列表时（如会议室）按需向服务端补全
+  const openDrawerForCitation = async (payload: ReferenceHighlightTarget) => {
+    if (!referencesDrawer) return false
+    let refs = options.getKnowledgeReferences?.() || []
+    if (!refs.length && options.loadReferences) {
+      try {
+        refs = (await options.loadReferences(payload)) || []
+      } catch {
+        refs = []
+      }
+    }
+    if (!refs.length) return false
     referencesDrawer.open({
       references: refs,
       highlight: payload,
@@ -189,8 +200,9 @@ export function useCitationPopover(rootRef: Ref<HTMLElement | null>, options: Ci
       e.preventDefault()
       e.stopPropagation()
       const url = webEl.getAttribute('data-url') || ''
-      if (openDrawerForCitation({ url })) return
-      openWeb(webEl)
+      void openDrawerForCitation({ url }).then((opened) => {
+        if (!opened) openWeb(webEl)
+      })
       return
     }
 
@@ -203,8 +215,11 @@ export function useCitationPopover(rootRef: Ref<HTMLElement | null>, options: Ci
       // access to original files and keeps the reference list.
       const source = isChat ? { anchorText: citationAnchorText(kbEl), openSource: true,
         documentTitle: kbEl.getAttribute('data-doc') || '', knowledgeBaseId: kbEl.getAttribute('data-kb-id') || '' } : {}
-      if (openDrawerForCitation({ chunkId, ...source })) return
-      void openKb(kbEl)
+      // 点击即刻收起悬停浮层，避免等待引用解析期间浮层残留
+      reset()
+      void openDrawerForCitation({ chunkId, ...source }).then((opened) => {
+        if (!opened) void openKb(kbEl)
+      })
       return
     }
     if (!isChat && target.closest?.('.citation-wiki')) {

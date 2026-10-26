@@ -165,6 +165,9 @@ import type { MeetingMessage, MeetingParticipant } from '@/api/meeting';
 import { createChatMarkdownRenderer, renderChatMarkdown } from '@/utils/chatMarkdownRenderer';
 import { safeMarkdownToHTML, sanitizeMarkdownHTML } from '@/utils/security';
 import { useChatCitationPopover } from '@/composables/useChatCitationPopover';
+import { useChatReferencesDrawer } from '@/composables/useChatReferencesDrawer';
+import { getChunkByIdOnly } from '@/api/knowledge-base';
+import type { KnowledgeReferenceLike, ReferenceHighlightTarget } from '@/utils/referenceSources';
 import ChatCitationFloat from '@/components/ChatCitationFloat.vue';
 import MentionPicker from './components/MentionPicker.vue';
 import ArtifactDrawer from './ArtifactDrawer.vue';
@@ -220,9 +223,35 @@ function renderMarkdown(m: MeetingMessage): string {
   return html;
 }
 
+// 会议室消息里的引用 chip 只带 chunk id，点击时按需取回 chunk 元信息，
+// 合成侧边栏「原位视图」所需的引用对象（与「新对话」的引用结构对齐）
+async function loadCitationReferences(target: ReferenceHighlightTarget): Promise<KnowledgeReferenceLike[]> {
+  const chunkId = String(target.chunkId || '').trim();
+  if (!chunkId) return [];
+  try {
+    const res = await getChunkByIdOnly(chunkId) as { data?: Record<string, any> };
+    const data = res?.data;
+    if (!data?.knowledge_id) return [];
+    return [{
+      id: chunkId,
+      knowledge_id: data.knowledge_id,
+      knowledge_base_id: data.knowledge_base_id || target.knowledgeBaseId,
+      knowledge_title: target.documentTitle,
+      chunk_type: data.chunk_type,
+      content: data.content,
+      source_locators: data.source_locators,
+    }];
+  } catch {
+    return []; // 取不到原文时回退到悬停浮层
+  }
+}
+
 // 引用 chip 的 hover/click 交互：根容器上的事件代理，消息动态新增无需重新绑定
 const { float: citationFloat, cancelClose: cancelCitationClose, scheduleClose: scheduleCitationClose }
-  = useChatCitationPopover(scrollRef);
+  = useChatCitationPopover(scrollRef, { loadReferences: loadCitationReferences });
+
+// 切换会议时关闭引用侧边栏，避免残留上一场会议的引用
+const referencesDrawer = useChatReferencesDrawer();
 
 onMounted(() => {
   void openRoom(roomId.value);
@@ -247,6 +276,7 @@ async function openRoom(id: string) {
   closeStream?.();
   closeStream = null;
   renderCache.clear();
+  referencesDrawer?.close();
   mentions.value = [];
   draft.value = '';
   showArtifacts.value = false;
