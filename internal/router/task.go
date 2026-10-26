@@ -48,6 +48,7 @@ type AsynqTaskParams struct {
 	TemporaryDocument    interfaces.TemporaryDocumentService
 	MemoryService        interfaces.MemoryService
 	DocAssistantService  interfaces.DocAssistantService
+	PMTaskService        interfaces.PMTaskService
 	DeadLetterRepo       interfaces.TaskDeadLetterRepository
 	SpanTracker          service.SpanTracker
 }
@@ -322,6 +323,11 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 
 	// Register doc assistant document generation handler
 	mux.HandleFunc(types.TypeDocumentGenerate, params.DocAssistantService.ProcessGeneration)
+
+	// Register PM workstation generation handlers
+	mux.HandleFunc(types.TypePMPRDGenerate, params.PMTaskService.ProcessTask)
+	mux.HandleFunc(types.TypePMPrototypeGenerate, params.PMTaskService.ProcessTask)
+	mux.HandleFunc(types.TypePMMaterialGenerate, params.PMTaskService.ProcessTask)
 
 	// Run the same mux on every pool. Shared and dedicated servers intentionally
 	// overlap, but Redis dequeue is atomic, so each task still executes once.

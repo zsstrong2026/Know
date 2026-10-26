@@ -207,6 +207,15 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewDocTemplateRepository))
 	must(container.Provide(repository.NewDocTaskRepository))
 	must(container.Provide(repository.NewDocDocumentRepository))
+	// PM 工作站仓储（Task 12）
+	must(container.Provide(repository.NewPMProjectRepository))
+	must(container.Provide(repository.NewPMRequirementRepository))
+	must(container.Provide(repository.NewPMRequirementAttachmentRepository))
+	must(container.Provide(repository.NewPMVersionRepository))
+	must(container.Provide(repository.NewPMFeatureRepository))
+	must(container.Provide(repository.NewPMMaterialRepository))
+	must(container.Provide(repository.NewPMPlanBatchRepository))
+	must(container.Provide(repository.NewPMTaskRepository))
 
 	// MCP manager for managing MCP client connections
 	logger.Debugf(ctx, "[Container] Registering MCP manager...")
@@ -302,6 +311,108 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewEmbedChannelService))
 	must(container.Provide(docassistant.NewDocAssistantService, dig.As(new(interfaces.DocAssistantService))))
 	must(container.Provide(service.NewMCPEndpointService))
+
+	// PM 工作站服务（Task 12）：构造函数含未导出窄接口的，在组合根用函数包装适配；
+	// KBDir 与 DraftPolisher 属可选能力，这里注入空实现（nil 表示不启用）。
+	must(container.Provide(func() interfaces.PMKBDirService {
+		return service.NewPMKBDirService(nil)
+	}))
+	must(container.Provide(func(
+		repo interfaces.PMProjectRepository,
+		kb interfaces.KnowledgeBaseService,
+		session interfaces.SessionService,
+		dir interfaces.PMKBDirService,
+		models interfaces.ModelService,
+	) interfaces.PMProjectService {
+		return service.NewPMProjectService(repo, kb, session, dir, models)
+	}))
+	must(container.Provide(func(
+		repo interfaces.PMRequirementRepository,
+		session interfaces.SessionService,
+		batchRepo interfaces.PMPlanBatchRepository,
+		projectRepo interfaces.PMProjectRepository,
+		attachmentRepo interfaces.PMRequirementAttachmentRepository,
+		materialRepo interfaces.PMMaterialRepository,
+	) interfaces.PMRequirementService {
+		return service.NewPMRequirementService(repo, session, batchRepo, projectRepo, attachmentRepo, materialRepo)
+	}))
+	must(container.Provide(func(
+		repo interfaces.PMVersionRepository,
+		requirementRepo interfaces.PMRequirementRepository,
+		projectRepo interfaces.PMProjectRepository,
+		taskRepo interfaces.PMTaskRepository,
+		knowledge interfaces.KnowledgeService,
+		featureSvc interfaces.PMFeatureService,
+		enqueuer interfaces.TaskEnqueuer,
+		models interfaces.ModelService,
+		attachmentRepo interfaces.PMRequirementAttachmentRepository,
+	) interfaces.PMVersionService {
+		return service.NewPMVersionServiceWithDeps(service.PMVersionDeps{
+			Repo:            repo,
+			RequirementRepo: requirementRepo,
+			ProjectRepo:     projectRepo,
+			TaskRepo:        taskRepo,
+			Knowledge:       knowledge,
+			FeatureSvc:      featureSvc,
+			Enqueuer:        enqueuer,
+			Models:          models,
+			Attachments:     attachmentRepo,
+		})
+	}))
+	// 版本产物生成能力适配：PMVersionService 方法集是 runner 的超集，直接赋值即可
+	must(container.Provide(func(svc interfaces.PMVersionService) interfaces.PMVersionArtifactRunner {
+		return svc
+	}))
+	must(container.Provide(service.NewPMFeatureService))
+	// 任务服务注入资料服务作为正文回写能力（资料生成完成后写回 pm_materials.content），
+	// 并注入版本产物 runner：PRD/原型任务走逐章生成，其余任务保持模板渲染
+	must(container.Provide(func(
+		repo interfaces.PMTaskRepository,
+		materialSvc interfaces.PMMaterialService,
+		artifactRunner interfaces.PMVersionArtifactRunner,
+	) interfaces.PMTaskService {
+		return service.NewPMTaskServiceWithRunner(repo, nil, materialSvc, artifactRunner)
+	}))
+	// 项目资料：生成走 asynq（Redis 模式）或 SyncTaskExecutor（Lite 模式）
+	must(container.Provide(func(
+		repo interfaces.PMMaterialRepository,
+		versionRepo interfaces.PMVersionRepository,
+		taskRepo interfaces.PMTaskRepository,
+		enqueuer interfaces.TaskEnqueuer,
+		projectRepo interfaces.PMProjectRepository,
+		knowledge interfaces.KnowledgeService,
+		kbDir interfaces.PMKBDirService,
+	) interfaces.PMMaterialService {
+		return service.NewPMMaterialService(service.PMMaterialDeps{
+			Repo:        repo,
+			VersionRepo: versionRepo,
+			TaskRepo:    taskRepo,
+			Enqueuer:    enqueuer,
+			ProjectRepo: projectRepo,
+			Knowledge:   knowledge,
+			KBDir:       kbDir,
+		})
+	}))
+	must(container.Provide(func(
+		projectRepo interfaces.PMProjectRepository,
+		batchRepo interfaces.PMPlanBatchRepository,
+		taskRepo interfaces.PMTaskRepository,
+		knowledge interfaces.KnowledgeService,
+		featureSvc interfaces.PMFeatureService,
+		kbDir interfaces.PMKBDirService,
+		session interfaces.SessionService,
+	) interfaces.PMRoadmapService {
+		return service.NewPMRoadmapService(service.PMRoadmapDeps{
+			ProjectRepo: projectRepo,
+			BatchRepo:   batchRepo,
+			TaskRepo:    taskRepo,
+			Knowledge:   knowledge,
+			FeatureSvc:  featureSvc,
+			KBDir:       kbDir,
+			SessionSvc:  session,
+		})
+	}))
+
 	must(container.Provide(mcpserver.NewServer))
 
 	// Web search service (needed by AgentService)
@@ -615,6 +726,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewEmbedChannelHandler))
 	must(container.Provide(handler.NewMCPEndpointHandler))
 	must(container.Provide(handler.NewWeKnoraCloudHandler))
+	// PM 工作站聚合 Handler（Task 12）
+	must(container.Provide(handler.NewPMHandler))
 	logger.Debugf(ctx, "[Container] HTTP handlers registered")
 
 	// Wire the chat package's local image resolver so multimodal chat can read

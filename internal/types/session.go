@@ -265,7 +265,10 @@ func SanitizeClientSessionDescription(incoming, existing string) string {
 
 // isReservedSessionDescription 判断是否为后端保留的会话描述标记（客户端不可自行写入）
 func isReservedSessionDescription(description string) bool {
-	return IsSkillMaintenanceDescription(description) || IsMeetingArtifactSessionDescription(description)
+	return IsSkillMaintenanceDescription(description) ||
+		IsMeetingArtifactSessionDescription(description) ||
+		IsPMAnalysisSessionDescription(description) ||
+		IsPMRoadmapSessionDescription(description)
 }
 
 // SessionListQuery bundles the parameters for listing sessions.

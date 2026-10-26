@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PM 工作站 · 原型（布局确认稿）</title>
+<style>
+  /* ========== 线框原型基础样式 ========== */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f2f4f8; color: #1f2329; font-size: 13px; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 16px; }
+
+  /* 顶部栏 */
+  .topbar { background: #fff; border: 1px solid #d7dbe3; border-radius: 8px 8px 0 0; padding: 12px 16px; display: flex; align-items: center; gap: 12px; }
+  .topbar .logo { font-size: 15px; font-weight: 700; color: #3b6cff; }
+  .topbar .project-switch { border: 1px dashed #9aa2b1; border-radius: 4px; padding: 4px 10px; background: #f7f9fd; cursor: pointer; color: #5b6472; }
+  .topbar .spacer { flex: 1; }
+  .topbar .user { color: #5b6472; }
+
+  /* Tab 导航 */
+  .tabs { background: #fff; border: 1px solid #d7dbe3; border-top: none; display: flex; padding: 0 16px; gap: 4px; }
+  .tab { padding: 11px 22px; cursor: pointer; color: #5b6472; border-bottom: 2px solid transparent; font-size: 14px; }
+  .tab:hover { color: #3b6cff; }
+  .tab.active { color: #3b6cff; border-bottom-color: #3b6cff; font-weight: 700; }
+
+  /* 内容区 */
+  .content { background: #fff; border: 1px solid #d7dbe3; border-top: none; border-radius: 0 0 8px 8px; padding: 18px; min-height: 620px; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* 工具栏 */
+  .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .btn { border: 1px solid #3b6cff; color: #3b6cff; background: #fff; border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  .btn.primary { background: #3b6cff; color: #fff; }
+  .btn.ghost { border-color: #c2c8d2; color: #5b6472; }
+  .btn.active { background: #3b6cff; color: #fff; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; }
+  .filter { border: 1px solid #d7dbe3; border-radius: 4px; padding: 5px 10px; background: #fff; color: #5b6472; min-width: 90px; text-align: center; }
+
+  /* 通用表格 */
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #f4f6fa; color: #5b6472; font-weight: 600; text-align: left; padding: 8px 10px; border: 1px solid #e3e7ee; }
+  td { padding: 8px 10px; border: 1px solid #eef0f4; color: #333; }
+  tr:hover td { background: #fafbfd; }
+
+  /* 标签 / 状态 */
+  .tag { display: inline-block; border-radius: 10px; padding: 1px 9px; font-size: 12px; }
+  .tag.blue { background: #eaf2ff; color: #3b6cff; }
+  .tag.green { background: #e6f7ef; color: #16a34a; }
+  .tag.orange { background: #fff3e0; color: #ea9010; }
+  .tag.gray { background: #eef0f5; color: #5b6472; }
+  .tag.red { background: #fdecec; color: #dc2626; }
+  .op { color: #3b6cff; margin-right: 8px; cursor: pointer; }
+
+  /* 看板视图 */
+  .kanban { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; }
+  .kanban-col { min-width: 168px; flex: 1; background: #f7f8fa; border: 1px solid #e3e7ee; border-radius: 6px; padding: 8px; }
+  .kanban-col .col-head { font-weight: 700; margin-bottom: 8px; display: flex; justify-content: space-between; color: #333; }
+  .kanban-card { background: #fff; border: 1px solid #d7dbe3; border-radius: 5px; padding: 8px; margin-bottom: 8px; cursor: grab; }
+  .kanban-card .k-title { font-weight: 600; margin: 4px 0; }
+  .kanban-card .k-desc { color: #8a919f; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ========== 功能规划：批次 / 三级清单 / 可视化流程 ========== */
+  .tb-title .t { font-weight: 700; font-size: 14px; }
+  .tb-title .s { color: #8a919f; font-size: 12px; margin-top: 2px; }
+  .plan-grid { display: grid; grid-template-columns: minmax(0, 1.02fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+  .batch-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; background: #fafbfd; border: 1px solid #eef0f4; border-radius: 6px; padding: 7px 12px; }
+  .batch-bar .bk { border: 1px solid #d7dbe3; border-radius: 14px; padding: 3px 12px; background: #fff; color: #5b6472; font-size: 12px; cursor: pointer; }
+  .batch-bar .bk.on { border-color: #3b6cff; color: #3b6cff; background: #f2f6ff; font-weight: 700; }
+  .ftree { border: 1px solid #e3e7ee; border-radius: 6px; overflow: hidden; }
+  .ftree .l1 { background: #f7f9fd; font-weight: 700; padding: 8px 12px; border-bottom: 1px solid #eef0f4; display: flex; gap: 8px; align-items: center; }
+  .ftree .l1 .r { margin-left: auto; color: #8a919f; font-weight: 400; font-size: 12px; }
+  .ftree .l2 { padding: 7px 12px 7px 30px; border-bottom: 1px dashed #eef0f4; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .ftree .l2 .desc { color: #8a919f; font-size: 12px; }
+  .ftree .l2 .tag { margin-left: auto; }
+  .ftree .l3 { padding: 5px 12px 5px 50px; color: #5b6472; font-size: 13px; border-bottom: 1px dashed #f2f4f8; }
+  .ftree .l3::before { content: '· '; color: #c2c8d2; }
+  .ftree .l1:last-child, .ftree .l3:last-child { border-bottom: none; }
+  .ftree .badge-new { font-size: 11px; color: #16a34a; border: 1px solid #b7e4cc; background: #f0fbf5; border-radius: 8px; padding: 0 6px; }
+  .flow-wrap { border: 1px solid #eef0f4; border-radius: 6px; background: #fcfdff; padding: 10px; overflow: auto; display: flex; align-items: center; justify-content: center; }
+  .flow-svg { display: block; width: 100%; height: auto; min-width: 0; }
+  .flow-tools { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .flow-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; color: #8a919f; font-size: 12px; }
+  .flow-legend i { display: inline-block; width: 16px; height: 10px; margin-right: 4px; vertical-align: -1px; border: 1px solid #9fb4e8; background: #fff; border-radius: 2px; }
+  .flow-legend i.dia { width: 9px; height: 9px; transform: rotate(45deg); border-color: #e0a94a; background: #fffbea; }
+  .flow-legend i.term { border-radius: 8px; border-color: #3b6cff; background: #eef4ff; }
+
+  /* ========== 开始规划：AI 引导 ========== */
+  .plan-steps { display: flex; gap: 6px; margin-bottom: 14px; }
+  .plan-steps .st { flex: 1; border: 1px solid #e3e7ee; border-radius: 6px; padding: 8px 10px; color: #8a919f; background: #fafbfd; display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .plan-steps .st b { width: 18px; height: 18px; border-radius: 50%; background: #e3e7ee; color: #5b6472; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+  .plan-steps .st.done { color: #3b6cff; border-color: #c9d8ff; background: #f5f8ff; }
+  .plan-steps .st.done b { background: #3b6cff; color: #fff; }
+  .plan-steps .st.active { color: #3b6cff; border-color: #3b6cff; background: #eef4ff; font-weight: 700; }
+  .plan-steps .st.active b { background: #3b6cff; color: #fff; }
+  .guide-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
+  /* 左侧对话卡随右栏等高，聊天区自适应填充，输入框始终贴底 */
+  .guide-grid > .d-card:first-child { display: flex; flex-direction: column; min-height: 0; }
+  .guide-chat { padding: 12px; flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .msg { margin-bottom: 12px; display: flex; gap: 8px; }
+  .msg .avatar { width: 26px; height: 26px; border-radius: 50%; background: #eaf2ff; color: #3b6cff; font-size: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .msg .bubble { background: #f6f8fc; border: 1px solid #e3e7ee; border-radius: 6px; padding: 9px 11px; color: #333; max-width: 92%; line-height: 1.7; }
+  .msg.user { flex-direction: row-reverse; }
+  .msg.user .avatar { background: #eef0f5; color: #5b6472; }
+  .msg.user .bubble { background: #eef4ff; border-color: #c9d8ff; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { border: 1px solid #d7dbe3; border-radius: 12px; padding: 2px 10px; color: #5b6472; background: #fff; font-size: 12px; }
+  .chip.on { border-color: #3b6cff; color: #3b6cff; background: #f2f6ff; }
+  .guide-input { border-top: 1px solid #eef0f4; padding: 10px 12px; display: flex; gap: 8px; align-items: center; background: #fafbfd; border-radius: 0 0 6px 6px; }
+  .guide-input .input { flex: 1; border: 1px solid #d7dbe3; border-radius: 4px; padding: 7px 10px; color: #8a919f; background: #fff; }
+  .draft-block { border: 1px dashed #cfd5e0; border-radius: 5px; padding: 9px 10px; margin-bottom: 8px; background: #fbfcfe; }
+  .draft-block.hl { border-color: #3b6cff; background: #f5f8ff; }
+  .draft-block h5 { margin-bottom: 6px; color: #5b6472; display: flex; }
+  .draft-block h5 .r { margin-left: auto; font-weight: 400; font-size: 12px; color: #8a919f; }
+  .draft-item { padding: 3px 0; color: #333; font-size: 13px; }
+  .guide-foot { display: flex; gap: 10px; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid #e3e7ee; }
+  .guide-foot .guide-tip { color: #8a919f; font-size: 12px; }
+
+  /* 弹窗 */
+  .mask { display: none; position: fixed; inset: 0; background: rgba(31,35,41,0.35); z-index: 100; align-items: center; justify-content: center; }
+  .mask.show { display: flex; }
+  .dialog { background: #fff; border-radius: 8px; width: 720px; max-width: 92vw; max-height: 86vh; overflow: auto; padding: 20px; }
+  .dialog h3 { margin-bottom: 14px; }
+  .dialog .d-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .dialog .full { grid-column: 1 / -1; }
+  .field label { display: block; color: #5b6472; margin-bottom: 4px; font-size: 12px; }
+  .field .input { border: 1px solid #d7dbe3; border-radius: 4px; padding: 7px 10px; background: #fff; color: #5b6472; min-height: 30px; }
+  .field .input.textarea { min-height: 64px; }
+  .dialog .d-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+  .ai-area { border: 1px solid #e3e7ee; border-radius: 6px; padding: 10px; background: #f9fafe; }
+  .ai-msg { padding: 5px 0; color: #5b6472; }
+  .ai-msg b { color: #333; }
+  .result-row { display: flex; margin-bottom: 6px; align-items: flex-start; }
+  .result-row .k { width: 96px; color: #5b6472; flex-shrink: 0; }
+  .result-row .v { flex: 1; border: 1px dashed #cfd5e0; border-radius: 4px; padding: 4px 8px; min-height: 26px; background: #fff; }
+  .result-row .v.editable { background: #fffbea; border-color: #f0c674; }
+
+  /* ========== 版本详情 ========== */
+  .crumb { color: #8a919f; margin-bottom: 10px; }
+  .detail-head { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid #e3e7ee; margin-bottom: 14px; flex-wrap: wrap; }
+  .detail-head .ver-no { font-size: 18px; font-weight: 700; }
+  .detail-head .ver-name { font-size: 14px; color: #5b6472; }
+  .detail-head .ops { margin-left: auto; display: flex; gap: 8px; }
+  .detail-grid { display: grid; grid-template-columns: 280px 1fr 1fr; gap: 14px; align-items: stretch; }
+  .detail-grid .d-card { display: flex; flex-direction: column; }
+  .detail-grid .d-card .c-body { flex: 1; }
+  .d-card { border: 1px solid #e3e7ee; border-radius: 6px; }
+  .d-card .c-head { padding: 10px 12px; background: #fafbfd; border-bottom: 1px solid #eef0f4; border-radius: 6px 6px 0 0; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .d-card .c-head .r { margin-left: auto; font-weight: 400; font-size: 12px; color: #8a919f; }
+  .d-card .c-body { padding: 12px; }
+  .kv { display: flex; padding: 5px 0; }
+  .kv .k { width: 84px; flex-shrink: 0; color: #8a919f; }
+  .kv .v { flex: 1; color: #333; }
+  .outline-box { border: 1px dashed #cfd5e0; border-radius: 4px; padding: 8px; background: #fbfcfe; color: #5b6472; line-height: 1.8; }
+  .req-line { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid #eef0f4; border-radius: 4px; margin-bottom: 6px; cursor: pointer; }
+  .req-line:hover { background: #fafbfd; }
+  .req-line .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prod-line { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid #eef0f4; border-radius: 4px; margin-bottom: 8px; }
+  .prod-line .t { flex: 1; min-width: 0; }
+  .prod-line .t b { display: block; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prod-line .t .path { display: block; color: #8a919f; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .review-round { border-left: 2px solid #e3e7ee; padding: 0 0 14px 14px; position: relative; }
+  .review-round:last-child { padding-bottom: 0; }
+  .review-round::before { content: ''; position: absolute; left: -5px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: #3b6cff; }
+  .review-round .r-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .review-round .r-meta { color: #8a919f; font-size: 12px; }
+  .opinion { border: 1px solid #eef0f4; border-radius: 4px; padding: 8px 10px; margin-bottom: 6px; background: #fbfcfe; }
+  .opinion .o-top { display: flex; align-items: center; gap: 8px; }
+  .opinion .o-top .t { flex: 1; }
+  .opinion .o-sub { color: #8a919f; font-size: 12px; margin-top: 4px; }
+
+  /* 底部注释 */
+  .note { margin-top: 12px; color: #8a919f; font-size: 12px; }
+</style>
+</head>
+<body>
+<!-- 可视化流程图（symbol 复用：路线图视图 / 引导页 / 草稿缩略） -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="flow-req" viewBox="0 0 680 172">
+    <!-- 开始 -->
+    <ellipse cx="32" cy="54" rx="27" ry="15" fill="#eef4ff" stroke="#3b6cff" stroke-width="1.5"></ellipse>
+    <text x="32" y="58" font-size="11" fill="#3b6cff" text-anchor="middle">开始</text>
+    <!-- 提交需求 -->
+    <line x1="59" y1="54" x2="75" y2="54" stroke="#9fb4e8" stroke-width="1.5"></line>
+    <polygon points="75,49 75,59 83,54" fill="#9fb4e8"></polygon>
+    <rect x="83" y="36" width="76" height="36" rx="4" fill="#fff" stroke="#9fb4e8" stroke-width="1.5"></rect>
+    <text x="121" y="58" font-size="12" fill="#333" text-anchor="middle">提交需求</text>
+    <!-- AI 引导分析 -->
+    <line x1="159" y1="54" x2="175" y2="54" stroke="#9fb4e8" stroke-width="1.5"></line>
+    <polygon points="175,49 175,59 183,54" fill="#9fb4e8"></polygon>
+    <rect x="183" y="36" width="90" height="36" rx="4" fill="#fff" stroke="#9fb4e8" stroke-width="1.5"></rect>
+    <text x="228" y="58" font-size="12" fill="#333" text-anchor="middle">AI 引导分析</text>
+    <!-- 判断：产品确认 -->
+    <line x1="273" y1="54" x2="289" y2="54" stroke="#9fb4e8" stroke-width="1.5"></line>
+    <polygon points="289,49 289,59 297,54" fill="#9fb4e8"></polygon>
+    <polygon points="340,18 392,54 340,90 288,54" fill="#fffbea" stroke="#e0a94a" stroke-width="1.5"></polygon>
+    <text x="340" y="58" font-size="12" fill="#333" text-anchor="middle">产品确认</text>
+    <!-- 是 -->
+    <text x="401" y="48" font-size="11" fill="#8a919f" text-anchor="middle">是</text>
+    <line x1="392" y1="54" x2="410" y2="54" stroke="#9fb4e8" stroke-width="1.5"></line>
+    <polygon points="410,49 410,59 418,54" fill="#9fb4e8"></polygon>
+    <rect x="418" y="36" width="76" height="36" rx="4" fill="#fff" stroke="#9fb4e8" stroke-width="1.5"></rect>
+    <text x="456" y="58" font-size="12" fill="#333" text-anchor="middle">纳入版本</text>
+    <!-- 上线验证回填 -->
+    <line x1="494" y1="54" x2="510" y2="54" stroke="#9fb4e8" stroke-width="1.5"></line>
+    <polygon points="510,49 510,59 518,54" fill="#9fb4e8"></polygon>
+    <rect x="518" y="36" width="90" height="36" rx="4" fill="#fff" stroke="#9fb4e8" stroke-width="1.5"></rect>
+    <text x="563" y="58" font-size="12" fill="#333" text-anchor="middle">上线验证回填</text>
+    <!-- 结束 -->
+    <line x1="608" y1="54" x2="616" y2="54" stroke="#9fb4e8" stroke-width="1.5"></line>
+    <polygon points="616,49 616,59 622,54" fill="#9fb4e8"></polygon>
+    <ellipse cx="648" cy="54" rx="26" ry="15" fill="#eef4ff" stroke="#3b6cff" stroke-width="1.5"></ellipse>
+    <text x="648" y="58" font-size="11" fill="#3b6cff" text-anchor="middle">结束</text>
+    <!-- 否：回流补充 -->
+    <text x="349" y="112" font-size="11" fill="#8a919f">否（需补充）</text>
+    <polyline points="340,90 340,148 228,148 228,76" fill="none" stroke="#e0a94a" stroke-width="1.5" stroke-dasharray="4 3"></polyline>
+    <polygon points="223,76 233,76 228,68" fill="#e0a94a"></polygon>
+  </symbol>
+</svg>
+
+<div class="wrap">
+
+  <!-- ===================== 顶部栏 ===================== -->
+  <div class="topbar">
+    <span class="logo">PM 工作站</span>
+    <span class="project-switch">项目：启明产品 ▾</span>
+    <span class="spacer"></span>
+    <span class="user">产品经理·张 ▾</span>
+  </div>
+
+  <!-- ===================== Tab 导航 ===================== -->
+  <div class="tabs">
+    <div class="tab active" data-tab="plan">功能规划</div>
+    <div class="tab" data-tab="requirement">需求池</div>
+    <div class="tab" data-tab="version">版本管理</div>
+    <div class="tab" data-tab="feature">功能清单</div>
+    <div class="tab" data-tab="material">项目资料</div>
+  </div>
+
+  <!-- ===================== 内容区 ===================== -->
+  <div class="content">
+
+    <!-- ---------- Tab1 功能规划 ---------- -->
+    <div class="panel active" id="panel-plan">
+
+      <!-- 路线图视图 -->
+      <div id="plan-view-wrap">
+        <div class="toolbar">
+          <div class="tb-title">
+            <div class="t">产品路线图</div>
+            <div class="s">作为需求 AI 分析与 PRD 生成的上下文，可持续迭代规划</div>
+          </div>
+          <span class="spacer" style="flex:1"></span>
+          <button class="btn primary" onclick="openPlanGuide()">新增规划</button>
+          <button class="btn ghost" onclick="openPlanGuide()">重新规划</button>
+          <button class="btn ghost" onclick="openDialog('dlg-plan-history')">规划历史</button>
+        </div>
+
+        <div class="batch-bar">
+          <span style="color:#5b6472;font-size:12px;font-weight:700">规划批次</span>
+          <span class="bk on">V1.2 迭代规划</span>
+          <span class="bk">首期规划 · 2026-08-12</span>
+          <span style="color:#8a919f;font-size:12px;margin-left:6px">本次变更：新增 2 个功能点、调整 1 条流程</span>
+          <span style="flex:1"></span>
+          <span class="tag green">生效中</span>
+          <span class="op" onclick="openDialog('dlg-plan-history')">查看快照</span>
+        </div>
+
+        <div class="plan-grid">
+          <!-- 三级功能清单 -->
+          <div class="d-card">
+            <div class="c-head">核心功能清单 <span class="r">3 模块 · 9 功能点 · 首期 6 项</span></div>
+            <div class="c-body">
+              <div class="ftree">
+                <div class="l1">需求管理 <span class="r">3 功能点 · 6 操作项</span></div>
+                <div class="l2">需求录入 <span class="desc">两步表单录入，支持 AI 分析入口</span><span class="tag blue">首期</span></div>
+                <div class="l3">新建需求 · 需求批量导入</div>
+                <div class="l2">需求分析 <span class="desc">AI 引导澄清并输出设计方案</span><span class="tag blue">首期</span></div>
+                <div class="l3">AI 引导分析 · 设计方案确认</div>
+                <div class="l2">需求跟踪 <span class="desc">状态流转与需求维护</span><span class="tag blue">首期</span></div>
+                <div class="l3">状态流转 · 删除需求</div>
+
+                <div class="l1">版本管理 <span class="r">3 功能点 · 6 操作项</span></div>
+                <div class="l2">版本创建 <span class="desc">仅从已确认需求中归纳</span><span class="tag blue">首期</span></div>
+                <div class="l3">新建版本 · 需求选择</div>
+                <div class="l2">产物生成 <span class="desc">PRD / 原型生成与重新生成</span><span class="tag blue">首期</span></div>
+                <div class="l3">生成产物 · 重新生成</div>
+                <div class="l2">评审与定稿 <span class="desc">评审意见记录、版本定稿</span><span class="tag gray">后续</span></div>
+                <div class="l3">记录意见 · 定稿</div>
+
+                <div class="l1">资料中心 <span class="r">3 功能点 · 4 操作项</span></div>
+                <div class="l2">资料生成 <span class="desc">操作手册 / 宣传册 / PPT 草稿生成</span><span class="tag gray">后续</span></div>
+                <div class="l3">创建资料 · 生成草稿</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 可视化业务流程图 -->
+          <div class="d-card">
+            <div class="c-head">核心业务流程 <span class="r">3 条 · 按模块查看</span></div>
+            <div class="c-body">
+              <div class="chips" style="margin-top:0;margin-bottom:10px">
+                <span class="chip on">需求管理</span><span class="chip">版本管理</span><span class="chip">资料中心</span>
+                <span class="chip">全屏查看</span>
+              </div>
+              <div class="flow-wrap">
+                <svg class="flow-svg" viewBox="0 0 680 172"><use href="#flow-req"></use></svg>
+              </div>
+              <div class="flow-legend">
+                <span><i class="term"></i>开始 / 结束</span>
+                <span><i></i>处理节点</span>
+                <span><i class="dia"></i>判断分支</span>
+              </div>
+              <div class="note" style="margin-top:6px">流程图随规划生成，文档中以 Mermaid 代码 + 渲染图片保存。</div>
+            </div>
+          </div>
+        </div>
+        <div class="note">路线图来自最近一次规划批次；"新增规划"进入增量规划，可在此基础补充模块、功能点与流程。</div>
+      </div>
+
+      <!-- 开始规划：AI 引导视图 -->
+      <div id="plan-guide-wrap" style="display:none">
+        <div class="crumb"><span class="op" onclick="closePlanGuide()">功能规划</span> / 新增规划（AI 引导 · 增量）</div>
+        <div class="detail-head">
+          <span class="ver-no">产品路线规划</span>
+          <span class="ver-name">当前生效批次：V1.2 迭代规划，本次将在现有路线图上补充调整</span>
+          <div class="ops"><button class="btn ghost" onclick="closePlanGuide()">退出引导</button></div>
+        </div>
+
+        <div class="plan-steps" id="plan-steps">
+          <div class="st active" data-st="1"><b>1</b>项目认知</div>
+          <div class="st" data-st="2"><b>2</b>功能清单</div>
+          <div class="st" data-st="3"><b>3</b>业务流程</div>
+          <div class="st" data-st="4"><b>4</b>首期范围</div>
+          <div class="st" data-st="5"><b>5</b>确认生成</div>
+        </div>
+
+        <div class="guide-grid">
+          <!-- 左：AI 引导对话 -->
+          <div class="d-card">
+            <div class="c-head">AI 引导 <span class="r" id="guide-step-label">第 1 / 5 步 · 项目认知</span></div>
+            <div class="guide-chat" id="guide-chat">
+              <!-- 步骤 1 -->
+              <div class="guide-pane" data-pane="1">
+                <div class="msg"><div class="avatar">AI</div><div class="bubble">
+                  已读取项目 <b>PM 工作站</b> 的简介与知识库资料，初步认知如下，请确认或修正：
+                  <div class="outline-box" style="margin-top:8px">
+                    目标用户：产品经理 / 产品团队<br>
+                    核心价值：需求 → 版本 → 资料全链路一站管理<br>
+                    主要场景：需求分析、方案与原型设计、版本评审、资料更新
+                  </div>
+                  <div style="margin-top:8px">首期主要服务哪些角色？（可多选）</div>
+                  <div class="chips">
+                    <span class="chip on">产品经理</span><span class="chip on">研发团队</span>
+                    <span class="chip">测试</span><span class="chip">运营</span><span class="chip">管理层</span>
+                  </div>
+                </div></div>
+                <div class="msg user"><div class="avatar">我</div><div class="bubble">产品经理和研发团队，重点是需求到上线的闭环。</div></div>
+                <div class="msg"><div class="avatar">AI</div><div class="bubble">已记录。点击"下一步"确认项目认知，进入核心功能清单规划。</div></div>
+              </div>
+              <!-- 步骤 2 -->
+              <div class="guide-pane" data-pane="2" style="display:none">
+                <div class="msg"><div class="avatar">AI</div><div class="bubble">
+                  已在现有路线图基础上按"模块 → 功能点 → 操作项"三级生成功能清单，本次新增 <b>数据看板</b> 模块，请确认：
+                  <div class="outline-box" style="margin-top:8px">
+                    <b>需求管理</b><br>
+                    ├ 需求录入：新建需求、需求批量导入<br>
+                    ├ 需求分析：AI 引导分析、设计方案确认<br>
+                    └ 需求跟踪：状态流转、删除需求<br>
+                    <b>版本管理</b><br>
+                    ├ 版本创建：新建版本、需求选择<br>
+                    ├ 产物生成：生成产物、重新生成<br>
+                    └ 评审与定稿：记录意见、定稿<br>
+                    <b>数据看板</b> <span class="badge-new">新增</span><br>
+                    └ 规划概览：模块分布、需求趋势
+                  </div>
+                  <div class="chips">
+                    <span class="chip on">采纳三级清单</span>
+                    <span class="chip">＋ 新增模块</span>
+                    <span class="chip">＋ 新增功能点</span>
+                    <span class="chip">调整层级</span>
+                  </div>
+                  <div style="margin-top:8px;color:#8a919f;font-size:12px">功能点可补充功能描述（上限 500 字），确认后随路线图一并保存</div>
+                </div></div>
+                <div class="msg user"><div class="avatar">我</div><div class="bubble">数据看板放入后续规划，首期先保留需求管理和版本管理。</div></div>
+              </div>
+              <!-- 步骤 3 -->
+              <div class="guide-pane" data-pane="3" style="display:none">
+                <div class="msg"><div class="avatar">AI</div><div class="bubble">
+                  请确认各模块的核心业务流程，当前：<b>需求管理</b>（可视化流程图，可拖拽调整）
+                  <div class="flow-wrap" style="margin-top:8px;background:#fff">
+                    <svg class="flow-svg" viewBox="0 0 680 172"><use href="#flow-req"></use></svg>
+                  </div>
+                  <div class="flow-tools">
+                    <span class="chip">＋ 添加节点</span>
+                    <span class="chip">＋ 判断分支</span>
+                    <span class="chip">切换模块 ▾</span>
+                    <span class="chip">全屏编辑</span>
+                  </div>
+                </div></div>
+                <div class="msg user"><div class="avatar">我</div><div class="bubble">流程可以；版本管理模块需补充"评审 → 定稿"环节。</div></div>
+                <div class="msg"><div class="avatar">AI</div><div class="bubble">已加入版本管理流程图：需求归纳 → 生成 PRD/原型 → 评审 → 定稿 → 开发 → 上线。</div></div>
+              </div>
+              <!-- 步骤 4 -->
+              <div class="guide-pane" data-pane="4" style="display:none">
+                <div class="msg"><div class="avatar">AI</div><div class="bubble">
+                  请在三级清单上勾选本批次落地范围（已选 <b>6 / 9</b> 项），未勾选的功能点将标记为"后续规划"：
+                  <div class="chips" style="margin-top:8px">
+                    <span class="chip on">需求录入</span><span class="chip on">需求分析</span>
+                    <span class="chip on">需求跟踪</span><span class="chip on">版本创建</span>
+                    <span class="chip on">产物生成</span><span class="chip">评审与定稿</span>
+                    <span class="chip">资料生成</span><span class="chip">规划概览</span>
+                  </div>
+                </div></div>
+              </div>
+              <!-- 步骤 5 -->
+              <div class="guide-pane" data-pane="5" style="display:none">
+                <div class="msg"><div class="avatar">AI</div><div class="bubble">
+                  路线图已整理完成：<b>3 个模块、8 个功能点、3 条可视化流程</b>，首期范围 6 项。
+                  确认后将生成新规划批次并合并到《产品路线图》文档，作为后续需求分析、PRD 与原型生成的骨架上下文。
+                  <div class="outline-box" style="margin-top:8px">
+                    批次名称：V1.4 迭代规划（可改）<br>
+                    规划类型：迭代规划　关联版本：v1.4.0 ▾<br>
+                    文档位置：知识库 / 需求 / 产品路线图-PM工作站.md<br>
+                    历史快照：知识库 / 需求 / 规划历史 / 产品路线图-PM工作站-V1.4 迭代规划.md
+                  </div>
+                  <div class="chips"><span class="chip on">同步至功能清单</span><span class="chip">仅生成路线图文档</span></div>
+                </div></div>
+              </div>
+            </div>
+            <div class="guide-input">
+              <div class="input">输入补充说明，或点击上方快捷选项…</div>
+              <button class="btn">发送</button>
+            </div>
+          </div>
+
+          <!-- 右：路线图草稿 -->
+          <div class="d-card">
+            <div class="c-head">路线图草稿 <span class="r">实时更新</span></div>
+            <div class="c-body">
+              <div class="draft-block" id="draft-project">
+                <h5>项目认知 <span class="r">已确认</span></h5>
+                <div class="draft-item">目标用户：产品经理、研发团队</div>
+                <div class="draft-item">核心价值：需求 → 版本 → 资料全链路管理</div>
+              </div>
+              <div class="draft-block" id="draft-module">
+                <h5>核心功能清单 <span class="r">3 模块 · 8 功能点</span></h5>
+                <div class="draft-item"><b>需求管理</b> <span class="tag blue">首期</span></div>
+                <div class="draft-item" style="padding-left:14px;color:#5b6472">需求录入 · 需求分析 · 需求跟踪</div>
+                <div class="draft-item"><b>版本管理</b> <span class="tag blue">首期</span></div>
+                <div class="draft-item" style="padding-left:14px;color:#5b6472">版本创建 · 产物生成 · 评审与定稿</div>
+                <div class="draft-item"><b>资料中心</b> <span class="tag gray">后续</span></div>
+                <div class="draft-item" style="padding-left:14px;color:#5b6472">资料生成</div>
+                <div class="draft-item"><b>数据看板</b> <span class="badge-new">新增</span> <span class="tag gray">后续</span></div>
+              </div>
+              <div class="draft-block" id="draft-flow">
+                <h5>核心业务流程 <span class="r">3 条 · 可视化</span></h5>
+                <div class="flow-wrap" style="padding:4px;background:#fff">
+                  <svg class="flow-svg" viewBox="0 0 680 172"><use href="#flow-req"></use></svg>
+                </div>
+                <div class="draft-item" style="color:#8a919f;font-size:12px">当前：需求管理（点击放大编辑）</div>
+              </div>
+              <div class="draft-block" id="draft-func">
+                <h5>首期范围 <span class="r">6 / 8 项</span></h5>
+                <div class="draft-item">需求管理：需求录入、需求分析、需求跟踪</div>
+                <div class="draft-item">版本管理：版本创建、产物生成、评审与定稿</div>
+                <div class="draft-item" style="color:#8a919f">后续规划：资料生成、规划概览</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="guide-foot">
+          <button class="btn ghost" onclick="prevPlanStep()">上一步</button>
+          <button class="btn primary" id="plan-next-btn" onclick="nextPlanStep()">下一步</button>
+          <span style="flex:1"></span>
+          <span class="guide-tip">草稿自动保存，中途退出可在"开始规划"处继续</span>
+        </div>
+        <div class="note">完成规划后生成新批次并合并写入《产品路线图》文档（知识库"需求/"目录），作为需求 AI 分析、版本 PRD/原型生成的骨架上下文；增量规划保留原有内容并标记变更，历史批次快照存放在"需求/规划历史/"，可在"规划历史"中查看对比。</div>
+      </div>
+
+    </div>
+
+    <!-- ---------- Tab2 需求池 ---------- -->
+    <div class="panel" id="panel-requirement">
+      <div class="toolbar">
+        <button class="btn primary" onclick="openDialog('dlg-req-form')">＋ 新建需求</button>
+        <div style="border-left:1px solid #e3e7ee;height:20px"></div>
+        <button class="btn active" id="view-list" onclick="switchView('list')">列表视图</button>
+        <button class="btn" id="view-kanban" onclick="switchView('kanban')">看板视图</button>
+        <span class="spacer" style="flex:1"></span>
+        <div class="filters">
+          <span class="filter">搜索需求 ▾</span>
+          <span class="filter">优先级 ▾</span>
+          <span class="filter">需求状态 ▾</span>
+          <span class="filter">需求来源 ▾</span>
+          <span class="filter">价值达成 ▾</span>
+          <span class="filter">所属版本 ▾</span>
+          <span class="filter">排序：更新时间 ▾</span>
+        </div>
+      </div>
+
+      <!-- 列表视图 -->
+      <div id="view-list-wrap">
+        <table>
+          <thead><tr>
+            <th>需求标题</th><th>优先级</th><th>需求状态</th><th>需求来源</th><th>提出人</th>
+            <th>需求描述</th><th>所属版本</th><th>价值达成</th><th>更新时间</th><th>操作</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td>需求A：操作手册自动更新</td>
+              <td><span class="tag red">P0</span></td>
+              <td><span class="tag blue">已确认</span></td>
+              <td>客户反馈</td><td>张</td><td>按版本自动更新手册…</td>
+              <td>未排期</td><td>—</td><td>2026-10-20 10:12</td>
+              <td><span class="op">详情</span><span class="op">编辑</span><span class="op">AI分析</span><span class="op">删除</span></td>
+            </tr>
+            <tr>
+              <td>需求B：原型一键生成</td>
+              <td><span class="tag orange">P1</span></td>
+              <td><span class="tag green">已上线</span></td>
+              <td>内部提出</td><td>李</td><td>基于 PRD 生成交互原型…</td>
+              <td>v1.2.0</td><td><span class="tag green">达成</span></td><td>2026-10-19 15:40</td>
+              <td><span class="op">详情</span><span class="op">上线验证</span></td>
+            </tr>
+            <tr>
+              <td>需求C：评审意见跟踪</td>
+              <td><span class="tag blue">P2</span></td>
+              <td><span class="tag orange">开发中</span></td>
+              <td>数据分析</td><td>王</td><td>意见处理状态闭环…</td>
+              <td>v1.3.0</td><td>—</td><td>2026-10-18 09:20</td>
+              <td><span class="op">详情</span><span class="op">调整版本</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="note">需求支持"删除"操作：未纳入版本的需求可删除（不限状态）；已纳入版本的需求不可删除并提示。新建版本入口位于"版本管理"Tab，需求归纳仅可选择"已确认"状态的需求。版本管理中的需求变动（搁置/取消/变更）实时同步需求池的状态、所属版本与字段。</div>
+      </div>
+
+      <!-- 看板视图（按状态分列） -->
+      <div id="view-kanban-wrap" style="display:none">
+        <div class="kanban">
+          <div class="kanban-col"><div class="col-head">待分析 <span class="tag gray">2</span></div>
+            <div class="kanban-card"><span class="tag red">P0</span><div class="k-title">需求A</div><div class="k-desc">操作手册自动更新…</div></div>
+            <div class="kanban-card"><span class="tag blue">P2</span><div class="k-title">需求D</div><div class="k-desc">宣传册模板化…</div></div>
+          </div>
+          <div class="kanban-col"><div class="col-head">分析中 <span class="tag gray">0</span></div>
+          </div>
+          <div class="kanban-col"><div class="col-head">已确认 <span class="tag gray">1</span></div>
+            <div class="kanban-card"><span class="tag red">P0</span><div class="k-title">需求A</div><div class="k-desc">操作手册自动更新…</div></div>
+          </div>
+          <div class="kanban-col"><div class="col-head">已排期 <span class="tag gray">2</span></div>
+            <div class="kanban-card"><span class="tag blue">P2</span><div class="k-title">需求F</div><div class="k-desc">数据看板…</div></div>
+          </div>
+          <div class="kanban-col"><div class="col-head">开发中 <span class="tag gray">1</span></div>
+            <div class="kanban-card"><span class="tag blue">P2</span><div class="k-title">需求C</div><div class="k-desc">评审意见跟踪…</div></div>
+          </div>
+          <div class="kanban-col"><div class="col-head">已上线 <span class="tag gray">1</span></div>
+            <div class="kanban-card"><span class="tag green">已达成</span><div class="k-title">需求B</div><div class="k-desc">原型一键生成…</div></div>
+          </div>
+          <div class="kanban-col"><div class="col-head">已驳回 <span class="tag gray">1</span></div>
+            <div class="kanban-card"><span class="tag orange">P1</span><div class="k-title">需求E</div><div class="k-desc">评审搁置 · 待重新激活…</div></div>
+          </div>
+          <div class="kanban-col"><div class="col-head">已关闭 <span class="tag gray">1</span></div>
+            <div class="kanban-card"><span class="tag blue">P3</span><div class="k-title">需求G</div><div class="k-desc">已关闭…</div></div>
+          </div>
+        </div>
+        <div class="note">看板卡片支持拖拽跨列流转状态（按状态流转规则校验）；卡片内不重复展示状态。</div>
+      </div>
+    </div>
+
+    <!-- ---------- Tab3 版本管理 ---------- -->
+    <div class="panel" id="panel-version">
+
+      <!-- 版本列表 -->
+      <div id="ver-list-wrap">
+        <div class="toolbar">
+          <button class="btn primary" onclick="openDialog('dlg-ver-form')">＋ 新建版本</button>
+          <span class="spacer" style="flex:1"></span>
+          <div class="filters">
+            <span class="filter">搜索版本 ▾</span>
+            <span class="filter">版本状态 ▾</span>
+            <span class="filter">创建时间 ▾</span>
+          </div>
+        </div>
+        <table>
+          <thead><tr>
+            <th>版本号</th><th>版本名称</th><th>状态</th><th>需求数</th><th>规划日期</th>
+            <th>计划上线日</th><th>定稿日</th><th>上线日</th><th>操作</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="op" onclick="openVersionDetail()">v1.2.0</span></td><td>启明版</td>
+              <td><span class="tag green">已上线</span></td><td>6</td>
+              <td>2026-09-01</td><td>2026-10-15</td><td>2026-10-01</td><td>2026-10-12</td>
+              <td><span class="op" onclick="openVersionDetail()">详情</span></td>
+            </tr>
+            <tr>
+              <td><span class="op" onclick="openVersionDetail()">v1.3.0</span></td><td>远航版</td>
+              <td><span class="tag blue">评审中</span></td><td>8</td>
+              <td>2026-10-10</td><td>2026-11-20</td><td>2026-10-18</td><td>—</td>
+              <td><span class="op" onclick="openVersionDetail()">详情</span><span class="op">记录意见</span><span class="op">重新生成</span><span class="op">定稿</span><span class="op">搁置</span></td>
+            </tr>
+            <tr>
+              <td><span class="op" onclick="openVersionDetail()">未定稿</span></td><td>v1.4.0</td>
+              <td><span class="tag blue">评审中</span></td><td>5</td>
+              <td>2026-11-01</td><td>2026-12-15</td><td>—</td><td>—</td>
+              <td><span class="op" onclick="openVersionDetail()">详情</span><span class="op">记录意见</span><span class="op">重新生成</span><span class="op">定稿</span><span class="op">搁置</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="note">版本操作：生成 PRD/原型/功能清单、记录评审意见（结论/参会人/意见跟踪）、重新生成、定稿（前置校验评审结论）、启动开发、上线、搁置。</div>
+      </div>
+
+      <!-- 版本详情 -->
+      <div id="ver-detail-wrap" style="display:none">
+        <div class="crumb"><span class="op" onclick="backVersionList()">← 返回版本列表</span> / v1.3.0 远航版</div>
+
+        <div class="detail-head">
+          <span class="ver-no">v1.3.0</span>
+          <span class="ver-name">远航版</span>
+          <span class="tag blue">评审中</span>
+          <div class="ops">
+            <button class="btn ghost" onclick="openDialog('dlg-review')">记录意见</button>
+            <button class="btn ghost" onclick="openDialog('dlg-ver-regenerate')">重新生成</button>
+            <button class="btn ghost" onclick="openDialog('dlg-finalize')">定稿</button>
+            <button class="btn ghost">搁置</button>
+          </div>
+        </div>
+
+        <!-- 需求集合变动提示：评审中发生搁置/取消/变更后展示 -->
+        <div style="display:flex;align-items:center;gap:10px;background:#fffbea;border:1px solid #f0c674;border-radius:6px;padding:9px 12px;margin-bottom:14px">
+          <span style="color:#ea9010;font-weight:700">需求集合已变动</span>
+          <span style="color:#5b6472">需求E 已搁置、需求F 已取消，变动已同步需求池；请重新生成 PRD / 原型。</span>
+          <span class="op" style="margin-left:auto" onclick="openDialog('dlg-ver-regenerate')">立即重新生成</span>
+        </div>
+
+        <div class="detail-grid">
+          <!-- 左：版本信息 -->
+          <div class="d-card">
+            <div class="c-head">版本信息</div>
+            <div class="c-body">
+              <div class="kv"><span class="k">规划日期</span><span class="v">2026-10-10</span></div>
+              <div class="kv"><span class="k">计划上线日</span><span class="v">2026-11-20</span></div>
+              <div class="kv"><span class="k">定稿日期</span><span class="v">2026-10-18</span></div>
+              <div class="kv"><span class="k">上线日期</span><span class="v">—</span></div>
+              <div class="kv"><span class="k">版本说明</span><span class="v">本期聚焦资料中心与评审闭环</span></div>
+              <div class="kv" style="align-items:flex-start">
+                <span class="k">更新内容大纲</span>
+                <span class="v">
+                  <div class="outline-box">1. 资料中心支持版本联动更新<br>2. 评审意见处理状态闭环<br>3. 原型支持一键生成</div>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 中：需求集合 -->
+          <div class="d-card">
+            <div class="c-head">需求集合 <span class="r">共 7 个需求</span></div>
+            <div class="c-body">
+              <div class="req-line">
+                <span class="tag red">P0</span>
+                <span class="t">需求A：操作手册自动更新</span>
+                <span class="tag blue">已排期</span>
+                <span class="op" onclick="openDialog('dlg-req-cancel')">取消</span>
+                <span class="op" onclick="openDialog('dlg-req-hold')">搁置</span>
+                <span class="op" onclick="openDialog('dlg-req-change')">变更</span>
+              </div>
+              <div class="req-line">
+                <span class="tag blue">P2</span>
+                <span class="t">需求C：评审意见跟踪</span>
+                <span class="tag blue">已排期</span>
+                <span class="op" onclick="openDialog('dlg-req-cancel')">取消</span>
+                <span class="op" onclick="openDialog('dlg-req-hold')">搁置</span>
+                <span class="op" onclick="openDialog('dlg-req-change')">变更</span>
+              </div>
+              <div class="req-line">
+                <span class="tag blue">P2</span>
+                <span class="t">需求F：数据看板</span>
+                <span class="tag blue">已排期</span>
+                <span class="op" onclick="openDialog('dlg-req-cancel')">取消</span>
+                <span class="op" onclick="openDialog('dlg-req-hold')">搁置</span>
+                <span class="op" onclick="openDialog('dlg-req-change')">变更</span>
+              </div>
+              <div style="color:#8a919f;font-size:12px">需求E 已搁置（移至需求池"已驳回"）；需求F 已取消，均实时同步需求池。仅"规划中/评审中"可操作，定稿后锁定；点击需求标题可跳转需求详情。</div>
+            </div>
+          </div>
+
+          <!-- 右：产物 -->
+          <div class="d-card">
+            <div class="c-head">产物（PRD / 原型 / 功能清单） <span class="r">最近生成 10-18 16:40</span></div>
+            <div class="c-body">
+              <div class="prod-line">
+                <span class="tag blue">PRD</span>
+                <span class="t"><b>PRD-v1.3.0.md</b><span class="path">知识库 / PRD / 远航版</span></span>
+                <span class="op">查看</span><span class="op">下载</span>
+              </div>
+              <div class="prod-line">
+                <span class="tag blue">原型</span>
+                <span class="t"><b>原型-v1.3.0.html</b><span class="path">知识库 / 原型 / 远航版</span></span>
+                <span class="op">预览</span><span class="op">下载</span>
+              </div>
+              <div class="prod-line">
+                <span class="tag green">功能清单</span>
+                <span class="t"><b>已同步 8 个功能点</b><span class="path">状态：规划 · 支持查看迭代明细</span></span>
+                <span class="op">查看</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 评审记录 -->
+        <div class="d-card" style="margin-top:14px">
+          <div class="c-head">评审记录 <span class="r">2 轮 · 待处理意见 1 条</span></div>
+          <div class="c-body">
+            <div class="review-round">
+              <div class="r-head">
+                <b>第2轮</b><span class="tag green">有条件通过</span>
+                <span class="r-meta">2026-10-18 · 参会人：张 / 李 / 王</span>
+              </div>
+              <div class="opinion">
+                <div class="o-top"><span class="t">意见1：资料更新需保留旧版归档，便于回滚</span><span class="tag green">已解决</span><span class="op">修改状态</span></div>
+                <div class="o-sub">处理说明：已在资料模块增加旧版归档与回滚入口</div>
+              </div>
+              <div class="opinion">
+                <div class="o-top"><span class="t">意见2：原型首页需增加版本对比视图</span><span class="tag orange">待处理</span><span class="op">修改状态</span></div>
+                <div class="o-sub">处理说明：—</div>
+              </div>
+              <div class="r-meta">功能变更明细：资料列表新增"有新版可用"标识；原型首页增加版本对比入口</div>
+            </div>
+
+            <div class="review-round">
+              <div class="r-head">
+                <b>第1轮</b><span class="tag red">不通过</span>
+                <span class="r-meta">2026-10-15 · 参会人：张 / 李</span>
+              </div>
+              <div class="opinion">
+                <div class="o-top"><span class="t">意见1：需求集合缺少价值达成口径</span><span class="tag green">已解决</span><span class="op">修改状态</span></div>
+                <div class="o-sub">处理说明：需求详情已补充价值达成字段</div>
+              </div>
+              <div class="r-meta">功能变更明细：—</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="note">版本详情内容不可直接编辑，所有操作通过右上角按钮与弹框完成；按钮可用性随版本状态变化（规划中：生成/搁置；评审中：记录意见/重新生成/定稿/搁置；定稿：启动开发；开发中：上线）。需求集合支持对单条需求执行"取消/搁置/变更"（仅规划中/评审中，定稿后锁定），变动实时同步需求池，评审中变动后提示重新生成产物。</div>
+      </div>
+    </div>
+
+    <!-- ---------- Tab4 功能清单 ---------- -->
+    <div class="panel" id="panel-feature">
+        <div class="toolbar">
+          <button class="btn primary" onclick="openDialog('dlg-feat-form')">＋ 新增功能点</button>
+          <span class="spacer" style="flex:1"></span>
+          <div class="filters">
+            <span class="filter">搜索 ▾</span>
+            <span class="filter">迭代版本 ▾</span>
+            <span class="filter">状态 ▾</span>
+          </div>
+        </div>
+        <table>
+          <thead><tr>
+            <th>模块</th><th>功能点</th><th style="width:240px">功能描述</th><th>操作项</th><th>来源需求</th><th>迭代版本</th><th>状态</th><th>操作</th>
+          </tr></thead>
+          <tbody>
+            <tr><td rowspan="3">需求管理</td><td>需求池</td><td>列表/看板双视图查看与管理需求，按状态分组</td><td>列表/看板切换</td><td>需求A</td><td>v1.2.0</td><td><span class="tag green">已上线</span></td><td><span class="op">迭代历史</span></td></tr>
+            <tr><td>新建需求</td><td>表单录入基础信息后触发 AI 引导分析，确认后生成需求卡片</td><td>两步弹窗（表单+AI分析）</td><td>需求A</td><td>v1.2.0, v1.3.0</td><td><span class="tag orange">规划</span></td><td><span class="op">迭代历史</span><span class="op">修改</span></td></tr>
+            <tr><td>AI 分析</td><td>输出需求价值、关联影响、风险与设计方案，支持二次编辑</td><td>设计方案输出</td><td>需求E</td><td>v1.3.0</td><td><span class="tag orange">规划</span></td><td><span class="op">迭代历史</span></td></tr>
+            <tr><td rowspan="2">版本管理</td><td>评审记录</td><td>记录每轮评审结论、参会人与意见处理状态</td><td>结论/参会人/意见跟踪</td><td>需求C</td><td>v1.3.0</td><td><span class="tag orange">规划</span></td><td><span class="op">迭代历史</span></td></tr>
+            <tr><td>版本列表</td><td>按状态分组展示版本及规划、计划上线与实际上线日期</td><td>计划/实际上线日</td><td>需求F</td><td>v1.3.0</td><td><span class="tag orange">规划</span></td><td><span class="op">迭代历史</span></td></tr>
+          </tbody>
+        </table>
+        <div class="note">功能点由版本 PRD 生成时自动同步，多对多关联迭代版本，保留迭代历史（新增/变更/移除），状态按最新迭代版本联动；功能描述由 PRD 同步自动填充，新增/修改功能点时可人工编辑（上限 500 字），迭代历史记录变更前后差异。</div>
+    </div>
+
+    <!-- ---------- Tab5 项目资料 ---------- -->
+    <div class="panel" id="panel-material">
+      <div class="toolbar">
+        <button class="btn primary" onclick="openDialog('dlg-mat-form')">＋ 新建资料</button>
+        <span class="spacer" style="flex:1"></span>
+        <div class="filters">
+          <span class="filter">搜索资料 ▾</span>
+          <span class="filter">资料类型 ▾</span>
+          <span class="filter">对应版本 ▾</span>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>资料名称</th><th>资料类型</th><th>对应版本</th><th>状态</th><th>更新时间</th><th>操作</th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td>操作手册</td><td><span class="tag blue">操作手册</span></td><td>v1.2.0</td>
+            <td><span class="tag green">已发布</span></td><td>2026-10-12 18:20</td>
+            <td><span class="op">预览</span><span class="op">下载</span><span class="op tag red">有新版可用</span><span class="op">更新到最新版本</span></td>
+          </tr>
+          <tr>
+            <td>产品宣传册</td><td><span class="tag blue">宣传册</span></td><td>v1.2.0</td>
+            <td><span class="tag green">已发布</span></td><td>2026-10-12 18:30</td>
+            <td><span class="op">预览</span><span class="op">下载</span><span class="op tag red">有新版可用</span></td>
+          </tr>
+          <tr>
+            <td>产品介绍 PPT</td><td><span class="tag blue">PPT</span></td><td>v1.3.0</td>
+            <td><span class="tag orange">草稿</span></td><td>2026-10-19 11:00</td>
+            <td><span class="op">预览</span><span class="op">下载</span><span class="op">发布</span><span class="op">删除</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="note">资料先草稿后发布（操作手册转 Word、宣传册/PPT 转 PPT）；版本上线后提示"有新版可用"，更新后旧版归档保留。</div>
+    </div>
+
+  </div>
+
+  <!-- ===================== 弹窗：新建需求（表单 + AI 分析结果） ===================== -->
+  <div class="mask" id="dlg-req-form">
+    <div class="dialog">
+      <h3>新建需求</h3>
+      <div class="d-body">
+        <div class="field full"><label>需求标题 *</label><div class="input">如：操作手册自动更新</div></div>
+        <div class="field full"><label>初步想法 *（≤2000字）</label><div class="input textarea">用户对需求的最初描述…</div></div>
+        <div class="field"><label>需求来源 *</label><div class="input">内部提出 ▾（客户反馈/内部提出/数据分析/竞品分析/战略规划/其他）</div></div>
+        <div class="field"><label>提出人</label><div class="input">张（默认当前用户）</div></div>
+        <div class="field full"><label>优先级</label><div class="input">P1 ▾（可由 AI 分析后建议）</div></div>
+      </div>
+      <div class="note">必填项（需求标题/初步想法）填写完成后"AI 分析"按钮置亮；可直接点击"完成"，或先进行 AI 分析。</div>
+
+      <!-- AI 分析结果区：AI 分析完成后返回本弹窗展示，可手动修改 -->
+      <div id="req-ai-result" style="display:none;margin-top:14px;border-top:1px dashed #d7dbe3;padding-top:12px">
+        <div style="font-weight:700;margin-bottom:10px">AI 分析结果（可手动修改）</div>
+        <div class="result-row"><span class="k">需求价值</span><span class="v">降低人工维护成本，保证资料与版本同步</span></div>
+        <div class="result-row"><span class="k">关联功能影响</span><span class="v">关联功能清单"已上线"状态与版本上线事件</span></div>
+        <div class="result-row"><span class="k">风险</span><span class="v">自动替换可能覆盖人工修改，需先草稿后定稿</span></div>
+        <div class="result-row"><span class="k">建议优先级</span><span class="v editable">P1 ▾</span></div>
+        <div class="result-row"><span class="k">建议状态</span><span class="v">已确认</span></div>
+        <div class="result-row"><span class="k">具体设计方案</span><span class="v editable">版本上线 → 资料模块产生"有新版可用"徽标 → 点击"更新到最新版本"生成草稿 → 预览确认后发布，旧版归档…（可手动修改）</span></div>
+      </div>
+
+      <div class="d-foot">
+        <button class="btn ghost" onclick="closeDialog('dlg-req-form')">取消</button>
+        <button class="btn primary" onclick="closeDialog('dlg-req-form');openDialog('dlg-req-ai')">AI 分析</button>
+        <button class="btn ghost" onclick="closeDialog('dlg-req-form')">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 弹窗：AI 分析（第二步） ===================== -->
+  <div class="mask" id="dlg-req-ai">
+    <div class="dialog">
+      <h3>AI 分析 · 引导补充需求详细情况</h3>
+      <div class="ai-area">
+        <div class="ai-msg"><b>AI：</b>根据您的初步想法，想先确认几点：① 使用场景？② 目标用户？③ 与现有功能的关系？</div>
+        <div class="ai-msg"><b>你：</b>场景是版本上线后自动触发更新提示…</div>
+        <div class="ai-msg"><b>AI：</b>已基于需求现状（产品路线图 + 知识库）完成分析，请查看下方结果。</div>
+      </div>
+      <div style="margin-top:12px">
+        <div class="result-row"><span class="k">需求价值</span><span class="v">降低人工维护成本，保证资料与版本同步</span></div>
+        <div class="result-row"><span class="k">关联功能影响</span><span class="v">关联功能清单"已上线"状态与版本上线事件</span></div>
+        <div class="result-row"><span class="k">风险</span><span class="v">自动替换可能覆盖人工修改，需先草稿后定稿</span></div>
+        <div class="result-row"><span class="k">建议优先级</span><span class="v editable">P1 ▾</span></div>
+        <div class="result-row"><span class="k">建议状态</span><span class="v">已确认</span></div>
+        <div class="result-row"><span class="k">具体设计方案</span><span class="v editable">版本上线 → 资料模块产生"有新版可用"徽标 → 点击"更新到最新版本"生成草稿 → 预览确认后发布，旧版归档…（可二次编辑）</span></div>
+      </div>
+      <div class="note">分析结果与对话记录保留在弹窗内，关闭再打开不丢失；"具体设计方案"可二次编辑。</div>
+      <div class="d-foot">
+        <button class="btn ghost" onclick="closeDialog('dlg-req-ai')">关闭</button>
+        <button class="btn primary" onclick="closeDialog('dlg-req-ai');openDialog('dlg-req-form');showAiResult()">完成分析并返回</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 弹窗：新建版本 ===================== -->
+  <div class="mask" id="dlg-ver-form">
+    <div class="dialog">
+      <h3>新建版本</h3>
+      <div class="d-body">
+        <div class="field"><label>版本名称 *</label><div class="input">远航版</div></div>
+        <div class="field"><label>规划日期 *</label><div class="input">2026-11-01</div></div>
+        <div class="field"><label>计划上线日 *（须晚于规划日）</label><div class="input">2026-12-15</div></div>
+        <div class="field"><label>版本说明</label><div class="input">本期聚焦资料中心…</div></div>
+        <div class="field full"><label>需求归纳（可多选，支持按优先级筛选）</label>
+          <div style="border:1px solid #e3e7ee;border-radius:4px;padding:8px;max-height:140px;overflow:auto">
+            <div>☑ 需求A：操作手册自动更新（P0·已确认）</div>
+            <div>☑ 需求E：AI 方案评审（P1·已确认）</div>
+            <div>☐ 需求F：数据看板（P2·已确认）</div>
+          </div>
+          <div style="margin-top:6px;color:#8a919f;font-size:12px">新建版本入口仅位于"版本管理"Tab；需求归纳仅可选择"已确认"状态的需求。</div>
+        </div>
+      </div>
+      <div class="d-foot">
+        <button class="btn ghost" onclick="closeDialog('dlg-ver-form')">取消</button>
+        <button class="btn primary" onclick="closeDialog('dlg-ver-form')">创建版本（规划中）</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 弹窗：记录评审意见 ===================== -->
+  <div class="mask" id="dlg-review">
+    <div class="dialog" style="width:620px">
+      <h3>记录评审意见</h3>
+      <div class="d-body">
+        <div class="field"><label>评审轮次</label><div class="input" style="background:#f7f8fa;color:#8a919f">第 3 轮（系统自动递增）</div></div>
+        <div class="field"><label>评审结论 *</label><div class="input">○ 通过　● 有条件通过　○ 不通过</div></div>
+        <div class="field full"><label>参会人（≤100字）</label><div class="input">张 / 李 / 王</div></div>
+        <div class="field full"><label>评审意见 *（≤1000字）</label><div class="input textarea">意见1：资料更新需保留旧版归档；意见2：原型首页需增加版本对比视图</div></div>
+        <div class="field full"><label>功能变更明细（≤1000字）</label><div class="input textarea">资料列表新增"有新版可用"标识；原型首页增加版本对比入口</div></div>
+      </div>
+      <div class="d-foot">
+        <button class="btn ghost" onclick="closeDialog('dlg-review')">取消</button>
+        <button class="btn primary" onclick="closeDialog('dlg-review')">提交（版本保持评审中）</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 弹窗：需求取消（移出本版本） ===================== -->
+  <div class="mask" id="dlg-req-cancel">
+    <div class="dialog" style="width:520px">
+      <h3>取消 · 移出本版本</h3>
+      <div class="note" style="line-height:1.9">
+        将需求 <b>需求A：操作手册自动更新</b> 从 v1.3.0 移出，需求本身保留有效。取消后联动：若该需求不再关联任何版本 → 需求状态回退"已确认"、所属版本"未排期"；若仍关联其他未定稿版本 → 保持"已排期"。变动实时同步需求池。
+      </div>
+      <div class="d-foot">
+        <button class="btn ghost" onclick="closeDialog('dlg-req-cancel')">返回</button>
+        <button class="btn primary" onclick="closeDialog('dlg-req-cancel')">确认取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 弹窗：需求搁置（评审不通过） ===================== -->
+  <div class="mask" id="dlg-req-hold">
+    <div class="dialog" style="width:560px">
+      <h3>搁置 · 评审不通过</h3>
+      <div class="d-body">
+        <div class="field full"><label>搁置原因 *（≤200字，将作为需求驳回原因展示）</label><div class="input textarea">评审确认当前阶段价值不明确，暂不纳入任何版本</div></div>
+      </div>
+      <div class="note" style="line-height:1.9">
+        搁置后将执行：① 删除该需求与当前版本及<b>全部关联版本</b>的关联记录；② 需求状态置为<b>"已驳回"</b>、所属版本"未排期"，实时同步需求池；③ 后续可在需求池对该需求执行"重新激活"恢复为"待分析"。
+      </div>
+      <div class="d-foot">
+        <button class="btn ghost" onclick="closeDialog('dlg-req-hold')">返回</button>
+        <button class="btn primary" onclick="closeDialog('dlg-req-hold')">确认搁置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 弹窗：需求变更（字段 / 更换需求） ===================== -->
+  <div class="mask" id="dlg-req-change">
+    <div class="dialog" style="width:640px">
+      <h3>变更需求</h3>
+      <div class="d-body">
+        <div class="field full"><label>变更方式 *</label><div class="input">● 变更字段　○ 更换需求</div></div>
+        <div class="field"><label>优先级（变更字段时）</label><div class="input">P0 ▾（P0/P1/P2/P3）</div></div>
+        <div class="field full"><label>需求描述（变更字段时，≤2000字）</label><div class="input textarea">按版本自动更新操作手册，保留旧版归档与回滚入口…</div></div>
+        <div class="field full"><label>更换需求（更换需求时，可选项为项目"已确认"需求）</label><div class="input textarea" style="min-height:64px">☐ 需求H：数据导出（P1·已确认）<br>☐ 需求I：权限增强（P2·已确认）</div></div>
+      </div>
+      <div class="note" style="line-height:1.9">变更字段实时同步需求池对应字段；更换需求时原需求移出本版本（不再关联任何版本则回退"已确认"）、替代需求纳入并置"已排期"。评审中变更后需重新生成产物。</div>
+      <div class="d-foot">
+        <button class="btn ghost" onclick="closeDialog('dlg-req-change')">返回</button>
+        <button class="btn primary" onclick="closeDialog('dlg-req-change')">保存变更</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 弹窗：重新生成确认 ===================== -->
+  <div class="mask" id="dlg-ver-regenerate">
+    <div class="dialog" style="width:520px">
+      <h3>重新生成 PRD / 原型</h3>
+      <div class="note" style="line-height:1.9">
+        将基于最新需求集合（含搁置/取消/变更记录）与最新一轮评审意见重新生成 PRD-v2 与原型-v2，历史产物保留供对照；功能清单按最新 PRD 增量同步。生成为异步任务，完成后可查看。
+      </div>
+      <div class="d-foot">
+        <button class="btn ghost" onclick="closeDialog('dlg-ver-regenerate')">取消</button>
+        <button class="btn primary" onclick="closeDialog('dlg-ver-regenerate')">开始重新生成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 弹窗：定稿 ===================== -->
+  <div class="mask" id="dlg-finalize">
+    <div class="dialog" style="width:620px">
+      <h3>定稿</h3>
+      <div class="d-body">
+        <div class="field full"><label>版本号 *（格式 X.Y.Z）</label><div class="input">v1.3.0（系统自动生成，可人工修改）</div></div>
+        <div class="field full"><label>更新内容大纲 *（≤2000字）</label><div class="input textarea" style="min-height:96px">1. 资料中心支持版本联动更新；2. 评审意见处理状态闭环；3. 原型支持一键生成</div></div>
+      </div>
+      <div class="note" style="color:#dc2626">检测到 1 条"待处理"评审意见，可人工确认后继续定稿。定稿后版本号、需求集合、PRD/原型产物将锁定。</div>
+      <div class="d-foot">
+        <button class="btn ghost" onclick="closeDialog('dlg-finalize')">取消</button>
+        <button class="btn primary" onclick="closeDialog('dlg-finalize')">确认定稿</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 弹窗：规划历史 ===================== -->
+  <div class="mask" id="dlg-plan-history">
+    <div class="dialog" style="width:900px">
+      <h3>规划历史</h3>
+      <div class="note" style="margin-bottom:12px">每次规划形成一条批次记录，快照保存在知识库"需求/规划历史/"目录，可随时查看与对比。</div>
+      <table>
+        <thead><tr>
+          <th>批次名称</th><th>规划类型</th><th>关联版本</th><th>变更摘要</th><th>操作人 · 时间</th><th>状态</th><th>操作</th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td>V1.4 迭代规划</td>
+            <td>迭代规划</td>
+            <td>v1.4.0</td>
+            <td>新增"数据看板"模块；需求跟踪补充"价值达成"操作项</td>
+            <td>张 · 2026-10-20 16:30</td>
+            <td><span class="tag orange">草稿</span></td>
+            <td><span class="op">继续编辑</span><span class="op">查看快照</span></td>
+          </tr>
+          <tr>
+            <td>V1.2 迭代规划</td>
+            <td>迭代规划</td>
+            <td>v1.2.0</td>
+            <td>资料中心新增版本联动更新；评审意见跟踪纳入流程图</td>
+            <td>张 · 2026-10-12 14:20</td>
+            <td><span class="tag green">生效中</span></td>
+            <td><span class="op">查看快照</span></td>
+          </tr>
+          <tr>
+            <td>首期规划</td>
+            <td>首期规划</td>
+            <td>v1.0.0</td>
+            <td>建立需求管理、版本管理、资料中心三大模块骨架</td>
+            <td>张 · 2026-08-12 10:05</td>
+            <td><span class="tag gray">已归档</span></td>
+            <td><span class="op">查看快照</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="d-foot">
+        <button class="btn ghost" onclick="closeDialog('dlg-plan-history')">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 弹窗：新增功能点 ===================== -->
+  <div class="mask" id="dlg-feat-form">
+    <div class="dialog">
+      <h3>新增功能点</h3>
+      <div class="d-body">
+        <div class="field"><label>模块名称 *</label><div class="input">需求管理 ▾（可新建或选择已有）</div></div>
+        <div class="field"><label>功能点 *</label><div class="input">如：需求池</div></div>
+        <div class="field full"><label>功能描述（≤500字）</label><div class="input textarea">说明该功能点的业务价值与能力边界；PRD 自动同步时由系统填充，此处可人工补充…</div></div>
+        <div class="field"><label>操作项</label><div class="input">多个以逗号分隔</div></div>
+        <div class="field"><label>来源需求</label><div class="input">需求A ▾（已确认/已排期）</div></div>
+        <div class="field full"><label>迭代版本</label><div class="input">v1.3.0 ▾（可多选，保存后生成迭代历史）</div></div>
+      </div>
+      <div class="d-foot">
+        <button class="btn ghost" onclick="closeDialog('dlg-feat-form')">取消</button>
+        <button class="btn primary" onclick="closeDialog('dlg-feat-form')">提交</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 弹窗：新建资料 ===================== -->
+  <div class="mask" id="dlg-mat-form">
+    <div class="dialog">
+      <h3>新建资料</h3>
+      <div class="d-body">
+        <div class="field"><label>资料名称 *</label><div class="input">产品介绍 PPT</div></div>
+        <div class="field"><label>资料类型 *</label><div class="input">PPT ▾（操作手册/宣传册/PPT）</div></div>
+        <div class="field full"><label>对应版本 *（已定稿及以上）</label><div class="input">v1.3.0 ▾</div></div>
+      </div>
+      <div class="d-foot">
+        <button class="btn ghost" onclick="closeDialog('dlg-mat-form')">取消</button>
+        <button class="btn primary" onclick="closeDialog('dlg-mat-form')">创建（草稿）</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  /* ========== Tab 主切换 ========== */
+  document.querySelectorAll('.tab').forEach(function(t){
+    t.addEventListener('click', function(){
+      document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active')});
+      document.querySelectorAll('.panel').forEach(function(x){x.classList.remove('active')});
+      t.classList.add('active');
+      document.getElementById('panel-' + t.getAttribute('data-tab')).classList.add('active');
+    });
+  });
+
+  /* ========== 需求池：列表/看板切换 ========== */
+  function switchView(v){
+    document.getElementById('view-list').classList.toggle('active', v === 'list');
+    document.getElementById('view-kanban').classList.toggle('active', v === 'kanban');
+    document.getElementById('view-list-wrap').style.display = v === 'list' ? '' : 'none';
+    document.getElementById('view-kanban-wrap').style.display = v === 'kanban' ? '' : 'none';
+  }
+
+  /* ========== 弹窗开关 ========== */
+  function openDialog(id){ document.getElementById(id).classList.add('show'); }
+  function closeDialog(id){ document.getElementById(id).classList.remove('show'); }
+  document.querySelectorAll('.mask').forEach(function(m){
+    m.addEventListener('click', function(e){ if(e.target === m) m.classList.remove('show'); });
+  });
+
+  /* ========== 版本列表 ⇄ 版本详情 ========== */
+  function openVersionDetail(){
+    document.getElementById('ver-list-wrap').style.display = 'none';
+    document.getElementById('ver-detail-wrap').style.display = '';
+    document.querySelector('.content').scrollIntoView({block:'start'});
+  }
+  function backVersionList(){
+    document.getElementById('ver-detail-wrap').style.display = 'none';
+    document.getElementById('ver-list-wrap').style.display = '';
+  }
+
+  /* ========== 开始规划：AI 引导 ========== */
+  var PLAN_STEPS = ['项目认知', '功能清单', '业务流程', '首期范围', '确认生成'];
+  var planStep = 1;
+  function openPlanGuide(){
+    document.getElementById('plan-view-wrap').style.display = 'none';
+    document.getElementById('plan-guide-wrap').style.display = '';
+    planStep = 1;
+    renderPlanStep();
+    document.querySelector('.content').scrollIntoView({block:'start'});
+  }
+  function closePlanGuide(){
+    document.getElementById('plan-guide-wrap').style.display = 'none';
+    document.getElementById('plan-view-wrap').style.display = '';
+  }
+  function renderPlanStep(){
+    // 切换左侧引导内容
+    document.querySelectorAll('#plan-guide-wrap .guide-pane').forEach(function(p){
+      p.style.display = (+p.getAttribute('data-pane') === planStep) ? '' : 'none';
+    });
+    // 更新步骤条：当前高亮、已完成打勾态
+    document.querySelectorAll('#plan-steps .st').forEach(function(s){
+      var n = +s.getAttribute('data-st');
+      s.className = 'st' + (n === planStep ? ' active' : (n < planStep ? ' done' : ''));
+    });
+    document.getElementById('guide-step-label').textContent = '第 ' + planStep + ' / 5 步 · ' + PLAN_STEPS[planStep - 1];
+    document.getElementById('plan-next-btn').textContent = planStep === 5 ? '完成规划' : '下一步';
+    // 高亮右侧对应草稿区块
+    ['draft-project','draft-module','draft-flow','draft-func'].forEach(function(id){
+      document.getElementById(id).classList.remove('hl');
+    });
+    var draftMap = {1:'draft-project', 2:'draft-module', 3:'draft-flow', 4:'draft-func'};
+    if (draftMap[planStep]) document.getElementById(draftMap[planStep]).classList.add('hl');
+  }
+  function prevPlanStep(){
+    if (planStep > 1){ planStep--; renderPlanStep(); }
+  }
+  function nextPlanStep(){
+    if (planStep < 5){ planStep++; renderPlanStep(); }
+    else { finishPlan(); }
+  }
+  function finishPlan(){ closePlanGuide(); }
+
+  /* ========== AI 分析完成返回：在主弹窗展开结果区 ========== */
+  function showAiResult(){
+    document.getElementById('req-ai-result').style.display = '';
+  }
+</script>
+</body>
+</html>

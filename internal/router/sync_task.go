@@ -236,6 +236,7 @@ type SyncTaskParams struct {
 	TemporaryDocument    interfaces.TemporaryDocumentService
 	MemoryService        interfaces.MemoryService
 	DocAssistantService  interfaces.DocAssistantService
+	PMTaskService        interfaces.PMTaskService
 }
 
 // RegisterSyncHandlers registers all task handlers on the SyncTaskExecutor.
@@ -268,5 +269,8 @@ func RegisterSyncHandlers(params SyncTaskParams) {
 	params.Executor.RegisterHandler(types.TypeWikiFinalize, params.WikiIngest.Handle)
 	params.Executor.RegisterHandler(types.TypeMemoryExtract, params.MemoryService.Handle)
 	params.Executor.RegisterHandler(types.TypeDocumentGenerate, params.DocAssistantService.ProcessGeneration)
+	params.Executor.RegisterHandler(types.TypePMPRDGenerate, params.PMTaskService.ProcessTask)
+	params.Executor.RegisterHandler(types.TypePMPrototypeGenerate, params.PMTaskService.ProcessTask)
+	params.Executor.RegisterHandler(types.TypePMMaterialGenerate, params.PMTaskService.ProcessTask)
 	logger.Infof(context.Background(), "[SyncTask] All task handlers registered (Lite mode, no Redis)")
 }

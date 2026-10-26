@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PM 工作站 · 细化方案预览</title>
+<style>
+  :root {
+    --bg: #f6f7fb;
+    --card: #ffffff;
+    --ink: #1f2430;
+    --sub: #5b6472;
+    --line: #e4e7ee;
+    --primary: #3b6cff;
+    --primary-soft: #eef3ff;
+    --green: #12a150;
+    --green-soft: #e8f7ee;
+    --amber: #c98312;
+    --amber-soft: #fdf3e2;
+    --red: #d93a4c;
+    --red-soft: #fdecef;
+    --purple: #7a4fd0;
+    --purple-soft: #f1ecfb;
+    --radius: 14px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px 64px; }
+
+  /* Hero */
+  .hero {
+    background: linear-gradient(135deg, #3b6cff 0%, #6b4dff 100%);
+    color: #fff;
+    border-radius: var(--radius);
+    padding: 40px 40px 32px;
+    margin-bottom: 28px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::after {
+    content: "";
+    position: absolute;
+    right: -60px; top: -60px;
+    width: 240px; height: 240px;
+    background: rgba(255,255,255,.12);
+    border-radius: 50%;
+  }
+  .hero .tag {
+    display: inline-block;
+    background: rgba(255,255,255,.2);
+    border: 1px solid rgba(255,255,255,.35);
+    padding: 3px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    margin-bottom: 12px;
+  }
+  .hero h1 { font-size: 30px; font-weight: 700; letter-spacing: .5px; }
+  .hero p { opacity: .92; margin-top: 8px; font-size: 15px; max-width: 720px; }
+  .hero .meta { margin-top: 18px; font-size: 13px; opacity: .85; }
+
+  /* Section */
+  .section { margin-bottom: 26px; }
+  .section-title {
+    font-size: 19px;
+    font-weight: 700;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title .num {
+    width: 28px; height: 28px;
+    background: var(--primary);
+    color: #fff;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  /* Cards grid */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    transition: box-shadow .2s, transform .2s;
+  }
+  .card:hover { box-shadow: 0 6px 20px rgba(20,30,60,.08); transform: translateY(-2px); }
+  .card h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .card p { font-size: 13.5px; color: var(--sub); }
+  .badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  /* Flow */
+  .flow {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    overflow-x: auto;
+  }
+  .flow-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 1000px;
+  }
+  .flow-node {
+    background: var(--primary-soft);
+    color: var(--primary);
+    border: 1px solid #d6e2ff;
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-size: 13.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    text-align: center;
+  }
+  .flow-node.active { background: var(--primary); color: #fff; }
+  .flow-node.done { background: var(--green-soft); color: var(--green); border-color: #bfe8cf; }
+  .flow-node.mid { background: var(--amber-soft); color: var(--amber); border-color: #f2ddb4; }
+  .flow-arrow { color: var(--sub); font-size: 14px; flex-shrink: 0; }
+
+  /* Table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--card);
+    border-radius: var(--radius);
+    overflow: hidden;
+    font-size: 13.5px;
+    border: 1px solid var(--line);
+  }
+  th {
+    background: #f2f4f9;
+    text-align: left;
+    padding: 10px 14px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 14px;
+    border-bottom: 1px solid #eef0f5;
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  code {
+    background: #eef1f6;
+    padding: 1px 7px;
+    border-radius: 5px;
+    font-size: 12.5px;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    color: #33415e;
+  }
+
+  /* State machine */
+  .state-group { display: flex; flex-wrap: wrap; gap: 10px; }
+  .state-item {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 13px;
+    flex: 1;
+    min-width: 200px;
+  }
+  .state-item b { display: block; font-size: 14px; margin-bottom: 4px; }
+  .state-item span { color: var(--sub); font-size: 12.5px; }
+
+  /* Two col */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+
+  .pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .pill-p0 { background: var(--red-soft); color: var(--red); }
+  .pill-p1 { background: var(--amber-soft); color: var(--amber); }
+  .pill-p2 { background: var(--primary-soft); color: var(--primary); }
+  .pill-p3 { background: #eef0f5; color: var(--sub); }
+
+  .footer {
+    text-align: center;
+    color: var(--sub);
+    font-size: 13px;
+    margin-top: 36px;
+    border-top: 1px solid var(--line);
+    padding-top: 18px;
+  }
+  .link-btn {
+    display: inline-block;
+    background: var(--primary);
+    color: #fff;
+    text-decoration: none;
+    padding: 8px 18px;
+    border-radius: 9px;
+    font-size: 14px;
+    font-weight: 600;
+    margin-top: 14px;
+  }
+  .link-btn:hover { background: #2f59e0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Hero -->
+  <div class="hero">
+    <span class="tag">WeKnora 内嵌模块 · 细化方案评审稿 v1.3</span>
+    <h1>PM 工作站 · 产品需求一站式管理</h1>
+    <p>覆盖产品的方案规划、需求维护、方案及原型设计、产品版本维护，以及操作手册、宣传册、PPT 的自动更新，形成"需求 → 版本 → 功能清单 → 项目资料"完整闭环。</p>
+    <div class="meta">方案日期：2026-10-20 ｜ 单人起步（预留多人升级） ｜ 数据：pm_* 业务表 + 产物文档存关联知识库</div>
+  </div>
+
+  <!-- 1 核心流程闭环 -->
+  <div class="section">
+    <div class="section-title"><span class="num">1</span>核心流程闭环</div>
+    <div class="flow">
+      <div class="flow-row">
+        <div class="flow-node done">创建项目<br><small style="font-weight:400">动态建知识库 · 建PM会话</small></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node mid">功能规划<br><small style="font-weight:400">持续规划 · 批次与快照</small></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node done">需求池<br><small style="font-weight:400">列表/看板 · 表单+AI分析含设计方案</small></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node active">版本管理<br><small style="font-weight:400">PRD/原型生成 · 评审结论 · 定稿</small></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node done">功能清单<br><small style="font-weight:400">PRD/路线图双来源 · 多对多迭代联动</small></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node done">项目资料<br><small style="font-weight:400">手册/宣传册/PPT · 更新提示</small></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2 数据模型 -->
+  <div class="section">
+    <div class="section-title"><span class="num">2</span>数据模型（pm_* 表）</div>
+    <table>
+      <tr><th>表</th><th>关键字段</th></tr>
+      <tr><td><code>pm_projects</code></td><td>名称、描述、<code>kb_id</code>（1:1 知识库）、状态（活跃/归档）、负责人</td></tr>
+      <tr><td><code>pm_requirements</code></td><td>标题、描述、优先级 P0~P3、状态、<b>需求来源</b>、提出人、<code>ai_analysis</code>（JSON）、<b>design_plan 设计方案</b>、会话ID、知识条目ID、<b>上线验证（实际/效果数据/价值达成/复盘）</b></td></tr>
+      <tr><td><code>pm_versions</code></td><td>版本号 X.Y.Z、状态机、评审轮次/意见(JSON)、<b>评审结论/参会人</b>、更新内容大纲、规划日、<b>计划上线日</b>、定稿/实际上线日</td></tr>
+      <tr><td><code>pm_version_requirements</code></td><td>版本↔需求 <b>多对多</b> 关联（评审变更可重新分配；<b>搁置回落/上线联动</b>）</td></tr>
+      <tr><td><code>pm_features</code></td><td>三级结构：模块 → 功能点 → 操作项；来源需求；<b>多对多迭代</b>；状态按最新迭代版本联动；来源含 PRD 同步 / 路线图规划同步</td></tr>
+      <tr><td><code>pm_feature_iterations</code></td><td>功能点↔版本 <b>迭代历史</b>：变更类型（新增/变更/移除）、变更说明、变更时间</td></tr>
+      <tr><td><code>pm_plan_batches</code></td><td><b>规划批次</b>：批次名称、规划类型（首期/迭代）、关联版本、变更摘要、状态（草稿/生效中/已归档）、路线图与<b>快照 knowledge_id</b>、操作人</td></tr>
+      <tr><td><code>pm_materials</code></td><td>类型（手册/宣传册/PPT）、目标版本号、知识条目ID、草稿/已发布、归档标记（<b>项目资料</b>）</td></tr>
+    </table>
+  </div>
+
+  <!-- 3 状态机 -->
+  <div class="section">
+    <div class="section-title"><span class="num">3</span>状态机</div>
+    <div class="two-col">
+      <div class="card">
+        <h3>需求状态 <span class="badge" style="background:var(--green-soft);color:var(--green)">可复活</span></h3>
+        <div class="state-group" style="flex-direction:column">
+          <div class="flow" style="border:none;padding:0;overflow-x:auto">
+            <div class="flow-row" style="min-width:760px">
+              <div class="flow-node">待分析</div><div class="flow-arrow">→</div>
+              <div class="flow-node">分析中</div><div class="flow-arrow">→</div>
+              <div class="flow-node">已确认</div><div class="flow-arrow">→</div>
+              <div class="flow-node">已排期</div><div class="flow-arrow">→</div>
+              <div class="flow-node mid">开发中</div><div class="flow-arrow">→</div>
+              <div class="flow-node active">已上线</div>
+            </div>
+          </div>
+          <p style="font-size:12.5px;color:var(--sub)">终止态：<b>已驳回 / 已关闭</b>（可重新激活回"待分析"，保留历史状态与 AI 分析意见）</p>
+          <p style="font-size:12.5px;color:var(--sub)">双向联动：关联版本<b>启动开发</b> → 需求转"开发中"；关联版本<b>全部搁置</b> → 回落"已确认"；关联版本<b>全部上线</b> → 转"已上线"</p>
+        </div>
+      </div>
+      <div class="card">
+        <h3>版本状态 <span class="badge" style="background:var(--amber-soft);color:var(--amber)">定稿为分水岭</span></h3>
+        <div class="flow" style="border:none;padding:0;overflow-x:auto">
+          <div class="flow-row" style="min-width:700px">
+            <div class="flow-node">规划中</div><div class="flow-arrow">→</div>
+            <div class="flow-node mid">评审中</div><div class="flow-arrow">→</div>
+            <div class="flow-node">定稿</div><div class="flow-arrow">→</div>
+            <div class="flow-node">开发中</div><div class="flow-arrow">→</div>
+            <div class="flow-node active">已上线</div>
+          </div>
+        </div>
+        <p style="font-size:12.5px;color:var(--sub);margin-top:8px">评审循环：意见 + <b>结论（通过/有条件通过/不通过）+ 参会人 + 意见处理跟踪</b> → 重新生成 PRD/原型（v2/v3…保留历史）→ 回到评审中；定稿前置校验结论并锁定版本号+大纲；搁置时关联需求回落"已确认"</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4 功能模块 -->
+  <div class="section">
+    <div class="section-title"><span class="num">4</span>6 大功能模块</div>
+    <div class="grid">
+      <div class="card">
+        <h3>① 创建项目</h3>
+        <p>新项目：动态建知识库（复用 CreateKnowledgeBase）+ 建常驻 PM 会话；已存在项目：选择既有知识库。1:1 关联，仅归档不删除。</p>
+      </div>
+      <div class="card">
+        <h3>② 需求池</h3>
+        <p><b>列表/看板双视图</b>：看板按需求状态分列、拖拽流转。新建需求<b>两步弹窗</b>：表单填基础信息 → AI 分析弹窗，以产品路线图为上下文引导补充详细情况，输出<b>具体设计方案</b>（可二次编辑）+ 价值/影响/风险，确认后生成卡片；另有上线验证回填。</p>
+      </div>
+      <div class="card">
+        <h3>③ 功能规划 <span class="badge" style="background:var(--primary-soft);color:var(--primary)">持续规划</span></h3>
+        <p><b>贯穿全生命周期</b>：首期规划 / 增量规划 / 重新规划 3 种模式，每次规划形成<b>批次记录与快照</b>。AI 引导 <b>5 步</b>（项目认知 → 三级功能清单 → 可视化业务流程 → 首期范围 → 确认生成），左对话右草稿实时同步。路线图视图按批次条切换、可查规划历史与快照，作为需求 AI 分析与 PRD 生成的骨架上下文；确认时可同步功能清单。</p>
+      </div>
+      <div class="card">
+        <h3>④ 功能清单</h3>
+        <p>三级树形（模块→功能点→操作项）；PRD 生成时同步导出结构化数据直接落库；功能点与版本<b>多对多</b>，保留<b>迭代历史（新增/变更/移除）</b>，状态按最新迭代版本联动，杜绝手工维护漂移。</p>
+      </div>
+      <div class="card">
+        <h3>⑤ 版本管理</h3>
+        <p>需求归纳（多对多）+ <b>计划上线日</b> → 自动生成 PRD+功能清单+原型 → 评审意见按轮次记录并补<b>结论/参会人/意见处理跟踪</b> → 重生成新版本文档 → 定稿校验结论并生成版本号与更新内容大纲 → 启动开发/上线联动需求状态。</p>
+      </div>
+      <div class="card">
+        <h3>⑥ 项目资料</h3>
+        <p>操作手册/宣传册/PPT 标记版本号；新版本上线提示"有新版可用"，手动确认后重生成草稿→确认替换，旧版归档可回滚。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5 AI 技术通道 -->
+  <div class="section">
+    <div class="section-title"><span class="num">5</span>AI 技术通道（已探查确认可行）</div>
+    <div class="grid">
+      <div class="card">
+        <h3>会话 <span class="badge" style="background:var(--primary-soft);color:var(--primary)">项目常驻</span></h3>
+        <p>每项目一个常驻 PM 会话，累积项目背景与评审历史；AI 操作注入 <code>skill_names</code> 触发技能，SSE 流式执行。</p>
+      </div>
+      <div class="card">
+        <h3>技能 <span class="badge" style="background:var(--purple-soft);color:var(--purple)">自研 5 个</span></h3>
+        <p><code>pm-roadmap-planner</code>（5 步引导，输出三级清单 + Mermaid 流程图）/ <code>pm-requirement-analysis</code> / <code>pm-prd-generator</code>（PRD+功能清单双产物）/ <code>pm-prototype</code> / <code>pm-material</code>；规划与分析为交互式引导，其余静默产出、确定性强。</p>
+      </div>
+      <div class="card">
+        <h3>执行 <span class="badge" style="background:var(--amber-soft);color:var(--amber)">异步任务</span></h3>
+        <p>复用 doc_assistant 的 asynq 队列，前端轮询进度；"起草→转格式"分步规避沙箱 120s 超时 / ReAct 10 轮上限。</p>
+      </div>
+      <div class="card">
+        <h3>落库 <span class="badge" style="background:var(--green-soft);color:var(--green)">knowledge_id 关联</span></h3>
+        <p>产物经 CreateKnowledgeFromPassageSync 写入知识库（需求/ 需求/规划历史/ PRD/ 原型/ 资料/，规划历史为需求下的子目录）；pm_* 表记录 knowledge_id+类型+版本号，支撑版本追溯与更新。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6 实现分期 -->
+  <div class="section">
+    <div class="section-title"><span class="num">6</span>实现分期</div>
+    <div class="grid">
+      <div class="card">
+        <h3>一期 · 主链路闭环</h3>
+        <p>项目创建 + <b>功能规划（持续规划：3 种模式 + 5 步 AI 引导 + 批次与快照）</b> + 需求池（两步弹窗 + AI 分析含设计方案、列表/看板双视图）+ 版本管理（PRD/原型生成、评审迭代、定稿上线）+ <b>功能清单同步（PRD / 路线图双来源，多对多迭代）</b></p>
+      </div>
+      <div class="card">
+        <h3>二期 · 上线与复盘</h3>
+        <p>上线验证回填（效果/价值达成/复盘，依赖版本上线数据）</p>
+      </div>
+      <div class="card">
+        <h3>三期 · 交付扩展</h3>
+        <p>项目资料（手册/宣传册/PPT 自动更新）</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7 风险与约束 -->
+  <div class="section">
+    <div class="section-title"><span class="num">7</span>风险与约束</div>
+    <table>
+      <tr><th>风险</th><th>应对</th></tr>
+      <tr><td>沙箱 120s 超时 / ReAct 10 轮上限</td><td>长任务拆"起草→转格式"多步，走异步队列</td></tr>
+      <tr><td>技能输出格式漂移</td><td>引导分析强制 JSON 输出；PRD 功能清单章节模板约束 + AI 兜底</td></tr>
+      <tr><td>资料被 AI 错误内容静默覆盖</td><td>先草稿后定稿 + 人工确认 + 旧版归档，杜绝静默替换</td></tr>
+      <tr><td>路线图被直接改写、无快照可回溯</td><td>不提供独立"编辑"入口，变更统一走规划引导；每次生成写批次快照，历史批次只读</td></tr>
+      <tr><td>流程图渲染兼容性（Mermaid 语法差异）</td><td>统一 flowchart 子集，生成后校验语法；同时保存 Mermaid 代码与渲染图，不支持时降级为图片</td></tr>
+      <tr><td>知识库目录层级能力受限</td><td>退化为命名前缀约定（REQ-xxx / ROADMAP-HIS-{批次} / PRD-v1.2.0 / …）</td></tr>
+      <tr><td>技能安装网络受限</td><td>遵循现有技能安装流程（zip 包上传 / installer agent）</td></tr>
+    </table>
+  </div>
+
+  <div style="text-align:center;margin-top:8px">
+    <a class="link-btn" href="pm-workstation.md">查看完整 Markdown 方案文档</a>
+  </div>
+
+  <div class="footer">PM 工作站 · 细化方案预览 v1.3 ｜ 2026-10-20 ｜ d:\知识库\Know\docs</div>
+</div>
+</body>
+</html>

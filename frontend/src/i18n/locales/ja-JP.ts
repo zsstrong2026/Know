@@ -307,7 +307,7 @@ export default {
     deleteFailed: '削除に失敗しました。再試行してください。',
     download: 'ダウンロード',
     downloadFailed: 'ダウンロードに失敗しました。しばらくしてから再試行してください',
-    selectMode: '一括ダウンロード',
+    selectMode: '一括操作',
     selectAll: 'すべて選択',
     deselectAll: '選択を解除',
     selectedCount: '{count} 件選択中',
@@ -365,7 +365,886 @@ export default {
     apiChats: 'APIセッション',
     noSessions: '会話はまだありません',
     meetings: '会議室',
-    docAssistant: 'ソリューションアシスタント'
+    docAssistant: 'ソリューションアシスタント',
+    pm: 'PMワークステーション'
+  },
+  // PMワークステーション：プロジェクト / 計画 / 要件 / バージョン / 機能一覧
+  pm: {
+    title: 'PMワークステーション',
+    nav: {
+      roadmap: '機能計画',
+      requirements: '要件プール',
+      versions: 'バージョン管理',
+      features: '機能一覧',
+      materials: 'プロジェクト資料'
+    },
+    projects: {
+      title: 'プロジェクト',
+      selectPlaceholder: 'プロジェクトを選択',
+      searchPlaceholder: 'プロジェクトを検索',
+      empty: 'プロジェクトがまだありません',
+      emptyHint: 'プロジェクトを作成すると計画を始められます',
+      emptySearch: '一致するプロジェクトがありません',
+      loadFailed: 'プロジェクト一覧の読み込みに失敗しました',
+      create: '新規プロジェクト',
+      delete: 'プロジェクトを削除',
+      more: 'その他の操作',
+      deleteConfirmTitle: 'プロジェクトを削除',
+      deleteConfirmBody: 'プロジェクト「{name}」を削除しますか？このプロジェクトの計画・要件・バージョン・機能・資料もすべて削除され、復元できません。',
+      deleteSuccess: 'プロジェクトを削除しました',
+      deleteFailed: 'プロジェクトの削除に失敗しました',
+      name: 'プロジェクト名',
+      namePlaceholder: '例：カスタマーサポートアシスタント',
+      description: 'プロジェクトの説明',
+      descriptionPlaceholder: 'プロジェクトの目的を簡単に説明してください（任意）',
+      kbHint: '同名のナレッジベースを自動作成し、プロジェクト資料と成果物を保存します',
+      nameEmpty: 'プロジェクト名を入力してください',
+      nameTooLong: 'プロジェクト名は255文字以内で入力してください',
+      createSuccess: 'プロジェクトを作成しました',
+      createFailed: 'プロジェクトの作成に失敗しました',
+      updatedAt: '更新日時 {time}',
+      enter: '開く',
+      actionFailed: '操作に失敗しました',
+      status: {
+        active: '進行中',
+        archived: 'アーカイブ済み'
+      }
+    },
+    requirement: {
+      status: {
+        pending_analysis: '分析待ち',
+        confirmed: '確認済み',
+        scheduled: '日程調整済み',
+        developing: '開発中',
+        launched: 'リリース済み',
+        rejected: '却下',
+        closed: 'クローズ'
+      }
+    },
+    requirements: {
+      create: '新規要望',
+      loadFailed: '要望一覧の読み込みに失敗しました',
+      statusChangeFailed: 'ステータスを変更できません。許可されていない遷移です',
+      reactivateSuccess: '要望を再有効化しました',
+      reactivateFailed: '要望の再有効化に失敗しました',
+      deleteConfirmTitle: '要望を削除',
+      deleteConfirmBody: '「{title}」を削除しますか？関連するバージョンからも削除され、元に戻せません。',
+      deleteSuccess: '要望を削除しました',
+      deleteFailed: '要望の削除に失敗しました',
+      cancel: 'キャンセル',
+      actionFailed: '操作に失敗しました',
+      versionUnassigned: '未割当',
+      view: {
+        list: 'リスト表示',
+        kanban: 'ボード表示'
+      },
+      filters: {
+        keyword: 'タイトル・説明・起案者を検索',
+        priority: '優先度',
+        status: 'ステータス',
+        source: 'ソース',
+        value: '価値達成',
+        reset: 'リセット'
+      },
+      sort: {
+        updated_desc: '更新が新しい順',
+        updated_asc: '更新が古い順',
+        priority: '優先度',
+        created_desc: '作成が新しい順'
+      },
+      columns: {
+        title: '要望',
+        priority: '優先度',
+        status: 'ステータス',
+        source: 'ソース',
+        proposer: '起案者',
+        description: '説明',
+        version: 'バージョン',
+        value: '価値達成',
+        updatedAt: '更新日時',
+        actions: '操作'
+      },
+      actions: {
+        detail: '詳細',
+        edit: '編集',
+        analyze: 'AI 分析',
+        verify: '価値検証',
+        reactivate: '再有効化',
+        delete: '削除'
+      },
+      empty: {
+        title: '要望はまだありません',
+        hint: '顧客の声や社内アイデアを要望として記録しましょう'
+      },
+      emptyFiltered: {
+        title: '条件に一致する要望がありません',
+        hint: '絞り込み条件を調整してください'
+      },
+      source: {
+        customer: '顧客の声',
+        internal: '社内提案',
+        data: 'データ分析',
+        competitor: '競合',
+        strategy: '戦略',
+        other: 'その他'
+      },
+      value: {
+        achieved: '達成',
+        partial: '一部達成',
+        not_achieved: '未達成',
+        none: '未検証'
+      },
+      form: {
+        createTitle: '要望の新規作成',
+        editTitle: '要望の編集',
+        title: '要望タイトル',
+        titlePlaceholder: '要望を一文で要約してください',
+        description: '初期アイデア',
+        descriptionPlaceholder: '利用シーン、解決したい課題、期待する効果を記述してください',
+        source: 'ソース',
+        sourcePlaceholder: 'ソースを選択',
+        proposer: '起案者',
+        proposerPlaceholder: '誰の提案か（任意）',
+        priority: '優先度',
+        priorityHint: '既定は P2。実際の評価に応じて調整できます',
+        required: 'タイトルとソースは必須です',
+        save: '保存',
+        saveSuccess: '要望を更新しました',
+        saveFailed: '要望の保存に失敗しました',
+        saveDraft: '下書き保存',
+        draftSuccess: '下書きを保存しました（ステータス：分析待ち）',
+        draftFailed: '下書きの保存に失敗しました',
+        createSuccess: '要望を作成しました',
+        createFailed: '要望の作成に失敗しました',
+        aiAnalyze: 'AI 分析',
+        confirm: '要望を確定',
+        confirmSuccess: '要望を確定しました',
+        confirmFailed: '要望の確定に失敗しました',
+        planView: '分析プランを表示',
+        value: '要望の価値',
+        impact: '関連機能への影響',
+        risk: '技術リスク',
+        designPlan: '実装プラン',
+        designPlanPlaceholder: '実装方針、データ変更、インターフェースへの影響を記述してください',
+        attachments: '添付ファイル',
+        attachmentPick: 'ファイルを選択',
+        attachmentHint: '画像と PDF/Word/Excel/PPT/テキストに対応、1件あたり最大 10MB',
+        attachmentRemove: '添付ファイルを削除',
+        attachmentTypeInvalid: '「{name}」はアップロードできない形式です',
+        attachmentTooLarge: '「{name}」は 10MB を超えています',
+        attachmentUploadFailed: '{count} 件の添付ファイルをアップロードできませんでした。再試行してください',
+        attachmentRemoveFailed: '添付ファイルの削除に失敗しました'
+      },
+      ai: {
+        title: 'AI 要望分析',
+        you: '自分',
+        thinking: '考え中…',
+        starting: '分析を開始しています…',
+        placeholder: 'AI の質問に回答するか背景を補足してください（Enter で送信）',
+        send: '送信',
+        start: '分析を開始',
+        restart: '再分析',
+        idle: 'エージェントを選んで開始してください。AI が数ラウンドの質問で本当の要望を掘り下げます。',
+        generatePlan: '分析プランを生成',
+        planLink: '完全な分析プランを表示 →',
+        planTitle: '完全な分析プラン',
+        planClose: '閉じる',
+        planEmpty: '分析プランはまだありません。まず AI と数ラウンド対話してください',
+        startFailed: 'AI 分析を開始できませんでした',
+        streamFailed: 'AI の応答が中断されました。再試行してください',
+        emptyReply: 'AI から内容が返されませんでした。再試行してください',
+        agentLabel: '実行エージェント',
+        agentDefault: 'デフォルト（汎用分析）',
+        agentLoadFailed: 'エージェントの読み込みに失敗しました'
+      },
+      detail: {
+        title: '要望の詳細',
+        base: '基本情報',
+        createdAt: '作成日時',
+        updatedAt: '更新日時',
+        attachments: '添付ファイル',
+        noAttachments: '添付ファイルはありません',
+        attachmentOpenFailed: '添付ファイルを開けませんでした',
+        analysis: 'AI 分析',
+        emptyAnalysis: '分析結果はまだありません',
+        designPlan: '設計案',
+        noDesignPlan: '設計案はまだありません',
+        launch: 'リリース検証',
+        valueAchieved: '価値達成',
+        effectNotes: '効果データ',
+        retroNotes: '振り返りメモ',
+        verified: '検証済み',
+        verify: '検証を送信',
+        verifiedAt: '{time} に検証',
+        verifyLocked: 'リリース後に価値達成状況を入力できます',
+        close: '閉じる',
+        valueRequired: '価値達成状況を選択してください',
+        verifySuccess: '検証結果を送信しました',
+        verifyFailed: '検証の送信に失敗しました',
+        confirm: '要望を確認',
+        confirmSuccess: '要望を確認しました',
+        confirmFailed: '要望の確認に失敗しました'
+      }
+    },
+    version: {
+      create: '新規バージョン',
+      unfinalized: '未確定',
+      loadFailed: 'バージョン一覧の読み込みに失敗しました',
+      actionSuccess: 'バージョンを更新しました',
+      actionFailed: '操作に失敗しました',
+      status: {
+        planning: '計画中',
+        reviewing: 'レビュー中',
+        finalized: '確定済み',
+        developing: '開発中',
+        launched: 'リリース済み',
+        shelved: '保留'
+      },
+      conclusion: {
+        pass: '承認',
+        conditional: '条件付き承認',
+        reject: '却下'
+      },
+      filters: {
+        keyword: 'バージョンを検索',
+        status: 'バージョンステータス',
+        created: '作成日時',
+        reset: 'リセット',
+        createdRange: {
+          '7d': '過去 7 日間',
+          '30d': '過去 30 日間',
+          '90d': '過去 90 日間'
+        }
+      },
+      columns: {
+        versionNo: 'バージョン',
+        name: 'バージョン名',
+        status: 'ステータス',
+        requirementCount: '要件数',
+        planDate: '計画日',
+        planLaunchDate: 'リリース予定日',
+        finalizeDate: '確定日',
+        launchDate: 'リリース日',
+        actions: '操作'
+      },
+      empty: {
+        title: 'バージョンがありません',
+        hint: 'バージョンを作成し、確定済みの要件をリリース単位にまとめます',
+        filteredTitle: '一致するバージョンがありません',
+        filteredHint: 'フィルター条件を調整してください'
+      },
+      actions: {
+        detail: '詳細',
+        generate: '成果物を生成',
+        review: 'レビューを記録',
+        regenerate: '再生成',
+        finalize: '確定',
+        develop: '開発を開始',
+        launch: 'リリース',
+        shelve: '保留',
+        restore: '計画を再開'
+      },
+      form: {
+        createTitle: '新規バージョン',
+        name: 'バージョン名',
+        namePlaceholder: '例：遠航リリース',
+        planDate: '計画日',
+        planLaunchDate: 'リリース予定日',
+        planLaunchDateHint: 'リリース予定日は計画日より後に設定してください',
+        releaseNote: 'リリースノート',
+        releaseNotePlaceholder: '今回のバージョンの要点を簡単に記載（任意）',
+        requirements: '要件セット（複数選択可、優先度で絞り込み可能）',
+        requirementsEmpty: '追加できる確定済みの要件がありません',
+        requirementsHint: 'バージョンに含められるのは「確定済み」の要件のみです',
+        submit: 'バージョンを作成（計画中）',
+        createSuccess: 'バージョンを作成しました',
+        createFailed: 'バージョンの作成に失敗しました',
+        errName: 'バージョン名を入力してください',
+        errPlanDate: '計画日を選択してください',
+        errPlanLaunchDate: 'リリース予定日は計画日より後に設定してください'
+      },
+      dialogs: {
+        cancel: 'キャンセル',
+        back: '戻る',
+        close: '閉じる',
+        taskTitle: '成果物の生成状況',
+        review: {
+          title: 'レビュー意見を記録',
+          round: 'レビュー回次',
+          roundAuto: '第 {round} 回（自動採番）',
+          conclusion: 'レビュー結論',
+          reviewers: '参加者（100 文字以内）',
+          reviewersPlaceholder: '例：張 / 李 / 王',
+          opinions: 'レビュー意見（1000 文字以内）',
+          opinionsPlaceholder: '1 行に 1 件、例：意見1：資料更新では旧版のアーカイブを保持する',
+          changeNote: '機能変更の明細（1000 文字以内）',
+          changeNotePlaceholder: '今回のレビューによる要件・成果物の変更を記載',
+          submit: '送信（バージョンはレビュー中のまま）',
+          required: 'レビュー結論の選択とレビュー意見の入力が必要です',
+          success: 'レビュー意見を記録しました',
+          failed: 'レビュー意見の記録に失敗しました'
+        },
+        finalize: {
+          title: 'バージョン確定',
+          versionNo: 'バージョン番号（X.Y.Z）',
+          versionNoPlaceholder: '例：1.3.0',
+          outline: '更新内容の概要（2000 文字以内）',
+          outlinePlaceholder: 'このバージョンの更新内容を記載',
+          pendingWarning: '「未処理」のレビュー意見が {count} 件あります。確認のうえ確定を続行できます。',
+          hint: '確定後はバージョン番号、要件セット、PRD/プロトタイプの成果物がロックされます。',
+          submit: '確定する',
+          errVersionNo: 'X.Y.Z 形式のバージョン番号を入力してください',
+          errOutline: '更新内容の概要を入力してください',
+          success: 'バージョンを確定しました',
+          failed: 'バージョンの確定に失敗しました'
+        },
+        generate: {
+          title: 'PRD / プロトタイプを生成',
+          hint: '現在の要件セットから PRD、プロトタイプ、機能一覧を生成します。生成は非同期タスクで実行され、完了後に確認できます。',
+          submit: '生成を開始',
+          success: '成果物を生成しました',
+          failed: '成果物の生成に失敗しました'
+        },
+        regenerate: {
+          title: 'PRD / プロトタイプを再生成',
+          hint: '最新の要件セット（保留・取消・変更の記録を含む）と最新回のレビュー意見をもとに PRD とプロトタイプを再生成します。過去の成果物は比較用に保持され、機能一覧は最新の PRD に合わせて差分同期されます。',
+          submit: '再生成を開始',
+          success: '成果物を再生成しました',
+          failed: '成果物の再生成に失敗しました'
+        },
+        chapters: {
+          label: '生成する章',
+          hint: '既定ではすべて選択されています。PRD の章は必要に応じて絞り込めます。プロトタイプは常に生成されます。',
+          required: '少なくとも 1 つの章を選択してください',
+          items: {
+            overview: '1. バージョン概要',
+            requirements: '2. 要件一覧',
+            features: '3. 機能詳細',
+            interaction: '4. インタラクションと画面要件',
+            data_api: '5. データと API 要件',
+            nonfunctional: '6. 非機能要件',
+            acceptance: '7. 受け入れ基準',
+            review: '8. レビュー指摘への対応'
+          }
+        },
+        shelve: {
+          title: 'バージョンを保留',
+          hint: '保留するとバージョンは「保留」になり、スケジュール済みの要件は「確定済み」に戻ります。後から計画を再開できます。',
+          submit: '保留する',
+          success: 'バージョンを保留しました',
+          failed: 'バージョンの保留に失敗しました'
+        },
+        removeRequirement: {
+          title: '取消 · このバージョンから外す',
+          hint: '要件「{title}」を {version} から外します。要件自体は有効なままです。他のバージョンに関連付いていない場合はステータスが「確定済み」に戻り、所属バージョンは「未割当」になります。他の未確定バージョンに関連付いている場合は「スケジュール済み」のままです。変更は即時に要件プールへ同期されます。',
+          submit: '取消を確定',
+          success: '要件をバージョンから外しました',
+          failed: '要件の削除に失敗しました'
+        },
+        shelveRequirement: {
+          title: '保留 · レビュー不承認',
+          reason: '保留理由（200 文字以内、却下理由として表示）',
+          reasonPlaceholder: '現段階でバージョンに含めない理由を記載',
+          impacts: '保留すると以下を実行します：① この要件と現在のバージョンおよびすべての関連バージョンとの関連を削除；② 要件を「却下」、所属バージョンを「未割当」に設定し、要件プールへ即時同期；③ 後から要件プールで「再有効化」して「分析待ち」に戻せます。',
+          submit: '保留する',
+          errReason: '保留理由を入力してください',
+          success: '要件を保留しました',
+          failed: '要件の保留に失敗しました'
+        },
+        changeRequirement: {
+          title: '要件を変更',
+          mode: '変更方法',
+          modeFields: '項目を変更',
+          modeReplace: '要件を差し替え',
+          priority: '優先度（項目変更時）',
+          description: '要件の説明（項目変更時、2000 文字以内）',
+          descriptionPlaceholder: '業務シナリオ、課題、期待する結果を記載',
+          replacement: '差し替え先（確定済みの要件のみ）',
+          replacementPlaceholder: '差し替え先の要件を選択',
+          replacementEmpty: '選択できる確定済みの要件がありません',
+          hint: '項目の変更は即時に要件プールへ同期されます。差し替え時は元の要件が本バージョンから外れ（他のバージョンに関連付いていなければ「確定済み」に戻る）、差し替え先が「スケジュール済み」として追加されます。レビュー中の変更後は成果物を再生成してください。',
+          submit: '変更を保存',
+          errReplacement: '差し替え先の要件を選択してください',
+          noChange: '変更がありません',
+          success: '要件を変更しました',
+          failed: '要件の変更に失敗しました'
+        }
+      },
+      detail: {
+        back: 'バージョン一覧に戻る',
+        loadFailed: 'バージョン詳細の読み込みに失敗しました',
+        retry: '再試行',
+        note: 'バージョン詳細は直接編集できません。すべての操作は右上のボタンとダイアログから行います。要件セットの変更は即時に要件プールへ同期され、レビュー中の変更後は成果物を再生成してください。',
+        banner: {
+          title: '要件セットが変更されました',
+          text: '要件の保留・取消・変更があり、要件プールへ同期済みです。PRD / プロトタイプを再生成してください。',
+          action: '今すぐ再生成'
+        },
+        info: {
+          title: 'バージョン情報',
+          planDate: '計画日',
+          planLaunchDate: 'リリース予定日',
+          finalizeDate: '確定日',
+          launchDate: 'リリース日',
+          releaseNote: 'リリースノート',
+          outline: '更新内容の概要'
+        },
+        requirements: {
+          title: '要件セット',
+          count: '全 {count} 件の要件',
+          empty: 'このバージョンに要件はありません',
+          remove: '取消',
+          shelve: '保留',
+          change: '変更',
+          hint: '保留した要件は要件プールの「却下」に移動し、取消した要件は有効なまま残ります。いずれも即時に同期されます。「計画中/レビュー中」のみ操作でき、確定後はロックされます。タイトルをクリックすると要件詳細を開きます。'
+        },
+        products: {
+          title: '成果物（PRD / プロトタイプ / 機能一覧）',
+          generatedAt: '最終生成 {time}',
+          prd: 'PRD',
+          prdPath: 'ナレッジベース / PRD / {name}',
+          prototype: 'プロトタイプ',
+          prototypePath: 'ナレッジベース / プロトタイプ / {name}',
+          features: '機能一覧',
+          synced: '{count} 件の機能を同期済み',
+          featuresPath: 'ステータス：計画中 · イテレーション明細を確認できます',
+          view: '表示',
+          download: 'ダウンロード',
+          preview: 'プレビュー',
+          notGenerated: '未生成',
+          kbMissing: 'このプロジェクトにはナレッジベースがありません',
+          downloadFailed: '成果物のダウンロードに失敗しました',
+          previewFailed: 'プロトタイプのプレビューに失敗しました'
+        },
+        review: {
+          title: 'レビュー記録',
+          summary: '{rounds} 回 · 未処理の意見 {pending} 件',
+          empty: 'レビュー記録はありません',
+          round: '第 {round} 回',
+          meta: '{date} · 参加者：{reviewers}',
+          opinion: '意見{index}：{text}',
+          pending: '未処理',
+          resolved: '解決済み',
+          editStatus: 'ステータス変更',
+          note: '対応内容：{note}',
+          changeNote: '機能変更の明細：{note}'
+        },
+        opinionDialog: {
+          title: '意見ステータスの変更',
+          status: '対応ステータス',
+          note: '対応内容',
+          notePlaceholder: 'この意見への対応方法を記載（任意）',
+          submit: '保存',
+          success: '意見ステータスを更新しました',
+          failed: '意見ステータスの更新に失敗しました'
+        }
+      }
+    },
+    features: {
+      title: '機能一覧',
+      create: '機能を追加',
+      loadFailed: '機能一覧の読み込みに失敗しました',
+      unfinalized: '未確定バージョン',
+      summary: '{modules} モジュール · {features} 機能 · {leaves} 項目 · {launched} リリース済み',
+      columns: {
+        name: 'モジュール / 機能 / 操作',
+        requirement: '関連要件',
+        version: '最新イテレーションバージョン',
+        source: 'ソース',
+        status: 'ステータス',
+        actions: '操作'
+      },
+      filters: {
+        keyword: 'モジュール / 機能 / 操作を検索',
+        version: 'イテレーションバージョン',
+        source: 'ソース',
+        onlyLaunched: 'リリース済みのみ',
+        reset: 'リセット'
+      },
+      empty: {
+        title: '機能がまだありません',
+        hint: '機能はロードマップまたはバージョン PRD から同期され、手動で追加することもできます',
+        filteredTitle: '一致する機能がありません',
+        filteredHint: 'フィルター条件を調整してください'
+      },
+      actions: {
+        history: 'イテレーション履歴'
+      },
+      note: '機能はバージョン PRD の生成時に自動同期され、イテレーションバージョンごとに追加/変更/削除の履歴を保持します。ステータスは最新のイテレーションに連動します。',
+      source: {
+        roadmap: 'ロードマップ',
+        prd: 'PRD',
+        manual: '手動'
+      },
+      status: {
+        planned: '計画中',
+        launched: 'リリース済み'
+      },
+      change: {
+        add: '追加',
+        change: '変更',
+        remove: '削除'
+      },
+      createForm: {
+        title: '機能を追加',
+        module: 'モジュール名',
+        modulePlaceholder: '既存のモジュールを選択、または新規入力',
+        feature: '機能',
+        featurePlaceholder: '例：要件プール',
+        operations: '操作',
+        operationsPlaceholder: '例：リスト表示, カンバン表示（カンマ区切り）',
+        operationsHint: '各操作は子項目として保存されます。空欄の場合は機能自体が末端になります',
+        requirement: '関連要件',
+        requirementPlaceholder: '確定済み / 予定済みの要件のみ選択可能',
+        version: 'イテレーションバージョン',
+        versionPlaceholder: 'バージョンを選択',
+        versionHint: '1 回の送信で 1 バージョンのみ関連付け、保存時に「追加」の履歴が作成されます',
+        cancel: 'キャンセル',
+        submit: '送信',
+        moduleRequired: 'モジュール名を入力してください',
+        featureRequired: '機能を入力してください',
+        success: '機能を作成しました',
+        failed: '機能の作成に失敗しました'
+      },
+      history: {
+        title: 'イテレーション履歴',
+        titleWith: 'イテレーション履歴 · {name}',
+        empty: 'イテレーション履歴はまだありません',
+        loadFailed: 'イテレーション履歴の読み込みに失敗しました',
+        note: '各バージョンの計画リリース日が早い順に表示されます。ステータスは最新のイテレーションに連動します。',
+        columns: {
+          version: 'バージョン',
+          change: '変更種別',
+          planLaunchDate: 'リリース予定',
+          changedAt: '変更日時',
+          note: '変更内容'
+        }
+      }
+    },
+    materials: {
+      create: '資料を新規作成',
+      loadFailed: 'プロジェクト資料の読み込みに失敗しました',
+      actionFailed: '操作に失敗しました',
+      close: '閉じる',
+      cancel: 'キャンセル',
+      taskTitle: '資料生成の進捗',
+      taskSuccess: '資料の生成が完了しました',
+      taskFailed: '資料の生成に失敗しました',
+      publishConfirmTitle: '資料を公開',
+      publishConfirmBody: '公開すると「{title}」が最新版として反映され、同種別の旧公開版は自動的にアーカイブされます。',
+      publishSuccess: '資料を公開しました',
+      downloadFailed: '資料のダウンロードに失敗しました',
+      deleteConfirmTitle: '資料を削除',
+      deleteConfirmBody: '削除した「{title}」は元に戻せません。削除しますか？',
+      deleteSuccess: '資料を削除しました',
+      deleteFailed: '資料の削除に失敗しました',
+      note: '資料はまず下書きとして作成し、あとで公開します。新しいバージョンが公開されると更新のヒントが表示され、更新後は旧版がアーカイブされます。',
+      type: {
+        manual: '操作マニュアル',
+        brochure: 'パンフレット',
+        ppt: 'PPT'
+      },
+      status: {
+        draft: '下書き',
+        published: '公開済み',
+        archived: 'アーカイブ済み'
+      },
+      filters: {
+        keyword: '資料を検索',
+        type: '資料種別',
+        version: '対象バージョン',
+        reset: 'リセット'
+      },
+      columns: {
+        title: '資料名',
+        type: '資料種別',
+        version: '対象バージョン',
+        status: 'ステータス',
+        updatedAt: '更新日時',
+        actions: '操作'
+      },
+      actions: {
+        preview: 'プレビュー',
+        download: 'ダウンロード',
+        delete: '削除',
+        generate: '下書きを生成',
+        publish: '公開',
+        needsUpdate: '新しい版あり',
+        updateLatest: '最新版に更新',
+        history: '履歴バージョン'
+      },
+      history: {
+        title: '履歴バージョン',
+        hint: '「{title}」の過去のアーカイブ版です。原文のプレビューやファイルのダウンロードができます。',
+        empty: '履歴バージョンはありません'
+      },
+      empty: {
+        title: '資料がまだありません',
+        hint: '操作マニュアル・パンフレット・PPT を作成し、まず下書きとして生成します',
+        filteredTitle: '該当する資料がありません',
+        filteredHint: '絞り込み条件を調整してください'
+      },
+      form: {
+        createTitle: '資料を新規作成',
+        title: '資料名',
+        titlePlaceholder: '例：製品紹介 PPT',
+        type: '資料種別',
+        version: '対象バージョン',
+        versionPlaceholder: '確定済みバージョンを選択',
+        versionHint: '「確定済み」以降のバージョンのみ選択できます',
+        submit: '作成（下書き）',
+        createSuccess: '資料を作成しました',
+        createFailed: '資料の作成に失敗しました',
+        errTitle: '資料名を入力してください',
+        errVersion: '対象バージョンを選択してください'
+      },
+      preview: {
+        back: 'プロジェクト資料に戻る',
+        loadFailed: '資料の詳細の読み込みに失敗しました',
+        notFound: '資料が存在しないか、削除されています',
+        version: '対象バージョン',
+        latestVersion: 'プロジェクトの最新バージョン',
+        updatedAt: '更新日時',
+        contentTitle: '資料原文',
+        contentEmpty: '本文がありません。先に下書きを生成してください。',
+        archivedHint: 'この資料はアーカイブ版です。参照のみ可能で、編集や公開はできません。',
+        historyTitle: 'アーカイブ履歴',
+        historyEmpty: 'アーカイブ履歴はありません',
+        archivedAt: 'アーカイブ日時'
+      }
+    },
+    task: {
+      title: 'タスクの進捗',
+      status: {
+        pending: '待機中',
+        running: '実行中',
+        succeeded: '完了',
+        failed: '失敗'
+      }
+    },
+    roadmap: {
+      title: '製品ロードマップ',
+      subtitle: '5 ステップの AI ガイドで製品の方向性と初期スコープを整理',
+      loadFailed: 'ロードマップの読み込みに失敗しました',
+      actions: {
+        start: '計画を開始',
+        add: '計画を追加',
+        replan: '再計画',
+        replanDisabled: '有効な計画がある場合に再計画できます',
+        history: '計画履歴'
+      },
+      empty: {
+        title: 'ロードマップはまだありません',
+        hint: 'ガイド付き計画を開始すると、ロードマップ文書と機能一覧が自動生成されます'
+      },
+      batch: {
+        label: '計画バッチ',
+        noSummary: '変更概要なし',
+        resume: 'ガイドを再開',
+        snapshot: 'スナップショットを表示',
+        delete: 'バッチを削除',
+        deleteConfirmTitle: '計画バッチの削除',
+        deleteConfirmBody: '下書きバッチ「{name}」と未反映の計画内容を削除します。削除後は復元できません。',
+        deleteSuccess: 'バッチを削除しました',
+        deleteFailed: '削除に失敗しました。しばらくしてから再試行してください'
+      },
+      planType: {
+        initial: '初期計画',
+        iteration: '増分計画',
+        replan: '再計画'
+      },
+      planTypeDesc: {
+        initial: '空の下書きから製品ロードマップ全体を整理します',
+        iteration: '現在有効な計画を基準に今回のイテレーションを追加します',
+        replan: '現在有効な計画を基準にロードマップ構成を整理し直します'
+      },
+      batchStatus: {
+        draft: '下書き',
+        active: '有効',
+        archived: 'アーカイブ済み'
+      },
+      doc: {
+        title: '製品ロードマップ',
+        draftTitle: 'このバッチは未完了です',
+        draftHint: 'ガイドの 5 ステップを完了するとロードマップ文書が生成されます'
+      },
+      side: {
+        title: '機能一覧の概要',
+        meta: '{modules} モジュール · {features} 機能 · {operations} 操作 · 初期スコープ {scope} 件',
+        empty: '機能はまだありません'
+      },
+      create: {
+        title: '計画を追加',
+        name: 'バッチ名',
+        namePlaceholder: 'バッチ名を入力',
+        nameEmpty: 'バッチ名は必須です',
+        type: '計画タイプ',
+        typeHint: '1 つのバッチが 1 回の計画を表します。過去のバッチは履歴で確認できます',
+        submit: '作成して開始',
+        failed: '計画バッチの作成に失敗しました'
+      },
+      history: {
+        title: '計画履歴',
+        columns: {
+          name: 'バッチ',
+          type: 'タイプ',
+          version: '関連バージョン',
+          summary: '変更概要',
+          operator: '実行者',
+          time: '作成日時',
+          status: 'ステータス',
+          actions: '操作'
+        }
+      },
+      snapshot: {
+        view: 'スナップショットを表示',
+        close: '閉じる',
+        back: '一覧に戻る',
+        note: 'スナップショットはバッチ下書きから読み取り専用で再構成されます',
+        titleWith: 'スナップショット · {name}',
+        notGenerated: '計画生成後にスナップショットを表示できます',
+        loadFailed: '計画履歴の読み込みに失敗しました'
+      },
+      guide: {
+        title: 'AI ガイド計画',
+        exit: 'ガイドを終了',
+        chatTitle: 'AI ガイド',
+        send: '送信',
+        agentDefault: 'デフォルトエージェント',
+        agentLoadFailed: 'エージェント一覧の読み込みに失敗しました',
+        agentStartFailed: 'AI ガイドセッションの作成に失敗したため、ローカルガイドに切り替えました',
+        streamFailed: 'AI の応答に失敗しました。再試行してください',
+        emptyReply: 'AI からの応答がありません。情報を追加してください',
+        thinking: '考え中…',
+        draftTitle: 'ロードマップ下書き',
+        outputTitle: '成果物プレビュー',
+        previewNote: 'AI ガイドが自動で整理します',
+        tabs: {
+          cognition: '製品理解',
+          features: '機能構成図',
+          flows: '主要フロー図',
+          scope: '初期スコープ',
+          plan: '全体計画'
+        },
+        me: '自分',
+        prev: '前へ',
+        next: '次へ',
+        finish: '計画を完了',
+        autoSave: '編集内容は自動保存されます',
+        saving: '保存中…',
+        saved: '保存済み',
+        saveError: '保存に失敗しました',
+        saveFailed: '下書きの保存に失敗しました',
+        footNote: '下書きは編集時に自動保存されます。計画完了後にロードマップ文書とスナップショットが生成されます',
+        stepLabel: 'ステップ {current}/{total} · {name}',
+        steps: {
+          cognition: '製品理解',
+          features: '機能分解',
+          flows: '主要フロー',
+          scope: '初期スコープ',
+          confirm: '確認して生成'
+        },
+        descInitial: 'ゼロから製品ロードマップを整理します',
+        descIncrement: '「{name}」を基準に今回のイテレーションを計画します',
+        descReplan: '現在有効な計画を基にロードマップ構成を整理し直します',
+        fields: {
+          targetUsers: '対象ユーザー',
+          coreValue: '中核価値',
+          scenarios: '主要シナリオ',
+          background: '背景'
+        },
+        blocks: {
+          cognition: '製品理解',
+          features: '機能分解',
+          flows: '主要フロー',
+          scope: '初期スコープ',
+          batch: 'バッチ情報',
+          sync: '同期オプション'
+        },
+        stats: {
+          features: '{count} 行',
+          flows: '{count} モジュール',
+          tree: '{modules} モジュール · {features} 機能 · {operations} 操作'
+        },
+        feature: {
+          module: 'モジュール',
+          feature: '機能',
+          operation: '操作',
+          empty: '機能がありません。行を追加するか左のチャットで説明してください'
+        },
+        flow: {
+          module: 'モジュール',
+          valid: 'Mermaid 構文は正常です',
+          invalid: 'Mermaid 構文に誤りがあります',
+          empty: 'フローはまだありません'
+        },
+        scope: {
+          selected: '{selected}/{total} 選択済み',
+          clearAll: 'クリア',
+          empty: '初期スコープを選ぶ前に機能を追加してください'
+        },
+        plan: {
+          hint: '成果物を確認したらロードマップ文書を生成して有効化します'
+        },
+        summary: {
+          modules: 'モジュール',
+          features: '機能',
+          operations: '操作',
+          flows: 'フロー',
+          scope: '初期スコープ'
+        },
+        batch: {
+          name: 'バッチ名',
+          type: '計画タイプ',
+          version: '関連バージョン',
+          docPath: 'ロードマップ文書',
+          snapshotPath: 'スナップショットファイル'
+        },
+        sync: {
+          hint: 'ロードマップを機能一覧に同期する',
+          note: '同期後は機能一覧ページで管理できます'
+        },
+        chips: {
+          featureAdd: '機能行を追加',
+          flowAdd: 'フローを追加',
+          flowGenerate: '機能からフローを生成',
+          scopeAll: 'すべて選択'
+        },
+        inputPlaceholder: '自然言語で入力し、Enter で送信',
+        inputDisabled: 'このステップではチャット入力できません',
+        prompts: {
+          overall: '私は製品計画アシスタントです。製品のアイデア、対象ユーザー、主要シナリオをそのまま伝えてください。製品理解・機能構成図・主要フロー図・初期スコープを順に整理し、最後に全体計画を確認します。「モジュール/機能/操作」の一覧を貼り付けるか、「モジュール: ノード1 -> ノード2」でフローを記述することもできます。',
+          step1: 'まず「{name}」の製品理解を整理しましょう。対象ユーザー、中核価値、主要シナリオは何ですか？',
+          step2: '現在 {modules} モジュール・{features} 機能です。「モジュール/機能/操作」を 1 行ずつで追加できます。',
+          step3: '「モジュール: ノード1 -> ノード2」を 1 行ずつで主要フローを記述してください。Mermaid が自動生成されます。',
+          step4: '初期スコープを選択してください。現在 {selected}/{total} 件選択済みです。',
+          step5: '準備ができました。生成するとロードマップ文書が書き込まれ、今回のスナップショットが保持されます。'
+        },
+        acks: {
+          cognition: '製品理解を更新しました',
+          features: '{count} 件の機能を追加しました',
+          flows: '{count} モジュールのフローを生成しました',
+          flowAdded: '「{module}」のフローを追加しました',
+          scopeAll: '{count} 件の操作をすべて選択しました'
+        },
+        hints: {
+          needModule: '先にモジュールを記述してください',
+          needFeatures: 'フロー生成の前に機能を追加してください',
+          featureFormat: '形式：モジュール/機能/操作（1 行に 1 件）',
+          flowFormat: '形式：モジュール: ノード1 -> ノード2'
+        },
+        warnings: {
+          step1: '対象ユーザー・中核価値・主要シナリオを入力してください',
+          step2: 'モジュール/機能/操作が揃った機能を 1 件以上追加してください',
+          step3: '有効な Mermaid フローを 1 件以上追加してください（flowchart TD または LR で開始）',
+          step4: '初期スコープの操作を 1 件以上選択してください',
+          step5: 'バッチ名と計画タイプは必須です'
+        },
+        finishSuccess: 'ロードマップを生成し有効化しました',
+        finishFailed: 'ロードマップの生成に失敗しました'
+      }
+    },
+    placeholder: 'この画面は準備中です'
   },
   meeting: {
     create: '会議を作成',

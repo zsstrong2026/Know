@@ -7953,7 +7953,7 @@ export default {
     deleteFailed: '삭제에 실패했습니다. 다시 시도해 주세요.',
     download: '다운로드',
     downloadFailed: '다운로드에 실패했습니다. 잠시 후 다시 시도해 주세요',
-    selectMode: '일괄 다운로드',
+    selectMode: '일괄 작업',
     selectAll: '전체 선택',
     deselectAll: '선택 해제',
     selectedCount: '{count}개 선택됨',
@@ -8011,7 +8011,886 @@ export default {
     apiChats: 'API 세션',
     noSessions: '대화가 없습니다',
     meetings: '회의실',
-    docAssistant: '솔루션 도우미'
+    docAssistant: '솔루션 도우미',
+    pm: 'PM 워크스테이션'
+  },
+  // PM 워크스테이션: 프로젝트 / 계획 / 요구사항 / 버전 / 기능 목록
+  pm: {
+    title: 'PM 워크스테이션',
+    nav: {
+      roadmap: '기능 기획',
+      requirements: '요구사항',
+      versions: '버전 관리',
+      features: '기능 목록',
+      materials: '프로젝트 자료'
+    },
+    projects: {
+      title: '프로젝트',
+      selectPlaceholder: '프로젝트 선택',
+      searchPlaceholder: '프로젝트 검색',
+      empty: '아직 프로젝트가 없습니다',
+      emptyHint: '프로젝트를 만들면 계획을 시작할 수 있습니다',
+      emptySearch: '일치하는 프로젝트가 없습니다',
+      loadFailed: '프로젝트 목록을 불러오지 못했습니다',
+      create: '새 프로젝트',
+      delete: '프로젝트 삭제',
+      more: '추가 작업',
+      deleteConfirmTitle: '프로젝트 삭제',
+      deleteConfirmBody: '프로젝트 "{name}"을(를) 삭제하시겠습니까? 이 프로젝트의 계획, 요구사항, 버전, 기능, 자료도 모두 삭제되며 복구할 수 없습니다.',
+      deleteSuccess: '프로젝트가 삭제되었습니다',
+      deleteFailed: '프로젝트 삭제에 실패했습니다',
+      name: '프로젝트 이름',
+      namePlaceholder: '예: 고객 지원 어시스턴트',
+      description: '프로젝트 설명',
+      descriptionPlaceholder: '프로젝트 목표를 간단히 설명하세요(선택)',
+      kbHint: '같은 이름의 지식베이스가 자동 생성되어 프로젝트 자료와 산출물을 저장합니다',
+      nameEmpty: '프로젝트 이름을 입력하세요',
+      nameTooLong: '프로젝트 이름은 255자를 초과할 수 없습니다',
+      createSuccess: '프로젝트가 생성되었습니다',
+      createFailed: '프로젝트 생성에 실패했습니다',
+      updatedAt: '업데이트 {time}',
+      enter: '입장',
+      actionFailed: '작업에 실패했습니다',
+      status: {
+        active: '진행 중',
+        archived: '보관됨'
+      }
+    },
+    requirement: {
+      status: {
+        pending_analysis: '분석 대기',
+        confirmed: '확정됨',
+        scheduled: '일정 확정',
+        developing: '개발 중',
+        launched: '출시됨',
+        rejected: '반려됨',
+        closed: '종료됨'
+      }
+    },
+    requirements: {
+      create: '새 요구사항',
+      loadFailed: '요구사항 목록을 불러오지 못했습니다',
+      statusChangeFailed: '상태를 변경할 수 없습니다. 허용되지 않은 전환입니다',
+      reactivateSuccess: '요구사항이 다시 활성화되었습니다',
+      reactivateFailed: '요구사항을 다시 활성화하지 못했습니다',
+      deleteConfirmTitle: '요구사항 삭제',
+      deleteConfirmBody: '"{title}"을(를) 삭제할까요? 연결된 버전에서도 제거되며 복구할 수 없습니다.',
+      deleteSuccess: '요구사항이 삭제되었습니다',
+      deleteFailed: '요구사항을 삭제하지 못했습니다',
+      cancel: '취소',
+      actionFailed: '작업에 실패했습니다',
+      versionUnassigned: '미배정',
+      view: {
+        list: '목록 보기',
+        kanban: '보드 보기'
+      },
+      filters: {
+        keyword: '제목, 설명 또는 제안자 검색',
+        priority: '우선순위',
+        status: '상태',
+        source: '출처',
+        value: '가치 달성',
+        reset: '초기화'
+      },
+      sort: {
+        updated_desc: '최근 수정순',
+        updated_asc: '오래된 수정순',
+        priority: '우선순위',
+        created_desc: '최근 생성순'
+      },
+      columns: {
+        title: '요구사항',
+        priority: '우선순위',
+        status: '상태',
+        source: '출처',
+        proposer: '제안자',
+        description: '설명',
+        version: '버전',
+        value: '가치 달성',
+        updatedAt: '수정 시간',
+        actions: '작업'
+      },
+      actions: {
+        detail: '상세',
+        edit: '편집',
+        analyze: 'AI 분석',
+        verify: '출시 검증',
+        reactivate: '다시 활성화',
+        delete: '삭제'
+      },
+      empty: {
+        title: '아직 요구사항이 없습니다',
+        hint: '고객 피드백이나 내부 아이디어를 요구사항으로 기록하세요'
+      },
+      emptyFiltered: {
+        title: '일치하는 요구사항이 없습니다',
+        hint: '필터를 조정하여 더 많은 결과를 확인하세요'
+      },
+      source: {
+        customer: '고객 피드백',
+        internal: '내부 아이디어',
+        data: '데이터 인사이트',
+        competitor: '경쟁사',
+        strategy: '전략',
+        other: '기타'
+      },
+      value: {
+        achieved: '달성',
+        partial: '부분 달성',
+        not_achieved: '미달성',
+        none: '미검증'
+      },
+      form: {
+        createTitle: '새 요구사항',
+        editTitle: '요구사항 편집',
+        title: '제목',
+        titlePlaceholder: '한 문장으로 요구사항을 요약하세요',
+        description: '초기 아이디어',
+        descriptionPlaceholder: '시나리오, 문제점과 기대 결과를 설명하세요',
+        source: '출처',
+        sourcePlaceholder: '출처를 선택하세요',
+        proposer: '제안자',
+        proposerPlaceholder: '누가 제안했나요(선택)',
+        priority: '우선순위',
+        priorityHint: '기본값은 P2이며 실제 평가에 따라 조정할 수 있습니다',
+        required: '제목과 출처는 필수입니다',
+        save: '저장',
+        saveSuccess: '요구사항이 수정되었습니다',
+        saveFailed: '요구사항 저장에 실패했습니다',
+        saveDraft: '초안 저장',
+        draftSuccess: '초안이 저장되었습니다 (상태: 분석 대기)',
+        draftFailed: '초안 저장 실패',
+        createSuccess: '요구사항이 생성되었습니다',
+        createFailed: '요구사항 생성에 실패했습니다',
+        aiAnalyze: 'AI 분석',
+        confirm: '요구사항 확정',
+        confirmSuccess: '요구사항이 확정되었습니다',
+        confirmFailed: '요구사항 확정에 실패했습니다',
+        planView: '분석 방안 보기',
+        value: '요구사항 가치',
+        impact: '관련 기능 영향',
+        risk: '기술 리스크',
+        designPlan: '구현 방안',
+        designPlanPlaceholder: '해결 방안, 데이터 변경과 인터페이스 영향을 설명하세요',
+        attachments: '첨부 파일',
+        attachmentPick: '파일 선택',
+        attachmentHint: '이미지와 PDF/Word/Excel/PPT/텍스트 지원, 파일당 최대 10MB',
+        attachmentRemove: '첨부 파일 삭제',
+        attachmentTypeInvalid: '"{name}"은(는) 업로드할 수 없는 형식입니다',
+        attachmentTooLarge: '"{name}"이(가) 10MB를 초과합니다',
+        attachmentUploadFailed: '첨부 파일 {count}개를 업로드하지 못했습니다. 다시 시도하세요',
+        attachmentRemoveFailed: '첨부 파일 삭제에 실패했습니다'
+      },
+      ai: {
+        title: 'AI 요구사항 분석',
+        you: '나',
+        thinking: '생각 중…',
+        starting: '분석을 시작하는 중…',
+        placeholder: '질문에 답하거나 배경 정보를 추가하세요. Enter로 전송',
+        send: '전송',
+        start: '분석 시작',
+        restart: '다시 분석',
+        idle: '에이전트를 선택하고 시작하세요. AI가 몇 차례 질문으로 실제 요구를 명확히 합니다.',
+        generatePlan: '분석 방안 생성',
+        planLink: '전체 분석 방안 보기 →',
+        planTitle: '전체 분석 방안',
+        planClose: '닫기',
+        planEmpty: '아직 분석 방안이 없습니다. 먼저 AI와 몇 차례 대화를 진행하세요',
+        startFailed: 'AI 분석을 시작하지 못했습니다',
+        streamFailed: 'AI 응답이 중단되었습니다. 다시 시도하세요',
+        emptyReply: 'AI 응답이 없습니다. 다시 시도하세요',
+        agentLabel: '실행 에이전트',
+        agentDefault: '기본(일반 분석)',
+        agentLoadFailed: '에이전트를 불러오지 못했습니다'
+      },
+      detail: {
+        title: '요구사항 상세',
+        base: '기본 정보',
+        createdAt: '생성 시간',
+        updatedAt: '수정 시간',
+        attachments: '첨부 파일',
+        noAttachments: '아직 첨부 파일이 없습니다',
+        attachmentOpenFailed: '첨부 파일을 열지 못했습니다',
+        analysis: 'AI 분석',
+        emptyAnalysis: '아직 분석이 없습니다',
+        designPlan: '설계 방안',
+        noDesignPlan: '아직 설계 방안이 없습니다',
+        launch: '출시 검증',
+        valueAchieved: '가치 달성',
+        effectNotes: '효과 데이터',
+        retroNotes: '회고 메모',
+        verified: '검증 완료',
+        verify: '검증 제출',
+        verifiedAt: '{time}에 검증됨',
+        verifyLocked: '요구사항 출시 후 가치 달성 상황을 입력할 수 있습니다',
+        close: '닫기',
+        valueRequired: '가치 달성 상황을 선택하세요',
+        verifySuccess: '검증이 제출되었습니다',
+        verifyFailed: '검증 제출에 실패했습니다',
+        confirm: '요구사항 확정',
+        confirmSuccess: '요구사항이 확정되었습니다',
+        confirmFailed: '요구사항 확정 실패'
+      }
+    },
+    version: {
+      create: '새 버전',
+      unfinalized: '미확정',
+      loadFailed: '버전 목록을 불러오지 못했습니다',
+      actionSuccess: '버전이 업데이트되었습니다',
+      actionFailed: '작업에 실패했습니다',
+      status: {
+        planning: '계획 중',
+        reviewing: '검토 중',
+        finalized: '확정됨',
+        developing: '개발 중',
+        launched: '출시됨',
+        shelved: '보류됨'
+      },
+      conclusion: {
+        pass: '통과',
+        conditional: '조건부 통과',
+        reject: '반려'
+      },
+      filters: {
+        keyword: '버전 검색',
+        status: '버전 상태',
+        created: '생성 시간',
+        reset: '초기화',
+        createdRange: {
+          '7d': '최근 7일',
+          '30d': '최근 30일',
+          '90d': '최근 90일'
+        }
+      },
+      columns: {
+        versionNo: '버전 번호',
+        name: '버전 이름',
+        status: '상태',
+        requirementCount: '요구사항 수',
+        planDate: '기획일',
+        planLaunchDate: '출시 예정일',
+        finalizeDate: '확정일',
+        launchDate: '출시일',
+        actions: '작업'
+      },
+      empty: {
+        title: '아직 버전이 없습니다',
+        hint: '확정된 요구사항을 릴리스 단위로 묶으려면 버전을 생성하세요',
+        filteredTitle: '조건에 맞는 버전이 없습니다',
+        filteredHint: '필터를 조정하여 더 많은 결과를 확인하세요'
+      },
+      actions: {
+        detail: '상세',
+        generate: '산출물 생성',
+        review: '의견 기록',
+        regenerate: '다시 생성',
+        finalize: '확정',
+        develop: '개발 시작',
+        launch: '출시',
+        shelve: '보류',
+        restore: '기획 재개'
+      },
+      form: {
+        createTitle: '새 버전',
+        name: '버전 이름',
+        namePlaceholder: '예: 항해판',
+        planDate: '기획일',
+        planLaunchDate: '출시 예정일',
+        planLaunchDateHint: '출시 예정일은 기획일 이후여야 합니다',
+        releaseNote: '버전 설명',
+        releaseNotePlaceholder: '이 버전의 중점 내용을 간단히 설명하세요(선택)',
+        requirements: '요구사항 구성(다중 선택, 우선순위 필터 가능)',
+        requirementsEmpty: '확정된 요구사항이 없습니다',
+        requirementsHint: '"확정" 상태의 요구사항만 버전에 포함할 수 있습니다',
+        submit: '버전 생성(기획 중)',
+        createSuccess: '버전이 생성되었습니다',
+        createFailed: '버전 생성에 실패했습니다',
+        errName: '버전 이름을 입력하세요',
+        errPlanDate: '기획일을 선택하세요',
+        errPlanLaunchDate: '출시 예정일은 기획일 이후여야 합니다'
+      },
+      dialogs: {
+        cancel: '취소',
+        back: '돌아가기',
+        close: '닫기',
+        taskTitle: '산출물 생성 중',
+        review: {
+          title: '리뷰 의견 기록',
+          round: '리뷰 차수',
+          roundAuto: '{round}차(시스템 자동 증가)',
+          conclusion: '리뷰 결론',
+          reviewers: '참석자(100자 이내)',
+          reviewersPlaceholder: '예: 장 / 리 / 왕',
+          opinions: '리뷰 의견(1000자 이내)',
+          opinionsPlaceholder: '한 줄에 하나씩 입력하세요. 예: 의견1: ...; 의견2: ...',
+          changeNote: '기능 변경 내역(1000자 이내)',
+          changeNotePlaceholder: '요구사항 또는 산출물 변경 내용을 설명하세요',
+          submit: '제출(버전은 검토 중 유지)',
+          required: '리뷰 결론과 의견은 필수입니다',
+          success: '리뷰 의견이 기록되었습니다',
+          failed: '리뷰 의견 기록에 실패했습니다'
+        },
+        finalize: {
+          title: '버전 확정',
+          versionNo: '버전 번호(X.Y.Z)',
+          versionNoPlaceholder: '예: 1.3.0',
+          outline: '업데이트 개요(2000자 이내)',
+          outlinePlaceholder: '이 버전의 업데이트 내용을 설명하세요',
+          pendingWarning: '"대기 중" 리뷰 의견 {count}건이 감지되었습니다. 확인 후에도 확정할 수 있습니다.',
+          hint: '확정 후에는 버전 번호, 요구사항 구성, PRD/프로토타입 산출물이 잠깁니다.',
+          submit: '확정 확인',
+          errVersionNo: 'X.Y.Z 형식의 버전 번호를 입력하세요',
+          errOutline: '업데이트 개요는 필수입니다',
+          success: '버전이 확정되었습니다',
+          failed: '버전 확정에 실패했습니다'
+        },
+        generate: {
+          title: 'PRD / 프로토타입 생성',
+          hint: '현재 요구사항 구성으로 PRD, 프로토타입, 기능 목록을 생성합니다. 비동기 작업으로 생성되며 완료 후 확인할 수 있습니다.',
+          submit: '생성 시작',
+          success: '산출물이 생성되었습니다',
+          failed: '산출물 생성에 실패했습니다'
+        },
+        regenerate: {
+          title: 'PRD / 프로토타입 다시 생성',
+          hint: '최신 요구사항 구성(보류, 제외, 변경 기록 포함)과 최신 리뷰 의견을 기준으로 PRD와 프로토타입을 다시 생성합니다. 이전 산출물은 비교용으로 보관되며 기능 목록은 증분 동기화됩니다.',
+          submit: '다시 생성 시작',
+          success: '산출물이 다시 생성되었습니다',
+          failed: '산출물 다시 생성에 실패했습니다'
+        },
+        chapters: {
+          label: '생성할 장',
+          hint: '기본으로 전체 선택되어 있습니다. 필요에 따라 PRD 장을 조정할 수 있으며 프로토타입은 항상 생성됩니다.',
+          required: '장을 하나 이상 선택하세요',
+          items: {
+            overview: '1. 버전 개요',
+            requirements: '2. 요구사항 목록',
+            features: '3. 기능 상세',
+            interaction: '4. 인터랙션 및 화면 요구사항',
+            data_api: '5. 데이터 및 API 요구사항',
+            nonfunctional: '6. 비기능 요구사항',
+            acceptance: '7. 인수 기준',
+            review: '8. 리뷰 의견 처리'
+          }
+        },
+        shelve: {
+          title: '버전 보류',
+          hint: '보류하면 버전이 "보류됨"으로 이동하고 일정에서 빠진 요구사항은 "확정됨"으로 돌아갑니다. 나중에 기획을 재개할 수 있습니다.',
+          submit: '보류 확인',
+          success: '버전이 보류되었습니다',
+          failed: '버전 보류에 실패했습니다'
+        },
+        removeRequirement: {
+          title: '제외 · 이 버전에서 빼기',
+          hint: '"{title}"을(를) {version}에서 제외합니다. 요구사항 자체는 유효하며, 다른 버전에 연결되지 않으면 상태가 "확정됨"으로, 버전은 "미지정"으로 돌아갑니다. 그렇지 않으면 "일정 확정"을 유지합니다. 변경 사항은 요구사항 풀에 즉시 동기화됩니다.',
+          submit: '제외 확인',
+          success: '요구사항이 버전에서 제외되었습니다',
+          failed: '요구사항 제외에 실패했습니다'
+        },
+        shelveRequirement: {
+          title: '보류 · 리뷰 반려',
+          reason: '보류 사유(200자 이내, 반려 사유로 표시)',
+          reasonPlaceholder: '이 요구사항을 당장 범위에서 제외하는 이유',
+          impacts: '보류 시: ① 이 요구사항과 이 버전 및 관련 모든 버전의 연결을 삭제합니다. ② 요구사항을 "반려됨"으로, 버전을 "미지정"으로 설정하고 요구사항 풀에 즉시 동기화합니다. ③ 이후 요구사항 풀에서 다시 활성화할 수 있습니다.',
+          submit: '보류 확인',
+          errReason: '보류 사유를 입력하세요',
+          success: '요구사항이 보류되었습니다',
+          failed: '요구사항 보류에 실패했습니다'
+        },
+        changeRequirement: {
+          title: '요구사항 변경',
+          mode: '변경 방식',
+          modeFields: '필드 업데이트',
+          modeReplace: '요구사항 교체',
+          priority: '우선순위(필드 업데이트 시)',
+          description: '요구사항 설명(필드 업데이트 시, 2000자 이내)',
+          descriptionPlaceholder: '시나리오, 문제, 기대 결과를 설명하세요',
+          replacement: '교체 요구사항(확정된 요구사항만)',
+          replacementPlaceholder: '확정된 요구사항을 선택하세요',
+          replacementEmpty: '교체할 다른 확정 요구사항이 없습니다',
+          hint: '필드 변경은 요구사항 풀에 즉시 동기화됩니다. 교체 시 원래 요구사항은 이 버전에서 제외되고(다른 버전에 연결되지 않으면 "확정됨"으로 복귀) 교체 요구사항이 "일정 확정"으로 추가됩니다. 검토 중 변경 후에는 산출물을 다시 생성하세요.',
+          submit: '변경 저장',
+          errReplacement: '교체할 요구사항을 선택하세요',
+          noChange: '변경 사항이 없습니다',
+          success: '요구사항이 변경되었습니다',
+          failed: '요구사항 변경에 실패했습니다'
+        }
+      },
+      detail: {
+        back: '버전 목록으로',
+        loadFailed: '버전을 불러오지 못했습니다',
+        retry: '다시 시도',
+        note: '버전 상세는 읽기 전용이며 모든 작업은 오른쪽 위 버튼으로 수행합니다. 요구사항 구성 변경은 요구사항 풀에 즉시 동기화되며, 검토 중 변경 후에는 산출물을 다시 생성해야 합니다.',
+        banner: {
+          title: '요구사항 구성이 변경되었습니다',
+          text: '요구사항이 보류, 제외 또는 변경되었고 요구사항 풀이 이미 동기화되었습니다. PRD / 프로토타입을 다시 생성하여 산출물을 최신 상태로 유지하세요.',
+          action: '지금 다시 생성'
+        },
+        info: {
+          title: '버전 정보',
+          planDate: '기획일',
+          planLaunchDate: '출시 예정일',
+          finalizeDate: '확정일',
+          launchDate: '출시일',
+          releaseNote: '버전 설명',
+          outline: '업데이트 개요'
+        },
+        requirements: {
+          title: '요구사항 구성',
+          count: '요구사항 {count}개',
+          empty: '이 버전에 요구사항이 없습니다',
+          remove: '제외',
+          shelve: '보류',
+          change: '변경',
+          hint: '보류된 요구사항은 요구사항 풀에서 "반려됨"으로 이동하고 제외된 요구사항은 유지되며 모두 즉시 동기화됩니다. 기획 중 또는 검토 중에만 사용할 수 있고 확정 후에는 잠깁니다. 제목을 클릭하면 요구사항 상세가 열립니다.'
+        },
+        products: {
+          title: '산출물(PRD / 프로토타입 / 기능 목록)',
+          generatedAt: '생성 시각 {time}',
+          prd: 'PRD',
+          prdPath: '지식 베이스 / PRD / {name}',
+          prototype: '프로토타입',
+          prototypePath: '지식 베이스 / 프로토타입 / {name}',
+          features: '기능 목록',
+          synced: '기능 {count}개 동기화됨',
+          featuresPath: '상태: 기획 · 반복 상세 확인 가능',
+          view: '보기',
+          download: '다운로드',
+          preview: '미리보기',
+          notGenerated: '아직 생성되지 않음',
+          kbMissing: '이 프로젝트에는 아직 지식 베이스가 없습니다',
+          downloadFailed: '산출물 다운로드에 실패했습니다',
+          previewFailed: '프로토타입 미리보기에 실패했습니다'
+        },
+        review: {
+          title: '리뷰 기록',
+          summary: '{rounds}차 · 대기 중인 의견 {pending}건',
+          empty: '아직 리뷰 기록이 없습니다',
+          round: '{round}차',
+          meta: '{date} · 참석자: {reviewers}',
+          opinion: '의견{index}: {text}',
+          pending: '대기 중',
+          resolved: '해결됨',
+          editStatus: '상태 수정',
+          note: '처리 설명: {note}',
+          changeNote: '기능 변경 내역: {note}'
+        },
+        opinionDialog: {
+          title: '의견 상태 수정',
+          status: '상태',
+          note: '처리 설명',
+          notePlaceholder: '의견 처리 방식을 설명하세요(선택)',
+          submit: '저장',
+          success: '의견 상태가 업데이트되었습니다',
+          failed: '의견 상태 업데이트에 실패했습니다'
+        }
+      }
+    },
+    features: {
+      title: '기능 목록',
+      create: '기능 추가',
+      loadFailed: '기능 목록을 불러오지 못했습니다',
+      unfinalized: '미확정 버전',
+      summary: '{modules}개 모듈 · {features}개 기능 · {leaves}개 항목 · {launched}개 출시됨',
+      columns: {
+        name: '모듈 / 기능 / 오퍼레이션',
+        requirement: '출처 요구사항',
+        version: '최신 이터레이션 버전',
+        source: '출처',
+        status: '상태',
+        actions: '작업'
+      },
+      filters: {
+        keyword: '모듈 / 기능 / 오퍼레이션 검색',
+        version: '이터레이션 버전',
+        source: '출처',
+        onlyLaunched: '출시된 항목만',
+        reset: '초기화'
+      },
+      empty: {
+        title: '아직 기능이 없습니다',
+        hint: '기능은 로드맵 또는 버전 PRD에서 동기화되며 직접 추가할 수도 있습니다',
+        filteredTitle: '일치하는 기능이 없습니다',
+        filteredHint: '필터 조건을 조정해 보세요'
+      },
+      actions: {
+        history: '이터레이션 이력'
+      },
+      note: '기능은 버전 PRD 생성 시 자동으로 동기화되며 이터레이션 버전별 추가/변경/제거 이력을 보관합니다. 상태는 최신 이터레이션을 따릅니다.',
+      source: {
+        roadmap: '로드맵',
+        prd: 'PRD',
+        manual: '수동'
+      },
+      status: {
+        planned: '계획',
+        launched: '출시됨'
+      },
+      change: {
+        add: '추가',
+        change: '변경',
+        remove: '제거'
+      },
+      createForm: {
+        title: '기능 추가',
+        module: '모듈 이름',
+        modulePlaceholder: '기존 모듈을 선택하거나 새로 입력',
+        feature: '기능',
+        featurePlaceholder: '예: 요구사항 풀',
+        operations: '오퍼레이션',
+        operationsPlaceholder: '예: 목록 보기, 칸반 보기 (쉼표로 구분)',
+        operationsHint: '각 오퍼레이션은 하위 항목으로 저장됩니다. 비워 두면 기능 자체가 리프가 됩니다',
+        requirement: '출처 요구사항',
+        requirementPlaceholder: '확정됨 / 예정됨 요구사항만 선택 가능',
+        version: '이터레이션 버전',
+        versionPlaceholder: '버전 선택',
+        versionHint: '한 번에 하나의 버전만 연결되며 저장 시 "추가" 이력이 생성됩니다',
+        cancel: '취소',
+        submit: '제출',
+        moduleRequired: '모듈 이름을 입력하세요',
+        featureRequired: '기능을 입력하세요',
+        success: '기능이 생성되었습니다',
+        failed: '기능 생성에 실패했습니다'
+      },
+      history: {
+        title: '이터레이션 이력',
+        titleWith: '이터레이션 이력 · {name}',
+        empty: '이터레이션 이력이 없습니다',
+        loadFailed: '이터레이션 이력을 불러오지 못했습니다',
+        note: '각 버전의 계획 출시일이 빠른 순서로 표시됩니다. 상태는 최신 이터레이션을 따릅니다.',
+        columns: {
+          version: '버전',
+          change: '변경 유형',
+          planLaunchDate: '출시 예정',
+          changedAt: '변경 일시',
+          note: '변경 내용'
+        }
+      }
+    },
+    materials: {
+      create: '자료 만들기',
+      loadFailed: '프로젝트 자료를 불러오지 못했습니다',
+      actionFailed: '작업에 실패했습니다',
+      close: '닫기',
+      cancel: '취소',
+      taskTitle: '자료 생성 진행률',
+      taskSuccess: '자료 생성이 완료되었습니다',
+      taskFailed: '자료 생성에 실패했습니다',
+      publishConfirmTitle: '자료 게시',
+      publishConfirmBody: '게시하면 "{title}"이(가) 현재 버전으로 적용되며, 같은 유형의 이전 게시본은 자동으로 보관됩니다.',
+      publishSuccess: '자료를 게시했습니다',
+      downloadFailed: '자료 다운로드에 실패했습니다',
+      deleteConfirmTitle: '자료 삭제',
+      deleteConfirmBody: '삭제한 "{title}"은(는) 복구할 수 없습니다. 삭제하시겠습니까?',
+      deleteSuccess: '자료를 삭제했습니다',
+      deleteFailed: '자료 삭제에 실패했습니다',
+      note: '자료는 먼저 초안으로 만든 뒤 게시합니다. 새 버전이 출시되면 업데이트 안내가 표시되고, 업데이트 후 이전 버전은 보관됩니다.',
+      type: {
+        manual: '사용 설명서',
+        brochure: '브로셔',
+        ppt: 'PPT'
+      },
+      status: {
+        draft: '초안',
+        published: '게시됨',
+        archived: '보관됨'
+      },
+      filters: {
+        keyword: '자료 검색',
+        type: '자료 유형',
+        version: '대상 버전',
+        reset: '초기화'
+      },
+      columns: {
+        title: '자료명',
+        type: '자료 유형',
+        version: '대상 버전',
+        status: '상태',
+        updatedAt: '업데이트 시간',
+        actions: '작업'
+      },
+      actions: {
+        preview: '미리보기',
+        download: '다운로드',
+        delete: '삭제',
+        generate: '초안 생성',
+        publish: '게시',
+        needsUpdate: '새 버전 있음',
+        updateLatest: '최신 버전으로 업데이트',
+        history: '이전 버전'
+      },
+      history: {
+        title: '이전 버전',
+        hint: '"{title}"의 이전 보관 버전입니다. 원문을 미리 보거나 파일을 다운로드할 수 있습니다.',
+        empty: '이전 버전이 없습니다'
+      },
+      empty: {
+        title: '자료가 없습니다',
+        hint: '사용 설명서, 브로셔 또는 PPT를 만들어 먼저 초안으로 생성하세요',
+        filteredTitle: '일치하는 자료가 없습니다',
+        filteredHint: '필터 조건을 조정해 보세요'
+      },
+      form: {
+        createTitle: '자료 만들기',
+        title: '자료명',
+        titlePlaceholder: '예: 제품 소개 PPT',
+        type: '자료 유형',
+        version: '대상 버전',
+        versionPlaceholder: '확정된 버전 선택',
+        versionHint: '「확정」 이상 버전만 선택할 수 있습니다',
+        submit: '만들기(초안)',
+        createSuccess: '자료를 만들었습니다',
+        createFailed: '자료 생성에 실패했습니다',
+        errTitle: '자료명을 입력하세요',
+        errVersion: '대상 버전을 선택하세요'
+      },
+      preview: {
+        back: '프로젝트 자료로 돌아가기',
+        loadFailed: '자료 상세 정보를 불러오지 못했습니다',
+        notFound: '자료가 없거나 삭제되었습니다',
+        version: '대상 버전',
+        latestVersion: '프로젝트 최신 버전',
+        updatedAt: '업데이트 시간',
+        contentTitle: '원문',
+        contentEmpty: '본문이 없습니다. 먼저 초안을 생성하세요.',
+        archivedHint: '이 자료는 보관된 버전이므로 조회만 가능하며 편집하거나 게시할 수 없습니다.',
+        historyTitle: '보관 이력',
+        historyEmpty: '보관된 이력이 없습니다',
+        archivedAt: '보관 시간'
+      }
+    },
+    task: {
+      title: '작업 진행률',
+      status: {
+        pending: '대기 중',
+        running: '실행 중',
+        succeeded: '완료됨',
+        failed: '실패'
+      }
+    },
+    roadmap: {
+      title: '제품 로드맵',
+      subtitle: '5단계 가이드로 제품 방향과 첫 출시 범위를 명확히 합니다',
+      loadFailed: '로드맵을 불러오지 못했습니다',
+      actions: {
+        start: '계획 시작',
+        add: '새 계획',
+        replan: '재계획',
+        replanDisabled: '계획이 적용된 후 재계획할 수 있습니다',
+        history: '계획 이력'
+      },
+      empty: {
+        title: '아직 로드맵이 없습니다',
+        hint: '가이드 계획을 시작하면 로드맵 문서와 기능 목록이 생성됩니다'
+      },
+      batch: {
+        label: '계획 배치',
+        noSummary: '변경 요약 없음',
+        resume: '가이드 계속',
+        snapshot: '스냅샷 보기',
+        delete: '배치 삭제',
+        deleteConfirmTitle: '계획 배치 삭제',
+        deleteConfirmBody: '초안 배치 "{name}" 및 아직 반영되지 않은 계획 내용이 삭제됩니다. 삭제 후에는 복구할 수 없습니다.',
+        deleteSuccess: '배치가 삭제되었습니다',
+        deleteFailed: '삭제하지 못했습니다. 잠시 후 다시 시도해 주세요'
+      },
+      planType: {
+        initial: '초기 계획',
+        iteration: '증분 계획',
+        replan: '재계획'
+      },
+      planTypeDesc: {
+        initial: '빈 초안에서 시작하여 전체 제품 로드맵을 정리합니다',
+        iteration: '현재 적용된 계획을 기준으로 이번 이터레이션을 추가합니다',
+        replan: '현재 적용된 계획을 기준으로 로드맵 구조를 다시 구성합니다'
+      },
+      batchStatus: {
+        draft: '초안',
+        active: '적용 중',
+        archived: '보관됨'
+      },
+      doc: {
+        title: '제품 로드맵',
+        draftTitle: '이 배치는 아직 계획되지 않았습니다',
+        draftHint: '5단계 가이드를 계속하여 로드맵 문서를 생성하세요'
+      },
+      side: {
+        title: '기능 요약',
+        meta: '모듈 {modules}개 · 기능 {features}개 · 작업 {operations}개 · 범위 {scope}개',
+        empty: '아직 기능이 없습니다'
+      },
+      create: {
+        title: '새 계획',
+        name: '배치 이름',
+        namePlaceholder: '배치 이름 입력',
+        nameEmpty: '배치 이름은 필수입니다',
+        type: '계획 유형',
+        typeHint: '배치는 한 번의 계획을 기록하며, 이전 배치는 이력에서 확인할 수 있습니다',
+        submit: '생성 후 시작',
+        failed: '계획 배치 생성에 실패했습니다'
+      },
+      history: {
+        title: '계획 이력',
+        columns: {
+          name: '배치',
+          type: '유형',
+          version: '버전',
+          summary: '변경 요약',
+          operator: '작업자',
+          time: '생성 시간',
+          status: '상태',
+          actions: '작업'
+        }
+      },
+      snapshot: {
+        view: '스냅샷 보기',
+        close: '닫기',
+        back: '목록으로',
+        note: '스냅샷은 배치 초안에서 읽기 전용으로 재구성됩니다',
+        titleWith: '스냅샷 · {name}',
+        notGenerated: '계획이 생성된 후 스냅샷을 볼 수 있습니다',
+        loadFailed: '계획 이력을 불러오지 못했습니다'
+      },
+      guide: {
+        title: 'AI 가이드 계획',
+        exit: '가이드 종료',
+        chatTitle: 'AI 가이드',
+        send: '전송',
+        agentDefault: '기본 에이전트',
+        agentLoadFailed: '에이전트 목록을 불러오지 못했습니다',
+        agentStartFailed: 'AI 가이드 세션 생성에 실패하여 로컬 가이드로 전환했습니다',
+        streamFailed: 'AI 응답에 실패했습니다. 다시 시도해 주세요',
+        emptyReply: 'AI 응답이 없습니다. 정보를 추가해 주세요',
+        thinking: '생각 중…',
+        draftTitle: '로드맵 초안',
+        outputTitle: '산출물 미리보기',
+        previewNote: 'AI 가이드가 자동으로 정리합니다',
+        tabs: {
+          cognition: '제품 인식',
+          features: '기능 구조도',
+          flows: '핵심 흐름도',
+          scope: '첫 출시 범위',
+          plan: '전체 계획'
+        },
+        me: '나',
+        prev: '이전',
+        next: '다음',
+        finish: '계획 완료',
+        autoSave: '변경 사항은 자동 저장됩니다',
+        saving: '저장 중…',
+        saved: '저장됨',
+        saveError: '저장 실패',
+        saveFailed: '초안 저장에 실패했습니다',
+        footNote: '편집하는 동안 초안이 저장되며, 계획을 완료하면 로드맵 문서와 스냅샷이 생성됩니다',
+        stepLabel: '단계 {current}/{total} · {name}',
+        steps: {
+          cognition: '제품 인식',
+          features: '기능 분해',
+          flows: '핵심 흐름',
+          scope: '첫 출시 범위',
+          confirm: '확인 및 생성'
+        },
+        descInitial: '처음부터 제품 로드맵을 정리합니다',
+        descIncrement: '"{name}"을 기준으로 이번 이터레이션을 계획합니다',
+        descReplan: '적용된 계획을 기준으로 로드맵 구조를 다시 구성합니다',
+        fields: {
+          targetUsers: '대상 사용자',
+          coreValue: '핵심 가치',
+          scenarios: '핵심 시나리오',
+          background: '배경'
+        },
+        blocks: {
+          cognition: '제품 인식',
+          features: '기능 분해',
+          flows: '핵심 흐름',
+          scope: '첫 출시 범위',
+          batch: '배치 정보',
+          sync: '동기화 옵션'
+        },
+        stats: {
+          features: '{count}행',
+          flows: '{count}개 모듈',
+          tree: '모듈 {modules}개 · 기능 {features}개 · 작업 {operations}개'
+        },
+        feature: {
+          module: '모듈',
+          feature: '기능',
+          operation: '작업',
+          empty: '아직 기능이 없습니다. 행을 추가하거나 대화에서 설명하세요'
+        },
+        flow: {
+          module: '모듈',
+          valid: 'Mermaid 구문 정상',
+          invalid: 'Mermaid 구문 오류',
+          empty: '아직 흐름이 없습니다'
+        },
+        scope: {
+          selected: '{selected}/{total} 선택됨',
+          clearAll: '지우기',
+          empty: '첫 출시 범위를 선택하기 전에 기능을 추가하세요'
+        },
+        plan: {
+          hint: '산출물을 확인한 뒤 로드맵 문서를 생성하고 적용합니다'
+        },
+        summary: {
+          modules: '모듈',
+          features: '기능',
+          operations: '작업',
+          flows: '흐름',
+          scope: '범위'
+        },
+        batch: {
+          name: '배치',
+          type: '유형',
+          version: '연관 버전',
+          docPath: '로드맵 문서',
+          snapshotPath: '스냅샷 파일'
+        },
+        sync: {
+          hint: '로드맵을 기능 목록에 동기화',
+          note: '동기화된 기능은 기능 목록 페이지에서 관리할 수 있습니다'
+        },
+        chips: {
+          featureAdd: '기능 행 추가',
+          flowAdd: '흐름 추가',
+          flowGenerate: '기능에서 흐름 생성',
+          scopeAll: '전체 선택'
+        },
+        inputPlaceholder: '자연어로 설명하고 Enter로 전송하세요',
+        inputDisabled: '이 단계는 대화 입력을 지원하지 않습니다',
+        prompts: {
+          overall: '저는 제품 계획 도우미입니다. 제품 아이디어, 대상 사용자, 핵심 시나리오를 그대로 설명해 주세요. 제품 인식, 기능 구조도, 핵심 흐름도, 첫 출시 범위를 함께 정리하고 마지막에 전체 계획을 확인합니다. "모듈/기능/작업" 목록을 붙여넣거나 "모듈: 노드 1 -> 노드 2" 형식으로 흐름을 설명할 수도 있습니다.',
+          step1: '"{name}"의 제품 인식부터 시작하세요. 대상 사용자, 핵심 가치, 가장 중요한 시나리오는 무엇인가요?',
+          step2: '현재 {modules}개 모듈, {features}개 기능입니다. "모듈/기능/작업" 형식으로 한 줄에 하나씩 더 설명하세요.',
+          step3: '"모듈: 노드 1 -> 노드 2" 형식으로 핵심 흐름을 한 줄에 하나씩 설명하세요. Mermaid가 자동 생성됩니다.',
+          step4: '첫 출시 범위를 선택하세요. 현재 {selected}/{total}개 작업이 선택되었습니다.',
+          step5: '모든 준비가 완료되었습니다. 생성하면 로드맵 문서가 작성되고 이 스냅샷이 유지됩니다.'
+        },
+        acks: {
+          cognition: '제품 인식이 업데이트되었습니다',
+          features: '기능 {count}개를 추가했습니다',
+          flows: '모듈 {count}개의 흐름을 생성했습니다',
+          flowAdded: '"{module}" 흐름을 추가했습니다',
+          scopeAll: '작업 {count}개를 모두 선택했습니다'
+        },
+        hints: {
+          needModule: '먼저 모듈을 설명하세요',
+          needFeatures: '흐름을 생성하기 전에 기능을 추가하세요',
+          featureFormat: '형식: 모듈/기능/작업, 한 줄에 하나씩',
+          flowFormat: '형식: 모듈: 노드 1 -> 노드 2'
+        },
+        warnings: {
+          step1: '먼저 대상 사용자, 핵심 가치, 핵심 시나리오를 입력하세요',
+          step2: '모듈/기능/작업 경로가 완전한 기능을 최소 하나 추가하세요',
+          step3: '유효한 Mermaid 흐름을 최소 하나 추가하세요 (flowchart TD 또는 LR로 시작)',
+          step4: '첫 출시 범위에 최소 하나의 작업을 선택하세요',
+          step5: '배치 이름과 계획 유형은 필수입니다'
+        },
+        finishSuccess: '로드맵이 생성되고 적용되었습니다',
+        finishFailed: '로드맵 생성에 실패했습니다'
+      }
+    },
+    placeholder: '이 화면은 준비 중입니다'
   },
   // 관찰 속성의 표시 문구. 속성 이름으로 색인하며 여기서는 번역만 담당합니다.
   // 속성 이름의 점은 밑줄로 이스케이프합니다(contain.text → contain_text) —— vue-i18n 은

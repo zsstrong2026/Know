@@ -36,6 +36,8 @@ export const useMenuStore = defineStore('menuStore', () => {
     { title: '', titleKey: 'menu.artifacts', icon: 'artifact', path: 'artifacts', requiredCapability: 'settings.sandbox' },
     { title: '', titleKey: 'menu.agents', icon: 'agent', path: 'agents', requiredCapability: 'agents' },
     { title: '', titleKey: 'menu.meetings', icon: 'meeting', path: 'meetings' },
+    // PM 工作站：独立看板图标，避免与其他菜单项图标重复
+    { title: '', titleKey: 'menu.pm', icon: 'pm', path: 'pm' },
     { title: '', titleKey: 'toolbox.title', icon: 'toolbox', path: 'toolbox' },
     { title: '', titleKey: 'menu.organizations', icon: 'organization', path: 'organizations', requiredCapability: 'organizations' },
     { title: '', titleKey: 'menu.settings', icon: 'setting', path: 'settings' },

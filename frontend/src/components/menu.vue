@@ -87,7 +87,7 @@
                         <div class="menu_item-box">
                             <div class="menu_icon" :class="`menu_icon--${item.icon}`">
                                 <img class="icon"
-                                    :src="getImgSrc(item.icon == 'doc-assistant' ? docAssistantIcon : item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'agent' ? agentIcon : item.icon == 'meeting' ? meetingIcon : item.icon == 'artifact' ? artifactIcon : item.icon == 'toolbox' ? toolboxIcon : item.icon == 'organization' ? organizationIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)"
+                                    :src="getImgSrc(item.icon == 'doc-assistant' ? docAssistantIcon : item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'agent' ? agentIcon : item.icon == 'meeting' ? meetingIcon : item.icon == 'artifact' ? artifactIcon : item.icon == 'pm' ? pmIcon : item.icon == 'toolbox' ? toolboxIcon : item.icon == 'organization' ? organizationIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)"
                                     alt="">
                             </div>
                             <template v-if="!uiStore.sidebarCollapsed">
@@ -456,6 +456,9 @@ const isMenuItemActive = (itemPath: string): boolean => {
             return currentRoute === 'toolbox';
         case 'artifacts':
             return currentRoute === 'artifactLibrary';
+        case 'pm':
+            // PM 工作站为多级路由（pmRoadmap/pmRequirements/...），父路由无独立路由名
+            return typeof currentRoute === 'string' && currentRoute.startsWith('pm');
         case 'organizations':
             return currentRoute === 'organizationList';
         case 'creatChat':
@@ -485,7 +488,8 @@ const getIconActiveState = (itemPath: string) => {
 };
 
 // 分离上下两部分菜单（使用 visibleMenuArr 以便 lite 模式过滤 logout）
-const TOP_MENU_PATHS = new Set(['creatChat', 'knowledge-bases', 'doc-assistant', 'artifacts', 'agents', 'meetings', 'toolbox', 'organizations']);
+// 注意：不在 TOP_MENU_PATHS 中的项不会被渲染，新增顶级入口时必须同步加入
+const TOP_MENU_PATHS = new Set(['creatChat', 'knowledge-bases', 'doc-assistant', 'artifacts', 'agents', 'meetings', 'pm', 'toolbox', 'organizations']);
 
 const topMenuItems = computed<MenuItem[]>(() => {
     return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) => TOP_MENU_PATHS.has(item.path));
@@ -1132,6 +1136,8 @@ let meetingIcon = ref('meeting.svg');
 let artifactIcon = ref('artifact.svg');
 let toolboxIcon = ref('toolbox.svg');
 let organizationIcon = ref('organization.svg');
+// PM 工作站独立图标
+let pmIcon = ref('pm.svg');
 let docAssistantIcon = ref('doc-assistant.svg');
 let pathPrefix = ref(route.name)
 const getIcon = (path: string) => {
@@ -1159,6 +1165,9 @@ const getIcon = (path: string) => {
 
     // 产物图标：只在产物页面显示绿色
     artifactIcon.value = artifactsActiveState ? 'artifact-green.svg' : 'artifact.svg';
+
+    // PM 图标：只在 PM 工作站页面显示绿色
+    pmIcon.value = typeof route.name === 'string' && route.name.startsWith('pm') ? 'pm-green.svg' : 'pm.svg';
 
     toolboxIcon.value = route.name === 'toolbox' ? 'toolbox-green.svg' : 'toolbox.svg';
 

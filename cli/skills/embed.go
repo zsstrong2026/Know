@@ -15,6 +15,8 @@ import (
 )
 
 //go:embed all:weknora-shared all:weknora-rag-search all:frontend-slides
+//go:embed all:pm-roadmap-planner all:pm-requirement-analysis all:pm-prd-generator
+//go:embed all:pm-prototype all:pm-material
 var fsys embed.FS
 
 // Skill is one bundled skill: its directory name, the description parsed from

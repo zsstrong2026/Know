@@ -119,6 +119,8 @@ type rbacGuards struct {
 	kbCreator      middleware.CreatorLookup
 	agentCreator   middleware.CreatorLookup
 	meetingCreator middleware.CreatorLookup
+	// pmCreator 解析 :id -> PMProject.CreatedBy，用于 PM 站点项目级路由
+	pmCreator middleware.CreatorLookup
 	// kbCreatorFromKbIDParam reads :kbId (not :id) for the
 	// /initialization/* routes whose KB is addressed by :kbId.
 	kbCreatorFromKbIDParam middleware.CreatorLookup
@@ -164,6 +166,7 @@ func newRBACGuards(
 	kbShareService interfaces.KBShareService,
 	agentShareService interfaces.AgentShareService,
 	meetingHandler *handler.MeetingHandler,
+	pmHandler *handler.PMHandler,
 ) *rbacGuards {
 	g := &rbacGuards{cfg: cfg, apiKeyAuthorizer: middleware.NewAPIKeyRouteAuthorizer()}
 	if kbHandler != nil {
@@ -175,6 +178,9 @@ func newRBACGuards(
 	}
 	if meetingHandler != nil {
 		g.meetingCreator = meetingHandler.MeetingCreatorLookup
+	}
+	if pmHandler != nil {
+		g.pmCreator = pmHandler.PMProjectCreatorLookup
 	}
 	if knowledgeHandler != nil {
 		g.knowledgeKBCreator = knowledgeHandler.KBCreatorLookupFromKnowledgeID
@@ -473,6 +479,11 @@ func (g *rbacGuards) OwnedAgentOrAdmin() gin.HandlerFunc {
 // OwnedMeetingOrAdmin 会议室写操作：创建者本人或租户管理员
 func (g *rbacGuards) OwnedMeetingOrAdmin() gin.HandlerFunc {
 	return middleware.RequireOwnershipOrRole(types.TenantRoleAdmin, g.meetingCreator, g.cfg)
+}
+
+// OwnedPMProjectOrAdmin PM 项目级读写：项目创建者本人或租户管理员
+func (g *rbacGuards) OwnedPMProjectOrAdmin() gin.HandlerFunc {
+	return middleware.RequireOwnershipOrRole(types.TenantRoleAdmin, g.pmCreator, g.cfg)
 }
 
 // OwnedKnowledgeKBOrAdmin: per-knowledge mutations (update / delete /

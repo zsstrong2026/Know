@@ -170,6 +170,56 @@ const router = createRouter({
           ],
         },
         {
+          // PM 工作站：顶部切换项目 + Tab 导航，右侧为子路由出口（无项目时展示空态）
+          path: "pm",
+          component: () => import("../views/pm/PmLayoutView.vue"),
+          meta: { requiresInit: true, requiresAuth: true },
+          children: [
+            {
+              path: ":projectId/roadmap",
+              name: "pmRoadmap",
+              component: () => import("../views/pm/PmRoadmapView.vue"),
+              meta: { requiresInit: true, requiresAuth: true }
+            },
+            {
+              path: ":projectId/requirements",
+              name: "pmRequirements",
+              component: () => import("../views/pm/PmRequirementBoard.vue"),
+              meta: { requiresInit: true, requiresAuth: true }
+            },
+            {
+              path: ":projectId/versions",
+              name: "pmVersions",
+              component: () => import("../views/pm/PmVersionList.vue"),
+              meta: { requiresInit: true, requiresAuth: true }
+            },
+            {
+              path: ":projectId/versions/:versionId",
+              name: "pmVersionDetail",
+              component: () => import("../views/pm/PmVersionDetail.vue"),
+              meta: { requiresInit: true, requiresAuth: true }
+            },
+            {
+              path: ":projectId/features",
+              name: "pmFeatures",
+              component: () => import("../views/pm/PmFeatureTree.vue"),
+              meta: { requiresInit: true, requiresAuth: true }
+            },
+            {
+              path: ":projectId/materials",
+              name: "pmMaterials",
+              component: () => import("../views/pm/PmMaterialList.vue"),
+              meta: { requiresInit: true, requiresAuth: true }
+            },
+            {
+              path: ":projectId/materials/:materialId",
+              name: "pmMaterialPreview",
+              component: () => import("../views/pm/PmMaterialPreview.vue"),
+              meta: { requiresInit: true, requiresAuth: true }
+            },
+          ],
+        },
+        {
           path: "integrations",
           redirect: (to) => {
             const tab = typeof to.query.tab === 'string' ? to.query.tab : undefined

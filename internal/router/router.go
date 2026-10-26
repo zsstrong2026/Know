@@ -97,6 +97,8 @@ type RouterParams struct {
 	MemoryHandler                *handler.MemoryHandler
 	DocAssistantHandler          *handler.DocAssistantHandler
 	HostSandbox                  service.HostSandboxManager
+	// PMHandler PM 工作站端点聚合（项目/规划/需求/版本/功能清单/任务）
+	PMHandler *handler.PMHandler
 }
 
 // NewRouter 创建新的路由
@@ -251,6 +253,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 			params.KBShareService,
 			params.AgentShareService,
 			params.MeetingHandler,
+			params.PMHandler,
 		)
 
 		// API-key gate: single authority for X-API-Key principals. Runs
@@ -321,6 +324,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterStorageBackendRoutes(v1, params.StorageBackendHandler, rbacGuards)
 		RegisterCustomAgentRoutes(v1, params.CustomAgentHandler, params.AgentEvalHandler, rbacGuards)
 		RegisterMeetingRoutes(v1, params.MeetingHandler, rbacGuards)
+		RegisterPMRoutes(v1, params.PMHandler, rbacGuards)
 		RegisterUserFavoriteRoutes(v1, params.UserFavoriteHandler, rbacGuards)
 		RegisterSkillRoutes(v1, params.SkillHandler, rbacGuards)
 		RegisterOrganizationRoutes(v1, params.OrganizationHandler, rbacGuards)

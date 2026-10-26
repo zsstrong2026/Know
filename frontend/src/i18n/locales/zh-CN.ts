@@ -7955,7 +7955,7 @@ export default {
     deleteFailed: '删除失败，请稍后重试',
     download: '下载',
     downloadFailed: '下载失败，请稍后重试',
-    selectMode: '批量下载',
+    selectMode: '批量操作',
     selectAll: '全选',
     deselectAll: '取消全选',
     selectedCount: '已选 {count} 项',
@@ -8013,7 +8013,886 @@ export default {
     apiChats: 'API 会话',
     noSessions: '暂无对话',
     meetings: '会议室',
-    docAssistant: '方案助手'
+    docAssistant: '方案助手',
+    pm: 'PM 工作站'
+  },
+  // PM 工作站：项目 / 规划 / 需求 / 版本 / 功能清单
+  pm: {
+    title: 'PM 工作站',
+    nav: {
+      roadmap: '功能规划',
+      requirements: '需求池',
+      versions: '版本管理',
+      features: '功能清单',
+      materials: '项目资料'
+    },
+    projects: {
+      title: '项目',
+      selectPlaceholder: '选择项目',
+      searchPlaceholder: '搜索项目',
+      empty: '还没有项目',
+      emptyHint: '新建项目后即可开始规划',
+      emptySearch: '没有匹配的项目',
+      loadFailed: '项目列表加载失败',
+      create: '新建项目',
+      delete: '删除项目',
+      more: '更多操作',
+      deleteConfirmTitle: '删除项目',
+      deleteConfirmBody: '确定删除项目「{name}」吗？该项目下的规划、需求、版本、功能与资料都会一并删除，且无法恢复。',
+      deleteSuccess: '项目已删除',
+      deleteFailed: '项目删除失败',
+      name: '项目名称',
+      namePlaceholder: '例如：智能客服助手',
+      description: '项目描述',
+      descriptionPlaceholder: '简要说明项目目标（可选）',
+      kbHint: '将自动创建同名知识库，用于存放项目资料与产物',
+      nameEmpty: '项目名称不能为空',
+      nameTooLong: '项目名称不能超过 255 个字符',
+      createSuccess: '项目已创建',
+      createFailed: '项目创建失败',
+      updatedAt: '更新于 {time}',
+      enter: '进入',
+      actionFailed: '操作失败',
+      status: {
+        active: '进行中',
+        archived: '已归档'
+      }
+    },
+    requirement: {
+      status: {
+        pending_analysis: '待分析',
+        confirmed: '已确认',
+        scheduled: '已排期',
+        developing: '开发中',
+        launched: '已上线',
+        rejected: '已驳回',
+        closed: '已关闭'
+      }
+    },
+    requirements: {
+      create: '新建需求',
+      loadFailed: '需求列表加载失败',
+      statusChangeFailed: '状态变更失败，当前流转不被允许',
+      reactivateSuccess: '需求已重新激活',
+      reactivateFailed: '需求重新激活失败',
+      deleteConfirmTitle: '删除需求',
+      deleteConfirmBody: '确定删除「{title}」吗？删除后会从关联版本中移除，且不可恢复。',
+      deleteSuccess: '需求已删除',
+      deleteFailed: '需求删除失败',
+      cancel: '取消',
+      actionFailed: '操作失败',
+      versionUnassigned: '未排期',
+      view: {
+        list: '列表视图',
+        kanban: '看板视图'
+      },
+      filters: {
+        keyword: '搜索标题、描述或提出人',
+        priority: '优先级',
+        status: '状态',
+        source: '来源',
+        value: '价值达成',
+        reset: '重置'
+      },
+      sort: {
+        updated_desc: '最近更新',
+        updated_asc: '最早更新',
+        priority: '优先级',
+        created_desc: '最近创建'
+      },
+      columns: {
+        title: '需求标题',
+        priority: '优先级',
+        status: '状态',
+        source: '来源',
+        proposer: '提出人',
+        description: '需求描述',
+        version: '所属版本',
+        value: '价值达成',
+        updatedAt: '更新时间',
+        actions: '操作'
+      },
+      actions: {
+        detail: '详情',
+        edit: '编辑',
+        analyze: 'AI 分析',
+        verify: '上线验证',
+        reactivate: '重新激活',
+        delete: '删除'
+      },
+      empty: {
+        title: '还没有需求',
+        hint: '把客户反馈或内部想法记录为需求，后续可做 AI 分析与排期'
+      },
+      emptyFiltered: {
+        title: '没有符合筛选条件的需求',
+        hint: '调整筛选条件试试'
+      },
+      source: {
+        customer: '客户反馈',
+        internal: '内部提出',
+        data: '数据洞察',
+        competitor: '竞品参考',
+        strategy: '战略规划',
+        other: '其他'
+      },
+      value: {
+        achieved: '达成',
+        partial: '部分达成',
+        not_achieved: '未达成',
+        none: '未验证'
+      },
+      form: {
+        createTitle: '新建需求',
+        editTitle: '编辑需求',
+        title: '需求标题',
+        titlePlaceholder: '用一句话概括需求',
+        description: '初步想法',
+        descriptionPlaceholder: '描述使用场景、待解决的问题与期望效果',
+        source: '需求来源',
+        sourcePlaceholder: '请选择来源',
+        proposer: '提出人',
+        proposerPlaceholder: '谁提出的（选填）',
+        priority: '优先级',
+        priorityHint: '默认 P2，可按实际评估调整',
+        required: '需求标题与来源为必填项',
+        save: '保存',
+        saveSuccess: '需求已更新',
+        saveFailed: '需求保存失败',
+        saveDraft: '保存草稿',
+        draftSuccess: '草稿已保存，状态为待分析',
+        draftFailed: '草稿保存失败',
+        createSuccess: '需求创建成功',
+        createFailed: '需求创建失败',
+        aiAnalyze: 'AI 分析',
+        confirm: '确认需求',
+        confirmSuccess: '需求已确认',
+        confirmFailed: '确认需求失败',
+        planView: '查看分析方案',
+        value: '需求价值',
+        impact: '关联功能影响',
+        risk: '技术风险',
+        designPlan: '实现方案',
+        designPlanPlaceholder: '描述实现思路、数据变更与接口影响',
+        attachments: '附件',
+        attachmentPick: '选择文件',
+        attachmentHint: '支持图片与 PDF/Word/Excel/PPT/文本，单个不超过 10MB',
+        attachmentRemove: '移除附件',
+        attachmentTypeInvalid: '「{name}」的类型不支持上传',
+        attachmentTooLarge: '「{name}」超过 10MB',
+        attachmentUploadFailed: '{count} 个附件上传失败，请重试',
+        attachmentRemoveFailed: '附件删除失败'
+      },
+      ai: {
+        title: 'AI 需求分析',
+        you: '我',
+        thinking: '正在思考…',
+        starting: '正在启动分析…',
+        placeholder: '回答 AI 的问题或补充背景，Enter 发送',
+        send: '发送',
+        start: '开始分析',
+        restart: '重新分析',
+        idle: '选择智能体后开始分析，AI 会围绕需求背景逐轮追问，帮你把真实诉求挖清楚。',
+        generatePlan: '生成分析方案',
+        planLink: '查看完整分析方案 →',
+        planTitle: '完整分析方案',
+        planClose: '关闭',
+        planEmpty: '暂无分析方案，先与 AI 完成几轮问答吧',
+        startFailed: '启动 AI 分析失败',
+        streamFailed: 'AI 回复中断，请重试',
+        emptyReply: 'AI 未返回内容，请重试',
+        agentLabel: '执行智能体',
+        agentDefault: '默认（通用分析）',
+        agentLoadFailed: '加载智能体失败'
+      },
+      detail: {
+        title: '需求详情',
+        base: '基础信息',
+        createdAt: '创建时间',
+        updatedAt: '更新时间',
+        attachments: '附件',
+        noAttachments: '暂无附件',
+        attachmentOpenFailed: '附件打开失败',
+        analysis: 'AI 分析',
+        emptyAnalysis: '暂无分析结论',
+        designPlan: '设计方案',
+        noDesignPlan: '暂无设计方案',
+        launch: '上线验证',
+        valueAchieved: '价值达成',
+        effectNotes: '效果数据',
+        retroNotes: '复盘说明',
+        verified: '已回填',
+        verify: '提交验证',
+        verifiedAt: '验证于 {time}',
+        verifyLocked: '需求上线后可回填价值达成情况',
+        close: '关闭',
+        valueRequired: '请选择价值达成情况',
+        verifySuccess: '验证结果已提交',
+        verifyFailed: '验证提交失败',
+        confirm: '确认需求',
+        confirmSuccess: '需求已确认',
+        confirmFailed: '确认需求失败'
+      }
+    },
+    version: {
+      create: '新建版本',
+      unfinalized: '未定稿',
+      loadFailed: '加载版本列表失败',
+      actionSuccess: '版本操作已完成',
+      actionFailed: '操作失败',
+      status: {
+        planning: '规划中',
+        reviewing: '评审中',
+        finalized: '已定稿',
+        developing: '开发中',
+        launched: '已发布',
+        shelved: '已搁置'
+      },
+      conclusion: {
+        pass: '通过',
+        conditional: '有条件通过',
+        reject: '不通过'
+      },
+      filters: {
+        keyword: '搜索版本',
+        status: '版本状态',
+        created: '创建时间',
+        reset: '重置',
+        createdRange: {
+          '7d': '最近 7 天',
+          '30d': '最近 30 天',
+          '90d': '最近 90 天'
+        }
+      },
+      columns: {
+        versionNo: '版本号',
+        name: '版本名称',
+        status: '状态',
+        requirementCount: '需求数',
+        planDate: '规划日期',
+        planLaunchDate: '计划上线日',
+        finalizeDate: '定稿日',
+        launchDate: '上线日',
+        actions: '操作'
+      },
+      empty: {
+        title: '暂无版本',
+        hint: '创建版本，把已确认的需求归入一个发布批次',
+        filteredTitle: '没有匹配的版本',
+        filteredHint: '调整筛选条件查看更多结果'
+      },
+      actions: {
+        detail: '详情',
+        generate: '生成产物',
+        review: '记录意见',
+        regenerate: '重新生成',
+        finalize: '定稿',
+        develop: '启动开发',
+        launch: '上线',
+        shelve: '搁置',
+        restore: '恢复规划'
+      },
+      form: {
+        createTitle: '新建版本',
+        name: '版本名称',
+        namePlaceholder: '如：远航版',
+        planDate: '规划日期',
+        planLaunchDate: '计划上线日',
+        planLaunchDateHint: '计划上线日须晚于规划日期',
+        releaseNote: '版本说明',
+        releaseNotePlaceholder: '简要说明本期版本的重点（选填）',
+        requirements: '需求归纳（可多选，支持按优先级筛选）',
+        requirementsEmpty: '暂无可纳入的已确认需求',
+        requirementsHint: '需求归纳仅可选择「已确认」状态的需求',
+        submit: '创建版本（规划中）',
+        createSuccess: '版本已创建',
+        createFailed: '创建版本失败',
+        errName: '请填写版本名称',
+        errPlanDate: '请选择规划日期',
+        errPlanLaunchDate: '计划上线日须晚于规划日期'
+      },
+      dialogs: {
+        cancel: '取消',
+        back: '返回',
+        close: '关闭',
+        taskTitle: '产物生成进度',
+        review: {
+          title: '记录评审意见',
+          round: '评审轮次',
+          roundAuto: '第 {round} 轮（系统自动递增）',
+          conclusion: '评审结论',
+          reviewers: '参会人（≤100字）',
+          reviewersPlaceholder: '如：张 / 李 / 王',
+          opinions: '评审意见（≤1000字）',
+          opinionsPlaceholder: '每行一条，如：意见1：资料更新需保留旧版归档',
+          changeNote: '功能变更明细（≤1000字）',
+          changeNotePlaceholder: '说明本次评审带来的需求或产物变更',
+          submit: '提交（版本保持评审中）',
+          required: '请选择评审结论并填写评审意见',
+          success: '评审意见已记录',
+          failed: '记录评审意见失败'
+        },
+        finalize: {
+          title: '定稿',
+          versionNo: '版本号（格式 X.Y.Z）',
+          versionNoPlaceholder: '如：1.3.0',
+          outline: '更新内容大纲（≤2000字）',
+          outlinePlaceholder: '填写本版本的更新内容大纲',
+          pendingWarning: '检测到 {count} 条「待处理」评审意见，可人工确认后继续定稿。',
+          hint: '定稿后版本号、需求集合、PRD/原型产物将锁定。',
+          submit: '确认定稿',
+          errVersionNo: '请填写 X.Y.Z 格式的版本号',
+          errOutline: '请填写更新内容大纲',
+          success: '版本已定稿',
+          failed: '定稿失败'
+        },
+        generate: {
+          title: '生成 PRD / 原型',
+          hint: '将基于当前需求集合生成 PRD、原型与功能清单；生成为异步任务，完成后可查看。',
+          submit: '开始生成',
+          success: '产物已生成',
+          failed: '生成产物失败'
+        },
+        regenerate: {
+          title: '重新生成 PRD / 原型',
+          hint: '将基于最新需求集合（含搁置/取消/变更记录）与最新一轮评审意见重新生成 PRD 与原型，历史产物保留供对照；功能清单按最新 PRD 增量同步。',
+          submit: '开始重新生成',
+          success: '产物已重新生成',
+          failed: '重新生成产物失败'
+        },
+        chapters: {
+          label: '生成章节',
+          hint: '默认全选，可按需裁剪 PRD 章节；原型始终生成',
+          required: '请至少选择一个章节',
+          items: {
+            overview: '1. 版本概述',
+            requirements: '2. 需求清单',
+            features: '3. 功能详述',
+            interaction: '4. 交互与页面要求',
+            data_api: '5. 数据与接口要求',
+            nonfunctional: '6. 非功能要求',
+            acceptance: '7. 验收标准',
+            review: '8. 评审意见处理'
+          }
+        },
+        shelve: {
+          title: '搁置版本',
+          hint: '搁置后版本状态变为「已搁置」，已排期的需求回退为「已确认」；后续可恢复规划。',
+          submit: '确认搁置',
+          success: '版本已搁置',
+          failed: '搁置版本失败'
+        },
+        removeRequirement: {
+          title: '取消 · 移出本版本',
+          hint: '将需求「{title}」从 {version} 移出，需求本身保留有效。取消后联动：若该需求不再关联任何版本，则状态回退「已确认」、所属版本「未排期」；若仍关联其他未定稿版本则保持「已排期」。变动实时同步需求池。',
+          submit: '确认取消',
+          success: '需求已移出本版本',
+          failed: '移出需求失败'
+        },
+        shelveRequirement: {
+          title: '搁置 · 评审不通过',
+          reason: '搁置原因（≤200字，将作为需求驳回原因展示）',
+          reasonPlaceholder: '说明当前阶段暂不纳入版本的原因',
+          impacts: '搁置后将执行：① 删除该需求与当前版本及全部关联版本的关联记录；② 需求状态置为「已驳回」、所属版本「未排期」，实时同步需求池；③ 后续可在需求池对该需求执行「重新激活」恢复为「待分析」。',
+          submit: '确认搁置',
+          errReason: '请填写搁置原因',
+          success: '需求已搁置',
+          failed: '搁置需求失败'
+        },
+        changeRequirement: {
+          title: '变更需求',
+          mode: '变更方式',
+          modeFields: '变更字段',
+          modeReplace: '更换需求',
+          priority: '优先级（变更字段时）',
+          description: '需求描述（变更字段时，≤2000字）',
+          descriptionPlaceholder: '描述业务场景、问题与期望结果',
+          replacement: '更换需求（可选择项目「已确认」需求）',
+          replacementPlaceholder: '选择替代需求',
+          replacementEmpty: '暂无可选的已确认需求',
+          hint: '变更字段实时同步需求池对应字段；更换需求时原需求移出本版本（不再关联任何版本则回退「已确认」），替代需求纳入并置「已排期」。评审中变更后需重新生成产物。',
+          submit: '保存变更',
+          errReplacement: '请选择替代需求',
+          noChange: '未检测到任何变更',
+          success: '需求已变更',
+          failed: '变更需求失败'
+        }
+      },
+      detail: {
+        back: '返回版本列表',
+        loadFailed: '加载版本详情失败',
+        retry: '重试',
+        note: '版本详情内容不可直接编辑，所有操作通过右上角按钮与弹框完成；需求集合变动实时同步需求池，评审中变动后请重新生成产物。',
+        banner: {
+          title: '需求集合已变动',
+          text: '需求存在搁置、取消或变更，变动已同步需求池；请重新生成 PRD / 原型。',
+          action: '立即重新生成'
+        },
+        info: {
+          title: '版本信息',
+          planDate: '规划日期',
+          planLaunchDate: '计划上线日',
+          finalizeDate: '定稿日期',
+          launchDate: '上线日期',
+          releaseNote: '版本说明',
+          outline: '更新内容大纲'
+        },
+        requirements: {
+          title: '需求集合',
+          count: '共 {count} 个需求',
+          empty: '本版本暂无需求',
+          remove: '取消',
+          shelve: '搁置',
+          change: '变更',
+          hint: '需求搁置后移至需求池「已驳回」，取消后需求本身保留有效，均实时同步需求池。仅「规划中/评审中」可操作，定稿后锁定；点击需求标题可查看需求详情。'
+        },
+        products: {
+          title: '产物（PRD / 原型 / 功能清单）',
+          generatedAt: '最近生成 {time}',
+          prd: 'PRD',
+          prdPath: '知识库 / PRD / {name}',
+          prototype: '原型',
+          prototypePath: '知识库 / 原型 / {name}',
+          features: '功能清单',
+          synced: '已同步 {count} 个功能点',
+          featuresPath: '状态：规划 · 支持查看迭代明细',
+          view: '查看',
+          download: '下载',
+          preview: '预览',
+          notGenerated: '尚未生成',
+          kbMissing: '当前项目尚未创建知识库',
+          downloadFailed: '下载产物失败',
+          previewFailed: '预览原型失败'
+        },
+        review: {
+          title: '评审记录',
+          summary: '{rounds} 轮 · 待处理意见 {pending} 条',
+          empty: '暂无评审记录',
+          round: '第{round}轮',
+          meta: '{date} · 参会人：{reviewers}',
+          opinion: '意见{index}：{text}',
+          pending: '待处理',
+          resolved: '已解决',
+          editStatus: '修改状态',
+          note: '处理说明：{note}',
+          changeNote: '功能变更明细：{note}'
+        },
+        opinionDialog: {
+          title: '修改意见状态',
+          status: '处理状态',
+          note: '处理说明',
+          notePlaceholder: '说明该意见的处理方式（选填）',
+          submit: '保存',
+          success: '意见状态已更新',
+          failed: '更新意见状态失败'
+        }
+      }
+    },
+    features: {
+      title: '功能清单',
+      create: '新增功能点',
+      loadFailed: '加载功能清单失败',
+      unfinalized: '未定稿版本',
+      summary: '{modules} 个模块 · {features} 个功能点 · {leaves} 个条目 · {launched} 个已上线',
+      columns: {
+        name: '模块 / 功能点 / 操作项',
+        requirement: '来源需求',
+        version: '最新迭代版本',
+        source: '来源',
+        status: '状态',
+        actions: '操作'
+      },
+      filters: {
+        keyword: '搜索模块 / 功能点 / 操作项',
+        version: '迭代版本',
+        source: '来源',
+        onlyLaunched: '仅看已上线',
+        reset: '重置'
+      },
+      empty: {
+        title: '还没有功能点',
+        hint: '功能点由路线图或版本 PRD 同步生成，也可以人工补充',
+        filteredTitle: '没有匹配的功能点',
+        filteredHint: '试着调整筛选条件'
+      },
+      actions: {
+        history: '迭代历史'
+      },
+      note: '功能点由版本 PRD 生成时自动同步，按迭代版本保留新增/变更/移除记录，状态随最新迭代版本联动；功能描述由 PRD 同步填充。',
+      source: {
+        roadmap: '路线图',
+        prd: 'PRD',
+        manual: '人工'
+      },
+      status: {
+        planned: '规划',
+        launched: '已上线'
+      },
+      change: {
+        add: '新增',
+        change: '变更',
+        remove: '移除'
+      },
+      createForm: {
+        title: '新增功能点',
+        module: '模块名称',
+        modulePlaceholder: '选择已有模块，或直接输入新模块名',
+        feature: '功能点',
+        featurePlaceholder: '如：需求池',
+        operations: '操作项',
+        operationsPlaceholder: '如：列表视图, 看板视图（多个以逗号分隔）',
+        operationsHint: '每个操作项会生成一条子记录；不填则功能点本身即为叶子',
+        requirement: '来源需求',
+        requirementPlaceholder: '仅可选择已确认 / 已排期需求',
+        version: '迭代版本',
+        versionPlaceholder: '选择迭代版本',
+        versionHint: '每次提交只关联一个版本，保存后会生成一条「新增」迭代记录',
+        cancel: '取消',
+        submit: '提交',
+        moduleRequired: '请填写模块名称',
+        featureRequired: '请填写功能点',
+        success: '功能点已创建',
+        failed: '创建功能点失败'
+      },
+      history: {
+        title: '迭代历史',
+        titleWith: '迭代历史 · {name}',
+        empty: '暂无迭代记录',
+        loadFailed: '加载迭代历史失败',
+        note: '按各版本计划上线时间升序展示；状态随最新一次迭代联动。',
+        columns: {
+          version: '迭代版本',
+          change: '变更类型',
+          planLaunchDate: '计划上线',
+          changedAt: '变更时间',
+          note: '变更说明'
+        }
+      }
+    },
+    materials: {
+      create: '新建资料',
+      loadFailed: '加载项目资料失败',
+      actionFailed: '操作失败',
+      close: '关闭',
+      cancel: '取消',
+      taskTitle: '资料生成进度',
+      taskSuccess: '资料生成完成',
+      taskFailed: '资料生成失败',
+      publishConfirmTitle: '发布资料',
+      publishConfirmBody: '发布后「{title}」将作为当前版本生效，同类型旧发布版自动归档保留。',
+      publishSuccess: '资料已发布',
+      downloadFailed: '下载资料失败',
+      deleteConfirmTitle: '删除资料',
+      deleteConfirmBody: '删除后「{title}」将不可恢复，确认删除？',
+      deleteSuccess: '资料已删除',
+      deleteFailed: '删除资料失败',
+      note: '资料先草稿后发布；版本上线后提示「有新版可用」，更新后旧版归档保留。',
+      type: {
+        manual: '操作手册',
+        brochure: '宣传册',
+        ppt: 'PPT'
+      },
+      status: {
+        draft: '草稿',
+        published: '已发布',
+        archived: '已归档'
+      },
+      filters: {
+        keyword: '搜索资料',
+        type: '资料类型',
+        version: '对应版本',
+        reset: '重置'
+      },
+      columns: {
+        title: '资料名称',
+        type: '资料类型',
+        version: '对应版本',
+        status: '状态',
+        updatedAt: '更新时间',
+        actions: '操作'
+      },
+      actions: {
+        preview: '预览',
+        download: '下载',
+        delete: '删除',
+        generate: '生成草稿',
+        publish: '发布',
+        needsUpdate: '有新版可用',
+        updateLatest: '更新到最新版本',
+        history: '历史版本'
+      },
+      history: {
+        title: '历史版本',
+        hint: '「{title}」的历史归档版本，可预览原文或下载文件。',
+        empty: '暂无历史版本'
+      },
+      empty: {
+        title: '还没有资料',
+        hint: '新建操作手册、宣传册或 PPT，先以草稿形式生成',
+        filteredTitle: '没有匹配的资料',
+        filteredHint: '试着调整筛选条件'
+      },
+      form: {
+        createTitle: '新建资料',
+        title: '资料名称',
+        titlePlaceholder: '如：产品介绍 PPT',
+        type: '资料类型',
+        version: '对应版本',
+        versionPlaceholder: '选择已定稿版本',
+        versionHint: '仅可选择「已定稿」及以上版本',
+        submit: '创建（草稿）',
+        createSuccess: '资料已创建',
+        createFailed: '创建资料失败',
+        errTitle: '请填写资料名称',
+        errVersion: '请选择对应版本'
+      },
+      preview: {
+        back: '返回项目资料',
+        loadFailed: '加载资料详情失败',
+        notFound: '资料不存在或已被删除',
+        version: '对应版本',
+        latestVersion: '项目最新版本',
+        updatedAt: '更新时间',
+        contentTitle: '资料原文',
+        contentEmpty: '该资料暂无正文，请先生成草稿后再查看。',
+        archivedHint: '该资料为历史归档版本，仅供追溯查看，不可再编辑或发布。',
+        historyTitle: '历史归档',
+        historyEmpty: '暂无历史归档',
+        archivedAt: '归档时间'
+      }
+    },
+    task: {
+      title: '任务进度',
+      status: {
+        pending: '排队中',
+        running: '执行中',
+        succeeded: '已完成',
+        failed: '失败'
+      }
+    },
+    roadmap: {
+      title: '产品路线图',
+      subtitle: '用 5 步 AI 引导理清产品方向与首期范围',
+      loadFailed: '加载路线图失败',
+      actions: {
+        start: '开始规划',
+        add: '新增规划',
+        replan: '重新规划',
+        replanDisabled: '需有生效规划后才能重新规划',
+        history: '规划历史'
+      },
+      empty: {
+        title: '还没有产品路线图',
+        hint: '从一次引导式规划开始，自动生成路线图文档与功能清单'
+      },
+      batch: {
+        label: '规划批次',
+        noSummary: '暂无变更摘要',
+        resume: '继续引导',
+        snapshot: '查看快照',
+        delete: '删除批次',
+        deleteConfirmTitle: '删除规划批次',
+        deleteConfirmBody: '将删除草稿批次「{name}」及其未生效的规划内容，删除后不可恢复。',
+        deleteSuccess: '批次已删除',
+        deleteFailed: '删除失败，请稍后重试'
+      },
+      planType: {
+        initial: '首期规划',
+        iteration: '增量规划',
+        replan: '重新规划'
+      },
+      planTypeDesc: {
+        initial: '从空白草稿开始，完整梳理产品路线图',
+        iteration: '以当前生效规划为基线，补充本次迭代内容',
+        replan: '以当前生效规划为基线，重新梳理路线图结构'
+      },
+      batchStatus: {
+        draft: '草稿',
+        active: '生效中',
+        archived: '已归档'
+      },
+      doc: {
+        title: '产品路线图',
+        draftTitle: '该批次尚未完成规划',
+        draftHint: '继续引导完成 5 步后即可生成路线图文档'
+      },
+      side: {
+        title: '功能清单摘要',
+        meta: '{modules} 个模块 · {features} 个功能点 · {operations} 个操作项 · 首期 {scope} 项',
+        empty: '暂无功能点'
+      },
+      create: {
+        title: '新建规划',
+        name: '批次名称',
+        namePlaceholder: '请输入批次名称',
+        nameEmpty: '批次名称不能为空',
+        type: '规划类型',
+        typeHint: '一个批次代表一轮规划，历史批次可在规划历史中查看',
+        submit: '创建并开始',
+        failed: '创建规划批次失败'
+      },
+      history: {
+        title: '规划历史',
+        columns: {
+          name: '批次',
+          type: '类型',
+          version: '关联版本',
+          summary: '变更摘要',
+          operator: '操作人',
+          time: '创建时间',
+          status: '状态',
+          actions: '操作'
+        }
+      },
+      snapshot: {
+        view: '查看快照',
+        close: '关闭',
+        back: '返回列表',
+        note: '快照按批次草稿只读重建',
+        titleWith: '规划快照 · {name}',
+        notGenerated: '规划生成后才可查看快照',
+        loadFailed: '加载规划历史失败'
+      },
+      guide: {
+        title: 'AI 引导规划',
+        exit: '退出引导',
+        chatTitle: 'AI 引导',
+        send: '发送',
+        agentDefault: '默认智能体',
+        agentLoadFailed: '智能体列表加载失败',
+        agentStartFailed: 'AI 引导会话创建失败，已切换为本地引导',
+        streamFailed: 'AI 回复失败，请重试',
+        emptyReply: 'AI 暂无回复，可继续补充信息',
+        thinking: '正在思考…',
+        draftTitle: '路线图草稿',
+        outputTitle: '产出物预览',
+        previewNote: '由 AI 引导自动整理',
+        tabs: {
+          cognition: '产品认知',
+          features: '功能结构图',
+          flows: '核心流程图',
+          scope: '首期范围',
+          plan: '整体规划'
+        },
+        me: '我',
+        prev: '上一步',
+        next: '下一步',
+        finish: '完成规划',
+        autoSave: '编辑内容自动保存',
+        saving: '保存中…',
+        saved: '已保存',
+        saveError: '保存失败',
+        saveFailed: '草稿保存失败',
+        footNote: '草稿随编辑自动保存；完成规划后生成路线图文档与快照',
+        stepLabel: '第 {current}/{total} 步 · {name}',
+        steps: {
+          cognition: '产品认知',
+          features: '功能拆解',
+          flows: '核心流程',
+          scope: '首期范围',
+          confirm: '确认生成'
+        },
+        descInitial: '从零开始梳理产品路线图',
+        descIncrement: '以「{name}」为基线，规划本次迭代内容',
+        descReplan: '基于当前生效规划重新梳理路线图结构',
+        fields: {
+          targetUsers: '目标用户',
+          coreValue: '核心价值',
+          scenarios: '关键场景',
+          background: '背景说明'
+        },
+        blocks: {
+          cognition: '产品认知',
+          features: '功能拆解',
+          flows: '核心流程',
+          scope: '首期范围',
+          batch: '批次信息',
+          sync: '同步选项'
+        },
+        stats: {
+          features: '{count} 行',
+          flows: '{count} 个模块',
+          tree: '{modules} 个模块 · {features} 个功能点 · {operations} 个操作项'
+        },
+        feature: {
+          module: '模块',
+          feature: '功能点',
+          operation: '操作项',
+          empty: '暂无功能点，可新增一行或在左侧对话中描述'
+        },
+        flow: {
+          module: '模块',
+          valid: 'Mermaid 语法正常',
+          invalid: 'Mermaid 语法有误',
+          empty: '暂无流程图'
+        },
+        scope: {
+          selected: '已选 {selected}/{total}',
+          clearAll: '清空',
+          empty: '请先补充功能点后再选择首期范围'
+        },
+        plan: {
+          hint: '确认产出物无误后生成路线图文档并生效'
+        },
+        summary: {
+          modules: '模块',
+          features: '功能点',
+          operations: '操作项',
+          flows: '流程',
+          scope: '首期范围'
+        },
+        batch: {
+          name: '批次名称',
+          type: '规划类型',
+          version: '关联版本',
+          docPath: '路线图文档',
+          snapshotPath: '快照文件'
+        },
+        sync: {
+          hint: '将路线图同步至功能清单',
+          note: '同步后可在功能清单页管理这些功能点'
+        },
+        chips: {
+          featureAdd: '新增功能行',
+          flowAdd: '新增流程图',
+          flowGenerate: '按功能生成流程图',
+          scopeAll: '全选'
+        },
+        inputPlaceholder: '用自然语言描述，回车发送',
+        inputDisabled: '该步骤不支持对话输入',
+        prompts: {
+          overall: '我是你的产品规划助手。直接描述产品想法、目标用户和关键场景即可，我会同步整理产品认知、功能结构图、核心流程图与首期范围，最后一起确认整体规划。也可以粘贴「模块/功能点/操作项」清单，或用「模块: 节点1 -> 节点2」描述流程。',
+          step1: '先补齐「{name}」的产品认知：目标用户是谁？核心价值是什么？关键场景有哪些？',
+          step2: '目前已梳理 {modules} 个模块、{features} 个功能点。可用「模块/功能点/操作项」逐行描述更多功能。',
+          step3: '用「模块: 节点1 -> 节点2」逐行描述核心流程，系统会自动生成 Mermaid。',
+          step4: '勾选首期范围，当前已选 {selected}/{total} 个操作项。',
+          step5: '内容已就绪。生成后将写入路线图文档，并保留本次快照。'
+        },
+        acks: {
+          cognition: '产品认知已更新',
+          features: '已添加 {count} 个功能点',
+          flows: '已生成 {count} 个模块的流程',
+          flowAdded: '已添加「{module}」流程',
+          scopeAll: '已全选 {count} 个操作项'
+        },
+        hints: {
+          needModule: '请先描述模块',
+          needFeatures: '请先补充功能点再生成流程',
+          featureFormat: '格式：模块/功能点/操作项，每行一条',
+          flowFormat: '格式：模块: 节点1 -> 节点2'
+        },
+        warnings: {
+          step1: '请先填写目标用户、核心价值与关键场景',
+          step2: '请至少添加一个模块/功能点/操作项完整的功能点',
+          step3: '请至少添加一个合法的 Mermaid 流程（以 flowchart TD 或 LR 开头）',
+          step4: '请至少选择一个首期范围内的操作项',
+          step5: '批次名称与规划类型不能为空'
+        },
+        finishSuccess: '路线图已生成并生效',
+        finishFailed: '生成路线图失败'
+      }
+    },
+    placeholder: '该视图正在建设中'
   },
   // 图片属性的展示文案，按属性名索引（后端注册表给出属性名，这里只做翻译）。
   // 注意：属性名里的点号要转义成下划线（contain.text → contain_text）——vue-i18n 按点号

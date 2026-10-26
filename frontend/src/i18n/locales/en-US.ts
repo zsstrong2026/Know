@@ -292,7 +292,7 @@ export default {
     deleteFailed: 'Delete failed, please retry.',
     download: 'Download',
     downloadFailed: 'Download failed. Please try again later.',
-    selectMode: 'Batch download',
+    selectMode: 'Batch actions',
     selectAll: 'Select all',
     deselectAll: 'Deselect all',
     selectedCount: '{count} selected',
@@ -365,7 +365,886 @@ export default {
     apiChats: 'API sessions',
     noSessions: 'No conversations yet',
     meetings: 'Meeting Rooms',
-    docAssistant: 'Solution Assistant'
+    docAssistant: 'Solution Assistant',
+    pm: 'PM Workstation'
+  },
+  // PM 工作站：项目 / 规划 / 需求 / 版本 / 功能清单
+  pm: {
+    title: 'PM Workstation',
+    nav: {
+      roadmap: 'Feature Planning',
+      requirements: 'Requirements',
+      versions: 'Version Management',
+      features: 'Feature List',
+      materials: 'Project Materials'
+    },
+    projects: {
+      title: 'Projects',
+      selectPlaceholder: 'Select a project',
+      searchPlaceholder: 'Search projects',
+      empty: 'No projects yet',
+      emptyHint: 'Create a project to start planning',
+      emptySearch: 'No matching projects',
+      loadFailed: 'Failed to load projects',
+      create: 'New Project',
+      delete: 'Delete Project',
+      more: 'More actions',
+      deleteConfirmTitle: 'Delete Project',
+      deleteConfirmBody: 'Delete project "{name}"? All plans, requirements, versions, features, and materials in this project will be deleted and cannot be recovered.',
+      deleteSuccess: 'Project deleted',
+      deleteFailed: 'Failed to delete project',
+      name: 'Project name',
+      namePlaceholder: 'e.g. Customer service assistant',
+      description: 'Description',
+      descriptionPlaceholder: 'Briefly describe the project goal (optional)',
+      kbHint: 'A knowledge base with the same name will be created for project materials and artifacts',
+      nameEmpty: 'Project name is required',
+      nameTooLong: 'Project name cannot exceed 255 characters',
+      createSuccess: 'Project created',
+      createFailed: 'Failed to create project',
+      updatedAt: 'Updated {time}',
+      enter: 'Open',
+      actionFailed: 'Operation failed',
+      status: {
+        active: 'Active',
+        archived: 'Archived'
+      }
+    },
+    requirement: {
+      status: {
+        pending_analysis: 'Pending analysis',
+        confirmed: 'Confirmed',
+        scheduled: 'Scheduled',
+        developing: 'Developing',
+        launched: 'Launched',
+        rejected: 'Rejected',
+        closed: 'Closed'
+      }
+    },
+    requirements: {
+      create: 'New Requirement',
+      loadFailed: 'Failed to load requirements',
+      statusChangeFailed: 'Failed to change status: this transition is not allowed',
+      reactivateSuccess: 'Requirement reactivated',
+      reactivateFailed: 'Failed to reactivate the requirement',
+      deleteConfirmTitle: 'Delete requirement',
+      deleteConfirmBody: 'Delete "{title}"? It will also be removed from related versions and cannot be restored.',
+      deleteSuccess: 'Requirement deleted',
+      deleteFailed: 'Failed to delete the requirement',
+      cancel: 'Cancel',
+      actionFailed: 'Operation failed',
+      versionUnassigned: 'Unscheduled',
+      view: {
+        list: 'List',
+        kanban: 'Board'
+      },
+      filters: {
+        keyword: 'Search title, description or proposer',
+        priority: 'Priority',
+        status: 'Status',
+        source: 'Source',
+        value: 'Value achieved',
+        reset: 'Reset'
+      },
+      sort: {
+        updated_desc: 'Recently updated',
+        updated_asc: 'Earliest updated',
+        priority: 'Priority',
+        created_desc: 'Recently created'
+      },
+      columns: {
+        title: 'Requirement',
+        priority: 'Priority',
+        status: 'Status',
+        source: 'Source',
+        proposer: 'Proposer',
+        description: 'Description',
+        version: 'Version',
+        value: 'Value achieved',
+        updatedAt: 'Updated at',
+        actions: 'Actions'
+      },
+      actions: {
+        detail: 'Details',
+        edit: 'Edit',
+        analyze: 'AI analysis',
+        verify: 'Verify value',
+        reactivate: 'Reactivate',
+        delete: 'Delete'
+      },
+      empty: {
+        title: 'No requirements yet',
+        hint: 'Capture customer feedback or internal ideas as requirements'
+      },
+      emptyFiltered: {
+        title: 'No matching requirements',
+        hint: 'Adjust the filters to see more results'
+      },
+      source: {
+        customer: 'Customer feedback',
+        internal: 'Internal idea',
+        data: 'Data insight',
+        competitor: 'Competitor',
+        strategy: 'Strategy',
+        other: 'Other'
+      },
+      value: {
+        achieved: 'Achieved',
+        partial: 'Partially achieved',
+        not_achieved: 'Not achieved',
+        none: 'Not verified'
+      },
+      form: {
+        createTitle: 'New Requirement',
+        editTitle: 'Edit Requirement',
+        title: 'Title',
+        titlePlaceholder: 'Summarize the requirement in one sentence',
+        description: 'Initial idea',
+        descriptionPlaceholder: 'Describe the scenario, the problem and the expected outcome',
+        source: 'Source',
+        sourcePlaceholder: 'Select a source',
+        proposer: 'Proposer',
+        proposerPlaceholder: 'Who raised it (optional)',
+        priority: 'Priority',
+        priorityHint: 'Defaults to P2; adjust it as needed',
+        required: 'Title and source are required',
+        save: 'Save',
+        saveSuccess: 'Requirement updated',
+        saveFailed: 'Failed to save the requirement',
+        saveDraft: 'Save draft',
+        draftSuccess: 'Draft saved with pending analysis status',
+        draftFailed: 'Failed to save the draft',
+        createSuccess: 'Requirement created',
+        createFailed: 'Failed to create the requirement',
+        aiAnalyze: 'AI analysis',
+        confirm: 'Confirm requirement',
+        confirmSuccess: 'Requirement confirmed',
+        confirmFailed: 'Failed to confirm the requirement',
+        planView: 'View analysis plan',
+        value: 'Requirement value',
+        impact: 'Related feature impact',
+        risk: 'Technical risk',
+        designPlan: 'Implementation plan',
+        designPlanPlaceholder: 'Describe the solution, data changes and interface impact',
+        attachments: 'Attachments',
+        attachmentPick: 'Choose files',
+        attachmentHint: 'Images and PDF/Word/Excel/PPT/text files, up to 10MB each',
+        attachmentRemove: 'Remove attachment',
+        attachmentTypeInvalid: '"{name}" has an unsupported file type',
+        attachmentTooLarge: '"{name}" exceeds 10MB',
+        attachmentUploadFailed: '{count} attachment(s) failed to upload, please retry',
+        attachmentRemoveFailed: 'Failed to remove the attachment'
+      },
+      ai: {
+        title: 'AI requirement analysis',
+        you: 'Me',
+        thinking: 'Thinking…',
+        starting: 'Starting analysis…',
+        placeholder: 'Answer the questions or add context, Enter to send',
+        send: 'Send',
+        start: 'Start analysis',
+        restart: 'Restart analysis',
+        idle: 'Pick an agent and start; the AI will ask a few rounds of questions to clarify the real need.',
+        generatePlan: 'Generate analysis plan',
+        planLink: 'View full analysis plan →',
+        planTitle: 'Full analysis plan',
+        planClose: 'Close',
+        planEmpty: 'No analysis plan yet — complete a few rounds of Q&A first',
+        startFailed: 'Failed to start the AI analysis',
+        streamFailed: 'AI response interrupted, please retry',
+        emptyReply: 'No reply from AI, please retry',
+        agentLabel: 'Agent',
+        agentDefault: 'Default (general analysis)',
+        agentLoadFailed: 'Failed to load agents'
+      },
+      detail: {
+        title: 'Requirement details',
+        base: 'Basic information',
+        createdAt: 'Created at',
+        updatedAt: 'Updated at',
+        attachments: 'Attachments',
+        noAttachments: 'No attachments yet',
+        attachmentOpenFailed: 'Failed to open the attachment',
+        analysis: 'AI analysis',
+        emptyAnalysis: 'No analysis yet',
+        designPlan: 'Design plan',
+        noDesignPlan: 'No design plan yet',
+        launch: 'Launch verification',
+        valueAchieved: 'Value achieved',
+        effectNotes: 'Effect data',
+        retroNotes: 'Retrospective notes',
+        verified: 'Verified',
+        verify: 'Submit verification',
+        verifiedAt: 'Verified at {time}',
+        verifyLocked: 'Value verification is available after the requirement is launched',
+        close: 'Close',
+        valueRequired: 'Select the value achieved',
+        verifySuccess: 'Verification submitted',
+        verifyFailed: 'Failed to submit the verification',
+        confirm: 'Confirm requirement',
+        confirmSuccess: 'Requirement confirmed',
+        confirmFailed: 'Failed to confirm the requirement'
+      }
+    },
+    version: {
+      create: 'New Version',
+      unfinalized: 'Unfinalized',
+      loadFailed: 'Failed to load versions',
+      actionSuccess: 'Version updated',
+      actionFailed: 'Operation failed',
+      status: {
+        planning: 'Planning',
+        reviewing: 'Reviewing',
+        finalized: 'Finalized',
+        developing: 'Developing',
+        launched: 'Launched',
+        shelved: 'Shelved'
+      },
+      conclusion: {
+        pass: 'Passed',
+        conditional: 'Conditionally passed',
+        reject: 'Rejected'
+      },
+      filters: {
+        keyword: 'Search versions',
+        status: 'Version status',
+        created: 'Created time',
+        reset: 'Reset',
+        createdRange: {
+          '7d': 'Last 7 days',
+          '30d': 'Last 30 days',
+          '90d': 'Last 90 days'
+        }
+      },
+      columns: {
+        versionNo: 'Version',
+        name: 'Version name',
+        status: 'Status',
+        requirementCount: 'Requirements',
+        planDate: 'Plan date',
+        planLaunchDate: 'Planned launch',
+        finalizeDate: 'Finalized on',
+        launchDate: 'Launched on',
+        actions: 'Actions'
+      },
+      empty: {
+        title: 'No versions yet',
+        hint: 'Create a version to group confirmed requirements into a release',
+        filteredTitle: 'No matching versions',
+        filteredHint: 'Adjust the filters to see more results'
+      },
+      actions: {
+        detail: 'Details',
+        generate: 'Generate artifacts',
+        review: 'Record review',
+        regenerate: 'Regenerate',
+        finalize: 'Finalize',
+        develop: 'Start development',
+        launch: 'Launch',
+        shelve: 'Shelve',
+        restore: 'Resume planning'
+      },
+      form: {
+        createTitle: 'New Version',
+        name: 'Version name',
+        namePlaceholder: 'e.g. Voyage release',
+        planDate: 'Plan date',
+        planLaunchDate: 'Planned launch date',
+        planLaunchDateHint: 'The planned launch date must be later than the plan date',
+        releaseNote: 'Release note',
+        releaseNotePlaceholder: 'Briefly describe what this version focuses on (optional)',
+        requirements: 'Requirement set (multiple, filterable by priority)',
+        requirementsEmpty: 'No confirmed requirements yet',
+        requirementsHint: 'Only confirmed requirements can be included in a version',
+        submit: 'Create version (Planning)',
+        createSuccess: 'Version created',
+        createFailed: 'Failed to create the version',
+        errName: 'Version name is required',
+        errPlanDate: 'Plan date is required',
+        errPlanLaunchDate: 'The planned launch date must be later than the plan date'
+      },
+      dialogs: {
+        cancel: 'Cancel',
+        back: 'Back',
+        close: 'Close',
+        taskTitle: 'Generating artifacts',
+        review: {
+          title: 'Record review opinions',
+          round: 'Review round',
+          roundAuto: 'Round {round} (auto-incremented)',
+          conclusion: 'Review conclusion',
+          reviewers: 'Attendees (≤100 chars)',
+          reviewersPlaceholder: 'e.g. Zhang / Li / Wang',
+          opinions: 'Review opinions (≤1000 chars)',
+          opinionsPlaceholder: 'One opinion per line, e.g. Opinion 1: ...; Opinion 2: ...',
+          changeNote: 'Change details (≤1000 chars)',
+          changeNotePlaceholder: 'Describe the requirement or artifact changes',
+          submit: 'Submit (version stays in review)',
+          required: 'Review conclusion and opinions are required',
+          success: 'Review opinions recorded',
+          failed: 'Failed to record the review opinions'
+        },
+        finalize: {
+          title: 'Finalize version',
+          versionNo: 'Version number (X.Y.Z)',
+          versionNoPlaceholder: 'e.g. 1.3.0',
+          outline: 'Update outline (≤2000 chars)',
+          outlinePlaceholder: 'Describe the update content of this version',
+          pendingWarning: '{count} pending review opinions detected; you can still finalize after confirmation.',
+          hint: 'Once finalized, the version number, requirement set and PRD/prototype artifacts are locked.',
+          submit: 'Finalize',
+          errVersionNo: 'Enter a version number in X.Y.Z format',
+          errOutline: 'Update outline is required',
+          success: 'Version finalized',
+          failed: 'Failed to finalize the version'
+        },
+        generate: {
+          title: 'Generate PRD / prototype',
+          hint: 'Generate the PRD, prototype and feature list from the current requirement set. The artifacts are generated as an async task and can be viewed when finished.',
+          submit: 'Start generating',
+          success: 'Artifacts generated',
+          failed: 'Failed to generate artifacts'
+        },
+        regenerate: {
+          title: 'Regenerate PRD / prototype',
+          hint: 'Regenerate the PRD and prototype from the latest requirement set (including shelved, removed and changed records) and the latest review opinions. Historical artifacts are kept for comparison, and the feature list is synced incrementally.',
+          submit: 'Start regenerating',
+          success: 'Artifacts regenerated',
+          failed: 'Failed to regenerate artifacts'
+        },
+        chapters: {
+          label: 'Sections to generate',
+          hint: 'All selected by default; trim PRD sections as needed. The prototype is always generated.',
+          required: 'Select at least one section',
+          items: {
+            overview: '1. Version overview',
+            requirements: '2. Requirement list',
+            features: '3. Feature details',
+            interaction: '4. Interaction & page requirements',
+            data_api: '5. Data & API requirements',
+            nonfunctional: '6. Non-functional requirements',
+            acceptance: '7. Acceptance criteria',
+            review: '8. Review feedback handling'
+          }
+        },
+        shelve: {
+          title: 'Shelve version',
+          hint: 'Shelving moves the version to "Shelved"; requirements leaving the schedule return to "Confirmed". You can resume planning later.',
+          submit: 'Confirm shelving',
+          success: 'Version shelved',
+          failed: 'Failed to shelve the version'
+        },
+        removeRequirement: {
+          title: 'Remove · Take out of this version',
+          hint: 'Remove "{title}" from {version}. The requirement itself stays valid: if it is no longer linked to any version, its status returns to "Confirmed" and its version becomes "Unassigned"; otherwise it stays "Scheduled". Changes sync to the requirement pool immediately.',
+          submit: 'Confirm removal',
+          success: 'Requirement removed from the version',
+          failed: 'Failed to remove the requirement'
+        },
+        shelveRequirement: {
+          title: 'Shelve · Review rejected',
+          reason: 'Shelve reason (≤200 chars, shown as the rejection reason)',
+          reasonPlaceholder: 'Why is this requirement out of scope for now',
+          impacts: 'Shelving will: ① delete the links between this requirement and this version and all related versions; ② set the requirement to "Rejected" and its version to "Unassigned", syncing the requirement pool immediately; ③ allow reactivation from the requirement pool later.',
+          submit: 'Confirm shelving',
+          errReason: 'Shelve reason is required',
+          success: 'Requirement shelved',
+          failed: 'Failed to shelve the requirement'
+        },
+        changeRequirement: {
+          title: 'Change requirement',
+          mode: 'Change type',
+          modeFields: 'Update fields',
+          modeReplace: 'Replace requirement',
+          priority: 'Priority (when updating fields)',
+          description: 'Requirement description (when updating fields, ≤2000 chars)',
+          descriptionPlaceholder: 'Describe the scenario, the problem and the expected outcome',
+          replacement: 'Replacement (confirmed requirements only)',
+          replacementPlaceholder: 'Select a confirmed requirement',
+          replacementEmpty: 'No other confirmed requirements available',
+          hint: 'Field changes sync to the requirement pool immediately. When replacing, the original requirement leaves this version (returning to "Confirmed" if it is no longer linked to any version) and the replacement is added as "Scheduled". Regenerate artifacts after changes during review.',
+          submit: 'Save changes',
+          errReplacement: 'Select a replacement requirement',
+          noChange: 'Nothing changed',
+          success: 'Requirement changed',
+          failed: 'Failed to change the requirement'
+        }
+      },
+      detail: {
+        back: 'Back to versions',
+        loadFailed: 'Failed to load the version',
+        retry: 'Retry',
+        note: 'Version details are read-only; all operations are performed through the buttons in the top-right corner. Requirement set changes sync to the requirement pool immediately, and artifacts should be regenerated after changes during review.',
+        banner: {
+          title: 'Requirement set changed',
+          text: 'Requirements were shelved, removed or changed and the requirement pool is already synced. Regenerate the PRD / prototype to keep artifacts up to date.',
+          action: 'Regenerate now'
+        },
+        info: {
+          title: 'Version information',
+          planDate: 'Plan date',
+          planLaunchDate: 'Planned launch date',
+          finalizeDate: 'Finalized on',
+          launchDate: 'Launched on',
+          releaseNote: 'Release note',
+          outline: 'Update outline'
+        },
+        requirements: {
+          title: 'Requirement set',
+          count: '{count} requirements',
+          empty: 'No requirements in this version',
+          remove: 'Remove',
+          shelve: 'Shelve',
+          change: 'Change',
+          hint: 'Shelved requirements move to "Rejected" in the requirement pool and removed requirements stay valid; both sync immediately. Only available while planning or reviewing, and locked after finalization. Click a title to open the requirement details.'
+        },
+        products: {
+          title: 'Artifacts (PRD / prototype / feature list)',
+          generatedAt: 'Generated {time}',
+          prd: 'PRD',
+          prdPath: 'Knowledge base / PRD / {name}',
+          prototype: 'Prototype',
+          prototypePath: 'Knowledge base / Prototype / {name}',
+          features: 'Feature list',
+          synced: '{count} features synced',
+          featuresPath: 'Status: planning · Iteration details available',
+          view: 'View',
+          download: 'Download',
+          preview: 'Preview',
+          notGenerated: 'Not generated yet',
+          kbMissing: 'This project has no knowledge base yet',
+          downloadFailed: 'Failed to download the artifact',
+          previewFailed: 'Failed to preview the prototype'
+        },
+        review: {
+          title: 'Review records',
+          summary: '{rounds} rounds · {pending} pending opinions',
+          empty: 'No review records yet',
+          round: 'Round {round}',
+          meta: '{date} · Attendees: {reviewers}',
+          opinion: 'Opinion {index}: {text}',
+          pending: 'Pending',
+          resolved: 'Resolved',
+          editStatus: 'Edit status',
+          note: 'Handling note: {note}',
+          changeNote: 'Change details: {note}'
+        },
+        opinionDialog: {
+          title: 'Edit opinion status',
+          status: 'Status',
+          note: 'Handling note',
+          notePlaceholder: 'Describe how the opinion was handled (optional)',
+          submit: 'Save',
+          success: 'Opinion status updated',
+          failed: 'Failed to update the opinion status'
+        }
+      }
+    },
+    features: {
+      title: 'Feature list',
+      create: 'New feature',
+      loadFailed: 'Failed to load features',
+      unfinalized: 'Unfinalized version',
+      summary: '{modules} modules · {features} features · {leaves} items · {launched} launched',
+      columns: {
+        name: 'Module / Feature / Operation',
+        requirement: 'Source requirement',
+        version: 'Latest version',
+        source: 'Source',
+        status: 'Status',
+        actions: 'Actions'
+      },
+      filters: {
+        keyword: 'Search module / feature / operation',
+        version: 'Iteration version',
+        source: 'Source',
+        onlyLaunched: 'Launched only',
+        reset: 'Reset'
+      },
+      empty: {
+        title: 'No features yet',
+        hint: 'Features sync from the roadmap or version PRD, and can also be added manually',
+        filteredTitle: 'No matching features',
+        filteredHint: 'Try adjusting the filters'
+      },
+      actions: {
+        history: 'History'
+      },
+      note: 'Features sync from the version PRD and keep every add/change/remove record across iteration versions; the status follows the latest iteration.',
+      source: {
+        roadmap: 'Roadmap',
+        prd: 'PRD',
+        manual: 'Manual'
+      },
+      status: {
+        planned: 'Planned',
+        launched: 'Launched'
+      },
+      change: {
+        add: 'Added',
+        change: 'Changed',
+        remove: 'Removed'
+      },
+      createForm: {
+        title: 'New feature',
+        module: 'Module',
+        modulePlaceholder: 'Select an existing module or type a new one',
+        feature: 'Feature',
+        featurePlaceholder: 'e.g. Requirement pool',
+        operations: 'Operations',
+        operationsPlaceholder: 'e.g. List view, Kanban view (comma separated)',
+        operationsHint: 'Each operation is saved as a child item; leave empty if the feature has no operation',
+        requirement: 'Source requirement',
+        requirementPlaceholder: 'Only confirmed or scheduled requirements',
+        version: 'Iteration version',
+        versionPlaceholder: 'Select a version',
+        versionHint: 'One version per submission; saving creates an "added" record in the history',
+        cancel: 'Cancel',
+        submit: 'Submit',
+        moduleRequired: 'Module is required',
+        featureRequired: 'Feature is required',
+        success: 'Feature created',
+        failed: 'Failed to create the feature'
+      },
+      history: {
+        title: 'Iteration history',
+        titleWith: 'Iteration history · {name}',
+        empty: 'No iteration history yet',
+        loadFailed: 'Failed to load the iteration history',
+        note: 'Sorted by the planned launch date of each version; the status follows the latest iteration.',
+        columns: {
+          version: 'Version',
+          change: 'Change',
+          planLaunchDate: 'Planned launch',
+          changedAt: 'Changed at',
+          note: 'Note'
+        }
+      }
+    },
+    materials: {
+      create: 'New material',
+      loadFailed: 'Failed to load project materials',
+      actionFailed: 'Operation failed',
+      close: 'Close',
+      cancel: 'Cancel',
+      taskTitle: 'Material generation progress',
+      taskSuccess: 'Material generated',
+      taskFailed: 'Material generation failed',
+      publishConfirmTitle: 'Publish material',
+      publishConfirmBody: 'After publishing, "{title}" becomes the current version and the previous published item of the same type is archived.',
+      publishSuccess: 'Material published',
+      downloadFailed: 'Failed to download material',
+      deleteConfirmTitle: 'Delete material',
+      deleteConfirmBody: 'Deleting "{title}" cannot be undone. Delete it?',
+      deleteSuccess: 'Material deleted',
+      deleteFailed: 'Failed to delete material',
+      note: 'Materials are drafted first and published later; when a newer version goes live, an update hint appears and the old version is archived.',
+      type: {
+        manual: 'User manual',
+        brochure: 'Brochure',
+        ppt: 'PPT'
+      },
+      status: {
+        draft: 'Draft',
+        published: 'Published',
+        archived: 'Archived'
+      },
+      filters: {
+        keyword: 'Search materials',
+        type: 'Material type',
+        version: 'Version',
+        reset: 'Reset'
+      },
+      columns: {
+        title: 'Material name',
+        type: 'Material type',
+        version: 'Version',
+        status: 'Status',
+        updatedAt: 'Updated at',
+        actions: 'Actions'
+      },
+      actions: {
+        preview: 'Preview',
+        download: 'Download',
+        delete: 'Delete',
+        generate: 'Generate draft',
+        publish: 'Publish',
+        needsUpdate: 'New version available',
+        updateLatest: 'Update to latest',
+        history: 'History versions'
+      },
+      history: {
+        title: 'History versions',
+        hint: 'Archived versions of "{title}". Preview the original text or download the file.',
+        empty: 'No history versions'
+      },
+      empty: {
+        title: 'No materials yet',
+        hint: 'Create a user manual, brochure, or PPT and generate it as a draft first',
+        filteredTitle: 'No matching materials',
+        filteredHint: 'Try adjusting the filters'
+      },
+      form: {
+        createTitle: 'New material',
+        title: 'Material name',
+        titlePlaceholder: 'e.g. Product introduction PPT',
+        type: 'Material type',
+        version: 'Version',
+        versionPlaceholder: 'Select a finalized version',
+        versionHint: 'Only finalized or later versions can be selected',
+        submit: 'Create (draft)',
+        createSuccess: 'Material created',
+        createFailed: 'Failed to create material',
+        errTitle: 'Please enter a material name',
+        errVersion: 'Please select a version'
+      },
+      preview: {
+        back: 'Back to materials',
+        loadFailed: 'Failed to load material details',
+        notFound: 'The material does not exist or has been deleted',
+        version: 'Version',
+        latestVersion: 'Latest project version',
+        updatedAt: 'Updated at',
+        contentTitle: 'Original content',
+        contentEmpty: 'No content yet. Generate a draft first.',
+        archivedHint: 'This is an archived version kept for traceability; it can no longer be edited or published.',
+        historyTitle: 'Archive history',
+        historyEmpty: 'No archived versions yet',
+        archivedAt: 'Archived at'
+      }
+    },
+    task: {
+      title: 'Task progress',
+      status: {
+        pending: 'Queued',
+        running: 'Running',
+        succeeded: 'Completed',
+        failed: 'Failed'
+      }
+    },
+    roadmap: {
+      title: 'Product roadmap',
+      subtitle: 'Clarify the product direction and first-release scope with a 5-step guided plan',
+      loadFailed: 'Failed to load the roadmap',
+      actions: {
+        start: 'Start planning',
+        add: 'New plan',
+        replan: 'Replan',
+        replanDisabled: 'Replan is available after a plan takes effect',
+        history: 'Plan history'
+      },
+      empty: {
+        title: 'No roadmap yet',
+        hint: 'Start a guided planning session to generate the roadmap document and feature list'
+      },
+      batch: {
+        label: 'Plan batches',
+        noSummary: 'No change summary',
+        resume: 'Continue guide',
+        snapshot: 'View snapshot',
+        delete: 'Delete batch',
+        deleteConfirmTitle: 'Delete planning batch',
+        deleteConfirmBody: 'The draft batch "{name}" and its unpublished planning content will be deleted. This cannot be undone.',
+        deleteSuccess: 'Batch deleted',
+        deleteFailed: 'Failed to delete, please try again later'
+      },
+      planType: {
+        initial: 'Initial plan',
+        iteration: 'Incremental plan',
+        replan: 'Replan'
+      },
+      planTypeDesc: {
+        initial: 'Start from a blank draft and outline the whole product roadmap',
+        iteration: 'Use the active plan as the baseline and add this iteration',
+        replan: 'Use the active plan as the baseline and rebuild the roadmap structure'
+      },
+      batchStatus: {
+        draft: 'Draft',
+        active: 'Active',
+        archived: 'Archived'
+      },
+      doc: {
+        title: 'Product roadmap',
+        draftTitle: 'This batch is not planned yet',
+        draftHint: 'Continue the 5-step guide to generate the roadmap document'
+      },
+      side: {
+        title: 'Feature summary',
+        meta: '{modules} modules · {features} features · {operations} operations · {scope} in scope',
+        empty: 'No features yet'
+      },
+      create: {
+        title: 'New plan',
+        name: 'Batch name',
+        namePlaceholder: 'Enter a batch name',
+        nameEmpty: 'Batch name is required',
+        type: 'Plan type',
+        typeHint: 'A batch records one planning round; previous batches remain available in history',
+        submit: 'Create and start',
+        failed: 'Failed to create the plan batch'
+      },
+      history: {
+        title: 'Plan history',
+        columns: {
+          name: 'Batch',
+          type: 'Type',
+          version: 'Version',
+          summary: 'Change summary',
+          operator: 'Operator',
+          time: 'Created at',
+          status: 'Status',
+          actions: 'Actions'
+        }
+      },
+      snapshot: {
+        view: 'View snapshot',
+        close: 'Close',
+        back: 'Back to list',
+        note: 'The snapshot is rebuilt from the batch draft in read-only mode',
+        titleWith: 'Snapshot · {name}',
+        notGenerated: 'The snapshot is available after the plan is generated',
+        loadFailed: 'Failed to load the plan history'
+      },
+      guide: {
+        title: 'AI-guided planning',
+        exit: 'Exit guide',
+        chatTitle: 'AI guidance',
+        send: 'Send',
+        agentDefault: 'Default agent',
+        agentLoadFailed: 'Failed to load agents',
+        agentStartFailed: 'Failed to start the AI guide session, switched to local guidance',
+        streamFailed: 'AI reply failed, please retry',
+        emptyReply: 'No reply from AI yet, please add more details',
+        thinking: 'Thinking…',
+        draftTitle: 'Roadmap draft',
+        outputTitle: 'Deliverable preview',
+        previewNote: 'Organized automatically by the AI guidance',
+        tabs: {
+          cognition: 'Product cognition',
+          features: 'Feature structure',
+          flows: 'Core flows',
+          scope: 'First-release scope',
+          plan: 'Overall plan'
+        },
+        me: 'Me',
+        prev: 'Previous',
+        next: 'Next',
+        finish: 'Complete plan',
+        autoSave: 'Changes are saved automatically',
+        saving: 'Saving…',
+        saved: 'Saved',
+        saveError: 'Save failed',
+        saveFailed: 'Failed to save the draft',
+        footNote: 'The draft is saved while editing; completing the plan generates the roadmap document and snapshot',
+        stepLabel: 'Step {current}/{total} · {name}',
+        steps: {
+          cognition: 'Product cognition',
+          features: 'Feature breakdown',
+          flows: 'Core flows',
+          scope: 'First-release scope',
+          confirm: 'Confirm and generate'
+        },
+        descInitial: 'Outline the product roadmap from scratch',
+        descIncrement: 'Use "{name}" as the baseline and plan this iteration',
+        descReplan: 'Rebuild the roadmap structure based on the active plan',
+        fields: {
+          targetUsers: 'Target users',
+          coreValue: 'Core value',
+          scenarios: 'Key scenarios',
+          background: 'Background'
+        },
+        blocks: {
+          cognition: 'Product cognition',
+          features: 'Feature breakdown',
+          flows: 'Core flows',
+          scope: 'First-release scope',
+          batch: 'Batch information',
+          sync: 'Sync options'
+        },
+        stats: {
+          features: '{count} rows',
+          flows: '{count} modules',
+          tree: '{modules} modules · {features} features · {operations} operations'
+        },
+        feature: {
+          module: 'Module',
+          feature: 'Feature',
+          operation: 'Operation',
+          empty: 'No features yet; add a row or describe them in the chat'
+        },
+        flow: {
+          module: 'Module',
+          valid: 'Mermaid syntax OK',
+          invalid: 'Mermaid syntax error',
+          empty: 'No flows yet'
+        },
+        scope: {
+          selected: '{selected}/{total} selected',
+          clearAll: 'Clear',
+          empty: 'Add features before selecting the first-release scope'
+        },
+        plan: {
+          hint: 'Generate the roadmap document once the deliverables look right'
+        },
+        summary: {
+          modules: 'Modules',
+          features: 'Features',
+          operations: 'Operations',
+          flows: 'Flows',
+          scope: 'In scope'
+        },
+        batch: {
+          name: 'Batch',
+          type: 'Type',
+          version: 'Related version',
+          docPath: 'Roadmap document',
+          snapshotPath: 'Snapshot file'
+        },
+        sync: {
+          hint: 'Sync the roadmap to the feature list',
+          note: 'Synced features can be managed on the Feature List page'
+        },
+        chips: {
+          featureAdd: 'Add feature row',
+          flowAdd: 'Add flow',
+          flowGenerate: 'Generate flows from features',
+          scopeAll: 'Select all'
+        },
+        inputPlaceholder: 'Describe in natural language, press Enter to send',
+        inputDisabled: 'This step does not accept chat input',
+        prompts: {
+          overall: 'I am your product planning assistant. Describe the product idea, target users, and key scenarios directly, and I will organize the product cognition, feature structure, core flows, and first-release scope along the way, then confirm the overall plan together. You can also paste a "module/feature/operation" list, or describe flows as "module: node 1 -> node 2".',
+          step1: 'Start with the product cognition for "{name}": who are the target users, what is the core value, and which scenarios matter most?',
+          step2: '{modules} modules and {features} features so far. Describe more features as "module/feature/operation", one per line.',
+          step3: 'Describe core flows as "module: node 1 -> node 2", one per line. Mermaid is generated automatically.',
+          step4: 'Select the first-release scope; {selected}/{total} operations are selected so far.',
+          step5: 'Everything is ready. Generating writes the roadmap document and keeps this snapshot.'
+        },
+        acks: {
+          cognition: 'Product cognition updated',
+          features: 'Added {count} features',
+          flows: 'Generated flows for {count} modules',
+          flowAdded: 'Added the flow for "{module}"',
+          scopeAll: 'Selected all {count} operations'
+        },
+        hints: {
+          needModule: 'Describe a module first',
+          needFeatures: 'Add features before generating flows',
+          featureFormat: 'Format: module/feature/operation, one per line',
+          flowFormat: 'Format: module: node 1 -> node 2'
+        },
+        warnings: {
+          step1: 'Fill in the target users, core value, and key scenarios first',
+          step2: 'Add at least one feature with a complete module/feature/operation path',
+          step3: 'Add at least one valid Mermaid flow (starting with flowchart TD or LR)',
+          step4: 'Select at least one operation for the first-release scope',
+          step5: 'Batch name and plan type are required'
+        },
+        finishSuccess: 'Roadmap generated and activated',
+        finishFailed: 'Failed to generate the roadmap'
+      }
+    },
+    placeholder: 'This view is under construction'
   },
   meeting: {
     create: 'Create Meeting',
