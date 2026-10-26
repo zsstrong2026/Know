@@ -344,6 +344,15 @@ function onImageLoad(e: Event) {
   const img = e.target as HTMLImageElement;
   imageNaturalWidth.value = img.naturalWidth;
   imageNaturalHeight.value = img.naturalHeight;
+  // 无内在尺寸的 SVG（只有 viewBox、缺 width/height 属性）在 flex 收缩
+  // 布局下 max-content 贡献为 0，img 会塌陷为 0×0 不可见（Chrome 已知
+  // 行为，naturalWidth 有值但 fit-content 仍为 0）。检测到塌陷时显式回写
+  // 自然宽度作为布局基准，max-width:100% 仍负责向容器收缩适配。
+  requestAnimationFrame(() => {
+    if (img.isConnected && img.naturalWidth > 0 && img.getBoundingClientRect().width === 0) {
+      img.style.width = `${img.naturalWidth}px`;
+    }
+  });
 }
 
 function getPreviewSourceKey(): string {
@@ -1341,6 +1350,10 @@ onUnmounted(() => {
     flex-direction: column;
     align-items: center;
     gap: 8px;
+    // 占满主轴宽度，避免 shrink-to-fit 与 img 的 max-width:100% 形成循环
+    // 依赖，导致 Chrome 将图片（尤其 SVG）压缩为 0 宽塌陷不可见。
+    width: 100%;
+    min-width: 0;
     img {
       max-width: 100%;
       max-height: calc(100vh - 280px);
