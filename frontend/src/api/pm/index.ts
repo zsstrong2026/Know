@@ -111,13 +111,16 @@ export interface PmFeature {
   project_id: string;
   requirement_id: string;
   parent_id: string;
+  // 子系统（feature-list 第一列），仅随规划草稿流转，不落功能清单表
+  subsystem?: string;
   module_name: string;
   feature_name: string;
   operation_name: string;
   source: PmFeatureSource;
   status: PmFeatureStatus;
-  created_at: string;
-  updated_at: string;
+  // 草稿阶段尚未落库，时间字段由后端在同步功能清单时补齐
+  created_at?: string;
+  updated_at?: string;
 }
 
 // 功能清单三级树节点，携带最新迭代版本号与状态
@@ -149,6 +152,8 @@ export interface PmRoadmapFlow {
 }
 export interface PmRoadmapDraft {
   cognition?: PmRoadmapCognition;
+  // 本次规划的子系统（feature-list 第一列），由用户指定；行级为空时以它为准
+  subsystem?: string;
   features: PmFeature[];
   flows?: PmRoadmapFlow[];
   // 首期范围，元素为「模块/功能点/操作项」三级路径

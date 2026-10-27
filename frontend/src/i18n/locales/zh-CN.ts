@@ -8812,12 +8812,14 @@ export default {
         stats: {
           features: '{count} 行',
           flows: '{count} 个模块',
-          tree: '{modules} 个模块 · {features} 个功能点 · {operations} 个操作项'
+          tree: '{subsystems} 个子系统 · {modules} 个模块 · {features} 个功能点 · {operations} 个操作项'
         },
         feature: {
-          module: '模块',
-          feature: '功能点',
-          operation: '操作项',
+          subsystem: '子系统',
+          subsystemPlaceholder: '由你指定，如 PC端 / 移动端 / 运营端',
+          module: '一级模块',
+          feature: '二级模块',
+          operation: '功能说明',
           empty: '暂无功能点，可新增一行或在左侧对话中描述'
         },
         flow: {
@@ -8861,15 +8863,16 @@ export default {
         inputPlaceholder: '用自然语言描述，回车发送',
         inputDisabled: '该步骤不支持对话输入',
         prompts: {
-          overall: '我是你的产品规划助手。直接描述产品想法、目标用户和关键场景即可，我会同步整理产品认知、功能结构图、核心流程图与首期范围，最后一起确认整体规划。也可以粘贴「模块/功能点/操作项」清单，或用「模块: 节点1 -> 节点2」描述流程。',
+          overall: '我是你的产品规划助手。先告诉我本次规划覆盖哪些子系统（如 PC端、移动端、运营端），再直接描述产品想法、目标用户和关键场景即可，我会同步整理产品认知、功能结构图、核心流程图与首期范围，最后一起确认整体规划。也可以粘贴「子系统/一级模块/二级模块/功能说明」清单，或用「模块: 节点1 -> 节点2」描述流程。',
           step1: '先补齐「{name}」的产品认知：目标用户是谁？核心价值是什么？关键场景有哪些？',
-          step2: '目前已梳理 {modules} 个模块、{features} 个功能点。可用「模块/功能点/操作项」逐行描述更多功能。',
+          step2: '目前已梳理 {subsystems} 个子系统、{modules} 个模块、{features} 个功能点。可用「子系统/一级模块/二级模块/功能说明」逐行描述更多功能。',
           step3: '用「模块: 节点1 -> 节点2」逐行描述核心流程，系统会自动生成 Mermaid。',
           step4: '勾选首期范围，当前已选 {selected}/{total} 个操作项。',
           step5: '内容已就绪。生成后将写入路线图文档，并保留本次快照。'
         },
         acks: {
           cognition: '产品认知已更新',
+          subsystem: '本次子系统已记录为「{name}」',
           features: '已添加 {count} 个功能点',
           flows: '已生成 {count} 个模块的流程',
           flowAdded: '已添加「{module}」流程',
@@ -8878,18 +8881,19 @@ export default {
         hints: {
           needModule: '请先描述模块',
           needFeatures: '请先补充功能点再生成流程',
-          featureFormat: '格式：模块/功能点/操作项，每行一条',
+          featureFormat: '格式：子系统/一级模块/二级模块/功能说明，每行一条',
           flowFormat: '格式：模块: 节点1 -> 节点2'
         },
         warnings: {
           step1: '请先填写目标用户、核心价值与关键场景',
-          step2: '请至少添加一个模块/功能点/操作项完整的功能点',
+          step2: '请至少添加一个一级模块/二级模块/功能说明完整的功能点',
           step3: '请至少添加一个合法的 Mermaid 流程（以 flowchart TD 或 LR 开头）',
           step4: '请至少选择一个首期范围内的操作项',
           step5: '批次名称与规划类型不能为空'
         },
         finishSuccess: '路线图已生成并生效',
-        finishFailed: '生成路线图失败'
+        finishGenerateFailed: '生成路线图失败：{detail}',
+        finishActivateFailed: '路线图生效失败：{detail}'
       }
     },
     placeholder: '该视图正在建设中'

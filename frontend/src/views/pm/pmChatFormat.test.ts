@@ -41,3 +41,40 @@ test('空行与分隔线', () => {
     { kind: 'paragraph', text: '第二段' },
   ]);
 });
+
+// Markdown 表格整块转成表格数据，分隔行不进入正文
+test('表格识别', () => {
+  const blocks = formatChatBlocks('| 模块 | 功能点 |\n| --- | :---: |\n| 需求管理 | 需求录入 |\n| 版本管理 | 版本创建 |');
+  assert.deepEqual(blocks, [{
+    kind: 'table',
+    headers: ['模块', '功能点'],
+    rows: [['需求管理', '需求录入'], ['版本管理', '版本创建']],
+  }]);
+});
+
+// 单行竖线文本不成表格，仍按段落展示
+test('单行竖线不成表格', () => {
+  assert.deepEqual(formatChatBlocks('甲 | 乙'), [{ kind: 'paragraph', text: '甲 | 乙' }]);
+});
+
+// 连续「标签：值」行合并为一张键值卡
+test('键值对合并', () => {
+  const blocks = formatChatBlocks('目标用户：产品经理\n核心价值：需求到上线闭环');
+  assert.deepEqual(blocks, [{
+    kind: 'kv',
+    items: [
+      { label: '目标用户', value: '产品经理' },
+      { label: '核心价值', value: '需求到上线闭环' },
+    ],
+  }]);
+});
+
+// 流程箭头描述与整句结论不做成键值卡
+test('流程与整句不识别为键值', () => {
+  assert.deepEqual(formatChatBlocks('版本管理: 需求归纳 -> 评审'), [
+    { kind: 'paragraph', text: '版本管理: 需求归纳 -> 评审' },
+  ]);
+  assert.deepEqual(formatChatBlocks('总结：本期先聚焦核心链路。'), [
+    { kind: 'paragraph', text: '总结：本期先聚焦核心链路。' },
+  ]);
+});

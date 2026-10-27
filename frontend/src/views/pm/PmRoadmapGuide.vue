@@ -56,6 +56,26 @@
                   <ol v-else-if="block.kind === 'ordered'" class="pg-bubble-list is-ordered">
                     <li v-for="(item, itemIndex) in block.items" :key="itemIndex">{{ item }}</li>
                   </ol>
+                  <div v-else-if="block.kind === 'table'" class="pg-bubble-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th v-for="(header, headerIndex) in block.headers" :key="headerIndex">{{ header }}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="(row, rowIndex) in block.rows" :key="rowIndex">
+                          <td v-for="(cell, cellIndex) in row" :key="cellIndex">{{ cell }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <dl v-else-if="block.kind === 'kv'" class="pg-bubble-kv">
+                    <template v-for="(item, itemIndex) in block.items" :key="itemIndex">
+                      <dt>{{ item.label }}</dt>
+                      <dd>{{ item.value }}</dd>
+                    </template>
+                  </dl>
                 </template>
               </template>
               <span v-else-if="message.text">{{ message.text }}</span>
@@ -106,12 +126,30 @@
             <!-- 功能结构图 -->
             <t-tab-panel value="features" :label="$t('pm.roadmap.guide.tabs.features')">
               <div class="pg-block">
+                <!-- 子系统由用户指定：作为本次规划功能清单的第一列默认值 -->
+                <div class="pg-subsystem-bar">
+                  <label for="pg-subsystem">{{ $t('pm.roadmap.guide.feature.subsystem') }}</label>
+                  <t-input
+                    id="pg-subsystem"
+                    v-model="subsystemValue"
+                    size="small"
+                    class="pg-subsystem-input"
+                    :placeholder="$t('pm.roadmap.guide.feature.subsystemPlaceholder')"
+                  />
+                </div>
                 <p class="pg-stat-line">
-                  {{ $t('pm.roadmap.guide.stats.tree', { modules: stats.modules, features: stats.features, operations: stats.operations }) }}
+                  {{ $t('pm.roadmap.guide.stats.tree', { subsystems: stats.subsystems, modules: stats.modules, features: stats.features, operations: stats.operations }) }}
                 </p>
                 <div v-if="featureTree.length" class="pg-tree">
-                  <div v-for="moduleNode in featureTree" :key="moduleNode.module" class="pg-tree-module">
-                    <div class="pg-tree-module-name">{{ moduleNode.module }}</div>
+                  <div
+                    v-for="moduleNode in featureTree"
+                    :key="`${moduleNode.subsystem}/${moduleNode.module}`"
+                    class="pg-tree-module"
+                  >
+                    <div class="pg-tree-module-name">
+                      <span v-if="moduleNode.subsystem" class="pg-tree-subsystem">{{ moduleNode.subsystem }}</span>
+                      {{ moduleNode.module }}
+                    </div>
                     <div v-for="featureNode in moduleNode.features" :key="featureNode.name" class="pg-tree-feature">
                       <div class="pg-tree-feature-name">{{ featureNode.name }}</div>
                       <div class="pg-tree-ops">
@@ -152,8 +190,8 @@
                   </t-button>
                 </div>
                 <t-checkbox-group v-model="scopeValue" class="pg-scope">
-                  <div v-for="group in scopeGroups" :key="group.module" class="pg-scope-group">
-                    <div class="pg-scope-head">{{ group.module }}</div>
+                  <div v-for="group in scopeGroups" :key="group.key" class="pg-scope-group">
+                    <div class="pg-scope-head">{{ group.label }}</div>
                     <div class="pg-scope-items">
                       <t-checkbox v-for="option in group.options" :key="option.value" :value="option.value">
                         {{ option.label }}
@@ -259,6 +297,7 @@ interface GuideMessage {
 }
 
 interface FeatureRow {
+  subsystem: string;
   module: string;
   feature: string;
   operation: string;
@@ -297,8 +336,25 @@ const COGNITION_PATTERNS: Array<{ key: keyof PmRoadmapCognition; re: RegExp }> =
   { key: 'background', re: /(?:规划背景|背景说明|项目背景|本次背景)\s*[:：]\s*(.+)/ },
 ];
 
-// 功能清单表头，解析表格时跳过
-const HEADER_WORDS = new Set(['模块', '功能点', '操作项', 'module', 'feature', 'operation']);
+// 功能清单表头（feature-list 四列规范 + 兼容旧三级表头），解析时跳过
+const HEADER_WORDS = new Set([
+  '子系统', '一级模块', '二级模块', '功能说明',
+  '模块', '功能点', '操作项',
+  'subsystem', 'module', 'feature', 'operation',
+]);
+
+// Mermaid 连线/声明行与表格分隔行都不是功能清单，按行解析时必须排除
+const MERMAID_LINE_RE = /-->|==>|-\.->|~~~|^\s*(?:flowchart|graph|subgraph|end)\b/i;
+const MERMAID_SHAPE_RE = /[[\]{}]/;
+// 纯符号段（如表格分隔行的 ---）与整句说明都不是合法的三级名称
+const NON_FEATURE_PART_RE = /^[-:=_*~.\s]+$/;
+const SENTENCE_PART_RE = /[。；;！!？?]/;
+
+function isFeaturePart(part: string): boolean {
+  if (!part || NON_FEATURE_PART_RE.test(part)) return false;
+  // 说明句通常很长且带句读，避免把 AI 的总结文字当成模块/功能点
+  return part.length <= 40 && !SENTENCE_PART_RE.test(part);
+}
 
 // ===== 草稿状态 =====
 
@@ -310,6 +366,8 @@ function emptyCognition(): PmRoadmapCognition {
 function normalizeDraft(input?: PmRoadmapDraft | null): PmRoadmapDraft {
   return {
     cognition: { ...emptyCognition(), ...(input?.cognition ?? {}) },
+    // 子系统是批次级默认值，行级为空时由它兜底
+    subsystem: input?.subsystem ?? '',
     features: (input?.features ?? []).map((item) => ({ ...item })),
     flows: (input?.flows ?? []).map((item) => ({ ...item })),
     scope: normalizeScope(input?.scope),
@@ -347,7 +405,16 @@ const agentOptions = computed(() => agents.value.map((item) => ({ label: item.na
 
 const cognition = computed<PmRoadmapCognition>(() => draft.value.cognition ?? emptyCognition());
 const stats = computed(() => summarizeDraft(draft.value));
-const featureTree = computed(() => buildFeatureTree(draft.value.features));
+const featureTree = computed(() => buildFeatureTree(draft.value.features, draft.value.subsystem));
+
+// 子系统由用户指定（PC端 / 移动端 / 运营端…），保存为批次级默认值
+const subsystemValue = computed<string>({
+  get: () => draft.value.subsystem ?? '',
+  set: (value) => {
+    draft.value.subsystem = (value ?? '').trim();
+    scheduleSave();
+  },
+});
 
 // 流程图预览：按模块拼成 Markdown，交给 PmMarkdown 渲染为 SVG
 const flowsMarkdown = computed(() => (draft.value.flows ?? [])
@@ -355,9 +422,13 @@ const flowsMarkdown = computed(() => (draft.value.flows ?? [])
   .map((flow) => `### ${(flow.module ?? '').trim() || '—'}\n\n\`\`\`mermaid\n${(flow.mermaid ?? '').trim()}\n\`\`\``)
   .join('\n\n'));
 
-// 首期范围勾选项：模块 / 功能点 / 操作项 的三级路径作为唯一值
+// 首期范围勾选项：模块 / 功能点 / 操作项 的三级路径作为唯一值；
+// 不同子系统的同名模块需要分别展示，分组 key 带上子系统
 const scopeGroups = computed(() => featureTree.value.map((moduleNode) => ({
-  module: moduleNode.module,
+  key: `${moduleNode.subsystem}/${moduleNode.module}`,
+  label: moduleNode.subsystem
+    ? `${moduleNode.subsystem} / ${moduleNode.module}`
+    : moduleNode.module,
   options: moduleNode.features.flatMap((featureNode) => featureNode.operations.map((operation) => ({
     value: operation.path,
     label: `${featureNode.name} / ${operation.name}`,
@@ -384,6 +455,7 @@ const snapshotPath = computed(
 
 const promptParams = computed(() => ({
   name: props.projectName || props.batch.batch_name,
+  subsystems: stats.value.subsystems,
   modules: stats.value.modules,
   features: stats.value.features,
   operations: stats.value.operations,
@@ -466,6 +538,8 @@ async function loadAgents() {
     agents.value = (res?.data ?? []).filter((item) => !item.is_builtin);
     agentsLoaded.value = true;
     if (selectedAgentId.value && !selectedAgent.value) selectedAgentId.value = '';
+    // 未手动选择时默认取第一个自建智能体，进入引导即可直接对话
+    if (!selectedAgentId.value && agents.value.length) selectedAgentId.value = agents.value[0].id;
   } catch {
     MessagePlugin.error(t('pm.roadmap.guide.agentLoadFailed'));
   } finally {
@@ -565,44 +639,93 @@ function extractCognition(text: string): Partial<PmRoadmapCognition> | null {
   return Object.keys(result).length ? result : null;
 }
 
-// 「模块 / 功能点 / 操作项」每行一条，分隔符兼容 / ｜ |
+// 「子系统：PC端」单独一行给出，多个用顿号分隔；取首值作为本次默认子系统
+const SUBSYSTEM_RE = /^(?:本次)?子系统\s*[:：]\s*(.+)$/;
+
+function extractSubsystem(text: string): string {
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/^[\s>*\-+]+/, '').replace(/\*\*/g, '').trim();
+    if (!line) continue;
+    const matched = line.match(SUBSYSTEM_RE);
+    if (!matched) continue;
+    const value = matched[1]
+      .split(/[、,，/｜|]/)
+      .map((item) => item.trim())
+      .find((item) => isFeaturePart(item));
+    if (value) return value;
+  }
+  return '';
+}
+
+// 「子系统 / 一级模块 / 二级模块 / 功能说明」每行一条，分隔符兼容 / ｜ |
+// 代码块、Mermaid 连线、表格分隔行与说明句不参与解析，避免产生脏功能项
 function parseFeatureLines(text: string): FeatureRow[] {
   const rows: FeatureRow[] = [];
+  let inFence = false;
   for (const raw of text.split(/\r?\n/)) {
-    const parts = raw.split(/\s*[/｜|]\s*/).map((item) => item.trim()).filter(Boolean);
-    if (parts.length >= 3 && !HEADER_WORDS.has(parts[0].toLowerCase())) {
-      rows.push({ module: parts[0], feature: parts[1], operation: parts.slice(2).join('/') });
+    const line = raw.trim();
+    if (line.startsWith('```')) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence || !line) continue;
+    if (MERMAID_LINE_RE.test(line) || MERMAID_SHAPE_RE.test(line)) continue;
+    const parts = line.split(/\s*[/｜|]\s*/).map((item) => item.trim()).filter(Boolean);
+    if (parts.length < 3) continue;
+    if (HEADER_WORDS.has(parts[0].toLowerCase())) continue;
+    if (!parts.every(isFeaturePart)) continue;
+    if (parts.length >= 4) {
+      // 四列规范：多段说明合并回功能说明列
+      rows.push({
+        subsystem: parts[0],
+        module: parts[1],
+        feature: parts[2],
+        operation: parts.slice(3).join('/'),
+      });
+    } else {
+      // 兼容旧的三级写法：模块 / 功能点 / 操作项
+      rows.push({ subsystem: '', module: parts[0], feature: parts[1], operation: parts[2] });
     }
   }
   return rows;
 }
 
-// 兼容 AI 输出的「| 模块 | 功能点 | 操作项 |」表格
+// 兼容 AI 输出的「| 子系统 | 一级模块 | 二级模块 | 功能说明 |」表格，也兼容旧的三列表格
 function parseFeatureTable(text: string): FeatureRow[] {
   const rows: FeatureRow[] = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line.includes('|')) continue;
+    // Mermaid 的「A -->|是| B[...]」也含竖线，必须先排除
+    if (MERMAID_LINE_RE.test(line) || MERMAID_SHAPE_RE.test(line)) continue;
     const cells = line.split('|').map((cell) => cell.replace(/\*\*/g, '').trim());
     while (cells.length && !cells[0]) cells.shift();
     while (cells.length && !cells[cells.length - 1]) cells.pop();
     if (cells.length < 3) continue;
-    const [moduleName, featureName, ...rest] = cells;
+    // 四列时首列是子系统，否则按旧三列解析
+    const hasSubsystem = cells.length >= 4;
+    const subsystemName = hasSubsystem ? cells[0] : '';
+    const moduleName = hasSubsystem ? cells[1] : cells[0];
+    const featureName = hasSubsystem ? cells[2] : cells[1];
+    const rest = hasSubsystem ? cells.slice(3) : cells.slice(2);
     if (!moduleName || !featureName) continue;
-    if (/^[-:]+$/.test(moduleName) || HEADER_WORDS.has(moduleName.toLowerCase())) continue;
+    if (HEADER_WORDS.has(moduleName.toLowerCase())) continue;
+    if (subsystemName && !isFeaturePart(subsystemName)) continue;
     const operationName = rest.join(' / ').trim();
-    if (!operationName) continue;
-    rows.push({ module: moduleName, feature: featureName, operation: operationName });
+    if (!isFeaturePart(moduleName) || !isFeaturePart(featureName) || !isFeaturePart(operationName)) continue;
+    rows.push({ subsystem: subsystemName, module: moduleName, feature: featureName, operation: operationName });
   }
   return rows;
 }
 
-// 去重后追加，返回新增数量
+// 去重后追加，返回新增数量；行级子系统为空时用批次默认值兜底
 function addFeatureRows(rows: FeatureRow[]): number {
   const existing = new Set(draft.value.features.map(featurePath));
+  const fallbackSubsystem = draft.value.subsystem ?? '';
   let added = 0;
   for (const row of rows) {
-    const feature = makeDraftFeature(props.projectId, row.module, row.feature, row.operation);
+    const subsystem = row.subsystem || fallbackSubsystem;
+    const feature = makeDraftFeature(props.projectId, subsystem, row.module, row.feature, row.operation);
     const path = featurePath(feature);
     if (existing.has(path)) continue;
     existing.add(path);
@@ -683,6 +806,12 @@ interface ApplyResult {
 // 解析一段文本并回填草稿；recognized 表示是否识别到结构化内容
 function applyText(text: string): ApplyResult {
   const notes: string[] = [];
+  // 子系统只在草稿尚未指定时采用识别结果，避免覆盖用户手填的值
+  const subsystem = extractSubsystem(text);
+  if (subsystem && !(draft.value.subsystem ?? '').trim()) {
+    draft.value.subsystem = subsystem;
+    notes.push(t('pm.roadmap.guide.acks.subsystem', { name: subsystem }));
+  }
   const cognitionPatch = extractCognition(text);
   if (cognitionPatch) {
     patchCognition(cognitionPatch);
@@ -721,7 +850,8 @@ function buildQuery(text: string, applied: string): string {
   parts.push([
     '【当前产出物进度】',
     `产品认知：已完成 ${COGNITION_FIELDS.filter((field) => (cognition.value[field.key] ?? '').trim()).length}/4 项`,
-    `功能结构：${stats.value.modules} 个模块 / ${stats.value.features} 个功能点 / ${stats.value.operations} 个操作项`,
+    `本次子系统：${(draft.value.subsystem ?? '').trim() || '未指定（请先询问用户）'}`,
+    `功能结构：${stats.value.subsystems} 个子系统 / ${stats.value.modules} 个模块 / ${stats.value.features} 个功能点 / ${stats.value.operations} 个操作项`,
     `核心流程：${draft.value.flows?.length ?? 0} 个`,
     `首期范围：已选 ${stats.value.scope}/${stats.value.operations}`,
   ].join('\n'));
@@ -730,7 +860,9 @@ function buildQuery(text: string, applied: string): string {
   parts.push([
     '请基于当前产出物补齐缺口，只输出可直接回填的结构化内容：',
     '- 认知字段逐行给出，格式「目标用户：…」「核心价值：…」「关键场景：…」「规划背景：…」',
-    '- 功能清单用 Markdown 表格「| 模块 | 功能点 | 操作项 |」，每行一个操作项',
+    '- 子系统单独一行给出，格式「子系统：PC端」（多个用顿号分隔）；用户未指定时先询问，不要自行假定',
+    '- 功能清单用 Markdown 表格「| 子系统 | 一级模块 | 二级模块 | 功能说明 |」，同一模块每行重复填写前两列，',
+    '  不同一级模块之间插入一行 | --- | --- | --- | --- |',
     '- 流程用 ```mermaid 代码块，并在代码块上方用「### 模块名」标注所属模块',
     '除以上内容外可加简短说明，但不要重复已确认的信息。',
   ].join('\n'));
@@ -788,6 +920,12 @@ function clearScope() {
 
 // ===== 完成规划 =====
 
+// 完成流程的阶段提示：生成与生效失败原因不同，需分别提示
+const FINISH_STAGE_KEYS = {
+  generate: 'pm.roadmap.guide.finishGenerateFailed',
+  activate: 'pm.roadmap.guide.finishActivateFailed',
+} as const;
+
 // 完成 = 保存草稿 → 生成路线图与快照（可选同步功能清单）→ 新批次生效
 async function finish() {
   const blocked = inferStep();
@@ -798,16 +936,22 @@ async function finish() {
     return;
   }
   submitting.value = true;
+  let stage: keyof typeof FINISH_STAGE_KEYS = 'generate';
   try {
     const saved = await flush(ROADMAP_STEP_COUNT, true);
+    // 保存失败已由 flush 内部提示，这里不再重复报错
     if (!saved) return;
     const task = await generatePlanBatch(props.batch.id, syncFeatures.value);
     if (task.status === 'failed') throw new Error(task.error_message || 'failed');
+    stage = 'activate';
     await activatePlanBatch(props.batch.id);
     MessagePlugin.success(t('pm.roadmap.guide.finishSuccess'));
     emit('completed');
-  } catch {
-    MessagePlugin.error(t('pm.roadmap.guide.finishFailed'));
+  } catch (err) {
+    // 带上后端返回的 message，便于定位是校验、AI 生成还是生效环节出错
+    const detail =
+      (err as { message?: string } | null)?.message || String(err);
+    MessagePlugin.error(t(FINISH_STAGE_KEYS[stage], { detail }));
   } finally {
     submitting.value = false;
   }
@@ -989,41 +1133,116 @@ onBeforeUnmount(() => {
 }
 
 .pg-bubble {
-  max-width: 86%;
-  padding: 8px 10px;
+  max-width: 90%;
+  min-width: 0;
+  padding: 10px 12px;
   border-radius: var(--app-radius-sm);
   background: var(--td-bg-color-secondarycontainer);
   color: var(--td-text-color-primary);
   font-size: var(--app-text-md);
-  line-height: 1.65;
+  line-height: 1.7;
   white-space: pre-line;
+  word-break: break-word;
 
   // 块渲染时按块纵向排布，取消纯文本的预换行
   &.is-blocks {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     white-space: normal;
   }
 }
 
+// 小标题：与下方内容成组，段间距略大
 .pg-bubble-heading {
+  margin-top: 2px;
+  font-size: var(--app-text-md);
   font-weight: 600;
   color: var(--td-text-color-primary);
+
+  &:not(:first-child) {
+    margin-top: 4px;
+  }
 }
 
 .pg-bubble-para {
   margin: 0;
+  line-height: 1.75;
   white-space: pre-line;
 }
 
 .pg-bubble-list {
   margin: 0;
-  padding-left: 18px;
+  padding-left: 20px;
+  line-height: 1.7;
   list-style: disc;
 
   &.is-ordered {
     list-style: decimal;
+  }
+
+  li + li {
+    margin-top: 4px;
+  }
+}
+
+// 表格：横向可滚动，表头浅底、行间细分隔线
+.pg-bubble-table {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-sm);
+  background: var(--td-bg-color-container);
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--app-text-sm);
+    line-height: 1.6;
+  }
+
+  th,
+  td {
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--td-component-stroke);
+  }
+
+  th {
+    background: var(--td-bg-color-secondarycontainer);
+    font-weight: 600;
+    color: var(--td-text-color-primary);
+    white-space: nowrap;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+}
+
+// 键值信息卡：标签列定宽，值列自适应换行
+.pg-bubble-kv {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--td-component-stroke);
+  border-radius: var(--app-radius-sm);
+  background: var(--td-bg-color-container);
+  font-size: var(--app-text-sm);
+  line-height: 1.7;
+
+  dt {
+    color: var(--td-text-color-placeholder);
+    white-space: nowrap;
+  }
+
+  dd {
+    margin: 0;
+    color: var(--td-text-color-primary);
+    word-break: break-word;
   }
 }
 
@@ -1101,6 +1320,35 @@ onBeforeUnmount(() => {
   margin: 0 0 var(--app-space-3);
   font-size: var(--app-text-sm);
   color: var(--td-text-color-placeholder);
+}
+
+// 子系统输入：由用户指定，作为功能清单第一列的默认值
+.pg-subsystem-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  margin-bottom: var(--app-space-2);
+  font-size: var(--app-text-sm);
+  color: var(--td-text-color-secondary);
+
+  > label {
+    white-space: nowrap;
+  }
+}
+
+.pg-subsystem-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.pg-tree-subsystem {
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: var(--app-radius-sm);
+  background: var(--td-bg-color-secondarycontainer);
+  font-size: var(--app-text-xs);
+  font-weight: 400;
+  color: var(--td-text-color-secondary);
 }
 
 .pg-tree-module {

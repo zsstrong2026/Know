@@ -46,6 +46,26 @@
                 <ol v-else-if="block.kind === 'ordered'" class="rq-msg__list is-ordered">
                   <li v-for="(item, itemIndex) in block.items" :key="itemIndex">{{ item }}</li>
                 </ol>
+                <div v-else-if="block.kind === 'table'" class="rq-msg__table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th v-for="(header, headerIndex) in block.headers" :key="headerIndex">{{ header }}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(row, rowIndex) in block.rows" :key="rowIndex">
+                        <td v-for="(cell, cellIndex) in row" :key="cellIndex">{{ cell }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <dl v-else-if="block.kind === 'kv'" class="rq-msg__kv">
+                  <template v-for="(item, itemIndex) in block.items" :key="itemIndex">
+                    <dt>{{ item.label }}</dt>
+                    <dd>{{ item.value }}</dd>
+                  </template>
+                </dl>
               </template>
             </template>
             <span v-else-if="turn.content">{{ turn.content }}</span>
@@ -463,6 +483,71 @@ async function scrollToBottom() {
 
   &:not(.is-ordered) {
     list-style: disc;
+  }
+}
+
+/* Markdown 表格：横向可滚动，表头浅底 */
+.rq-msg__table {
+  max-width: 100%;
+  margin: 0 0 6px;
+  overflow-x: auto;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-sm);
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--app-text-sm);
+    line-height: 1.6;
+  }
+
+  th,
+  td {
+    padding: 5px 8px;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--td-component-stroke);
+  }
+
+  th {
+    background: var(--td-bg-color-secondarycontainer);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+}
+
+/* 键值信息卡：标签列固定、值列自适应换行 */
+.rq-msg__kv {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border: 1px dashed var(--td-component-stroke);
+  border-radius: var(--app-radius-sm);
+  font-size: var(--app-text-sm);
+  line-height: 1.7;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+
+  dt {
+    color: var(--td-text-color-placeholder);
+    white-space: nowrap;
+  }
+
+  dd {
+    margin: 0;
+    word-break: break-word;
   }
 }
 

@@ -16,6 +16,8 @@ export const PLAN_TYPES: PmPlanType[] = ['initial', 'iteration', 'replan'];
 export interface RoadmapStateDraft {
   project_brief?: string;
   cognition?: Partial<PmRoadmapCognition>;
+  // 本次规划的子系统（feature-list 第一列），由用户指定
+  subsystem?: string;
   features?: Array<Partial<PmFeature>>;
   flows?: Array<Partial<PmRoadmapFlow>>;
   scope?: string | string[];
@@ -111,6 +113,7 @@ export function clampStep(step: number | null | undefined): number {
 export function emptyRoadmapDraft(): PmRoadmapDraft {
   return {
     cognition: { target_users: '', core_value: '', scenarios: '', background: '' },
+    subsystem: '',
     features: [],
     flows: [],
     scope: [],
@@ -119,9 +122,11 @@ export function emptyRoadmapDraft(): PmRoadmapDraft {
 
 let draftFeatureSeq = 0;
 
-// 生成本地草稿功能项：后端只按三级名称做自然键，id 仅用于前端列表渲染
+// 生成本地草稿功能项：后端只按三级名称做自然键，id 仅用于前端列表渲染；
+// 不提交空的时间字段，落库时间由后端同步功能清单时生成
 export function makeDraftFeature(
   projectId: string,
+  subsystem: string,
   moduleName: string,
   featureName: string,
   operationName: string,
@@ -132,13 +137,12 @@ export function makeDraftFeature(
     project_id: projectId,
     requirement_id: '',
     parent_id: '',
+    subsystem: subsystem.trim(),
     module_name: moduleName,
     feature_name: featureName,
     operation_name: operationName,
     source: 'roadmap',
     status: 'planned',
-    created_at: '',
-    updated_at: '',
   };
 }
 
@@ -149,21 +153,29 @@ export function featurePath(feature: Partial<PmFeature>): string {
 }
 
 export interface RoadmapModuleNode {
+  subsystem: string;
   module: string;
   features: Array<{ name: string; operations: Array<{ name: string; path: string }> }>;
 }
 
-// 三级功能清单聚合：模块 → 功能点 → 操作项（保持出现顺序）
-export function buildFeatureTree(features: Array<Partial<PmFeature>> = []): RoadmapModuleNode[] {
+// 四列功能清单聚合：子系统 + 一级模块 → 二级模块 → 功能说明（保持出现顺序）
+export function buildFeatureTree(
+  features: Array<Partial<PmFeature>> = [],
+  fallbackSubsystem = '',
+): RoadmapModuleNode[] {
   const modules = new Map<string, RoadmapModuleNode>();
+  const fallback = fallbackSubsystem.trim();
   for (const feature of features) {
+    const subsystem = (feature.subsystem ?? '').trim() || fallback;
     const moduleName = (feature.module_name ?? '').trim() || '—';
     const featureName = (feature.feature_name ?? '').trim() || '—';
     const operationName = (feature.operation_name ?? '').trim() || '—';
-    let moduleNode = modules.get(moduleName);
+    // 同一模块名在不同子系统下属于不同分组，用不可见分隔符拼 key
+    const key = `${subsystem}\u001f${moduleName}`;
+    let moduleNode = modules.get(key);
     if (!moduleNode) {
-      moduleNode = { module: moduleName, features: [] };
-      modules.set(moduleName, moduleNode);
+      moduleNode = { subsystem, module: moduleName, features: [] };
+      modules.set(key, moduleNode);
     }
     let featureNode = moduleNode.features.find((item) => item.name === featureName);
     if (!featureNode) {
@@ -176,6 +188,7 @@ export function buildFeatureTree(features: Array<Partial<PmFeature>> = []): Road
 }
 
 export interface RoadmapStats {
+  subsystems: number;
   modules: number;
   features: number;
   operations: number;
@@ -183,8 +196,9 @@ export interface RoadmapStats {
 }
 
 export function summarizeDraft(draft?: PmRoadmapDraft | null): RoadmapStats {
-  const tree = buildFeatureTree(draft?.features ?? []);
+  const tree = buildFeatureTree(draft?.features ?? [], draft?.subsystem ?? '');
   return {
+    subsystems: new Set(tree.map((node) => node.subsystem).filter(Boolean)).size,
     modules: tree.length,
     features: tree.reduce((sum, moduleNode) => sum + moduleNode.features.length, 0),
     operations: tree.reduce(
@@ -196,6 +210,34 @@ export function summarizeDraft(draft?: PmRoadmapDraft | null): RoadmapStats {
 }
 
 const FENCE = '```';
+
+// 表格单元格转义：与后端 tableCell 对齐，避免内容中的竖线破坏列结构
+function tableCell(value: string | undefined): string {
+  return (value ?? '').trim().replace(/\|/g, '\\|').replace(/\n/g, ' ');
+}
+
+// 功能清单四列行 + 分模块分隔行（feature-list 技能规范）
+function buildFeatureListRows(
+  features: Array<Partial<PmFeature>>,
+  fallbackSubsystem: string,
+): string[] {
+  const fallback = fallbackSubsystem.trim();
+  const rows: string[] = [];
+  let lastGroup = '';
+  features.forEach((feature, index) => {
+    const subsystem = (feature.subsystem ?? '').trim() || fallback;
+    const moduleName = (feature.module_name ?? '').trim();
+    const group = `${subsystem}\u001f${moduleName}`;
+    // 不同一级模块之间插入分隔行，同一模块内不插
+    if (index > 0 && group !== lastGroup) rows.push('| --- | --- | --- | --- |');
+    lastGroup = group;
+    rows.push(
+      `| ${tableCell(subsystem)} | ${tableCell(moduleName)} `
+      + `| ${tableCell(feature.feature_name)} | ${tableCell(feature.operation_name)} |`,
+    );
+  });
+  return rows;
+}
 
 // 本地渲染路线图 Markdown：结构与后端 renderRoadmapMarkdown 保持一致，供预览与快照展示
 export function buildRoadmapMarkdown(
@@ -219,13 +261,11 @@ export function buildRoadmapMarkdown(
     '',
     ...(scope.length ? scope.map((item) => `- ${item}`) : ['- 未指定，默认全部功能']),
     '',
-    '## 三级功能清单',
+    '## 功能清单',
     '',
-    '| 模块 | 功能点 | 操作项 |',
-    '|---|---|---|',
-    ...(data.features ?? []).map(
-      (f) => `| ${(f.module_name ?? '').trim()} | ${(f.feature_name ?? '').trim()} | ${(f.operation_name ?? '').trim()} |`,
-    ),
+    '| 子系统 | 一级模块 | 二级模块 | 功能说明 |',
+    '| --- | --- | --- | --- |',
+    ...buildFeatureListRows(data.features ?? [], data.subsystem ?? ''),
     '',
     '## 核心业务流程',
     '',

@@ -405,13 +405,15 @@ func (vr *PMVersionRequirement) BeforeCreate(_ *gorm.DB) error {
 	return nil
 }
 
-// PMFeature 功能清单三级节点（模块 / 功能 / 操作），parent_id 为空表示模块级
+// PMFeature 功能清单三级节点（模块 / 功能 / 操作），parent_id 为空表示模块级。
+// Subsystem 仅随规划草稿 JSON 流转（对应 feature-list 技能的「子系统」列），不落 pm_features 表。
 type PMFeature struct {
 	ID            string         `gorm:"type:varchar(36);primaryKey" json:"id"`
 	TenantID      uint64         `gorm:"index" json:"-"`
 	ProjectID     string         `gorm:"type:varchar(36);index" json:"project_id"`
 	RequirementID string         `gorm:"type:varchar(36);index" json:"requirement_id"`
 	ParentID      string         `gorm:"type:varchar(36);index" json:"parent_id"`
+	Subsystem     string         `gorm:"-" json:"subsystem,omitempty"`
 	ModuleName    string         `gorm:"type:varchar(255)" json:"module_name"`
 	FeatureName   string         `gorm:"type:varchar(255)" json:"feature_name"`
 	OperationName string         `gorm:"type:varchar(255)" json:"operation_name"`
@@ -556,8 +558,10 @@ type PMRoadmapFlow struct {
 // PMRoadmapDraft 5 步引导草稿（pm_plan_batches.draft 的 JSON 结构）
 type PMRoadmapDraft struct {
 	Cognition *PMRoadmapCognition `json:"cognition,omitempty"`
-	Features  []PMFeature         `json:"features"`
-	Flows     []PMRoadmapFlow     `json:"flows,omitempty"`
+	// Subsystem 本次规划的子系统（feature-list 第一列），由用户指定；行级为空时用它兜底
+	Subsystem string          `json:"subsystem,omitempty"`
+	Features  []PMFeature     `json:"features"`
+	Flows     []PMRoadmapFlow `json:"flows,omitempty"`
 	// Scope 首期范围，元素为「模块/功能点/操作项」三级路径
 	Scope []string `json:"scope,omitempty"`
 }

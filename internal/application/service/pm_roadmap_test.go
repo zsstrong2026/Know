@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,6 +62,70 @@ func TestValidateRoadmapDraft(t *testing.T) {
 	assert.ErrorIs(t, ValidateRoadmapDraft(dup), ErrRoadmapDraftDuplicate)
 
 	assert.ErrorIs(t, ValidateRoadmapDraft(nil), ErrRoadmapDraftEmpty)
+}
+
+// 草稿中的空时间字符串不应导致解析失败（历史「生成路线图失败」回归）
+func TestParseRoadmapDraftToleratesEmptyTimestamps(t *testing.T) {
+	raw := types.JSON(`{
+		"features": [{
+			"id": "draft-1",
+			"module_name": "账号",
+			"feature_name": "登录",
+			"operation_name": "短信登录",
+			"created_at": "",
+			"updated_at": ""
+		}],
+		"scope": ["账号/登录/短信登录"]
+	}`)
+
+	draft, err := parseRoadmapDraft(raw)
+	require.NoError(t, err)
+	require.Len(t, draft.Features, 1)
+	assert.Equal(t, "账号", draft.Features[0].ModuleName)
+	assert.Equal(t, "短信登录", draft.Features[0].OperationName)
+	assert.Len(t, draft.Scope, 1)
+}
+
+// 子系统：行级优先，为空时用批次级默认值兜底
+func TestParseRoadmapDraftBackfillsSubsystem(t *testing.T) {
+	raw := types.JSON(`{
+		"subsystem": "PC端",
+		"features": [
+			{"module_name": "账号", "feature_name": "登录", "operation_name": "短信登录"},
+			{"subsystem": "移动端", "module_name": "账号", "feature_name": "登录", "operation_name": "微信登录"}
+		]
+	}`)
+
+	draft, err := parseRoadmapDraft(raw)
+	require.NoError(t, err)
+	assert.Equal(t, "PC端", draft.Subsystem)
+	require.Len(t, draft.Features, 2)
+	assert.Equal(t, "PC端", draft.Features[0].Subsystem)   // 使用批次默认值
+	assert.Equal(t, "移动端", draft.Features[1].Subsystem) // 行级值不被覆盖
+}
+
+// 路线图功能清单按 feature-list 技能输出四列，并在不同一级模块之间插入分隔行
+func TestRenderRoadmapFeatureListTable(t *testing.T) {
+	project := &types.PMProject{Name: "示例项目"}
+	draft := &types.PMRoadmapDraft{
+		Subsystem: "PC端",
+		Features: []types.PMFeature{
+			{Subsystem: "PC端", ModuleName: "用户管理", FeatureName: "用户注册", OperationName: "支持手机号注册（核心）"},
+			{Subsystem: "PC端", ModuleName: "用户管理", FeatureName: "用户登录", OperationName: "支持短信验证码登录"},
+			// 子系统为空，应由批次默认值兜底；一级模块切换触发分隔行
+			{ModuleName: "权限管理", FeatureName: "角色管理", OperationName: "支持自定义角色（核心）"},
+		},
+	}
+
+	md := renderRoadmapMarkdown(project, draft, draft.Features)
+
+	assert.Contains(t, md, "## 功能清单")
+	assert.Contains(t, md, "| 子系统 | 一级模块 | 二级模块 | 功能说明 |")
+	assert.Contains(t, md, "| PC端 | 用户管理 | 用户注册 | 支持手机号注册（核心） |")
+	assert.Contains(t, md, "| PC端 | 权限管理 | 角色管理 | 支持自定义角色（核心） |")
+	// 用户管理 → 权限管理 之间恰好一条分隔行（该内容只可能来自分隔行）
+	assert.Equal(t, 1, strings.Count(md, "| --- | --- | --- | --- |\n| PC端 | 权限管理"))
+	assert.NotContains(t, md, "## 三级功能清单")
 }
 
 // 生效：旧 active 批次转 archived，新批次 active，并写快照指针

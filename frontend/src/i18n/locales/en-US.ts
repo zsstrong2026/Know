@@ -1164,12 +1164,14 @@ export default {
         stats: {
           features: '{count} rows',
           flows: '{count} modules',
-          tree: '{modules} modules · {features} features · {operations} operations'
+          tree: '{subsystems} subsystems · {modules} modules · {features} features · {operations} operations'
         },
         feature: {
-          module: 'Module',
-          feature: 'Feature',
-          operation: 'Operation',
+          subsystem: 'Subsystem',
+          subsystemPlaceholder: 'Specified by you, e.g. PC / Mobile / Operations',
+          module: 'Level 1 module',
+          feature: 'Level 2 module',
+          operation: 'Description',
           empty: 'No features yet; add a row or describe them in the chat'
         },
         flow: {
@@ -1213,15 +1215,16 @@ export default {
         inputPlaceholder: 'Describe in natural language, press Enter to send',
         inputDisabled: 'This step does not accept chat input',
         prompts: {
-          overall: 'I am your product planning assistant. Describe the product idea, target users, and key scenarios directly, and I will organize the product cognition, feature structure, core flows, and first-release scope along the way, then confirm the overall plan together. You can also paste a "module/feature/operation" list, or describe flows as "module: node 1 -> node 2".',
+          overall: 'I am your product planning assistant. First tell me which subsystems this plan covers (e.g. PC, Mobile, Operations), then describe the product idea, target users, and key scenarios. I will organize the product cognition, feature structure, core flows, and first-release scope along the way, then confirm the overall plan together. You can also paste a "subsystem/level 1 module/level 2 module/description" list, or describe flows as "module: node 1 -> node 2".',
           step1: 'Start with the product cognition for "{name}": who are the target users, what is the core value, and which scenarios matter most?',
-          step2: '{modules} modules and {features} features so far. Describe more features as "module/feature/operation", one per line.',
+          step2: '{subsystems} subsystems, {modules} modules and {features} features so far. Describe more features as "subsystem/level 1 module/level 2 module/description", one per line.',
           step3: 'Describe core flows as "module: node 1 -> node 2", one per line. Mermaid is generated automatically.',
           step4: 'Select the first-release scope; {selected}/{total} operations are selected so far.',
           step5: 'Everything is ready. Generating writes the roadmap document and keeps this snapshot.'
         },
         acks: {
           cognition: 'Product cognition updated',
+          subsystem: 'Subsystem recorded as "{name}"',
           features: 'Added {count} features',
           flows: 'Generated flows for {count} modules',
           flowAdded: 'Added the flow for "{module}"',
@@ -1230,18 +1233,19 @@ export default {
         hints: {
           needModule: 'Describe a module first',
           needFeatures: 'Add features before generating flows',
-          featureFormat: 'Format: module/feature/operation, one per line',
+          featureFormat: 'Format: subsystem/level 1 module/level 2 module/description, one per line',
           flowFormat: 'Format: module: node 1 -> node 2'
         },
         warnings: {
           step1: 'Fill in the target users, core value, and key scenarios first',
-          step2: 'Add at least one feature with a complete module/feature/operation path',
+          step2: 'Add at least one feature with a complete level 1 module/level 2 module/description',
           step3: 'Add at least one valid Mermaid flow (starting with flowchart TD or LR)',
           step4: 'Select at least one operation for the first-release scope',
           step5: 'Batch name and plan type are required'
         },
         finishSuccess: 'Roadmap generated and activated',
-        finishFailed: 'Failed to generate the roadmap'
+        finishGenerateFailed: 'Failed to generate the roadmap: {detail}',
+        finishActivateFailed: 'Failed to activate the roadmap: {detail}'
       }
     },
     placeholder: 'This view is under construction'

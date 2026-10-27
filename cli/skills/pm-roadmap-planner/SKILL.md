@@ -1,6 +1,6 @@
 ---
 name: pm-roadmap-planner
-description: Use when planning, incrementally updating, or replanning a product roadmap in the WeKnora PM workstation — guides the user through 5 steps (project cognition, three-level feature inventory, business flows, first-batch scope, confirm) and emits roadmap Markdown plus optional structured feature data.
+description: Use when planning, incrementally updating, or replanning a product roadmap in the WeKnora PM workstation — guides the user through 5 steps (project cognition, feature list in the feature-list four-column format, business flows, first-batch scope, confirm) and emits roadmap Markdown plus optional structured feature data.
 metadata:
   tested_against: v0.10
 ---
@@ -47,20 +47,25 @@ metadata:
 {"cognition": {"target_users": "", "core_value": "", "scenarios": "", "background": ""}}
 ```
 
-### Step 2 三级功能清单
+### Step 2 功能清单（feature-list 四列规范）
 
-- 严格按「模块 → 功能点 → 操作项」三级生成，功能点需带一句功能描述。
-- 每模块至少 1 个功能点，每功能点至少 1 个操作项。
+- **先确认子系统**：开始拆解前必须向用户确认本次规划覆盖哪些子系统（如 PC端 / 移动端 / 运营端 / 管理后台 / 小程序端 / H5端）。子系统必须由用户当次指定，不得自行假定，也不要从项目配置里套用。
+- 严格按 `feature-list` 技能规范输出四列：**子系统 | 一级模块 | 二级模块 | 功能说明**。
+  - 同一「子系统 + 一级模块」下每行都要重复填写前两列，不合并单元格。
+  - 不同一级模块之间插入一行 `| --- | --- | --- | --- |` 分隔。
+  - 四个字段每行必填；功能说明保留（核心）（复用）（xx可见）等标记。
+- 与结构化字段的映射：子系统 → `subsystem`，一级模块 → `module_name`，二级模块 → `feature_name`，功能说明 → `operation_name`。同一二级模块的多条功能说明各占一条记录。
 - 支持用户勾选采纳、增删节点、调整层级与排序；调整后回显完整清单。
+- 输出前按 `feature-list` 自校验：子系统非空、四列齐全、层级关系正确、无跨模块串行。
 - 产出 JSON 片段：
 
 ```json
-{"features": [
-  {"module_name": "需求管理", "feature_name": "需求录入", "operation_name": "新建需求", "source": "roadmap", "status": "planned"}
+{"subsystem": "PC端", "features": [
+  {"subsystem": "PC端", "module_name": "需求管理", "feature_name": "需求录入", "operation_name": "新建需求（核心）", "source": "roadmap", "status": "planned"}
 ]}
 ```
 
-> `source` 固定 `roadmap`，`status` 固定 `planned`。同一功能点的多个操作项各占一条记录。
+> `source` 固定 `roadmap`，`status` 固定 `planned`。行级 `subsystem` 为空时调用方会用批次级 `subsystem` 兜底；子系统仅随草稿流转，不写入功能清单表。
 
 ### Step 3 业务流程
 
@@ -74,9 +79,9 @@ metadata:
 
 ### Step 4 首期范围
 
-- 在三级清单上让用户勾选本批次落地项，并标注优先级。
+- 在功能清单上让用户勾选本批次落地项，并标注优先级。
 - 未勾选项视为「后续规划」，不做删除。
-- 产出：`scope` 数组，元素为 `模块/功能点/操作项` 三级路径。
+- 产出：`scope` 数组，元素为 `一级模块/二级模块/功能说明` 三级路径（不含子系统，与功能清单表的三级自然键保持一致）。
 
 ### Step 5 确认生成
 
@@ -93,9 +98,10 @@ metadata:
 ```json
 {
   "cognition": {"target_users": "", "core_value": "", "scenarios": "", "background": ""},
-  "features": [{"module_name": "", "feature_name": "", "operation_name": "", "source": "roadmap", "status": "planned"}],
+  "subsystem": "",
+  "features": [{"subsystem": "", "module_name": "", "feature_name": "", "operation_name": "", "source": "roadmap", "status": "planned"}],
   "flows": [{"module": "", "mermaid": ""}],
-  "scope": ["模块/功能点/操作项"]
+  "scope": ["一级模块/二级模块/功能说明"]
 }
 ```
 
@@ -113,12 +119,15 @@ metadata:
 - 本次规划背景：
 
 ## 首期范围
-- 模块/功能点/操作项
+- 一级模块/二级模块/功能说明
 
 ## 功能清单
-### {模块}
-- {功能点}：{功能描述}
-  - {操作项}
+| 子系统 | 一级模块 | 二级模块 | 功能说明 |
+| --- | --- | --- | --- |
+| PC端 | 需求管理 | 需求录入 | 新建需求（核心） |
+| PC端 | 需求管理 | 需求录入 | 编辑需求 |
+| --- | --- | --- | --- |
+| PC端 | 需求评审 | 评审发起 | 发起评审 |
 
 ## 核心业务流程
 ### {模块}

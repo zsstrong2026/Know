@@ -190,6 +190,10 @@ func (s *pmRoadmapService) SaveDraft(
 	if len(draft) == 0 || !json.Valid(draft) {
 		return ErrRoadmapDraftInvalid
 	}
+	// 结构校验前移到保存阶段：脏草稿当场暴露，而不是等到「完成规划」才整批失败
+	if _, err := parseRoadmapDraft(draft); err != nil {
+		return err
+	}
 	b, err := s.deps.BatchRepo.GetByID(ctx, tenantID, batchID)
 	if err != nil {
 		return err
@@ -377,13 +381,14 @@ const roadmapGuideInstructions = `你是产品经理的「功能规划」协作�
 ## 产出物
 你会随对话逐步整理四类产出物，用户可在右侧预览页签中实时查看：
 1. 产品认知：目标用户、核心价值、关键场景、规划背景
-2. 功能结构图：按「模块 / 功能点 / 操作项」三级拆解
-3. 核心流程图：为关键模块给出 Mermaid flowchart
+2. 功能清单：按「子系统 / 一级模块 / 二级模块 / 功能说明」四列拆解，遵循 feature-list 技能规范
+3. 核心流程图：为关键一级模块给出 Mermaid flowchart
 4. 首期范围：从功能清单中勾选本次上线范围
 最后在「整体规划」中汇总确认，生成路线图文档。
 
 ## 交互要求
 - 没有固定步骤，由你判断当前最缺哪类产出物，直接推进；用户随时可以补充任意部分
+- 开始拆解功能清单前，先确认本次规划覆盖哪些子系统（如 PC端、移动端、运营端、管理后台、小程序端），必须由用户当次指定，不要自行假定
 - 先给结论，再给理由；需要补充信息时一次最多问 3 个问题，并附上你的推测答案
 - 使用简体中文纯文本回答，可用短标题与列表，不要输出整段长篇
 
@@ -393,12 +398,30 @@ const roadmapGuideInstructions = `你是产品经理的「功能规划」协作�
   核心价值：…
   关键场景：…
   规划背景：…
-- 功能结构用 Markdown 表格输出，表头固定：
-  | 模块 | 功能点 | 操作项 |
-- 核心流程用 Mermaid 代码块输出，并在代码块上方一行写模块名作为标题：
-  ### 模块名
+- 子系统用单独一行输出（多个用顿号分隔）：
+  子系统：PC端
+- 功能清单用 Markdown 表格输出，表头固定为四列：
+  | 子系统 | 一级模块 | 二级模块 | 功能说明 |
+  | --- | --- | --- | --- |
+  填写规则：
+  - 每行四列都要填写完整，不使用空白单元格或合并单元格
+  - 同一「子系统 + 一级模块」的每一行都重复填写这两列的值
+  - 不同一级模块之间插入一行分隔：| --- | --- | --- | --- |
+  - 二级模块是该一级模块下的具体功能项；功能说明写清功能内容，并原样保留（核心）（复用）（xx可见）等关键标记
+  - 一级模块对应草稿的「模块」、二级模块对应「功能点」、功能说明对应「操作项」
+- 核心流程用 Mermaid 代码块输出，并在代码块上方一行写一级模块名作为标题：
+  ### 一级模块名
   随后紧跟一个以 mermaid 为语言标记的代码块，首行必须是 flowchart TD 或 LR
-- 每次回复只输出本轮新增或修正的内容，不要重复已确认的产出物`
+- 每次回复只输出本轮新增或修正的内容，不要重复已确认的产出物
+
+## 输出前自校验（功能清单必须通过后再输出）
+- 模块归属：每个二级模块确实属于其一级模块
+- 拆解粒度：不过粗（一条覆盖整个模块），不过细（拆到字段级）
+- 关键标记：需求沟通中确认的（核心）（复用）（xx可见）等标记无遗漏
+- 独立可理解：不出现「同上」「参考上一条」等依赖上下文的描述
+- 同级去重：同一一级模块下无重复或高度重叠的功能项
+- 覆盖度：讨论过的功能点与异常/边界功能均已入表`
+
 
 // buildRoadmapGuideContext 生成引导上下文：项目信息 + 批次信息 + 已填草稿快照
 func buildRoadmapGuideContext(project *types.PMProject, b *types.PMPlanBatch) string {
@@ -428,15 +451,23 @@ func buildRoadmapGuideContext(project *types.PMProject, b *types.PMPlanBatch) st
 	if len(draft.Features) == 0 {
 		sb.WriteString("- 功能清单：暂无\n")
 	} else {
+		if subsystem := strings.TrimSpace(draft.Subsystem); subsystem != "" {
+			sb.WriteString("- 子系统：" + subsystem + "\n")
+		}
 		sb.WriteString(fmt.Sprintf("- 功能清单（共 %d 项，下列为前 40 项）：\n", len(draft.Features)))
 		for i, f := range draft.Features {
 			if i >= 40 {
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  - %s / %s / %s\n",
+			subsystem := strings.TrimSpace(f.Subsystem)
+			line := fmt.Sprintf("%s / %s / %s",
 				strings.TrimSpace(f.ModuleName),
 				strings.TrimSpace(f.FeatureName),
-				strings.TrimSpace(f.OperationName)))
+				strings.TrimSpace(f.OperationName))
+			if subsystem != "" {
+				line = subsystem + " / " + line
+			}
+			sb.WriteString("  - " + line + "\n")
 		}
 	}
 	if len(draft.Flows) > 0 {
@@ -503,18 +534,76 @@ func (s *pmRoadmapService) existingFeatures(
 	return draft.Features, nil
 }
 
+// pmRoadmapDraftFeature 草稿功能项：只声明业务字段。
+// 前端草稿尚未落库，会把 created_at/updated_at 写成空字符串；若直接反序列化到
+// types.PMFeature（time.Time）会报「parsing time "" as ...」而整批失败。
+// 生成阶段的时间由仓储重新赋值，因此草稿侧丢弃时间字段即可。
+type pmRoadmapDraftFeature struct {
+	ID            string `json:"id"`
+	ProjectID     string `json:"project_id"`
+	RequirementID string `json:"requirement_id"`
+	ParentID      string `json:"parent_id"`
+	Subsystem     string `json:"subsystem"`
+	ModuleName    string `json:"module_name"`
+	FeatureName   string `json:"feature_name"`
+	OperationName string `json:"operation_name"`
+	Source        string `json:"source"`
+	Status        string `json:"status"`
+}
+
+func (f pmRoadmapDraftFeature) toFeature() types.PMFeature {
+	return types.PMFeature{
+		ID:            f.ID,
+		ProjectID:     f.ProjectID,
+		RequirementID: f.RequirementID,
+		ParentID:      f.ParentID,
+		Subsystem:     f.Subsystem,
+		ModuleName:    f.ModuleName,
+		FeatureName:   f.FeatureName,
+		OperationName: f.OperationName,
+		Source:        f.Source,
+		Status:        f.Status,
+	}
+}
+
+// pmRoadmapDraftDTO 草稿的宽容形态：未知字段（含前端的时间字符串）直接忽略
+type pmRoadmapDraftDTO struct {
+	Cognition *types.PMRoadmapCognition `json:"cognition"`
+	// Subsystem 批次级子系统：行级未填写时统一回填，兼容前端只填一处的情况
+	Subsystem string                 `json:"subsystem"`
+	Features  []pmRoadmapDraftFeature `json:"features"`
+	Flows     []types.PMRoadmapFlow   `json:"flows"`
+	Scope     []string                `json:"scope"`
+}
+
 func parseRoadmapDraft(raw types.JSON) (*types.PMRoadmapDraft, error) {
 	if len(raw) == 0 {
 		return nil, ErrRoadmapDraftEmpty
 	}
-	var draft types.PMRoadmapDraft
-	if err := json.Unmarshal(raw, &draft); err != nil {
+	var dto pmRoadmapDraftDTO
+	if err := json.Unmarshal(raw, &dto); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrRoadmapDraftInvalid, err)
 	}
-	return &draft, nil
+	subsystem := strings.TrimSpace(dto.Subsystem)
+	draft := &types.PMRoadmapDraft{
+		Cognition: dto.Cognition,
+		Subsystem: subsystem,
+		Flows:     dto.Flows,
+		Scope:     dto.Scope,
+		Features:  make([]types.PMFeature, 0, len(dto.Features)),
+	}
+	for _, f := range dto.Features {
+		feat := f.toFeature()
+		// 行级子系统为空时用批次默认值兜底，形成统一的四列视图
+		if strings.TrimSpace(feat.Subsystem) == "" {
+			feat.Subsystem = subsystem
+		}
+		draft.Features = append(draft.Features, feat)
+	}
+	return draft, nil
 }
 
-// renderRoadmapMarkdown 渲染路线图文档：项目认知、首期范围、三级功能清单、业务流程图
+// renderRoadmapMarkdown 渲染路线图文档：项目认知、首期范围、功能清单（feature-list 四列）、业务流程图
 func renderRoadmapMarkdown(
 	project *types.PMProject, draft *types.PMRoadmapDraft, features []types.PMFeature,
 ) string {
@@ -541,12 +630,8 @@ func renderRoadmapMarkdown(
 	}
 	sb.WriteString("\n")
 
-	sb.WriteString("## 三级功能清单\n\n")
-	sb.WriteString("| 模块 | 功能点 | 操作项 |\n|---|---|---|\n")
-	for _, f := range features {
-		fmt.Fprintf(&sb, "| %s | %s | %s |\n",
-			tableCell(f.ModuleName), tableCell(f.FeatureName), tableCell(f.OperationName))
-	}
+	sb.WriteString("## 功能清单\n\n")
+	writeFeatureListTable(&sb, draft.Subsystem, features)
 	sb.WriteString("\n")
 
 	sb.WriteString("## 核心业务流程\n\n")
@@ -567,6 +652,31 @@ func renderRoadmapMarkdown(
 		sb.WriteString("暂未提供合法流程图。\n")
 	}
 	return sb.String()
+}
+
+// writeFeatureListTable 按 feature-list 技能规范输出四列功能清单：
+// 同一「子系统 + 一级模块」的行重复填写两列值（不合并单元格），不同一级模块之间插入分隔行。
+func writeFeatureListTable(sb *strings.Builder, fallbackSubsystem string, features []types.PMFeature) {
+	fallbackSubsystem = strings.TrimSpace(fallbackSubsystem)
+	sb.WriteString("| 子系统 | 一级模块 | 二级模块 | 功能说明 |\n")
+	sb.WriteString("| --- | --- | --- | --- |\n")
+	lastGroup := ""
+	for i, f := range features {
+		subsystem := strings.TrimSpace(f.Subsystem)
+		if subsystem == "" {
+			// 兼容未填写子系统的旧草稿：用批次级子系统兜底
+			subsystem = fallbackSubsystem
+		}
+		module := strings.TrimSpace(f.ModuleName)
+		group := subsystem + "\x1f" + module
+		if i > 0 && group != lastGroup {
+			sb.WriteString("| --- | --- | --- | --- |\n")
+		}
+		lastGroup = group
+		fmt.Fprintf(sb, "| %s | %s | %s | %s |\n",
+			tableCell(subsystem), tableCell(module),
+			tableCell(f.FeatureName), tableCell(f.OperationName))
+	}
 }
 
 func writeKV(sb *strings.Builder, key, value string) {

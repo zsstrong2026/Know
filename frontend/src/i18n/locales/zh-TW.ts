@@ -8812,12 +8812,14 @@ export default {
         stats: {
           features: '{count} 行',
           flows: '{count} 個模組',
-          tree: '{modules} 個模組 · {features} 個功能點 · {operations} 個操作項'
+          tree: '{subsystems} 個子系統 · {modules} 個模組 · {features} 個功能點 · {operations} 個操作項'
         },
         feature: {
-          module: '模組',
-          feature: '功能點',
-          operation: '操作項',
+          subsystem: '子系統',
+          subsystemPlaceholder: '由你指定，如 PC端 / 移動端 / 運營端',
+          module: '一級模組',
+          feature: '二級模組',
+          operation: '功能說明',
           empty: '暫無功能點，可新增一行或在左側對話中描述'
         },
         flow: {
@@ -8861,9 +8863,9 @@ export default {
         inputPlaceholder: '用自然語言描述，按 Enter 傳送',
         inputDisabled: '該步驟不支援對話輸入',
         prompts: {
-          overall: '我是你的產品規劃助手。直接描述產品想法、目標使用者與關鍵場景即可，我會同步整理產品認知、功能結構圖、核心流程圖與首期範圍，最後一起確認整體規劃。也可以貼上「模組/功能點/操作項」清單，或用「模組: 節點1 -> 節點2」描述流程。',
+          overall: '我是你的產品規劃助手。先告訴我本次規劃涵蓋哪些子系統（如 PC端、移動端、運營端），再直接描述產品想法、目標使用者與關鍵場景即可，我會同步整理產品認知、功能結構圖、核心流程圖與首期範圍，最後一起確認整體規劃。也可以貼上「子系統/一級模組/二級模組/功能說明」清單，或用「模組: 節點1 -> 節點2」描述流程。',
           step1: '先補齊「{name}」的產品認知：目標使用者是誰？核心價值是什麼？關鍵場景有哪些？',
-          step2: '目前已梳理 {modules} 個模組、{features} 個功能點。可用「模組/功能點/操作項」逐行描述更多功能。',
+          step2: '目前已梳理 {subsystems} 個子系統、{modules} 個模組、{features} 個功能點。可用「子系統/一級模組/二級模組/功能說明」逐行描述更多功能。',
           step3: '用「模組: 節點1 -> 節點2」逐行描述核心流程，系統會自動產生 Mermaid。',
           step4: '勾選首期範圍，目前已選 {selected}/{total} 個操作項。',
           step5: '內容已就緒。產生後將寫入路線圖文件，並保留本次快照。'
@@ -8871,6 +8873,7 @@ export default {
         acks: {
           cognition: '產品認知已更新',
           features: '已新增 {count} 個功能點',
+          subsystem: '本次子系統已記錄為「{name}」',
           flows: '已產生 {count} 個模組的流程',
           flowAdded: '已新增「{module}」流程',
           scopeAll: '已全選 {count} 個操作項'
@@ -8878,18 +8881,19 @@ export default {
         hints: {
           needModule: '請先描述模組',
           needFeatures: '請先補充功能點再產生流程',
-          featureFormat: '格式：模組/功能點/操作項，每行一筆',
+          featureFormat: '格式：子系統/一級模組/二級模組/功能說明，每行一筆',
           flowFormat: '格式：模組: 節點1 -> 節點2'
         },
         warnings: {
           step1: '請先填寫目標使用者、核心價值與關鍵場景',
-          step2: '請至少新增一個模組/功能點/操作項完整的功能點',
+          step2: '請至少新增一個一級模組/二級模組/功能說明完整的功能點',
           step3: '請至少新增一個合法的 Mermaid 流程（以 flowchart TD 或 LR 開頭）',
           step4: '請至少選擇一個首期範圍內的操作項',
           step5: '批次名稱與規劃類型不能為空'
         },
         finishSuccess: '路線圖已產生並生效',
-        finishFailed: '產生路線圖失敗'
+        finishGenerateFailed: '產生路線圖失敗：{detail}',
+        finishActivateFailed: '路線圖生效失敗：{detail}'
       }
     },
     placeholder: '此檢視正在建置中'

@@ -8810,12 +8810,14 @@ export default {
         stats: {
           features: '{count}행',
           flows: '{count}개 모듈',
-          tree: '모듈 {modules}개 · 기능 {features}개 · 작업 {operations}개'
+          tree: '서브시스템 {subsystems}개 · 모듈 {modules}개 · 기능 {features}개 · 작업 {operations}개'
         },
         feature: {
-          module: '모듈',
-          feature: '기능',
-          operation: '작업',
+          subsystem: '서브시스템',
+          subsystemPlaceholder: '직접 지정하세요. 예: PC端 / 모바일 / 운영',
+          module: '1차 모듈',
+          feature: '2차 모듈',
+          operation: '기능 설명',
           empty: '아직 기능이 없습니다. 행을 추가하거나 대화에서 설명하세요'
         },
         flow: {
@@ -8859,9 +8861,9 @@ export default {
         inputPlaceholder: '자연어로 설명하고 Enter로 전송하세요',
         inputDisabled: '이 단계는 대화 입력을 지원하지 않습니다',
         prompts: {
-          overall: '저는 제품 계획 도우미입니다. 제품 아이디어, 대상 사용자, 핵심 시나리오를 그대로 설명해 주세요. 제품 인식, 기능 구조도, 핵심 흐름도, 첫 출시 범위를 함께 정리하고 마지막에 전체 계획을 확인합니다. "모듈/기능/작업" 목록을 붙여넣거나 "모듈: 노드 1 -> 노드 2" 형식으로 흐름을 설명할 수도 있습니다.',
+          overall: '저는 제품 계획 도우미입니다. 먼저 이번 계획이 어떤 서브시스템을 다루는지(예: PC端, 모바일, 운영) 알려주세요. 그다음 제품 아이디어, 대상 사용자, 핵심 시나리오를 설명해 주세요. 제품 인식, 기능 구조도, 핵심 흐름도, 첫 출시 범위를 함께 정리하고 마지막에 전체 계획을 확인합니다. "서브시스템/1차 모듈/2차 모듈/기능 설명" 목록을 붙여넣거나 "모듈: 노드 1 -> 노드 2" 형식으로 흐름을 설명할 수도 있습니다.',
           step1: '"{name}"의 제품 인식부터 시작하세요. 대상 사용자, 핵심 가치, 가장 중요한 시나리오는 무엇인가요?',
-          step2: '현재 {modules}개 모듈, {features}개 기능입니다. "모듈/기능/작업" 형식으로 한 줄에 하나씩 더 설명하세요.',
+          step2: '현재 서브시스템 {subsystems}개, 모듈 {modules}개, 기능 {features}개입니다. "서브시스템/1차 모듈/2차 모듈/기능 설명" 형식으로 한 줄에 하나씩 더 설명하세요.',
           step3: '"모듈: 노드 1 -> 노드 2" 형식으로 핵심 흐름을 한 줄에 하나씩 설명하세요. Mermaid가 자동 생성됩니다.',
           step4: '첫 출시 범위를 선택하세요. 현재 {selected}/{total}개 작업이 선택되었습니다.',
           step5: '모든 준비가 완료되었습니다. 생성하면 로드맵 문서가 작성되고 이 스냅샷이 유지됩니다.'
@@ -8869,6 +8871,7 @@ export default {
         acks: {
           cognition: '제품 인식이 업데이트되었습니다',
           features: '기능 {count}개를 추가했습니다',
+          subsystem: '이번 서브시스템을 "{name}"(으)로 기록했습니다',
           flows: '모듈 {count}개의 흐름을 생성했습니다',
           flowAdded: '"{module}" 흐름을 추가했습니다',
           scopeAll: '작업 {count}개를 모두 선택했습니다'
@@ -8876,18 +8879,19 @@ export default {
         hints: {
           needModule: '먼저 모듈을 설명하세요',
           needFeatures: '흐름을 생성하기 전에 기능을 추가하세요',
-          featureFormat: '형식: 모듈/기능/작업, 한 줄에 하나씩',
+          featureFormat: '형식: 서브시스템/1차 모듈/2차 모듈/기능 설명, 한 줄에 하나씩',
           flowFormat: '형식: 모듈: 노드 1 -> 노드 2'
         },
         warnings: {
           step1: '먼저 대상 사용자, 핵심 가치, 핵심 시나리오를 입력하세요',
-          step2: '모듈/기능/작업 경로가 완전한 기능을 최소 하나 추가하세요',
+          step2: '1차 모듈/2차 모듈/기능 설명이 모두 채워진 기능을 최소 하나 추가하세요',
           step3: '유효한 Mermaid 흐름을 최소 하나 추가하세요 (flowchart TD 또는 LR로 시작)',
           step4: '첫 출시 범위에 최소 하나의 작업을 선택하세요',
           step5: '배치 이름과 계획 유형은 필수입니다'
         },
         finishSuccess: '로드맵이 생성되고 적용되었습니다',
-        finishFailed: '로드맵 생성에 실패했습니다'
+        finishGenerateFailed: '로드맵 생성에 실패했습니다: {detail}',
+        finishActivateFailed: '로드맵 적용에 실패했습니다: {detail}'
       }
     },
     placeholder: '이 화면은 준비 중입니다'
