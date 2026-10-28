@@ -35,6 +35,18 @@ const (
 	KnowledgeBaseTypeWiki     = "wiki"
 )
 
+// 知识库可见性与系统知识库标识
+const (
+	// KBVisibilityWorkspace 表示工作区可见（默认）
+	KBVisibilityWorkspace = "workspace"
+	// KBVisibilityPrivate 表示仅创建者可见
+	KBVisibilityPrivate = "private"
+	// KBSystemKeyWork 是每位用户「工作知识库」的稳定用途标识
+	KBSystemKeyWork = "work"
+	// KBNameWork 是工作知识库的默认名称
+	KBNameWork = "工作知识库"
+)
+
 // FAQIndexMode represents the FAQ index mode: only index questions or index questions and answers
 type FAQIndexMode string
 
@@ -75,6 +87,14 @@ type KnowledgeBase struct {
 	// Nullable for backward compatibility with rows created before the
 	// RBAC migration backfilled the column to the workspace Owner.
 	CreatorID string `yaml:"creator_id"              json:"creator_id"              gorm:"type:varchar(36);index"`
+	// IsSystem marks rows owned by the product (e.g. the per-user work KB).
+	// System KBs are not deletable through any user-facing path.
+	IsSystem bool `yaml:"is_system"               json:"is_system"               gorm:"column:is_system;not null;default:false"`
+	// SystemKey is stable per purpose; unique per (tenant, creator, key).
+	SystemKey string `yaml:"system_key"              json:"system_key,omitempty"    gorm:"column:system_key;type:varchar(64)"`
+	// Visibility is workspace (default) or private.
+	// Private KBs are visible only to their creator user; never to Admin or API keys.
+	Visibility string `yaml:"visibility"              json:"visibility"              gorm:"column:visibility;type:varchar(16);not null;default:'workspace'"`
 	// Chunking configuration
 	ChunkingConfig ChunkingConfig `yaml:"chunking_config"         json:"chunking_config"         gorm:"type:json"`
 	// Image processing configuration
@@ -768,6 +788,9 @@ func (kb *KnowledgeBase) EnsureDefaults() {
 	if kb.Type == "" {
 		kb.Type = KnowledgeBaseTypeDocument
 	}
+	if kb.Visibility == "" {
+		kb.Visibility = KBVisibilityWorkspace
+	}
 	// Clear type-specific configs that don't belong
 	if kb.Type != KnowledgeBaseTypeFAQ {
 		kb.FAQConfig = nil
@@ -806,6 +829,21 @@ func (kb *KnowledgeBase) EnsureDefaults() {
 	if kb.ExtractConfig != nil && kb.ExtractConfig.Enabled && !kb.IndexingStrategy.GraphEnabled {
 		kb.IndexingStrategy.GraphEnabled = true
 	}
+}
+
+// IsPrivate reports whether the knowledge base is only visible to its creator.
+func (kb *KnowledgeBase) IsPrivate() bool {
+	return kb != nil && kb.Visibility == KBVisibilityPrivate
+}
+
+// IsWorkKB reports whether this is the per-user work knowledge base.
+func (kb *KnowledgeBase) IsWorkKB() bool {
+	return kb != nil && kb.IsSystem && kb.SystemKey == KBSystemKeyWork
+}
+
+// CanBeDeletedByUser is false for every system KB.
+func (kb *KnowledgeBase) CanBeDeletedByUser() bool {
+	return kb != nil && !kb.IsSystem
 }
 
 // KBCapabilities describes the functional features a knowledge base exposes.

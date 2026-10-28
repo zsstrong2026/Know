@@ -15,7 +15,7 @@ import (
 // create to stay in sync with the versioned (PostgreSQL) migrations:
 // 000041 task queue, 000053 system settings, 000055 processing spans,
 // 000063 knowledge multi-tags, 000093 browser authorization, 000103 message
-// artifacts.
+// artifacts, 000136 workbench, 000138 workbench assets.
 var versionedSQLiteTables = []string{
 	"memory_extraction_sessions",
 	"task_pending_ops",
@@ -36,19 +36,33 @@ var versionedSQLiteTables = []string{
 	"tenant_skill_snapshots",
 	"tenant_skill_catalog",
 	"tenant_user_env_vars",
+	"workbench_items",
+	"workbench_item_versions",
+	"workbench_folders",
+	"workbench_item_links",
+	"workbench_archives",
+	"workbench_orphans",
+	"workbench_notices",
+	"workbench_item_assets",
 }
 
 // versionedSQLiteColumns maps each existing table to the columns that the
 // versioned migrations add and the SQLite baseline was missing.
 var versionedSQLiteColumns = map[string][]string{
-	"model_catalog_configs": {"version", "overlay", "history", "updated_by", "updated_at"},        // 000036
-	"memory_subjects":       {"extraction_state"},                                                 // 000094
-	"memory_items":          {"replaces_id"},                                                      // 000094
-	"tenants":               {"api_principal_config"},                                             // 000064
-	"users":                 {"is_system_admin"},                                                  // 000053
-	"knowledges":            {"pending_subtasks_count", "profile"},                                // 000056, 000101
-	"knowledge_bases":       {"profile_config", "generated_profile"},                              // 000101
-	"messages":              {"attachments", "usage", "sandbox_checkpoint", "context_checkpoint"}, // 000034/085/097/105
+	"model_catalog_configs": {"version", "overlay", "history", "updated_by", "updated_at"}, // 000036
+	"memory_subjects":       {"extraction_state"},                                          // 000094
+	"memory_items":          {"replaces_id"},                                               // 000094
+	"tenants":               {"api_principal_config"},                                      // 000064
+	"users":                 {"is_system_admin"},                                           // 000053
+	"knowledges":            {"pending_subtasks_count", "profile"},                         // 000056, 000101
+	"knowledge_bases": { // 000101, 000136
+		"profile_config", "generated_profile",
+		"is_system", "system_key", "visibility",
+	},
+	"doc_generation_tasks": { // 000137
+		"output_kb_id", "auto_archive", "archive_status", "archive_error",
+	},
+	"messages": {"attachments", "usage", "sandbox_checkpoint", "context_checkpoint"}, // 000034/085/097/105
 	"sessions": {
 		"parent_session_id", "forked_from_message_id", "fork_bootstrap", // 000097
 		"sandbox_config_tenant_id", // 000027
@@ -71,7 +85,7 @@ var versionedSQLiteColumns = map[string][]string{
 	}, // 000028
 }
 
-const expectedSQLiteMigrationVersion = 41
+const expectedSQLiteMigrationVersion = 44
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)
