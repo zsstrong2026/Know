@@ -8014,7 +8014,524 @@ export default {
     noSessions: '暂无对话',
     meetings: '会议室',
     docAssistant: '方案助手',
-    pm: 'PM 工作站'
+    pm: 'PM 工作站',
+    workbench: '工作台'
+  },
+  // 工作台：最近 / 数据库 / 收藏 / 回收站 / 条目编辑 / 归档
+  workbench: {
+    nav: {
+      title: '工作台',
+      beta: 'BETA',
+      recent: '最近',
+      databases: '数据库',
+      favorites: '收藏',
+      trash: '回收站',
+      folders: '文件夹',
+      newFolder: '新建文件夹',
+      journals: 'Journals'
+    },
+    new: {
+      label: '新建',
+      document: '新建文档',
+      canvas: '新建画布',
+      canvasHint: '白板、便签与自由排版',
+      database: '新建数据库',
+      databaseHint: '表格、看板与日历视图',
+      folder: '新建文件夹',
+      folderHint: '在工作台内整理条目'
+    },
+    list: {
+      searchPlaceholder: '搜索标题…',
+      total: '共 {count} 个条目',
+      loadedAll: '已加载全部',
+      sortRecent: '最近更新',
+      newCanvas: '新建画布',
+      newDatabase: '新建数据库',
+      cards: '卡片视图',
+      list: '列表视图',
+      emptyTitle: '还没有内容',
+      emptyHint: '新建画布或数据库，内容只保存在你自己的空间里。',
+      emptySearchTitle: '没有找到匹配的内容',
+      emptySearchHint: '试试更短的关键词，或清空搜索。',
+      emptyTrashTitle: '回收站是空的',
+      emptyTrashHint: '删除的条目会在这里保留 30 天。',
+      clearSearch: '清空搜索',
+      loadMore: '加载更多',
+      loadFailed: '工作台加载失败，请刷新重试'
+    },
+    item: {
+      untitled: '未命名',
+      open: '打开',
+      rename: '重命名',
+      move: '移动到文件夹',
+      pin: '钉到某天',
+      favorite: '收藏',
+      unfavorite: '取消收藏',
+      delete: '删除（进回收站）',
+      restore: '恢复',
+      purge: '永久删除',
+      deleteArchives: '同时删除已归档的知识',
+      renaming: '重命名',
+      renameFailed: '重命名失败',
+      deleteFailed: '删除失败',
+      restoreFailed: '恢复失败',
+      favoriteFailed: '更新收藏失败',
+      more: '更多操作'
+    },
+    archive: {
+      status: {
+        none: '未归档',
+        processing: '知识库处理中',
+        active: '已归档',
+        stale: '归档已过期',
+        partial: '部分归档失败',
+        source_deleted: '来源已删除',
+        deleted: '归档已删除'
+      },
+      action: {
+        create: '归档',
+        update: '更新归档',
+        retry: '重试',
+        recreate: '重新归档',
+        progress: '查看进度'
+      },
+      deleting: '正在删除归档…',
+      deleteTitle: '删除归档',
+      deleteBody: '删除后工作知识库中的快照会一并移除，源内容保留。',
+      deleteConfirm: '删除归档'
+    },
+    batchArchive: {
+      barLabel: '批量归档',
+      selected: '已选 {count} 项',
+      actionable: '可归档 {count} 项',
+      skipped: '将跳过 {count} 项',
+      selectAll: '全选可归档',
+      archiveSelected: '归档所选',
+      cancel: '取消',
+      selectMode: '选择',
+      exitSelect: '退出选择',
+      title: '归档 {count} 项到工作知识库',
+      counts: '首次归档 {create} · 更新归档 {update} · 重试失败 {retry} · 重新归档 {recreate} · 跳过 {skip}',
+      target: '我的工作知识库（仅自己可见）',
+      note: '逐项处理，失败的条目不影响其他条目；成功后立即进入知识库解析/切分/索引，期间显示「知识库处理中」。',
+      dropped: '本次只处理前 20 项，其余 {count} 项请分批归档。',
+      nothingToDo: '所选条目都已是可用的最新归档，无需处理。',
+      running: '正在归档…',
+      start: '开始归档',
+      close: '关闭',
+      progress: '已处理 {done} / {total}',
+      summary: '成功 {archived} · 失败 {failed} · 跳过 {skipped}',
+      noRollback: '已成功归档的条目不会回滚；失败项可单独重试。',
+      retryFailed: '重试失败项',
+      status: {
+        archived: '已归档',
+        failed: '失败',
+        skipped: '已跳过'
+      },
+      reason: {
+        conflict: '源内容已更新，请重试',
+        too_large: '内容过大，无法归档',
+        quota: '工作知识库配额不足',
+        forbidden: '无权归档该条目',
+        network: '网络超时，请重试',
+        not_ready: '草稿尚未暂存',
+        changed: '归档基线已变化',
+        up_to_date: '已是最新归档'
+      }
+    },
+    editor: {
+      back: '返回工作台',
+      loading: '正在加载画布…',
+      loadFailed: '画布加载失败',
+      notFound: '条目不存在或已被删除',
+      saveIdle: '已保存',
+      savePending: '待保存',
+      saveSaving: '正在保存…',
+      saveSaved: '已保存',
+      saveError: '保存失败',
+      untitled: '未命名',
+      addIcon: '添加图标',
+      addIconHint: '输入一个 emoji 作为条目标图（留空可清除）',
+      docInfo: {
+        updated: '更新于 {time}',
+        words: '{count} 字',
+        private: '仅自己可见'
+      }
+    },
+    version: {
+      title: '版本历史',
+      empty: '还没有历史版本',
+      restore: '恢复此版本',
+      current: '当前版本',
+      restored: '已恢复到该版本',
+      restoreFailed: '恢复失败，请重试',
+      conflict: '内容已被其他标签页修改，请先重载再恢复'
+    },
+    journals: {
+      back: '返回工作台',
+      dateNav: 'Journal 日期导航',
+      prevWeek: '向前七天',
+      nextWeek: '向后七天',
+      today: '今天',
+      weekday: {
+        sun: '周日',
+        mon: '周一',
+        tue: '周二',
+        wed: '周三',
+        thu: '周四',
+        fri: '周五',
+        sat: '周六'
+      },
+      monthGrid: 'Journals 月历',
+      panelTitle: 'Journals 月历',
+      prevMonth: '上个月',
+      nextMonth: '下个月',
+      monthLabel: '{year} 年 {month} 月',
+      dateLabel: '{month} 月 {day} 日',
+      itemCount: '{count} 篇 Journal',
+      monthCount: '本月 {count} 条',
+      dayCount: '选中日 {count} 条',
+      selectedDay: '{date} · {count} 条',
+      truncated: '已加载 {count} 条',
+      legendTitle: '归档状态图例',
+      togglePanel: '收起或展开 Journals 月历',
+      emptyDay: '这天还没有 Journal。',
+      emptyTitle: '这天还没有 Journal',
+      emptyHint: '不用提前建好每一天，有想记录的内容时再开始。',
+      pickOne: '这天有 {count} 条 Journal',
+      pickHint: '从右侧列表选择一条，查看它的文档和无限画布。',
+      new: '新建 Journal',
+      newHint: '当前选中日创建 · 文档 / 画布共用内容',
+      retry: '重试',
+      modeSwitch: '形态切换',
+      mode: {
+        page: '文档',
+        edgeless: '无限画布'
+      },
+      flushFailed: '草稿尚未暂存，已留在原日期',
+      createFailed: '新建 Journal 失败',
+      moveFailed: '改期失败，已恢复原日期'
+    },
+    notice: {
+      gotIt: '知道了',
+      readAll: '全部已读',
+      counts: '{items} 个画布/数据库、{docs} 个章节文档、{knowledge} 条知识',
+      removed: '已退出该 workspace，{counts}将保留 30 天。',
+      removedWithDeadline: '已退出该 workspace，{counts}将保留至 {deadline}。',
+      restored: '已重新加入 workspace，{counts}已恢复。',
+      cleanup: '{counts}将在 7 天后永久删除，重新加入可恢复。',
+      archiveFailed: '自动归档失败，可打开文档手动归档。'
+    },
+    leave: {
+      title: '退出 workspace',
+      confirm: '退出 workspace',
+      cancel: '取消',
+      counts: '将失去访问：{kb} 个工作知识库、{knowledge} 条知识、{items} 个画布/数据库、{docs} 个章节文档',
+      retention: '数据保留 {days} 天；{days} 天内重新加入本 workspace 可恢复，超过 {days} 天永久删除。',
+      noTransfer: '不会转交给管理员或其他成员。',
+      fallback: '退出后将失去对当前 workspace 私有工作数据的访问，30 天内重新加入可恢复。',
+      exportLabel: '可选导出入口：',
+      exportDocs: '章节文档',
+      exportOptional: '导出不是必须的步骤，可以先退出。'
+    },
+    docs: {
+      title: '章节文档',
+      subtitle: '工作知识库的产物；归档后才进入知识库检索。',
+      entry: '章节文档 · {count}',
+      backToKb: '回到工作知识库',
+      generate: '生成新文档',
+      open: '打开',
+      loadFailed: '章节文档加载失败',
+      noVersion: '该任务还没有生成完成的文档',
+      emptyTitle: '工作知识库里还没有章节文档',
+      emptyHint: '生成一份文档后，它会出现在这里并可以归档到知识库。',
+      columns: {
+        title: '标题 / 主题',
+        status: '生成状态',
+        updatedAt: '更新时间',
+        archive: '归档状态',
+        op: '操作'
+      },
+      status: {
+        pending: '等待中',
+        running: '生成中',
+        success: '已完成',
+        partial_success: '部分完成',
+        failed: '生成失败',
+        cancelled: '已取消'
+      }
+    },
+    pageAi: {
+      menuLabel: 'Page AI 动作',
+      group: {
+        review: '审阅文本',
+        edit: '编辑文本',
+        generate: '从文本生成',
+        draft: '起草文本',
+        other: '其他'
+      },
+      action: {
+        spelling: '修正拼写',
+        grammar: '修正语法',
+        explain: '解释选中',
+        translate: '翻译为 · {value}',
+        tone: '更改语气为 · {value}',
+        polish: '改进写作',
+        expand: '扩写',
+        shorten: '缩写',
+        continue: '续写',
+        summarize: '总结',
+        headings: '生成标题',
+        outline: '生成大纲',
+        extractActions: '提炼行动项',
+        brainstorm: '头脑风暴想法',
+        article: '撰写文章',
+        tweet: '撰写推文',
+        poem: '撰写诗歌',
+        blog: '撰写博客',
+        chat: '在 AI 对话中继续'
+      },
+      submenu: {
+        translate: '翻译为',
+        tone: '更改语气为'
+      },
+      bar: {
+        ai: 'AI',
+        more: '更多',
+        ask: '问 AI',
+        selected: '已选中 {count} 字'
+      },
+      preview: {
+        title: '结果预览',
+        meta: '基于选中文本',
+        replace: '替换选中',
+        insertBelow: '插入下方',
+        copy: '复制',
+        retry: '重新生成',
+        cancel: '取消',
+        copyDone: '已复制',
+        explainOnly: '解释类结果只展示，不会写入文档'
+      },
+      state: {
+        generating: '正在生成…',
+        directWrite: '已按设置直接写入',
+        applied: '已写入，可撤销',
+        selectionChanged: '选区已变化，请重新生成',
+        blockMissing: '目标内容已不存在，已关闭预览',
+        itemChanged: '条目已切换，已丢弃预览',
+        tooLong: '选区超过 8000 字，请分段处理',
+        noModel: '未配置可用模型，请先到模型管理中添加',
+        streamBroken: '生成中断，已保留部分结果，可重新生成',
+        disabled: '工作台 AI 已停用',
+        disabledHint: '启用后可在这里提问、整理 Page 内容，并把结果确认后插入当前条目。',
+        goSettings: '打开工作台 AI 设置',
+        needSelection: '先选中文本',
+        codeBlockHint: '代码块内只支持「解释选中」'
+      },
+      slash: {
+        title: '命令 · 输入 / 快速插入',
+        foot: '命令只填入输入框，不会自动发送',
+        summarize: '总结本页',
+        summarizeHint: '提炼 3–5 条要点',
+        outline: '生成大纲',
+        outlineHint: '按标题层级整理本页',
+        extractActions: '提炼行动项',
+        extractActionsHint: '提取负责人与截止时间',
+        translate: '翻译本页',
+        translateHint: '翻译当前页面或选中段落',
+        explain: '解释选中',
+        explainHint: '解释含义、结构与使用场景',
+        askKb: '查找工作知识库',
+        askKbHint: '只查你有权限的内容',
+        targetLang: '目标语言：{lang}',
+        insertToPage: '插入到 Page',
+        empty: '没有匹配的命令'
+      },
+      panel: {
+        title: '工作台 AI',
+        context: '本页 · {count} 字',
+        close: '关闭 AI 面板',
+        placeholder: '继续问，或输入 / 使用命令…',
+        send: '发送',
+        disclaimer: 'AI 只读取你有权限的内容 · 不会自动写入知识库',
+        pageTooLong: '当前页超过 8000 字，请先选中要处理的段落',
+        askFailed: '问答失败，请稍后重试'
+      }
+    },
+    settings: {
+      title: '工作台设置',
+      subtitle: '以下都是你的个人偏好，只保存在这台设备上。',
+      open: '打开工作台设置',
+      storageNote: '偏好仅存于本机浏览器；清除浏览器数据会恢复默认，不影响已有文档与归档。',
+      resetEditor: '恢复默认（编辑器）',
+      resetAI: '恢复默认（工作台 AI）',
+      resetDone: '已恢复默认',
+      tab: {
+        editor: '编辑器',
+        ai: '工作台 AI'
+      },
+      editor: {
+        text: '字体与页面',
+        create: '新建条目',
+        canvas: '无限画布',
+        note: '新建笔记样式',
+        fontFamily: '字体',
+        fontSize: '字号',
+        pageWidth: '页面宽度',
+        showDocInfo: '显示文档信息',
+        codeLineNumbers: '代码块显示行号',
+        defaultCreateMode: '新建条目形态',
+        createModeHint: '只影响之后新建的普通条目；Journals 始终以文档形态新建。',
+        autoNameWithDate: '用当前日期自动命名',
+        autoNameHint: '标题留空时用本机日期命名；不会创建 Journal，也不会进入 Journals 月历。',
+        showAddIcon: '显示「添加图标」入口',
+        canvasScheme: '画布配色',
+        scrollZoom: '滚轮直接缩放',
+        scrollZoomHint: '关闭时滚轮平移、Ctrl/⌘ + 滚轮缩放；触控板捏合始终缩放。',
+        noteBackground: '笔记底色',
+        noteRadius: '笔记圆角',
+        noteShadow: '笔记阴影',
+        noteBorderStyle: '笔记边框',
+        noteBorderWidth: '边框厚度',
+        borderWidthDisabled: '无边框时厚度不生效，但会保留上次的数值。'
+      },
+      fontFamily: {
+        default: '默认',
+        serif: '衬线',
+        mono: '等宽'
+      },
+      pageWidth: {
+        standard: '标准',
+        wide: '全宽'
+      },
+      createMode: {
+        page: '页面',
+        edgeless: '无限画布'
+      },
+      canvasScheme: {
+        app: '由当前应用指定',
+        plain: '纯白无网格',
+        contrast: '高对比网格'
+      },
+      noteBackground: {
+        white: '白色',
+        cream: '米白',
+        transparent: '透明'
+      },
+      noteRadius: {
+        none: '无',
+        sm: '小 4px',
+        md: '中 8px',
+        lg: '大 12px'
+      },
+      noteShadow: {
+        none: '无',
+        box: '盒状',
+        soft: '柔和'
+      },
+      noteBorderStyle: {
+        solid: '实线',
+        dashed: '虚线',
+        none: '无边框'
+      },
+      ai: {
+        general: '工作台 AI',
+        agent: '默认智能体',
+        enabled: '启用工作台 AI',
+        enabledHint: '关闭后隐藏侧栏、Page 内联与画布 AI 入口；不影响编辑、归档与已提交的任务。',
+        citations: '回答显示来源引用',
+        confirmInsert: '写入前先预览确认',
+        confirmInsertHint: '关闭后直接写入，但仍可通过一次撤销回退。',
+        builtin: '内置',
+        mine: '我创建',
+        notReady: '模型不可用，请先去配置模型',
+        noAgents: '暂无可用的智能体',
+        manageAgents: '管理智能体',
+        dataScope: '数据范围：当前条目 + 你的私有工作知识库；管理员与成员不可见。',
+        fallback: '原选智能体已不可用，已切换到第一个可用项',
+        loadFailed: '智能体列表加载失败'
+      }
+    },
+    templates: {
+      title: '选择模板',
+      subtitle: '从模板开始，或创建空白文档',
+      close: '关闭模板选择',
+      searchPlaceholder: '搜索模板…',
+      use: '使用',
+      useTemplate: '使用模板',
+      applying: '正在套用…',
+      loadFailed: '模板加载失败',
+      retry: '重试',
+      noResult: '没有找到模板',
+      clearSearch: '清除搜索',
+      applyFailed: '模板无法套用，请从空白文档开始',
+      targetNotEmpty: '文档已有内容，模板未套用',
+      entryClosed: '文档已有内容，模板入口已关闭',
+      applied: '已套用「{name}」模板',
+      startBlank: '从空白文档开始',
+      footNote: '模板保存在本机工作台，仅自己可见',
+      escHint: 'Esc 关闭',
+      mineEmpty: '还没有自己的模板',
+      mineEmptyHint: '打开任意文档，在 ⋯ 中选择「另存为模板」',
+      mineLoadFailed: '我的模板加载失败',
+      tab: {
+        recommended: '推荐',
+        work: '工作',
+        record: '记录',
+        writing: '写作',
+        mine: '我的模板'
+      },
+      save: {
+        entry: '另存为模板',
+        title: '另存为模板',
+        name: '名称',
+        namePlaceholder: '给模板起个名字',
+        description: '描述（可选）',
+        descriptionPlaceholder: '说明这个模板适合什么场景',
+        assetHint: '图片和附件不会复制；之后修改文档不会影响这个模板。',
+        quota: '已保存 {left} / {total}',
+        quotaFull: '已达上限',
+        confirm: '保存',
+        cancel: '取消',
+        saved: '已保存到我的模板',
+        failed: '保存模板失败',
+        flushFailed: '文档尚未保存完成，请稍后重试'
+      },
+      builtin: {
+        'meeting-notes': {
+          name: '会议纪要',
+          description: '会议信息、议题、结论与行动项'
+        },
+        'project-brief': {
+          name: '项目简报',
+          description: '背景、目标、范围、里程碑与风险'
+        },
+        'weekly-plan': {
+          name: '周计划',
+          description: '本周目标、每日安排、优先级与复盘'
+        },
+        okr: {
+          name: 'OKR',
+          description: '目标、三个关键结果与信心指数'
+        },
+        'weekly-report': {
+          name: '周报',
+          description: '本周完成、数据、问题与下周计划'
+        },
+        'interview-notes': {
+          name: '访谈记录',
+          description: '受访者、问题、洞察与跟进'
+        },
+        'reading-notes': {
+          name: '阅读笔记',
+          description: '书目、核心观点、摘录与思考'
+        },
+        'article-draft': {
+          name: '文章草稿',
+          description: '导语、大纲、正文与发布检查'
+        }
+      }
+    }
   },
   // PM 工作站：项目 / 规划 / 需求 / 版本 / 功能清单
   pm: {

@@ -1,0 +1,335 @@
+<template>
+  <!-- 条目卡片：封面用 CSS 表达 kind，不加载真实缩略图（P3 再做预览图） -->
+  <article
+    class="item-card"
+    :class="{ 'is-trashed': trashed }"
+    :data-item-id="item.id"
+    tabindex="0"
+    @click="emit('open', item)"
+    @keydown.enter.prevent="emit('open', item)"
+  >
+    <div class="card-cover" :class="`cover-${item.kind}`">
+      <span class="card-kind">
+        <t-icon :name="item.kind === 'database' ? 'table' : 'image'" size="11px" />
+        {{ item.kind === 'database' ? $t('workbench.nav.databases') : 'canvas' }}
+      </span>
+      <button
+        class="card-star"
+        :class="{ 'is-on': item.is_favorite }"
+        type="button"
+        :aria-label="
+          $t(item.is_favorite ? 'workbench.item.unfavorite' : 'workbench.item.favorite')
+        "
+        :aria-pressed="item.is_favorite"
+        @click.stop="emit('favorite', item)"
+      >
+        <t-icon name="star" size="14px" />
+      </button>
+    </div>
+
+    <div class="card-body">
+      <div class="card-title" :title="item.title">{{ item.title }}</div>
+      <div class="card-desc">{{ describe }}</div>
+
+      <div class="card-archive">
+        <ArchiveBadge
+          :status="item.archive_status"
+          :archived-version="item.archived_version"
+          :readonly="trashed"
+          @action="emit('archive', item, $event)"
+        />
+      </div>
+
+      <div class="card-foot">
+        <span>{{ updatedLabel }}</span>
+        <span class="ft-dot" aria-hidden="true">·</span>
+        <span>v{{ item.snapshot_version }}</span>
+        <span class="spacer" />
+        <t-dropdown
+          :options="menuOptions"
+          trigger="click"
+          placement="bottom-right"
+          attach="body"
+          @click="onMenu($event)"
+        >
+          <button class="card-more" type="button" :aria-label="$t('workbench.item.open')" @click.stop>
+            <t-icon name="ellipsis" size="14px" />
+          </button>
+        </t-dropdown>
+      </div>
+    </div>
+  </article>
+</template>
+
+<script setup lang="ts">
+/**
+ * 工作台条目卡片。
+ *
+ * 交互全部上抛给列表页（open / favorite / archive / menu），
+ * 卡片本身不请求接口，保证在列表里可以大量复用而不产生 N+1 请求。
+ */
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import ArchiveBadge from './ArchiveBadge.vue'
+import type { ArchiveBadgeAction } from '@/workbench/archive-status'
+import type { WorkbenchItem } from '@/types/workbench'
+
+const props = withDefaults(
+  defineProps<{
+    item: WorkbenchItem
+    /** 回收站里的条目只提供恢复/永久删除，不提供归档操作 */
+    trashed?: boolean
+  }>(),
+  { trashed: false },
+)
+
+const emit = defineEmits<{
+  open: [item: WorkbenchItem]
+  favorite: [item: WorkbenchItem]
+  archive: [item: WorkbenchItem, action: ArchiveBadgeAction]
+  rename: [item: WorkbenchItem]
+  move: [item: WorkbenchItem]
+  pin: [item: WorkbenchItem]
+  trashItem: [item: WorkbenchItem]
+  deleteArchives: [item: WorkbenchItem]
+  restore: [item: WorkbenchItem]
+  purge: [item: WorkbenchItem]
+}>()
+
+const { t } = useI18n()
+
+const describe = computed(() => {
+  const mode = props.item.current_mode ?? 'edgeless'
+  const parts = [props.item.kind === 'database' ? 'database' : 'canvas', mode]
+  if (props.item.journal_date) parts.push(props.item.journal_date)
+  return parts.join(' · ')
+})
+
+const updatedLabel = computed(() => formatRelative(props.item.updated_at))
+
+/** 相对时间：7 天内用“x 分钟/小时/天前”，更早显示日期。 */
+function formatRelative(raw: string): string {
+  const time = new Date(raw).getTime()
+  if (!Number.isFinite(time)) return ''
+  const diff = Date.now() - time
+  const minute = 60_000
+  const hour = 60 * minute
+  const day = 24 * hour
+  if (diff < minute) return '刚刚'
+  if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`
+  if (diff < day) return `${Math.floor(diff / hour)} 小时前`
+  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`
+  return new Date(time).toLocaleDateString()
+}
+
+const menuOptions = computed(() => {
+  if (props.trashed) {
+    return [
+      { content: t('workbench.item.restore'), value: 'restore' },
+      { content: t('workbench.item.purge'), value: 'purge' },
+    ]
+  }
+  return [
+    { content: t('workbench.item.open'), value: 'open' },
+    { content: t('workbench.item.rename'), value: 'rename' },
+    { content: t('workbench.item.move'), value: 'move' },
+    // 只有画布能钉到日历（Journals 只含 canvas）。
+    ...(props.item.kind === 'canvas'
+      ? [{ content: t('workbench.item.pin'), value: 'pin' }]
+      : []),
+    { content: t('workbench.archive.action.update'), value: 'archive' },
+    { content: t('workbench.archive.deleteTitle'), value: 'deleteArchives' },
+    { content: t('workbench.item.delete'), value: 'trash' },
+  ]
+})
+
+function onMenu(data: { value?: string | number }) {
+  const value = String(data.value ?? '')
+  switch (value) {
+    case 'open':
+      emit('open', props.item)
+      break
+    case 'rename':
+      emit('rename', props.item)
+      break
+    case 'move':
+      emit('move', props.item)
+      break
+    case 'pin':
+      emit('pin', props.item)
+      break
+    case 'archive':
+      emit('archive', props.item, 'update')
+      break
+    case 'deleteArchives':
+      emit('deleteArchives', props.item)
+      break
+    case 'trash':
+      emit('trashItem', props.item)
+      break
+    case 'restore':
+      emit('restore', props.item)
+      break
+    case 'purge':
+      emit('purge', props.item)
+      break
+    default:
+      break
+  }
+}
+</script>
+
+<style lang="less" scoped>
+.item-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-lg);
+  background: var(--td-bg-color-container);
+  overflow: hidden;
+  cursor: pointer;
+  transition:
+    border-color var(--app-motion-fast),
+    box-shadow var(--app-motion-fast);
+
+  &:hover {
+    border-color: var(--td-brand-color-3);
+    box-shadow: var(--td-shadow-1);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--td-brand-color);
+    outline-offset: 1px;
+  }
+}
+
+.card-cover {
+  position: relative;
+  height: 116px;
+  flex: none;
+  border-bottom: 1px solid var(--td-component-stroke);
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.cover-canvas {
+  background-image:
+    linear-gradient(var(--td-component-stroke) 1px, transparent 1px),
+    linear-gradient(90deg, var(--td-component-stroke) 1px, transparent 1px);
+  background-size: 16px 16px;
+  background-color: var(--td-bg-color-secondarycontainer);
+}
+
+.cover-database {
+  background-image:
+    linear-gradient(var(--td-component-stroke) 1px, transparent 1px),
+    linear-gradient(90deg, var(--td-component-stroke) 1px, transparent 1px);
+  background-size: 100% 20px, 64px 100%;
+  background-color: var(--td-bg-color-secondarycontainer);
+}
+
+.card-kind {
+  position: absolute;
+  left: var(--app-space-2);
+  top: var(--app-space-2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-1);
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--app-radius-xs);
+  background: var(--td-bg-color-container);
+  border: 1px solid var(--td-component-stroke);
+  font-size: var(--app-text-2xs);
+  color: var(--td-text-color-secondary);
+}
+
+.card-star {
+  position: absolute;
+  right: var(--app-space-2);
+  top: var(--app-space-2);
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--app-radius-xs);
+  background: var(--td-bg-color-container);
+  border: 1px solid var(--td-component-stroke);
+  color: var(--td-text-color-placeholder);
+  opacity: 0;
+  transition: opacity var(--app-motion-fast);
+
+  &.is-on {
+    opacity: 1;
+    color: var(--td-warning-color);
+  }
+}
+
+.item-card:hover .card-star {
+  opacity: 1;
+}
+
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  padding: var(--app-space-2) var(--app-space-3) var(--app-space-3);
+}
+
+.card-title {
+  font-size: var(--app-text-md);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--td-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-desc {
+  font-size: var(--app-text-xs);
+  color: var(--td-text-color-placeholder);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-archive {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  min-height: 20px;
+}
+
+.card-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-1);
+  margin-top: auto;
+  font-size: var(--app-text-2xs);
+  color: var(--td-text-color-placeholder);
+}
+
+.ft-dot {
+  opacity: 0.6;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.card-more {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--app-radius-xs);
+  color: var(--td-text-color-placeholder);
+
+  &:hover {
+    background: var(--td-bg-color-container-hover);
+    color: var(--td-text-color-primary);
+  }
+}
+</style>

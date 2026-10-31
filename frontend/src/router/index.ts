@@ -316,6 +316,91 @@ const router = createRouter({
           redirect: { path: "/platform/settings", query: { section: "runtime-queues" } },
           meta: { requiresInit: true, requiresAuth: true, requiresSystemAdmin: true },
         },
+        {
+          // 工作台：左侧工作台二级导航 + 右侧内容区；BlockSuite 只随 workbenchItem 异步加载。
+          path: "workbench",
+          component: () => import("../views/workbench/WorkbenchLayout.vue"),
+          meta: { requiresInit: true, requiresAuth: true },
+          children: [
+            {
+              path: "",
+              redirect: "/platform/workbench/recent",
+            },
+            {
+              path: "recent",
+              name: "workbenchRecent",
+              component: () => import("../views/workbench/WorkbenchList.vue"),
+              props: { scope: "recent" },
+              meta: { requiresInit: true, requiresAuth: true },
+            },
+            {
+              path: "journals",
+              name: "workbenchJournals",
+              component: () => import("../views/workbench/JournalsView.vue"),
+              meta: { requiresInit: true, requiresAuth: true },
+            },
+            {
+              // Journals 选中某天：日期只走 YYYY-MM-DD，不做时区换算
+              path: "journals/:date",
+              name: "workbenchJournalDay",
+              component: () => import("../views/workbench/JournalsView.vue"),
+              props: (route: RouteLocationNormalized) => ({ date: String(route.params.date || "") }),
+              meta: { requiresInit: true, requiresAuth: true },
+            },
+            {
+              // 章节文档：入口在工作知识库详情页，不挂二级导航（§9.9）
+              path: "docs",
+              name: "workbenchDocs",
+              component: () => import("../views/workbench/WorkbenchDocs.vue"),
+              meta: { requiresInit: true, requiresAuth: true },
+            },
+            {
+              path: "databases",
+              name: "workbenchDatabases",
+              component: () => import("../views/workbench/WorkbenchList.vue"),
+              props: { scope: "database" },
+              meta: { requiresInit: true, requiresAuth: true },
+            },
+            {
+              path: "favorites",
+              name: "workbenchFavorites",
+              component: () => import("../views/workbench/WorkbenchList.vue"),
+              props: { scope: "favorites" },
+              meta: { requiresInit: true, requiresAuth: true },
+            },
+            {
+              path: "trash",
+              name: "workbenchTrash",
+              component: () => import("../views/workbench/WorkbenchList.vue"),
+              props: { scope: "trash" },
+              meta: { requiresInit: true, requiresAuth: true },
+            },
+            {
+              path: "folders/:folderId",
+              name: "workbenchFolder",
+              component: () => import("../views/workbench/WorkbenchList.vue"),
+              props: (route: RouteLocationNormalized) => ({
+                scope: "folder",
+                folderId: String(route.params.folderId || ""),
+              }),
+              meta: { requiresInit: true, requiresAuth: true },
+            },
+            {
+              // 编辑页：唯一会加载 BlockSuite 的路由
+              path: "items/:itemId",
+              name: "workbenchItem",
+              component: () => import("../views/workbench/WorkbenchItemView.vue"),
+              meta: { requiresInit: true, requiresAuth: true },
+            },
+            {
+              // 工作台设置：个人偏好（编辑器 15 项 + 工作台 AI 4 项）；?tab=editor|ai
+              path: "settings",
+              name: "workbenchSettings",
+              component: () => import("../views/workbench/WorkbenchSettings.vue"),
+              meta: { requiresInit: true, requiresAuth: true },
+            },
+          ],
+        },
       ],
     },
     // Dev-only markdown rendering test page

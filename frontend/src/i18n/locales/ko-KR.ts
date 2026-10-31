@@ -8012,7 +8012,524 @@ export default {
     noSessions: '대화가 없습니다',
     meetings: '회의실',
     docAssistant: '솔루션 도우미',
-    pm: 'PM 워크스테이션'
+    pm: 'PM 워크스테이션',
+    workbench: '워크벤치'
+  },
+  // 워크벤치: 최근 / 데이터베이스 / 즐겨찾기 / 휴지통 / 항목 편집 / 아카이브
+  workbench: {
+    nav: {
+      title: '워크벤치',
+      beta: 'BETA',
+      recent: '최근',
+      databases: '데이터베이스',
+      favorites: '즐겨찾기',
+      trash: '휴지통',
+      folders: '폴더',
+      newFolder: '새 폴더',
+      journals: 'Journals'
+    },
+    new: {
+      label: '새로 만들기',
+      document: '새 문서',
+      canvas: '새 캔버스',
+      canvasHint: '화이트보드, 스티커 메모, 자유 배치',
+      database: '새 데이터베이스',
+      databaseHint: '테이블, 보드, 캘린더 보기',
+      folder: '새 폴더',
+      folderHint: '워크벤치 안에서 항목 정리'
+    },
+    list: {
+      searchPlaceholder: '제목으로 검색…',
+      total: '항목 {count}개',
+      loadedAll: '모두 불러옴',
+      sortRecent: '최근 업데이트순',
+      newCanvas: '새 캔버스',
+      newDatabase: '새 데이터베이스',
+      cards: '카드 보기',
+      list: '목록 보기',
+      emptyTitle: '아직 내용이 없습니다',
+      emptyHint: '캔버스나 데이터베이스를 만들어 보세요. 내용은 내 공간에만 저장됩니다.',
+      emptySearchTitle: '일치하는 항목이 없습니다',
+      emptySearchHint: '더 짧은 키워드를 입력하거나 검색을 지우세요.',
+      emptyTrashTitle: '휴지통이 비어 있습니다',
+      emptyTrashHint: '삭제한 항목은 30일 동안 여기에 보관됩니다.',
+      clearSearch: '검색 지우기',
+      loadMore: '더 불러오기',
+      loadFailed: '워크벤치를 불러오지 못했습니다. 새로고침해 주세요'
+    },
+    item: {
+      untitled: '제목 없음',
+      open: '열기',
+      rename: '이름 바꾸기',
+      move: '폴더로 이동',
+      pin: '특정 날짜에 고정',
+      favorite: '즐겨찾기 추가',
+      unfavorite: '즐겨찾기 해제',
+      delete: '삭제(휴지통으로)',
+      restore: '복원',
+      purge: '영구 삭제',
+      deleteArchives: '아카이브된 지식도 함께 삭제',
+      renaming: '이름 바꾸기',
+      renameFailed: '이름을 바꾸지 못했습니다',
+      deleteFailed: '삭제하지 못했습니다',
+      restoreFailed: '복원하지 못했습니다',
+      favoriteFailed: '즐겨찾기를 갱신하지 못했습니다',
+      more: '추가 작업'
+    },
+    archive: {
+      status: {
+        none: '아카이브 안 됨',
+        processing: '지식베이스 처리 중',
+        active: '아카이브됨',
+        stale: '아카이브가 오래됨',
+        partial: '일부만 아카이브됨',
+        source_deleted: '원본이 삭제됨',
+        deleted: '아카이브 삭제됨'
+      },
+      action: {
+        create: '아카이브',
+        update: '아카이브 갱신',
+        retry: '다시 시도',
+        recreate: '다시 아카이브',
+        progress: '진행 보기'
+      },
+      deleting: '아카이브를 삭제하는 중…',
+      deleteTitle: '아카이브 삭제',
+      deleteBody: '지식베이스의 스냅샷이 함께 삭제됩니다. 원본 내용은 유지됩니다.',
+      deleteConfirm: '아카이브 삭제'
+    },
+    batchArchive: {
+      barLabel: '일괄 아카이브',
+      selected: '{count}개 선택됨',
+      actionable: '{count}개 아카이브 가능',
+      skipped: '{count}개 건너뜀',
+      selectAll: '가능한 항목 모두 선택',
+      archiveSelected: '선택 항목 아카이브',
+      cancel: '취소',
+      selectMode: '선택',
+      exitSelect: '선택 종료',
+      title: '업무 지식베이스에 {count}개 아카이브',
+      counts: '최초 {create} · 갱신 {update} · 재시도 {retry} · 재아카이브 {recreate} · 건너뜀 {skip}',
+      target: '내 업무 지식베이스(나만 볼 수 있음)',
+      note: '항목을 하나씩 처리하며, 실패해도 다른 항목에 영향을 주지 않습니다. 성공한 항목은 즉시 파싱·분할·색인 단계로 들어가며 그동안 "처리 중"으로 표시됩니다.',
+      dropped: '이번에는 앞의 20개만 처리합니다. 나머지 {count}개는 나눠서 아카이브해 주세요.',
+      nothingToDo: '선택한 항목이 모두 최신 아카이브입니다.',
+      running: '아카이브 중…',
+      start: '아카이브 시작',
+      close: '닫기',
+      progress: '{done} / {total} 처리됨',
+      summary: '성공 {archived} · 실패 {failed} · 건너뜀 {skipped}',
+      noRollback: '성공한 항목은 되돌리지 않으며, 실패 항목만 따로 재시도할 수 있습니다.',
+      retryFailed: '실패 항목 재시도',
+      status: {
+        archived: '아카이브됨',
+        failed: '실패',
+        skipped: '건너뜀'
+      },
+      reason: {
+        conflict: '원본이 변경되었습니다. 다시 시도해 주세요',
+        too_large: '내용이 너무 커서 아카이브할 수 없습니다',
+        quota: '업무 지식베이스 할당량이 부족합니다',
+        forbidden: '이 항목을 아카이브할 권한이 없습니다',
+        network: '네트워크 시간 초과입니다. 다시 시도해 주세요',
+        not_ready: '초안이 아직 저장되지 않았습니다',
+        changed: '아카이브 기준이 변경되었습니다',
+        up_to_date: '이미 최신 상태입니다'
+      }
+    },
+    editor: {
+      back: '워크벤치로 돌아가기',
+      loading: '캔버스를 불러오는 중…',
+      loadFailed: '캔버스를 불러오지 못했습니다',
+      notFound: '항목이 없거나 이미 삭제되었습니다',
+      saveIdle: '저장됨',
+      savePending: '저장 대기',
+      saveSaving: '저장 중…',
+      saveSaved: '저장됨',
+      saveError: '저장 실패',
+      untitled: '제목 없음',
+      addIcon: '아이콘 추가',
+      addIconHint: '이모지를 입력해 항목 아이콘으로 사용합니다(비우면 삭제)',
+      docInfo: {
+        updated: '{time} 업데이트',
+        words: '{count}자',
+        private: '나만 볼 수 있음'
+      }
+    },
+    version: {
+      title: '버전 기록',
+      empty: '아직 버전이 없습니다',
+      restore: '이 버전으로 복원',
+      current: '현재 버전',
+      restored: '해당 버전으로 복원했습니다',
+      restoreFailed: '복원하지 못했습니다. 다시 시도해 주세요',
+      conflict: '다른 탭에서 내용이 변경되었습니다. 새로고침 후 복원해 주세요'
+    },
+    journals: {
+      back: '워크벤치로 돌아가기',
+      dateNav: 'Journal 날짜 탐색',
+      prevWeek: '7일 전으로',
+      nextWeek: '7일 후로',
+      today: '오늘',
+      weekday: {
+        sun: '일',
+        mon: '월',
+        tue: '화',
+        wed: '수',
+        thu: '목',
+        fri: '금',
+        sat: '토'
+      },
+      monthGrid: 'Journals 달력',
+      panelTitle: 'Journals 달력',
+      prevMonth: '이전 달',
+      nextMonth: '다음 달',
+      monthLabel: '{year}년 {month}월',
+      dateLabel: '{month}월 {day}일',
+      itemCount: 'Journal {count}개',
+      monthCount: '이번 달 {count}개',
+      dayCount: '선택한 날 {count}개',
+      selectedDay: '{date} · {count}개',
+      truncated: '{count}개 불러옴',
+      legendTitle: '보관 상태 범례',
+      togglePanel: 'Journals 달력 표시 전환',
+      emptyDay: '이 날에는 아직 Journal이 없습니다.',
+      emptyTitle: '이 날에는 아직 Journal이 없습니다',
+      emptyHint: '매일 미리 만들 필요는 없습니다. 기록할 내용이 생기면 시작하세요.',
+      pickOne: '이 날 Journal {count}개',
+      pickHint: '오른쪽 목록에서 하나를 선택하면 문서와 캔버스를 볼 수 있습니다.',
+      new: 'Journal 만들기',
+      newHint: '선택한 날짜에 생성 · 문서와 캔버스가 같은 내용을 공유',
+      retry: '다시 시도',
+      modeSwitch: '보기 모드',
+      mode: {
+        page: '문서',
+        edgeless: '무한 캔버스'
+      },
+      flushFailed: '초안이 임시 저장되지 않아 원래 날짜에 머뭅니다',
+      createFailed: 'Journal 생성에 실패했습니다',
+      moveFailed: '날짜 변경에 실패하여 원래 날짜로 되돌렸습니다'
+    },
+    notice: {
+      gotIt: '확인',
+      readAll: '모두 읽음',
+      counts: '캔버스/데이터베이스 {items}개, 문서 {docs}개, 지식 {knowledge}개',
+      removed: '이 워크스페이스에서 나갔습니다. {counts}은(는) 30일간 보관됩니다.',
+      removedWithDeadline: '이 워크스페이스에서 나갔습니다. {counts}은(는) {deadline}까지 보관됩니다.',
+      restored: '워크스페이스에 다시 참여했습니다. {counts}을(를) 복원했습니다.',
+      cleanup: '{counts}이(가) 7일 후 영구 삭제됩니다. 다시 참여하면 복원됩니다.',
+      archiveFailed: '자동 보관에 실패했습니다. 문서를 열어 직접 보관하세요.'
+    },
+    leave: {
+      title: '워크스페이스 나가기',
+      confirm: '나가기',
+      cancel: '취소',
+      counts: '접근 권한을 잃습니다: 업무 지식베이스 {kb}개, 지식 {knowledge}개, 캔버스/데이터베이스 {items}개, 문서 {docs}개',
+      retention: '데이터는 {days}일간 보관됩니다. {days}일 이내에 다시 참여하면 복원되며, 이후에는 영구 삭제됩니다.',
+      noTransfer: '관리자나 다른 멤버에게 이전되지 않습니다.',
+      fallback: '나가면 현재 워크스페이스의 비공개 업무 데이터에 접근할 수 없습니다. 30일 이내 재참여 시 복원됩니다.',
+      exportLabel: '선택 내보내기:',
+      exportDocs: '문서',
+      exportOptional: '내보내기는 필수가 아니며 바로 나갈 수 있습니다.'
+    },
+    docs: {
+      title: '챕터 문서',
+      subtitle: '업무 지식베이스의 산출물입니다. 보관 후에 검색에 포함됩니다.',
+      entry: '챕터 문서 · {count}',
+      backToKb: '업무 지식베이스로 돌아가기',
+      generate: '문서 생성',
+      open: '열기',
+      loadFailed: '챕터 문서를 불러오지 못했습니다',
+      noVersion: '이 작업에는 아직 완료된 문서가 없습니다',
+      emptyTitle: '업무 지식베이스에 챕터 문서가 없습니다',
+      emptyHint: '문서를 생성하면 여기에 표시되고 지식베이스에 보관할 수 있습니다.',
+      columns: {
+        title: '제목 / 주제',
+        status: '상태',
+        updatedAt: '업데이트',
+        archive: '보관',
+        op: '작업'
+      },
+      status: {
+        pending: '대기 중',
+        running: '생성 중',
+        success: '완료',
+        partial_success: '부분 완료',
+        failed: '실패',
+        cancelled: '취소됨'
+      }
+    },
+    pageAi: {
+      menuLabel: 'Page AI 작업',
+      group: {
+        review: '텍스트 검토',
+        edit: '텍스트 편집',
+        generate: '텍스트에서 생성',
+        draft: '텍스트 초안',
+        other: '기타'
+      },
+      action: {
+        spelling: '맞춤법 수정',
+        grammar: '문법 수정',
+        explain: '선택 내용 설명',
+        translate: '번역 · {value}',
+        tone: '어조 변경 · {value}',
+        polish: '글 다듬기',
+        expand: '확장',
+        shorten: '축약',
+        continue: '이어 쓰기',
+        summarize: '요약',
+        headings: '제목 제안',
+        outline: '개요 생성',
+        extractActions: '할 일 추출',
+        brainstorm: '아이디어 브레인스토밍',
+        article: '글 작성',
+        tweet: '짧은 글 작성',
+        poem: '시 작성',
+        blog: '블로그 서두 작성',
+        chat: 'AI 대화에서 계속'
+      },
+      submenu: {
+        translate: '번역',
+        tone: '어조 변경'
+      },
+      bar: {
+        ai: 'AI',
+        more: '더보기',
+        ask: 'AI에게 묻기',
+        selected: '{count}자 선택됨'
+      },
+      preview: {
+        title: '결과 미리보기',
+        meta: '선택한 텍스트 기준',
+        replace: '선택 내용 바꾸기',
+        insertBelow: '아래에 삽입',
+        copy: '복사',
+        retry: '다시 생성',
+        cancel: '취소',
+        copyDone: '복사됨',
+        explainOnly: '설명 결과는 표시만 되고 문서에 기록되지 않습니다'
+      },
+      state: {
+        generating: '생성 중…',
+        directWrite: '설정에 따라 바로 기록했습니다',
+        applied: '기록되었습니다 · 실행 취소 가능',
+        selectionChanged: '선택 영역이 바뀌었습니다. 다시 생성해 주세요.',
+        blockMissing: '대상 텍스트가 사라져 미리보기를 닫았습니다',
+        itemChanged: '항목이 바뀌어 미리보기를 버렸습니다',
+        tooLong: '선택 영역이 8000자를 넘습니다. 나눠서 처리해 주세요.',
+        noModel: '사용 가능한 모델이 없습니다. 모델 관리에서 먼저 추가해 주세요.',
+        streamBroken: '생성이 중단되었습니다. 일부 결과를 보관했으며 다시 생성할 수 있습니다.',
+        disabled: '워크벤치 AI가 꺼져 있습니다',
+        disabledHint: '켜면 여기서 질문하고 이 페이지를 정리한 뒤 결과를 확인해 삽입할 수 있습니다.',
+        goSettings: '워크벤치 AI 설정 열기',
+        needSelection: '먼저 텍스트를 선택해 주세요',
+        codeBlockHint: '코드 블록에서는 "선택 내용 설명"만 사용할 수 있습니다'
+      },
+      slash: {
+        title: '명령 · / 를 입력해 빠르게 삽입',
+        foot: '명령은 입력창만 채우며 자동 전송되지 않습니다',
+        summarize: '이 페이지 요약',
+        summarizeHint: '핵심 3–5개 추출',
+        outline: '개요 생성',
+        outlineHint: '제목 수준으로 이 페이지 정리',
+        extractActions: '할 일 추출',
+        extractActionsHint: '담당자와 마감일 추출',
+        translate: '이 페이지 번역',
+        translateHint: '현재 페이지 또는 선택 영역 번역',
+        explain: '선택 내용 설명',
+        explainHint: '의미, 구조, 사용 상황 설명',
+        askKb: '업무 지식베이스 검색',
+        askKbHint: '권한이 있는 내용만 검색합니다',
+        targetLang: '대상 언어: {lang}',
+        insertToPage: 'Page에 삽입',
+        empty: '일치하는 명령이 없습니다'
+      },
+      panel: {
+        title: '워크벤치 AI',
+        context: '이 페이지 · {count}자',
+        close: 'AI 패널 닫기',
+        placeholder: '계속 질문하거나 / 로 명령을 사용하세요…',
+        send: '보내기',
+        disclaimer: 'AI는 권한이 있는 내용만 읽습니다 · 지식베이스에 자동으로 기록하지 않습니다',
+        pageTooLong: '현재 페이지가 8000자를 넘습니다. 처리할 부분을 먼저 선택해 주세요.',
+        askFailed: '질문에 실패했습니다. 잠시 후 다시 시도해 주세요.'
+      }
+    },
+    settings: {
+      title: '워크벤치 설정',
+      subtitle: '아래 설정은 개인 환경설정이며 이 기기에만 저장됩니다.',
+      open: '워크벤치 설정 열기',
+      storageNote: '환경설정은 이 브라우저에만 저장됩니다. 브라우저 데이터를 지우면 기본값으로 돌아가며, 기존 문서와 아카이브에는 영향이 없습니다.',
+      resetEditor: '기본값으로 복원(편집기)',
+      resetAI: '기본값으로 복원(워크벤치 AI)',
+      resetDone: '기본값으로 복원했습니다',
+      tab: {
+        editor: '편집기',
+        ai: '워크벤치 AI'
+      },
+      editor: {
+        text: '글꼴과 페이지',
+        create: '새 항목',
+        canvas: '무한 캔버스',
+        note: '새 노트 스타일',
+        fontFamily: '글꼴',
+        fontSize: '글자 크기',
+        pageWidth: '페이지 너비',
+        showDocInfo: '문서 정보 표시',
+        codeLineNumbers: '코드 블록에 줄 번호 표시',
+        defaultCreateMode: '새 항목 형태',
+        createModeHint: '이후에 만드는 일반 항목에만 적용됩니다. Journals는 항상 문서 형태로 생성됩니다.',
+        autoNameWithDate: '현재 날짜로 자동 이름 지정',
+        autoNameHint: '제목이 비어 있으면 이 기기의 날짜로 이름을 짓습니다. Journal을 만들지 않으며 Journals 달력에도 나타나지 않습니다.',
+        showAddIcon: '"아이콘 추가" 항목 표시',
+        canvasScheme: '캔버스 색상',
+        scrollZoom: '휠로 바로 확대/축소',
+        scrollZoomHint: '끄면 휠은 이동, Ctrl/⌘ + 휠은 확대/축소입니다. 트랙패드 핀치는 항상 확대/축소됩니다.',
+        noteBackground: '노트 배경',
+        noteRadius: '노트 모서리',
+        noteShadow: '노트 그림자',
+        noteBorderStyle: '노트 테두리',
+        noteBorderWidth: '테두리 두께',
+        borderWidthDisabled: '테두리가 없으면 두께는 적용되지 않지만 마지막 값은 유지됩니다.'
+      },
+      fontFamily: {
+        default: '기본',
+        serif: '세리프',
+        mono: '고정폭'
+      },
+      pageWidth: {
+        standard: '표준',
+        wide: '전체 너비'
+      },
+      createMode: {
+        page: '페이지',
+        edgeless: '무한 캔버스'
+      },
+      canvasScheme: {
+        app: '현재 앱 따르기',
+        plain: '흰 바탕, 격자 없음',
+        contrast: '고대비 격자'
+      },
+      noteBackground: {
+        white: '흰색',
+        cream: '미색',
+        transparent: '투명'
+      },
+      noteRadius: {
+        none: '없음',
+        sm: '작게 4px',
+        md: '중간 8px',
+        lg: '크게 12px'
+      },
+      noteShadow: {
+        none: '없음',
+        box: '박스',
+        soft: '부드럽게'
+      },
+      noteBorderStyle: {
+        solid: '실선',
+        dashed: '점선',
+        none: '테두리 없음'
+      },
+      ai: {
+        general: '워크벤치 AI',
+        agent: '기본 에이전트',
+        enabled: '워크벤치 AI 사용',
+        enabledHint: '끄면 사이드바, 페이지 내 AI, 캔버스 AI 진입점이 숨겨집니다. 편집, 아카이브, 이미 제출한 작업에는 영향이 없습니다.',
+        citations: '답변에 출처 표시',
+        confirmInsert: '쓰기 전에 미리보기',
+        confirmInsertHint: '끄면 바로 쓰지만 한 번의 실행 취소로 되돌릴 수 있습니다.',
+        builtin: '내장',
+        mine: '내가 만든 것',
+        notReady: '모델을 사용할 수 없습니다. 먼저 모델을 설정하세요',
+        noAgents: '사용 가능한 에이전트가 없습니다',
+        manageAgents: '에이전트 관리',
+        dataScope: '데이터 범위: 현재 항목과 내 비공개 업무 지식베이스. 관리자와 구성원은 볼 수 없습니다.',
+        fallback: '선택한 에이전트를 사용할 수 없어 첫 번째 사용 가능한 항목으로 전환했습니다',
+        loadFailed: '에이전트 목록을 불러오지 못했습니다'
+      }
+    },
+    templates: {
+      title: '템플릿 선택',
+      subtitle: '템플릿으로 시작하거나 빈 문서를 만드세요',
+      close: '템플릿 선택 닫기',
+      searchPlaceholder: '템플릿 검색…',
+      use: '사용',
+      useTemplate: '템플릿 사용',
+      applying: '적용 중…',
+      loadFailed: '템플릿을 불러오지 못했습니다',
+      retry: '다시 시도',
+      noResult: '템플릿을 찾을 수 없습니다',
+      clearSearch: '검색 지우기',
+      applyFailed: '이 템플릿은 적용할 수 없습니다. 빈 문서로 시작하세요.',
+      targetNotEmpty: '문서에 이미 내용이 있어 템플릿이 적용되지 않았습니다',
+      entryClosed: '문서에 이미 내용이 있어 템플릿 진입점을 닫았습니다',
+      applied: '“{name}” 템플릿을 적용했습니다',
+      startBlank: '빈 문서로 시작',
+      footNote: '템플릿은 이 기기의 워크벤치에 저장되며 나만 볼 수 있습니다',
+      escHint: 'Esc로 닫기',
+      mineEmpty: '아직 내 템플릿이 없습니다',
+      mineEmptyHint: '아무 문서를 열고 ⋯ 에서 “템플릿으로 저장”을 선택하세요',
+      mineLoadFailed: '내 템플릿을 불러오지 못했습니다',
+      tab: {
+        recommended: '추천',
+        work: '업무',
+        record: '기록',
+        writing: '글쓰기',
+        mine: '내 템플릿'
+      },
+      save: {
+        entry: '템플릿으로 저장',
+        title: '템플릿으로 저장',
+        name: '이름',
+        namePlaceholder: '템플릿 이름을 입력하세요',
+        description: '설명(선택)',
+        descriptionPlaceholder: '이 템플릿의 용도를 적어 주세요',
+        assetHint: '이미지와 첨부 파일은 복사되지 않으며, 이후 문서를 수정해도 이 템플릿에는 영향이 없습니다.',
+        quota: '{left} / {total} 저장됨',
+        quotaFull: '한도에 도달했습니다',
+        confirm: '저장',
+        cancel: '취소',
+        saved: '내 템플릿에 저장했습니다',
+        failed: '템플릿 저장에 실패했습니다',
+        flushFailed: '문서 저장이 끝나지 않았습니다. 잠시 후 다시 시도하세요.'
+      },
+      builtin: {
+        'meeting-notes': {
+          name: '회의록',
+          description: '회의 정보, 안건, 결론, 액션 아이템'
+        },
+        'project-brief': {
+          name: '프로젝트 브리프',
+          description: '배경, 목표, 범위, 마일스톤, 리스크'
+        },
+        'weekly-plan': {
+          name: '주간 계획',
+          description: '이번 주 목표, 요일별 계획, 우선순위, 회고'
+        },
+        okr: {
+          name: 'OKR',
+          description: '목표와 세 가지 핵심 결과, 확신도'
+        },
+        'weekly-report': {
+          name: '주간 보고서',
+          description: '완료한 일, 지표, 이슈, 다음 주 계획'
+        },
+        'interview-notes': {
+          name: '인터뷰 노트',
+          description: '인터뷰 대상, 질문, 인사이트, 후속 조치'
+        },
+        'reading-notes': {
+          name: '독서 노트',
+          description: '서지, 핵심 주장, 인용, 나의 생각'
+        },
+        'article-draft': {
+          name: '글 초안',
+          description: '도입, 개요, 본문, 발행 전 점검'
+        }
+      }
+    }
   },
   // PM 워크스테이션: 프로젝트 / 계획 / 요구사항 / 버전 / 기능 목록
   pm: {

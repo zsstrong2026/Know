@@ -8014,7 +8014,524 @@ export default {
     noSessions: '暫無對話',
     meetings: '會議室',
     docAssistant: '方案助手',
-    pm: 'PM 工作站'
+    pm: 'PM 工作站',
+    workbench: '工作台'
+  },
+  // 工作台：最近 / 資料庫 / 收藏 / 回收站 / 條目編輯 / 歸檔
+  workbench: {
+    nav: {
+      title: '工作台',
+      beta: 'BETA',
+      recent: '最近',
+      databases: '資料庫',
+      favorites: '收藏',
+      trash: '回收站',
+      folders: '資料夾',
+      newFolder: '新增資料夾',
+      journals: 'Journals'
+    },
+    new: {
+      label: '新增',
+      document: '新增文件',
+      canvas: '新增畫布',
+      canvasHint: '白板、便箋與自由排版',
+      database: '新增資料庫',
+      databaseHint: '表格、看板與日曆檢視',
+      folder: '新增資料夾',
+      folderHint: '在工作台內整理條目'
+    },
+    list: {
+      searchPlaceholder: '搜尋標題…',
+      total: '共 {count} 個條目',
+      loadedAll: '已載入全部',
+      sortRecent: '最近更新',
+      newCanvas: '新增畫布',
+      newDatabase: '新增資料庫',
+      cards: '卡片檢視',
+      list: '清單檢視',
+      emptyTitle: '還沒有內容',
+      emptyHint: '新增畫布或資料庫，內容只保存在你自己的空間裡。',
+      emptySearchTitle: '沒有找到符合的內容',
+      emptySearchHint: '試試更短的關鍵字，或清空搜尋。',
+      emptyTrashTitle: '回收站是空的',
+      emptyTrashHint: '刪除的條目會在這裡保留 30 天。',
+      clearSearch: '清空搜尋',
+      loadMore: '載入更多',
+      loadFailed: '工作台載入失敗，請重新整理'
+    },
+    item: {
+      untitled: '未命名',
+      open: '開啟',
+      rename: '重新命名',
+      move: '移動到資料夾',
+      pin: '釘到某天',
+      favorite: '收藏',
+      unfavorite: '取消收藏',
+      delete: '刪除（移至回收站）',
+      restore: '還原',
+      purge: '永久刪除',
+      deleteArchives: '同時刪除已歸檔的知識',
+      renaming: '重新命名',
+      renameFailed: '重新命名失敗',
+      deleteFailed: '刪除失敗',
+      restoreFailed: '還原失敗',
+      favoriteFailed: '更新收藏失敗',
+      more: '更多操作'
+    },
+    archive: {
+      status: {
+        none: '未歸檔',
+        processing: '知識庫處理中',
+        active: '已歸檔',
+        stale: '歸檔已過期',
+        partial: '部分歸檔失敗',
+        source_deleted: '來源已刪除',
+        deleted: '歸檔已刪除'
+      },
+      action: {
+        create: '歸檔',
+        update: '更新歸檔',
+        retry: '重試',
+        recreate: '重新歸檔',
+        progress: '查看進度'
+      },
+      deleting: '正在刪除歸檔…',
+      deleteTitle: '刪除歸檔',
+      deleteBody: '刪除後工作知識庫中的快照會一併移除，來源內容保留。',
+      deleteConfirm: '刪除歸檔'
+    },
+    batchArchive: {
+      barLabel: '批次歸檔',
+      selected: '已選 {count} 項',
+      actionable: '可歸檔 {count} 項',
+      skipped: '將跳過 {count} 項',
+      selectAll: '全選可歸檔',
+      archiveSelected: '歸檔所選',
+      cancel: '取消',
+      selectMode: '選擇',
+      exitSelect: '退出選擇',
+      title: '歸檔 {count} 項到工作知識庫',
+      counts: '首次歸檔 {create} · 更新歸檔 {update} · 重試失敗 {retry} · 重新歸檔 {recreate} · 跳過 {skip}',
+      target: '我的工作知識庫（僅自己可見）',
+      note: '逐項處理，失敗的項目不影響其他項目；成功後立即進入知識庫解析/切分/索引，期間顯示「知識庫處理中」。',
+      dropped: '本次只處理前 20 項，其餘 {count} 項請分批歸檔。',
+      nothingToDo: '所選項目都已是可用的最新歸檔，無需處理。',
+      running: '正在歸檔…',
+      start: '開始歸檔',
+      close: '關閉',
+      progress: '已處理 {done} / {total}',
+      summary: '成功 {archived} · 失敗 {failed} · 跳過 {skipped}',
+      noRollback: '已成功歸檔的項目不會回滾；失敗項目可單獨重試。',
+      retryFailed: '重試失敗項目',
+      status: {
+        archived: '已歸檔',
+        failed: '失敗',
+        skipped: '已跳過'
+      },
+      reason: {
+        conflict: '來源內容已更新，請重試',
+        too_large: '內容過大，無法歸檔',
+        quota: '工作知識庫配額不足',
+        forbidden: '無權歸檔該項目',
+        network: '網路逾時，請重試',
+        not_ready: '草稿尚未暫存',
+        changed: '歸檔基準已變更',
+        up_to_date: '已是最新歸檔'
+      }
+    },
+    editor: {
+      back: '返回工作台',
+      loading: '正在載入畫布…',
+      loadFailed: '畫布載入失敗',
+      notFound: '條目不存在或已被刪除',
+      saveIdle: '已儲存',
+      savePending: '待儲存',
+      saveSaving: '正在儲存…',
+      saveSaved: '已儲存',
+      saveError: '儲存失敗',
+      untitled: '未命名',
+      addIcon: '新增圖示',
+      addIconHint: '輸入一個 emoji 作為項目圖示（留空可清除）',
+      docInfo: {
+        updated: '更新於 {time}',
+        words: '{count} 字',
+        private: '僅自己可見'
+      }
+    },
+    version: {
+      title: '版本歷史',
+      empty: '還沒有歷史版本',
+      restore: '還原此版本',
+      current: '目前版本',
+      restored: '已還原到該版本',
+      restoreFailed: '還原失敗，請重試',
+      conflict: '內容已被其他分頁修改，請先重新載入再還原'
+    },
+    journals: {
+      back: '返回工作台',
+      dateNav: 'Journal 日期導覽',
+      prevWeek: '往前七天',
+      nextWeek: '往後七天',
+      today: '今天',
+      weekday: {
+        sun: '週日',
+        mon: '週一',
+        tue: '週二',
+        wed: '週三',
+        thu: '週四',
+        fri: '週五',
+        sat: '週六'
+      },
+      monthGrid: 'Journals 月曆',
+      panelTitle: 'Journals 月曆',
+      prevMonth: '上個月',
+      nextMonth: '下個月',
+      monthLabel: '{year} 年 {month} 月',
+      dateLabel: '{month} 月 {day} 日',
+      itemCount: '{count} 篇 Journal',
+      monthCount: '本月 {count} 筆',
+      dayCount: '選中日 {count} 筆',
+      selectedDay: '{date} · {count} 筆',
+      truncated: '已載入 {count} 筆',
+      legendTitle: '歸檔狀態圖例',
+      togglePanel: '收合或展開 Journals 月曆',
+      emptyDay: '這天還沒有 Journal。',
+      emptyTitle: '這天還沒有 Journal',
+      emptyHint: '不必提前建好每一天，有想記錄的內容時再開始。',
+      pickOne: '這天有 {count} 篇 Journal',
+      pickHint: '從右側清單選擇一篇，查看它的文件與無限畫布。',
+      new: '新增 Journal',
+      newHint: '在目前選中日建立 · 文件 / 畫布共用內容',
+      retry: '重試',
+      modeSwitch: '形態切換',
+      mode: {
+        page: '文件',
+        edgeless: '無限畫布'
+      },
+      flushFailed: '草稿尚未暫存，已留在原本日期',
+      createFailed: '新增 Journal 失敗',
+      moveFailed: '改期失敗，已還原原本日期'
+    },
+    notice: {
+      gotIt: '知道了',
+      readAll: '全部已讀',
+      counts: '{items} 個畫布/資料庫、{docs} 個章節文件、{knowledge} 條知識',
+      removed: '已退出該 workspace，{counts}將保留 30 天。',
+      removedWithDeadline: '已退出該 workspace，{counts}將保留至 {deadline}。',
+      restored: '已重新加入 workspace，{counts}已恢復。',
+      cleanup: '{counts}將在 7 天後永久刪除，重新加入可恢復。',
+      archiveFailed: '自動歸檔失敗，可開啟文件手動歸檔。'
+    },
+    leave: {
+      title: '退出 workspace',
+      confirm: '退出 workspace',
+      cancel: '取消',
+      counts: '將失去存取：{kb} 個工作知識庫、{knowledge} 條知識、{items} 個畫布/資料庫、{docs} 個章節文件',
+      retention: '資料保留 {days} 天；{days} 天內重新加入本 workspace 可恢復，超過 {days} 天永久刪除。',
+      noTransfer: '不會轉交給管理員或其他成員。',
+      fallback: '退出後將失去對目前 workspace 私有工作資料的存取，30 天內重新加入可恢復。',
+      exportLabel: '可選匯出入口：',
+      exportDocs: '章節文件',
+      exportOptional: '匯出不是必須的步驟，可以先退出。'
+    },
+    docs: {
+      title: '章節文件',
+      subtitle: '工作知識庫的產物；歸檔後才進入知識庫檢索。',
+      entry: '章節文件 · {count}',
+      backToKb: '回到工作知識庫',
+      generate: '產生新文件',
+      open: '開啟',
+      loadFailed: '章節文件載入失敗',
+      noVersion: '該任務還沒有產生完成的文件',
+      emptyTitle: '工作知識庫裡還沒有章節文件',
+      emptyHint: '產生一份文件後，它會出現在這裡並可以歸檔到知識庫。',
+      columns: {
+        title: '標題 / 主題',
+        status: '產生狀態',
+        updatedAt: '更新時間',
+        archive: '歸檔狀態',
+        op: '操作'
+      },
+      status: {
+        pending: '等待中',
+        running: '產生中',
+        success: '已完成',
+        partial_success: '部分完成',
+        failed: '產生失敗',
+        cancelled: '已取消'
+      }
+    },
+    pageAi: {
+      menuLabel: 'Page AI 動作',
+      group: {
+        review: '審閱文字',
+        edit: '編輯文字',
+        generate: '從文字產生',
+        draft: '起草文字',
+        other: '其他'
+      },
+      action: {
+        spelling: '修正拼字',
+        grammar: '修正語法',
+        explain: '解釋選取',
+        translate: '翻譯為 · {value}',
+        tone: '變更語氣為 · {value}',
+        polish: '改進寫作',
+        expand: '擴寫',
+        shorten: '縮寫',
+        continue: '續寫',
+        summarize: '摘要',
+        headings: '產生標題',
+        outline: '產生大綱',
+        extractActions: '提煉待辦事項',
+        brainstorm: '腦力激盪想法',
+        article: '撰寫文章',
+        tweet: '撰寫貼文',
+        poem: '撰寫詩歌',
+        blog: '撰寫部落格開頭',
+        chat: '在 AI 對話中繼續'
+      },
+      submenu: {
+        translate: '翻譯為',
+        tone: '變更語氣為'
+      },
+      bar: {
+        ai: 'AI',
+        more: '更多',
+        ask: '問 AI',
+        selected: '已選取 {count} 個字'
+      },
+      preview: {
+        title: '結果預覽',
+        meta: '基於選取文字',
+        replace: '取代選取',
+        insertBelow: '插入下方',
+        copy: '複製',
+        retry: '重新生成',
+        cancel: '取消',
+        copyDone: '已複製',
+        explainOnly: '解釋類結果只顯示，不會寫入文件'
+      },
+      state: {
+        generating: '正在生成…',
+        directWrite: '已依設定直接寫入',
+        applied: '已寫入，可復原',
+        selectionChanged: '選取範圍已變更，請重新生成',
+        blockMissing: '目標內容已不存在，已關閉預覽',
+        itemChanged: '已切換項目，預覽已丟棄',
+        tooLong: '選取超過 8000 字，請分段處理',
+        noModel: '未設定可用模型，請先到模型管理新增',
+        streamBroken: '生成中斷，已保留部分結果，可重新生成',
+        disabled: '工作台 AI 已停用',
+        disabledHint: '啟用後可在這裡提問、整理 Page 內容，並把結果確認後插入目前項目。',
+        goSettings: '開啟工作台 AI 設定',
+        needSelection: '請先選取文字',
+        codeBlockHint: '程式碼區塊內僅支援「解釋選取」'
+      },
+      slash: {
+        title: '命令 · 輸入 / 快速插入',
+        foot: '命令只填入輸入框，不會自動送出',
+        summarize: '摘要本頁',
+        summarizeHint: '提煉 3–5 條重點',
+        outline: '產生大綱',
+        outlineHint: '依標題層級整理本頁',
+        extractActions: '提煉待辦事項',
+        extractActionsHint: '提取負責人與截止時間',
+        translate: '翻譯本頁',
+        translateHint: '翻譯目前頁面或選取段落',
+        explain: '解釋選取',
+        explainHint: '解釋含義、結構與使用場景',
+        askKb: '查詢工作知識庫',
+        askKbHint: '只查你有權限的內容',
+        targetLang: '目標語言：{lang}',
+        insertToPage: '插入到 Page',
+        empty: '沒有符合的命令'
+      },
+      panel: {
+        title: '工作台 AI',
+        context: '本頁 · {count} 字',
+        close: '關閉 AI 面板',
+        placeholder: '繼續問，或輸入 / 使用命令…',
+        send: '送出',
+        disclaimer: 'AI 只讀取你有權限的內容 · 不會自動寫入知識庫',
+        pageTooLong: '目前頁面超過 8000 字，請先選取要處理的段落',
+        askFailed: '問答失敗，請稍後再試'
+      }
+    },
+    settings: {
+      title: '工作台設定',
+      subtitle: '以下都是你的個人偏好，只儲存在這台裝置上。',
+      open: '開啟工作台設定',
+      storageNote: '偏好僅存於本機瀏覽器；清除瀏覽器資料會恢復預設，不影響既有文件與歸檔。',
+      resetEditor: '恢復預設（編輯器）',
+      resetAI: '恢復預設（工作台 AI）',
+      resetDone: '已恢復預設',
+      tab: {
+        editor: '編輯器',
+        ai: '工作台 AI'
+      },
+      editor: {
+        text: '字型與頁面',
+        create: '新增項目',
+        canvas: '無限畫布',
+        note: '新增筆記樣式',
+        fontFamily: '字型',
+        fontSize: '字級',
+        pageWidth: '頁面寬度',
+        showDocInfo: '顯示文件資訊',
+        codeLineNumbers: '程式碼區塊顯示行號',
+        defaultCreateMode: '新增項目形態',
+        createModeHint: '只影響之後新增的普通項目；Journals 一律以文件形態新增。',
+        autoNameWithDate: '用目前日期自動命名',
+        autoNameHint: '標題留空時用本機日期命名；不會建立 Journal，也不會進入 Journals 月曆。',
+        showAddIcon: '顯示「新增圖示」入口',
+        canvasScheme: '畫布配色',
+        scrollZoom: '滾輪直接縮放',
+        scrollZoomHint: '關閉時滾輪平移、Ctrl/⌘ + 滾輪縮放；觸控板捏合一律縮放。',
+        noteBackground: '筆記底色',
+        noteRadius: '筆記圓角',
+        noteShadow: '筆記陰影',
+        noteBorderStyle: '筆記邊框',
+        noteBorderWidth: '邊框粗細',
+        borderWidthDisabled: '無邊框時粗細不生效，但會保留上次的數值。'
+      },
+      fontFamily: {
+        default: '預設',
+        serif: '襯線',
+        mono: '等寬'
+      },
+      pageWidth: {
+        standard: '標準',
+        wide: '全寬'
+      },
+      createMode: {
+        page: '頁面',
+        edgeless: '無限畫布'
+      },
+      canvasScheme: {
+        app: '由目前應用指定',
+        plain: '純白無格線',
+        contrast: '高對比格線'
+      },
+      noteBackground: {
+        white: '白色',
+        cream: '米白',
+        transparent: '透明'
+      },
+      noteRadius: {
+        none: '無',
+        sm: '小 4px',
+        md: '中 8px',
+        lg: '大 12px'
+      },
+      noteShadow: {
+        none: '無',
+        box: '盒狀',
+        soft: '柔和'
+      },
+      noteBorderStyle: {
+        solid: '實線',
+        dashed: '虛線',
+        none: '無邊框'
+      },
+      ai: {
+        general: '工作台 AI',
+        agent: '預設智慧體',
+        enabled: '啟用工作台 AI',
+        enabledHint: '關閉後隱藏側欄、Page 內嵌與畫布 AI 入口；不影響編輯、歸檔與已提交的任務。',
+        citations: '回答顯示來源引用',
+        confirmInsert: '寫入前先預覽確認',
+        confirmInsertHint: '關閉後直接寫入，但仍可透過一次復原回退。',
+        builtin: '內建',
+        mine: '我建立',
+        notReady: '模型不可用，請先前往設定模型',
+        noAgents: '暫無可用的智慧體',
+        manageAgents: '管理智慧體',
+        dataScope: '資料範圍：目前項目 + 你的私人工作知識庫；管理員與成員不可見。',
+        fallback: '原選智慧體已不可用，已切換到第一個可用項',
+        loadFailed: '智慧體清單載入失敗'
+      }
+    },
+    templates: {
+      title: '選擇範本',
+      subtitle: '從範本開始，或建立空白文件',
+      close: '關閉範本選擇',
+      searchPlaceholder: '搜尋範本…',
+      use: '使用',
+      useTemplate: '使用範本',
+      applying: '正在套用…',
+      loadFailed: '範本載入失敗',
+      retry: '重試',
+      noResult: '沒有找到範本',
+      clearSearch: '清除搜尋',
+      applyFailed: '範本無法套用，請從空白文件開始',
+      targetNotEmpty: '文件已有內容，範本未套用',
+      entryClosed: '文件已有內容，範本入口已關閉',
+      applied: '已套用「{name}」範本',
+      startBlank: '從空白文件開始',
+      footNote: '範本儲存在本機工作台，僅自己可見',
+      escHint: 'Esc 關閉',
+      mineEmpty: '還沒有自己的範本',
+      mineEmptyHint: '開啟任意文件，在 ⋯ 中選擇「另存為範本」',
+      mineLoadFailed: '我的範本載入失敗',
+      tab: {
+        recommended: '推薦',
+        work: '工作',
+        record: '記錄',
+        writing: '寫作',
+        mine: '我的範本'
+      },
+      save: {
+        entry: '另存為範本',
+        title: '另存為範本',
+        name: '名稱',
+        namePlaceholder: '為範本命名',
+        description: '描述（選填）',
+        descriptionPlaceholder: '說明這個範本適合什麼情境',
+        assetHint: '圖片與附件不會複製；之後修改文件不會影響這個範本。',
+        quota: '已儲存 {left} / {total}',
+        quotaFull: '已達上限',
+        confirm: '儲存',
+        cancel: '取消',
+        saved: '已儲存到我的範本',
+        failed: '儲存範本失敗',
+        flushFailed: '文件尚未儲存完成，請稍後再試'
+      },
+      builtin: {
+        'meeting-notes': {
+          name: '會議紀要',
+          description: '會議資訊、議題、結論與行動項'
+        },
+        'project-brief': {
+          name: '專案簡報',
+          description: '背景、目標、範圍、里程碑與風險'
+        },
+        'weekly-plan': {
+          name: '週計畫',
+          description: '本週目標、每日安排、優先順序與復盤'
+        },
+        okr: {
+          name: 'OKR',
+          description: '目標、三個關鍵結果與信心指數'
+        },
+        'weekly-report': {
+          name: '週報',
+          description: '本週完成、數據、問題與下週計畫'
+        },
+        'interview-notes': {
+          name: '訪談紀錄',
+          description: '受訪者、問題、洞察與跟進'
+        },
+        'reading-notes': {
+          name: '閱讀筆記',
+          description: '書目、核心觀點、摘錄與思考'
+        },
+        'article-draft': {
+          name: '文章草稿',
+          description: '導語、大綱、正文與發佈檢查'
+        }
+      }
+    }
   },
   // PM 工作站：專案 / 規劃 / 需求 / 版本 / 功能清單
   pm: {

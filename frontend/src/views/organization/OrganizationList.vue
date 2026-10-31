@@ -437,6 +437,8 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import EmptyState from '@/components/EmptyState.vue'
 import ResourceIcon from '@/components/icons/ResourceIcon.vue'
 import { useConfirmDelete } from '@/components/settings/useConfirmDelete'
+import { useLeavePreview } from '@/workbench/use-leave-preview'
+import { buildLeaveSummary } from '@/workbench/leave-summary'
 import { useOrganizationStore } from '@/stores/organization'
 import { useAuthStore } from '@/stores/auth'
 import type { Organization, OrganizationPreview, SearchableOrganizationItem } from '@/api/organization'
@@ -492,6 +494,8 @@ const showSettingsModal = ref(false)
 const settingsOrgId = ref('')
 const settingsMode = ref<'create' | 'edit'>('edit')
 const confirmDelete = useConfirmDelete()
+// 退出前的数据预览；失败时 buildLeaveSummary 自动退化为通用文案。
+const { load: loadLeavePreview } = useLeavePreview()
 
 // 邀请预览相关状态（与邀请链接共用同一弹框）
 const showInvitePreview = ref(false)
@@ -790,19 +794,29 @@ function handleSettings(org: OrgWithUI) {
 
 function handleLeave(org: OrgWithUI) {
   organizationMenuVisibility[org.id] = false
-  confirmDelete({
-    title: t('organization.leaveConfirmTitle'),
-    body: t('organization.leaveConfirmMessage', { name: org.name }),
-    confirmText: t('organization.leave'),
-    onConfirm: async () => {
-      const success = await orgStore.leave(org.id)
-      if (success) {
-        MessagePlugin.success(t('organization.leaveSuccess'))
-      } else {
-        MessagePlugin.error(orgStore.error || t('organization.leaveFailed'))
-      }
-    },
-  })
+  // 先取数据预览再弹确认：用户需要先知道会失去什么，再决定是否退出（§9.10）。
+  // 预览失败不阻断退出，退化为通用确认文案。
+  void (async () => {
+    const preview = await loadLeavePreview()
+    confirmDelete({
+      title: t('organization.leaveConfirmTitle'),
+      body: buildLeaveSummary(preview, {
+        counts: t('workbench.leave.counts'),
+        retention: t('workbench.leave.retention'),
+        noTransfer: t('workbench.leave.noTransfer'),
+        fallback: t('workbench.leave.fallback'),
+      }),
+      confirmText: t('organization.leave'),
+      onConfirm: async () => {
+        const success = await orgStore.leave(org.id)
+        if (success) {
+          MessagePlugin.success(t('organization.leaveSuccess'))
+        } else {
+          MessagePlugin.error(orgStore.error || t('organization.leaveFailed'))
+        }
+      },
+    })
+  })()
 }
 
 function handleDelete(org: OrgWithUI) {

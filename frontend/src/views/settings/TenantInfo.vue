@@ -251,6 +251,8 @@ import {
 } from '@/api/tenant/members'
 import { useAuthStore } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
+import { useLeavePreview } from '@/workbench/use-leave-preview'
+import { buildLeaveSummary } from '@/workbench/leave-summary'
 import { useRoleLabel, useHomeTenant } from '@/composables/useRoleLabel'
 import {
   navigateAfterTenantSwitch,
@@ -262,6 +264,9 @@ const { t, locale } = useI18n()
 const { formatRole } = useRoleLabel()
 const { homeTenantId } = useHomeTenant()
 const authStore = useAuthStore()
+
+// 退出前的数据预览（失败时 buildLeaveSummary 退化为 tenantMember.leave.confirmBody）
+const { load: loadLeavePreview } = useLeavePreview()
 
 // Reactive state
 const tenantInfo = ref<TenantInfo | null>(null)
@@ -333,13 +338,22 @@ async function evaluateLeaveGate(): Promise<void> {
   }
 }
 
-function confirmLeaveTenant() {
+async function confirmLeaveTenant() {
   const tid = Number(tenantInfo.value?.id ?? 0)
   if (!tid) return
 
+  // 先取数据预览再弹确认（§9.10）；预览失败退化为通用文案，不阻断退出。
+  const preview = await loadLeavePreview()
+  const body = buildLeaveSummary(preview, {
+    counts: t('workbench.leave.counts'),
+    retention: t('workbench.leave.retention'),
+    noTransfer: t('workbench.leave.noTransfer'),
+    fallback: t('tenantMember.leave.confirmBody'),
+  })
+
   const dlg = DialogPlugin.confirm({
     header: t('tenantMember.leave.confirmTitle'),
-    body: t('tenantMember.leave.confirmBody'),
+    body,
     confirmBtn: { content: t('tenantMember.leave.confirm'), theme: 'danger' },
     cancelBtn: t('common.cancel'),
     onConfirm: async () => {

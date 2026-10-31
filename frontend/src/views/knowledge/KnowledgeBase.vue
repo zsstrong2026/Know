@@ -14,12 +14,15 @@ import { useAuthStore } from '@/stores/auth';
 import { permissionCanEditKB, permissionCanManageKB } from '@/utils/kbPermission';
 import { useChatResourcesStore } from '@/stores/chatResources';
 import { useEditorResourcesStore } from '@/stores/editorResources';
+import { useWorkbenchStore } from '@/stores/workbench';
 import KnowledgeBaseEditorModal from './KnowledgeBaseEditorModal.vue';
 const uiStore = useUIStore();
 const orgStore = useOrganizationStore();
 const authStore = useAuthStore();
 const chatResources = useChatResourcesStore();
 const editorResources = useEditorResourcesStore();
+// 工作知识库入口需要章节文档数量；bootstrap 已由工作台加载过，这里只读不拉。
+const workbenchStore = useWorkbenchStore();
 const router = useRouter();
 import {
   batchQueryKnowledge,
@@ -92,6 +95,10 @@ const kbLoading = ref(false);
 const docListLoading = ref(true);
 const isFAQ = computed(() => (kbInfo.value?.type || '') === 'faq');
 const isWiki = computed(() => !!kbInfo.value?.indexing_strategy?.wiki_enabled);
+// 工作知识库：正文顶部展示「章节文档」入口（§9.9）。
+const isWorkKb = computed(() => Boolean(kbInfo.value?.is_system) && kbInfo.value?.system_key === 'work');
+// 章节文档数量来自 bootstrap 计数，不在知识库页额外请求任务列表。
+const workbenchDocCount = computed(() => workbenchStore.bootstrap?.counts.documents ?? 0);
 const validTabs = ['documents', 'wiki', 'graph', 'gallery'] as const
 type KbTab = typeof validTabs[number]
 const initTab = validTabs.includes(route.query.tab as any) ? (route.query.tab as KbTab) : 'documents'
@@ -1804,6 +1811,11 @@ const handleNavigateToKbList = () => {
   router.push('/platform/knowledge-bases');
 };
 
+/** 打开章节文档列表：它是工作知识库的产出，回到知识库即返回本页。 */
+const openWorkbenchDocs = () => {
+  router.push({ name: 'workbenchDocs' });
+};
+
 const handleNavigateToCurrentKB = () => {
   if (!kbId.value) return;
   router.push(`/platform/knowledge-bases/${kbId.value}`);
@@ -2305,6 +2317,11 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
             </h2>
             <!-- 标题行右侧的动作锚点：聚拢"信息"和"设置"两个圆形按钮。 -->
             <div class="kb-title-actions">
+              <!-- 工作知识库专属：章节文档入口（§9.9，侧栏不再有独立的「文档」模块） -->
+              <t-button v-if="isWorkKb" variant="outline" size="small" @click="openWorkbenchDocs">
+                <template #icon><t-icon name="file" size="14px" /></template>
+                {{ $t('workbench.docs.entry', { count: workbenchDocCount }) }}
+              </t-button>
               <KBInfoPopover v-if="kbInfo && !authStore.isLiteMode" :kb-info="kbInfo"
                 :supported-file-types="[...supportedFileTypes]" />
               <t-tooltip v-if="canManage" :content="$t('knowledgeBase.settings')" placement="top">

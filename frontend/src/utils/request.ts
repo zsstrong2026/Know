@@ -68,6 +68,30 @@ export function getCurrentLanguage(): string {
   return i18n.global.locale?.value || localStorage.getItem('locale') || 'zh-CN'
 }
 
+/**
+ * 组装鉴权相关请求头。
+ *
+ * SSE 车道（如工作台内联 AI）用 fetch 而不是 axios，必须读 ReadableStream；
+ * 为避免出现第二套 Header 拼接逻辑，这里抽出唯一实现，axios 拦截器也复用它。
+ * 注意：不在前端读别的 localStorage 项去拼 Header，只认这几个既有键。
+ */
+export function buildAuthHeaders(extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Accept-Language": getCurrentLanguage(),
+    "X-Request-ID": `${generateRandomString(12)}`,
+    ...(extra || {}),
+  };
+  const token = localStorage.getItem('weknora_token');
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const selectedTenantId = localStorage.getItem('weknora_selected_tenant_id');
+  if (selectedTenantId) {
+    headers['X-Tenant-ID'] = selectedTenantId;
+  }
+  return headers;
+}
+
 
 instance.interceptors.request.use(
   (config) => {

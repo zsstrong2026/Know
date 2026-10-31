@@ -1,0 +1,301 @@
+/**
+ * 编辑器会话：BlockSuite 挂载 + 保存队列 + 冲突/重载（§9.7）。
+ *
+ * 条目编辑页与 Journals 主区共用同一份实现，避免把「取快照、base64、409 处理」
+ * 抄两遍。视图只负责顶栏、归档与路由，内容生命周期全部交给这里。
+ */
+import { ref, shallowRef, watch, type Ref } from 'vue'
+import { getWorkbenchContent, saveWorkbenchContent } from '@/api/workbench'
+import {
+  createSaveQueue,
+  currentClientId,
+  type SaveQueue,
+  type SaveState,
+} from '@/workbench/save-queue'
+import { projectMarkdown } from './projection'
+import { noteStyleSeedFromPrefs } from './prefs'
+import { useWorkbenchPrefs } from '@/workbench/use-workbench-prefs'
+import type { CanvasHandle, EditorKind, EditorMode } from './blocksuite'
+import type { WorkbenchItem } from '@/types/workbench'
+
+/** 偏好 → BlockSuite 的编辑器级设置（§9.14.2）。 */
+function runtimeSettingsFromPrefs(prefs = useWorkbenchPrefs().editorPrefs.value) {
+  return {
+    edgelessScrollZoom: prefs.scrollZoom,
+    codeBlockLineNumbers: prefs.codeLineNumbers,
+  }
+}
+
+export interface EditorSessionOptions {
+  itemId: Ref<string>
+  /** 编辑器宿主元素；挂载前必须已渲染 */
+  host: Ref<HTMLElement | null>
+  /** 条目元数据；kind / current_mode 从这里取 */
+  item: Ref<WorkbenchItem | null>
+  /** 指定初始形态；缺省按 item.current_mode 兜底 */
+  mode?: Ref<EditorMode>
+  /** 保存冲突回调（视图弹三选项） */
+  onConflict?: () => void
+}
+
+export interface EditorSession {
+  ready: Ref<boolean>
+  saveState: Ref<SaveState>
+  editor: Ref<CanvasHandle | null>
+  /** 最近一次成功保存后的快照版本，归档时作为 base_version */
+  baseVersion: Ref<number>
+  /** 首次挂载：拉快照 → 建队列 → 渲染 */
+  mount(options?: MountOptions): Promise<void>
+  /**
+   * 用模板快照直接挂载（§9.16.2）。
+   *
+   * 目标文档必须仍是空的；已存在内容时抛 `template-target-not-empty`，
+   * 由视图重载文档并提示，绝不覆盖用户内容。
+   */
+  mountFromTemplate(tpl: TemplateMountOptions): Promise<void>
+  /** 丢弃本地改动，按服务端最新快照重建 */
+  reload(): Promise<void>
+  /** 冲突时“用我的版本覆盖” */
+  forceSave(): Promise<void>
+  /** 跳过防抖立即落盘（切换 Journal / 离开页面前调用） */
+  flush(): Promise<void>
+  /** 离开当前条目是否安全：冲突或保存失败时不允许静默丢弃（§9.13.1） */
+  canLeave(): boolean
+  /** 把当前 Y.Doc 投影成 Markdown，供归档使用 */
+  markdown(): string
+  /** 当前正文的非空白字符数；文档信息行用，不额外请求接口 */
+  markdownCount(): number
+  destroy(): void
+}
+
+export interface MountOptions {
+  /**
+   * 空文档时延迟首次保存，直到用户真正编辑（§9.16.2）。
+   *
+   * 只给「从空白文档开始」用：否则点一下就产生 version 1，
+   * 工具栏的「使用模板」会立刻消失，用户没有反悔机会。
+   */
+  deferBlankSave?: boolean
+}
+
+/** 模板套用所需的输入：已经校验过的快照字节。 */
+export interface TemplateMountOptions {
+  snapshot: Uint8Array
+  editorSchemaVersion: number
+}
+
+function kindOf(item: WorkbenchItem | null): EditorKind {
+  return (item?.kind ?? 'canvas') as EditorKind
+}
+
+function defaultMode(item: WorkbenchItem | null): EditorMode {
+  if (item?.current_mode === 'page' || item?.current_mode === 'edgeless') return item.current_mode
+  // 与后端 DefaultModeForKind 一致：画布默认无限画布，数据库默认文档
+  return kindOf(item) === 'canvas' ? 'edgeless' : 'page'
+}
+
+export function useEditorSession(options: EditorSessionOptions): EditorSession {
+  const { itemId, host, item } = options
+  const ready = ref(false)
+  const saveState = ref<SaveState>('idle')
+  // shallowRef：编辑器实例内部有大量不可序列化字段，深度代理只会拖慢渲染。
+  const editor = shallowRef<CanvasHandle | null>(null)
+  const baseVersion = ref(0)
+  let queue: SaveQueue | null = null
+
+  // 设置页改「滚轮缩放 / 代码行号 / 笔记样式」后立刻生效：
+  // 前两项只改 setting signal，笔记样式只影响之后新建的笔记，都不重建视图。
+  const { editorPrefs } = useWorkbenchPrefs()
+  watch(
+    () => [
+      editorPrefs.value.scrollZoom,
+      editorPrefs.value.codeLineNumbers,
+      editorPrefs.value.noteBackground,
+      editorPrefs.value.noteRadius,
+      editorPrefs.value.noteShadow,
+      editorPrefs.value.noteBorderStyle,
+      editorPrefs.value.noteBorderWidth,
+    ] as const,
+    () => {
+      editor.value?.updateSettings(runtimeSettingsFromPrefs(editorPrefs.value))
+      editor.value?.updateNoteStyle(noteStyleSeedFromPrefs(editorPrefs.value))
+    },
+  )
+
+  /**
+   * 挂载编辑器。
+   *
+   * `overrideSnapshot` 供模板套用使用：跳过 GET content 取到的字节，直接用调用方
+   * 校验过的快照。此时队列仍以服务端真实版本为 base_version，因此并发保存会正常 2401。
+   */
+  async function mountWith(
+    overrideSnapshot: Uint8Array | null | undefined,
+    mountOptions: MountOptions,
+    schemaVersionOverride?: number,
+  ): Promise<void> {
+    if (!host.value || !item.value) return
+    // 一次会话只允许一个编辑器实例：从空白切到模板（或重挂载）时先销毁旧的，
+    // 否则 DOM 里会留下两个 BlockSuite 编辑器，模板内容渲染在视口之外。
+    editor.value?.destroy()
+    editor.value = null
+    ready.value = false
+    queue?.dispose()
+    queue = null
+    // 动态 import：只有真正打开内容时才加载 BlockSuite，首屏不背这份体积。
+    const { mountEditor } = await import('./blocksuite')
+    const content = await getWorkbenchContent(itemId.value)
+    baseVersion.value = content.snapshot_version
+    const snapshot =
+      overrideSnapshot !== undefined
+        ? overrideSnapshot
+        : content.ydoc
+          ? base64ToBytes(content.ydoc)
+          : null
+    const mode = options.mode?.value ?? defaultMode(item.value)
+    const schemaVersion = schemaVersionOverride ?? content.editor_schema_version
+
+    queue = createSaveQueue({
+      itemId: itemId.value,
+      clientId: currentClientId(),
+      baseVersion: content.snapshot_version,
+      save: saveWorkbenchContent,
+      read: () => ({
+        ydoc: bytesToBase64(editor.value?.getSnapshot() ?? new Uint8Array()),
+        // text_content 存纯文本投影：它既是列表搜索的 LIKE 目标，也是归档正文的来源。
+        textContent: projectMarkdown(editor.value?.store).markdown,
+        editorSchemaVersion: schemaVersion,
+      }),
+      onState: (state) => {
+        saveState.value = state
+        // 保存成功即推进基线，归档时的 base_version 才不会落后
+        if (state === 'saved') syncBaseVersion()
+        if (state === 'conflict') options.onConflict?.()
+      },
+      // 空文档且显式要求延迟：只有用户真的改了内容才落盘（§9.16.2）。
+      deferBlankCommit: mountOptions.deferBlankSave === true,
+    })
+
+    editor.value = await mountEditor({
+      element: host.value,
+      itemId: itemId.value,
+      kind: kindOf(item.value),
+      mode,
+      snapshot,
+      // 滚轮缩放、代码行号由 BlockSuite 内部读取，只能走 EditorSettingProvider
+      settings: runtimeSettingsFromPrefs(editorPrefs.value),
+      // 新建笔记的初始样式；已有笔记不会被追溯改写
+      noteStyle: noteStyleSeedFromPrefs(editorPrefs.value),
+      onChange: () => queue?.markDirty(),
+    })
+
+    // 模板路径：快照来自内存 override，服务端仍是 version 0，而 BlockSuite 用快照
+    // 建 store 不会触发 onChange。必须在这里显式落盘一次，否则用户一刷新内容就丢。
+    // 写入失败交给队列进入 error 状态，编辑器保留模板内容，不阻断挂载。
+    if (overrideSnapshot) {
+      queue.markDirty()
+      try {
+        await queue.flush()
+      } catch {
+        /* 状态已由队列回调置为 error，视图会显示「未保存/重试」 */
+      }
+    }
+
+    ready.value = true
+  }
+
+  async function mount(mountOptions: MountOptions = {}): Promise<void> {
+    await mountWith(undefined, mountOptions)
+  }
+
+  /**
+   * 用模板快照挂载。
+   *
+   * 服务端版本必须是 0 且没有内容，否则抛错让视图重载：
+   * 绝不把模板合进可能已有用户输入的 Y.Doc（§9.16.2 规则 1、2）。
+   */
+  async function mountFromTemplate(tpl: TemplateMountOptions): Promise<void> {
+    if (!host.value || !item.value) return
+    // 先确认目标仍是空文档：并发场景下另一个标签页可能已经写入。
+    const content = await getWorkbenchContent(itemId.value)
+    if (content.snapshot_version > 0 || (content.ydoc ?? '') !== '') {
+      throw new Error('template-target-not-empty')
+    }
+    await mountWith(tpl.snapshot, {}, tpl.editorSchemaVersion)
+  }
+
+  /** 丢弃本地改动，按服务端最新快照重建；mountWith 会销毁旧编辑器与队列。 */
+  async function reload(): Promise<void> {
+    await mount()
+  }
+
+  async function forceSave(): Promise<void> {
+    await queue?.forceSave()
+    syncBaseVersion()
+  }
+
+  /** 队列在保存成功后会推进内部基线，这里同步一份供归档使用。 */
+  function syncBaseVersion(): void {
+    if (queue) baseVersion.value = queue.getBaseVersion()
+  }
+
+  async function flush(): Promise<void> {
+    await queue?.flush()
+  }
+
+  /** 冲突与失败都视为“未收敛”；空闲/待保存/保存中/已保存均可安全离开。 */
+  function canLeave(): boolean {
+    const state = queue?.state() ?? saveState.value
+    return state !== 'conflict' && state !== 'error'
+  }
+
+  function markdown(): string {
+    return projectMarkdown(editor.value?.store).markdown
+  }
+
+  /** 字数按非空白字符计：中文场景下比“按空格分词”更接近直觉。 */
+  function markdownCount(): number {
+    return markdown().replace(/\s+/g, '').length
+  }
+
+  function destroy(): void {
+    queue?.dispose()
+    queue = null
+    editor.value?.destroy()
+    editor.value = null
+    ready.value = false
+  }
+
+  return {
+    ready,
+    saveState,
+    editor,
+    baseVersion,
+    mount,
+    mountFromTemplate,
+    reload,
+    forceSave,
+    flush,
+    canLeave,
+    markdown,
+    markdownCount,
+    destroy,
+  }
+}
+
+/** base64 → 二进制：服务端只存字节，浏览器侧负责转换。 */
+export function base64ToBytes(text: string): Uint8Array {
+  const binary = atob(text)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+/** 二进制 → base64；分块避免超长参数列表导致栈溢出。 */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}

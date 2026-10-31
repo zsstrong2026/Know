@@ -366,7 +366,524 @@ export default {
     noSessions: '会話はまだありません',
     meetings: '会議室',
     docAssistant: 'ソリューションアシスタント',
-    pm: 'PMワークステーション'
+    pm: 'PMワークステーション',
+    workbench: 'ワークベンチ'
+  },
+  // ワークベンチ：最近 / データベース / お気に入り / ゴミ箱 / アイテム編集 / アーカイブ
+  workbench: {
+    nav: {
+      title: 'ワークベンチ',
+      beta: 'BETA',
+      recent: '最近',
+      databases: 'データベース',
+      favorites: 'お気に入り',
+      trash: 'ゴミ箱',
+      folders: 'フォルダー',
+      newFolder: '新しいフォルダー',
+      journals: 'Journals'
+    },
+    new: {
+      label: '新規作成',
+      document: '新しいドキュメント',
+      canvas: '新しいキャンバス',
+      canvasHint: 'ホワイトボード、付箋、自由配置',
+      database: '新しいデータベース',
+      databaseHint: 'テーブル、ボード、カレンダービュー',
+      folder: '新しいフォルダー',
+      folderHint: 'ワークベンチ内でアイテムを整理'
+    },
+    list: {
+      searchPlaceholder: 'タイトルで検索…',
+      total: '全 {count} 件',
+      loadedAll: 'すべて読み込み済み',
+      sortRecent: '更新が新しい順',
+      newCanvas: '新しいキャンバス',
+      newDatabase: '新しいデータベース',
+      cards: 'カード表示',
+      list: 'リスト表示',
+      emptyTitle: 'まだ何もありません',
+      emptyHint: 'キャンバスかデータベースを作成してください。内容は自分の空間にのみ保存されます。',
+      emptySearchTitle: '一致する内容がありません',
+      emptySearchHint: '短いキーワードにするか、検索をクリアしてください。',
+      emptyTrashTitle: 'ゴミ箱は空です',
+      emptyTrashHint: '削除したアイテムは 30 日間ここに残ります。',
+      clearSearch: '検索をクリア',
+      loadMore: 'さらに読み込む',
+      loadFailed: 'ワークベンチの読み込みに失敗しました。再読み込みしてください'
+    },
+    item: {
+      untitled: '無題',
+      open: '開く',
+      rename: '名前を変更',
+      move: 'フォルダーへ移動',
+      pin: '特定の日に固定',
+      favorite: 'お気に入りに追加',
+      unfavorite: 'お気に入りから削除',
+      delete: '削除（ゴミ箱へ）',
+      restore: '復元',
+      purge: '完全に削除',
+      deleteArchives: 'アーカイブ済みのナレッジも削除',
+      renaming: '名前を変更',
+      renameFailed: '名前の変更に失敗しました',
+      deleteFailed: '削除に失敗しました',
+      restoreFailed: '復元に失敗しました',
+      favoriteFailed: 'お気に入りの更新に失敗しました',
+      more: 'その他の操作'
+    },
+    archive: {
+      status: {
+        none: '未アーカイブ',
+        processing: 'ナレッジベース処理中',
+        active: 'アーカイブ済み',
+        stale: 'アーカイブが古い',
+        partial: '一部のみアーカイブ',
+        source_deleted: 'ソースが削除済み',
+        deleted: 'アーカイブ削除済み'
+      },
+      action: {
+        create: 'アーカイブ',
+        update: 'アーカイブを更新',
+        retry: '再試行',
+        recreate: '再アーカイブ',
+        progress: '進捗を見る'
+      },
+      deleting: 'アーカイブを削除しています…',
+      deleteTitle: 'アーカイブを削除',
+      deleteBody: 'ナレッジベース内のスナップショットが削除されます。ソース内容は残ります。',
+      deleteConfirm: 'アーカイブを削除'
+    },
+    batchArchive: {
+      barLabel: '一括アーカイブ',
+      selected: '{count} 件選択中',
+      actionable: '{count} 件アーカイブ可能',
+      skipped: '{count} 件はスキップ',
+      selectAll: 'アーカイブ可能な項目を全選択',
+      archiveSelected: '選択項目をアーカイブ',
+      cancel: 'キャンセル',
+      selectMode: '選択',
+      exitSelect: '選択を終了',
+      title: '{count} 件をワークナレッジベースへアーカイブ',
+      counts: '初回 {create} · 更新 {update} · 再試行 {retry} · 再アーカイブ {recreate} · スキップ {skip}',
+      target: '自分のワークナレッジベース（本人のみ閲覧可）',
+      note: '1 件ずつ処理し、失敗しても他の項目には影響しません。成功した項目はすぐに解析・分割・索引へ進み、その間は「処理中」と表示されます。',
+      dropped: '今回は先頭 20 件のみ処理します。残り {count} 件は分割してアーカイブしてください。',
+      nothingToDo: '選択した項目はすべて最新のアーカイブです。',
+      running: 'アーカイブ中…',
+      start: 'アーカイブを開始',
+      close: '閉じる',
+      progress: '{done} / {total} 件処理済み',
+      summary: '成功 {archived} · 失敗 {failed} · スキップ {skipped}',
+      noRollback: '成功した項目はロールバックされません。失敗した項目のみ個別に再試行できます。',
+      retryFailed: '失敗項目を再試行',
+      status: {
+        archived: 'アーカイブ済み',
+        failed: '失敗',
+        skipped: 'スキップ'
+      },
+      reason: {
+        conflict: 'ソースが更新されました。再試行してください',
+        too_large: '内容が大きすぎてアーカイブできません',
+        quota: 'ワークナレッジベースの容量が不足しています',
+        forbidden: 'この項目をアーカイブする権限がありません',
+        network: 'ネットワークがタイムアウトしました。再試行してください',
+        not_ready: '下書きがまだ保存されていません',
+        changed: 'アーカイブの基準が変わりました',
+        up_to_date: 'すでに最新です'
+      }
+    },
+    editor: {
+      back: 'ワークベンチに戻る',
+      loading: 'キャンバスを読み込み中…',
+      loadFailed: 'キャンバスの読み込みに失敗しました',
+      notFound: 'アイテムが存在しないか、削除されています',
+      saveIdle: '保存済み',
+      savePending: '保存待ち',
+      saveSaving: '保存中…',
+      saveSaved: '保存済み',
+      saveError: '保存に失敗しました',
+      untitled: '無題',
+      addIcon: 'アイコンを追加',
+      addIconHint: '絵文字を入力してアイテムのアイコンにします（空欄でクリア）',
+      docInfo: {
+        updated: '{time} に更新',
+        words: '{count} 文字',
+        private: '自分のみ閲覧可能'
+      }
+    },
+    version: {
+      title: 'バージョン履歴',
+      empty: 'まだ履歴がありません',
+      restore: 'このバージョンを復元',
+      current: '現在のバージョン',
+      restored: 'このバージョンに復元しました',
+      restoreFailed: '復元に失敗しました。再試行してください',
+      conflict: '他のタブで内容が変更されました。再読み込みしてから復元してください'
+    },
+    journals: {
+      back: 'ワークベンチに戻る',
+      dateNav: 'Journal 日付ナビゲーション',
+      prevWeek: '7 日前へ',
+      nextWeek: '7 日後へ',
+      today: '今日',
+      weekday: {
+        sun: '日',
+        mon: '月',
+        tue: '火',
+        wed: '水',
+        thu: '木',
+        fri: '金',
+        sat: '土'
+      },
+      monthGrid: 'Journals カレンダー',
+      panelTitle: 'Journals カレンダー',
+      prevMonth: '前の月',
+      nextMonth: '次の月',
+      monthLabel: '{year} 年 {month} 月',
+      dateLabel: '{month} 月 {day} 日',
+      itemCount: '{count} 件の Journal',
+      monthCount: '今月 {count} 件',
+      dayCount: '選択日 {count} 件',
+      selectedDay: '{date} · {count} 件',
+      truncated: '{count} 件を読み込み済み',
+      legendTitle: 'アーカイブ状態の凡例',
+      togglePanel: 'Journals カレンダーの表示切り替え',
+      emptyDay: 'この日の Journal はまだありません。',
+      emptyTitle: 'この日の Journal はまだありません',
+      emptyHint: '毎日あらかじめ作る必要はありません。記録したいときに始めてください。',
+      pickOne: 'この日に {count} 件の Journal',
+      pickHint: '右の一覧から 1 件選ぶと、ドキュメントとキャンバスを表示します。',
+      new: 'Journal を作成',
+      newHint: '選択中の日に作成 · ドキュメントとキャンバスは同じ内容',
+      retry: '再試行',
+      modeSwitch: '表示モード',
+      mode: {
+        page: 'ドキュメント',
+        edgeless: '無限キャンバス'
+      },
+      flushFailed: '下書きが未保存のため、元の日付に留まりました',
+      createFailed: 'Journal の作成に失敗しました',
+      moveFailed: '日付変更に失敗したため、元の日付に戻しました'
+    },
+    notice: {
+      gotIt: '確認しました',
+      readAll: 'すべて既読',
+      counts: 'キャンバス/データベース {items} 件、ドキュメント {docs} 件、ナレッジ {knowledge} 件',
+      removed: 'このワークスペースを退出しました。{counts} は 30 日間保持されます。',
+      removedWithDeadline: 'このワークスペースを退出しました。{counts} は {deadline} まで保持されます。',
+      restored: 'ワークスペースに再参加しました。{counts} を復元しました。',
+      cleanup: '{counts} は 7 日後に完全削除されます。再参加すると復元できます。',
+      archiveFailed: '自動アーカイブに失敗しました。ドキュメントを開いて手動で実行してください。'
+    },
+    leave: {
+      title: 'ワークスペースを退出',
+      confirm: '退出する',
+      cancel: 'キャンセル',
+      counts: 'アクセスできなくなります：ワークナレッジベース {kb} 件、ナレッジ {knowledge} 件、キャンバス/データベース {items} 件、ドキュメント {docs} 件',
+      retention: 'データは {days} 日間保持されます。{days} 日以内に再参加すれば復元され、超えると完全削除されます。',
+      noTransfer: '管理者や他のメンバーに引き継がれることはありません。',
+      fallback: '退出すると現在のワークスペースの非公開データにアクセスできなくなります。30 日以内の再参加で復元できます。',
+      exportLabel: '任意のエクスポート：',
+      exportDocs: 'ドキュメント',
+      exportOptional: 'エクスポートは必須ではありません。すぐに退出できます。'
+    },
+    docs: {
+      title: '章節ドキュメント',
+      subtitle: 'ワークナレッジベースの成果物です。アーカイブ後に検索対象になります。',
+      entry: '章節ドキュメント · {count}',
+      backToKb: 'ワークナレッジベースに戻る',
+      generate: 'ドキュメントを生成',
+      open: '開く',
+      loadFailed: '章節ドキュメントの読み込みに失敗しました',
+      noVersion: 'このタスクにはまだ完成したドキュメントがありません',
+      emptyTitle: 'ワークナレッジベースに章節ドキュメントがありません',
+      emptyHint: 'ドキュメントを生成するとここに表示され、ナレッジベースへアーカイブできます。',
+      columns: {
+        title: 'タイトル / テーマ',
+        status: 'ステータス',
+        updatedAt: '更新日時',
+        archive: 'アーカイブ',
+        op: '操作'
+      },
+      status: {
+        pending: '待機中',
+        running: '生成中',
+        success: '完了',
+        partial_success: '一部完了',
+        failed: '失敗',
+        cancelled: 'キャンセル済み'
+      }
+    },
+    pageAi: {
+      menuLabel: 'Page AI アクション',
+      group: {
+        review: 'テキストを確認',
+        edit: 'テキストを編集',
+        generate: 'テキストから生成',
+        draft: 'テキストを起草',
+        other: 'その他'
+      },
+      action: {
+        spelling: '誤字を修正',
+        grammar: '文法を修正',
+        explain: '選択範囲を説明',
+        translate: '翻訳 · {value}',
+        tone: 'トーンを変更 · {value}',
+        polish: '文章を推敲',
+        expand: '加筆',
+        shorten: '短縮',
+        continue: '続きを書く',
+        summarize: '要約',
+        headings: '見出しを提案',
+        outline: 'アウトラインを生成',
+        extractActions: 'アクション項目を抽出',
+        brainstorm: 'アイデアを出す',
+        article: '記事を書く',
+        tweet: '短い投稿を書く',
+        poem: '詩を書く',
+        blog: 'ブログ冒頭を書く',
+        chat: 'AI チャットで続ける'
+      },
+      submenu: {
+        translate: '翻訳',
+        tone: 'トーンを変更'
+      },
+      bar: {
+        ai: 'AI',
+        more: 'その他',
+        ask: 'AI に聞く',
+        selected: '{count} 文字を選択中'
+      },
+      preview: {
+        title: '結果プレビュー',
+        meta: '選択したテキストに基づく',
+        replace: '選択範囲を置換',
+        insertBelow: '下に挿入',
+        copy: 'コピー',
+        retry: '再生成',
+        cancel: 'キャンセル',
+        copyDone: 'コピーしました',
+        explainOnly: '説明は表示のみで、ドキュメントには書き込まれません'
+      },
+      state: {
+        generating: '生成中…',
+        directWrite: '設定に従って直接書き込みました',
+        applied: '書き込みました · 元に戻せます',
+        selectionChanged: '選択範囲が変わりました。再生成してください。',
+        blockMissing: '対象のテキストがなくなったため、プレビューを閉じました',
+        itemChanged: 'アイテムが切り替わったため、プレビューを破棄しました',
+        tooLong: '選択範囲が 8000 文字を超えています。分割して処理してください。',
+        noModel: '利用できるモデルがありません。先にモデル管理で追加してください。',
+        streamBroken: '生成が中断しました。一部の結果は保持しています。再生成できます。',
+        disabled: 'ワークベンチ AI は無効です',
+        disabledHint: '有効にすると、ここで質問したりこのページを整理して、確認後に挿入できます。',
+        goSettings: 'ワークベンチ AI 設定を開く',
+        needSelection: '先にテキストを選択してください',
+        codeBlockHint: 'コードブロック内では「選択範囲を説明」のみ使えます'
+      },
+      slash: {
+        title: 'コマンド · / で挿入',
+        foot: 'コマンドは入力欄に挿入するだけで、自動送信はしません',
+        summarize: 'このページを要約',
+        summarizeHint: '要点を 3〜5 個抽出',
+        outline: 'アウトラインを生成',
+        outlineHint: '見出し階層でこのページを整理',
+        extractActions: 'アクション項目を抽出',
+        extractActionsHint: '担当者と期限を抽出',
+        translate: 'このページを翻訳',
+        translateHint: '現在のページまたは選択範囲を翻訳',
+        explain: '選択範囲を説明',
+        explainHint: '意味・構成・使いどころを説明',
+        askKb: '業務ナレッジを検索',
+        askKbHint: 'アクセス権のある内容のみ検索します',
+        targetLang: '対象言語：{lang}',
+        insertToPage: 'Page に挿入',
+        empty: '一致するコマンドがありません'
+      },
+      panel: {
+        title: 'ワークベンチ AI',
+        context: 'このページ · {count} 文字',
+        close: 'AI パネルを閉じる',
+        placeholder: '続けて質問するか、/ でコマンドを入力…',
+        send: '送信',
+        disclaimer: 'AI はアクセス権のある内容のみ読み取ります · ナレッジベースへ自動書き込みはしません',
+        pageTooLong: 'このページは 8000 文字を超えています。処理したい部分を選択してください。',
+        askFailed: '質問に失敗しました。しばらくしてから再試行してください。'
+      }
+    },
+    settings: {
+      title: 'ワークスペース設定',
+      subtitle: '以下は個人設定で、この端末にのみ保存されます。',
+      open: 'ワークスペース設定を開く',
+      storageNote: '設定はこのブラウザにのみ保存されます。ブラウザデータを消去すると既定値に戻りますが、既存のドキュメントとアーカイブには影響しません。',
+      resetEditor: '既定値に戻す（エディター）',
+      resetAI: '既定値に戻す（ワークスペース AI）',
+      resetDone: '既定値に戻しました',
+      tab: {
+        editor: 'エディター',
+        ai: 'ワークスペース AI'
+      },
+      editor: {
+        text: 'フォントとページ',
+        create: '新規アイテム',
+        canvas: '無限キャンバス',
+        note: '新規ノートのスタイル',
+        fontFamily: 'フォント',
+        fontSize: '文字サイズ',
+        pageWidth: 'ページ幅',
+        showDocInfo: 'ドキュメント情報を表示',
+        codeLineNumbers: 'コードブロックに行番号を表示',
+        defaultCreateMode: '新規アイテムの形式',
+        createModeHint: '以後に作成する通常アイテムのみに適用されます。Journals は常にドキュメントとして作成されます。',
+        autoNameWithDate: '現在の日付で自動命名',
+        autoNameHint: 'タイトルが空のとき端末の日付で命名します。Journal は作成されず、Journals カレンダーにも表示されません。',
+        showAddIcon: '「アイコンを追加」を表示',
+        canvasScheme: 'キャンバスの配色',
+        scrollZoom: 'ホイールで直接ズーム',
+        scrollZoomHint: 'オフのときはホイールで移動、Ctrl/⌘ + ホイールでズーム。トラックパッドのピンチは常にズームします。',
+        noteBackground: 'ノートの背景',
+        noteRadius: 'ノートの角丸',
+        noteShadow: 'ノートの影',
+        noteBorderStyle: 'ノートの枠線',
+        noteBorderWidth: '枠線の太さ',
+        borderWidthDisabled: '枠線なしでは太さは反映されませんが、直前の値は保持されます。'
+      },
+      fontFamily: {
+        default: '既定',
+        serif: 'セリフ',
+        mono: '等幅'
+      },
+      pageWidth: {
+        standard: '標準',
+        wide: '全幅'
+      },
+      createMode: {
+        page: 'ページ',
+        edgeless: '無限キャンバス'
+      },
+      canvasScheme: {
+        app: '現在のアプリに従う',
+        plain: '白無地・グリッドなし',
+        contrast: '高コントラストのグリッド'
+      },
+      noteBackground: {
+        white: '白',
+        cream: '生成り',
+        transparent: '透明'
+      },
+      noteRadius: {
+        none: 'なし',
+        sm: '小 4px',
+        md: '中 8px',
+        lg: '大 12px'
+      },
+      noteShadow: {
+        none: 'なし',
+        box: 'ボックス',
+        soft: 'ソフト'
+      },
+      noteBorderStyle: {
+        solid: '実線',
+        dashed: '破線',
+        none: '枠線なし'
+      },
+      ai: {
+        general: 'ワークスペース AI',
+        agent: '既定のエージェント',
+        enabled: 'ワークスペース AI を有効化',
+        enabledHint: 'オフにするとサイドバー、ページ内 AI、キャンバス AI の入口が非表示になります。編集・アーカイブ・送信済みのタスクには影響しません。',
+        citations: '回答に出典を表示',
+        confirmInsert: '書き込む前にプレビュー',
+        confirmInsertHint: 'オフでは直接書き込みますが、1 回の取り消しで戻せます。',
+        builtin: '組み込み',
+        mine: '自分の作成',
+        notReady: 'モデルが利用できません。先にモデルを設定してください',
+        noAgents: '利用できるエージェントがありません',
+        manageAgents: 'エージェントを管理',
+        dataScope: 'データ範囲：現在のアイテムとあなたの非公開ワークナレッジベース。管理者とメンバーには表示されません。',
+        fallback: '選択したエージェントが利用できないため、最初の利用可能な項目に切り替えました',
+        loadFailed: 'エージェント一覧の読み込みに失敗しました'
+      }
+    },
+    templates: {
+      title: 'テンプレートを選択',
+      subtitle: 'テンプレートから始めるか、空白のドキュメントを作成します',
+      close: 'テンプレート選択を閉じる',
+      searchPlaceholder: 'テンプレートを検索…',
+      use: '使用',
+      useTemplate: 'テンプレートを使う',
+      applying: '適用中…',
+      loadFailed: 'テンプレートの読み込みに失敗しました',
+      retry: '再試行',
+      noResult: 'テンプレートが見つかりません',
+      clearSearch: '検索をクリア',
+      applyFailed: 'このテンプレートは適用できません。空白のドキュメントから始めてください。',
+      targetNotEmpty: 'ドキュメントに既に内容があるため、テンプレートは適用されませんでした',
+      entryClosed: 'ドキュメントに既に内容があるため、テンプレート入口を閉じました',
+      applied: '「{name}」テンプレートを適用しました',
+      startBlank: '空白のドキュメントから始める',
+      footNote: 'テンプレートはこの端末のワークベンチに保存され、自分のみ閲覧できます',
+      escHint: 'Esc で閉じる',
+      mineEmpty: '自分のテンプレートはまだありません',
+      mineEmptyHint: '任意のドキュメントを開き、⋯ から「テンプレートとして保存」を選びます',
+      mineLoadFailed: '自分のテンプレートの読み込みに失敗しました',
+      tab: {
+        recommended: 'おすすめ',
+        work: '仕事',
+        record: '記録',
+        writing: '執筆',
+        mine: '自分のテンプレート'
+      },
+      save: {
+        entry: 'テンプレートとして保存',
+        title: 'テンプレートとして保存',
+        name: '名前',
+        namePlaceholder: 'テンプレートに名前を付けてください',
+        description: '説明（任意）',
+        descriptionPlaceholder: 'このテンプレートの用途を書きます',
+        assetHint: '画像と添付ファイルはコピーされません。後からドキュメントを編集してもこのテンプレートには影響しません。',
+        quota: '{left} / {total} 保存済み',
+        quotaFull: '上限に達しました',
+        confirm: '保存',
+        cancel: 'キャンセル',
+        saved: '自分のテンプレートに保存しました',
+        failed: 'テンプレートの保存に失敗しました',
+        flushFailed: 'ドキュメントの保存が完了していません。しばらくしてから再試行してください。'
+      },
+      builtin: {
+        'meeting-notes': {
+          name: '議事録',
+          description: '会議情報、議題、結論、アクション項目'
+        },
+        'project-brief': {
+          name: 'プロジェクト概要',
+          description: '背景、目標、範囲、マイルストーン、リスク'
+        },
+        'weekly-plan': {
+          name: '週次計画',
+          description: '今週の目標、日別の予定、優先度、振り返り'
+        },
+        okr: {
+          name: 'OKR',
+          description: '目標と 3 つの主要な結果、自信度'
+        },
+        'weekly-report': {
+          name: '週報',
+          description: '今週の完了事項、データ、課題、来週の計画'
+        },
+        'interview-notes': {
+          name: 'インタビュー記録',
+          description: '対象者、質問、洞察、フォロー'
+        },
+        'reading-notes': {
+          name: '読書ノート',
+          description: '書誌、要点、引用、考えたこと'
+        },
+        'article-draft': {
+          name: '記事の下書き',
+          description: '導入、構成、本文、公開前チェック'
+        }
+      }
+    }
   },
   // PMワークステーション：プロジェクト / 計画 / 要件 / バージョン / 機能一覧
   pm: {

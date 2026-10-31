@@ -366,7 +366,524 @@ export default {
     noSessions: 'No conversations yet',
     meetings: 'Meeting Rooms',
     docAssistant: 'Solution Assistant',
-    pm: 'PM Workstation'
+    pm: 'PM Workstation',
+    workbench: 'Workbench'
+  },
+  // Workbench: recents / databases / favorites / trash / item editor / archive
+  workbench: {
+    nav: {
+      title: 'Workbench',
+      beta: 'BETA',
+      recent: 'Recent',
+      databases: 'Databases',
+      favorites: 'Favorites',
+      trash: 'Trash',
+      folders: 'Folders',
+      newFolder: 'New folder',
+      journals: 'Journals'
+    },
+    new: {
+      label: 'New',
+      document: 'New document',
+      canvas: 'New canvas',
+      canvasHint: 'Whiteboard, sticky notes and free layout',
+      database: 'New database',
+      databaseHint: 'Table, board and calendar views',
+      folder: 'New folder',
+      folderHint: 'Organize items inside the workbench'
+    },
+    list: {
+      searchPlaceholder: 'Search by title…',
+      total: '{count} items',
+      loadedAll: 'All items loaded',
+      sortRecent: 'Recently updated',
+      newCanvas: 'New canvas',
+      newDatabase: 'New database',
+      cards: 'Card view',
+      list: 'List view',
+      emptyTitle: 'Nothing here yet',
+      emptyHint: 'Create a canvas or a database. Everything stays in your own space.',
+      emptySearchTitle: 'No matching items',
+      emptySearchHint: 'Try a shorter keyword, or clear the search.',
+      emptyTrashTitle: 'Trash is empty',
+      emptyTrashHint: 'Deleted items stay here for 30 days.',
+      clearSearch: 'Clear search',
+      loadMore: 'Load more',
+      loadFailed: 'Failed to load the workbench, please refresh'
+    },
+    item: {
+      untitled: 'Untitled',
+      open: 'Open',
+      rename: 'Rename',
+      move: 'Move to folder',
+      pin: 'Pin to a day',
+      favorite: 'Add to favorites',
+      unfavorite: 'Remove from favorites',
+      delete: 'Delete (move to trash)',
+      restore: 'Restore',
+      purge: 'Delete permanently',
+      deleteArchives: 'Also delete archived knowledge',
+      renaming: 'Rename',
+      renameFailed: 'Rename failed',
+      deleteFailed: 'Delete failed',
+      restoreFailed: 'Restore failed',
+      favoriteFailed: 'Failed to update favorite',
+      more: 'More actions'
+    },
+    archive: {
+      status: {
+        none: 'Not archived',
+        processing: 'Knowledge base processing',
+        active: 'Archived',
+        stale: 'Archive out of date',
+        partial: 'Partially archived',
+        source_deleted: 'Source deleted',
+        deleted: 'Archive deleted'
+      },
+      action: {
+        create: 'Archive',
+        update: 'Update archive',
+        retry: 'Retry',
+        recreate: 'Archive again',
+        progress: 'View progress'
+      },
+      deleting: 'Deleting archive…',
+      deleteTitle: 'Delete archive',
+      deleteBody: 'The snapshot in your knowledge base is removed. The source content stays.',
+      deleteConfirm: 'Delete archive'
+    },
+    batchArchive: {
+      barLabel: 'Batch archive',
+      selected: '{count} selected',
+      actionable: '{count} archivable',
+      skipped: '{count} will be skipped',
+      selectAll: 'Select all archivable',
+      archiveSelected: 'Archive selected',
+      cancel: 'Cancel',
+      selectMode: 'Select',
+      exitSelect: 'Exit selection',
+      title: 'Archive {count} items to the work knowledge base',
+      counts: 'First archive {create} · Update {update} · Retry failed {retry} · Re-archive {recreate} · Skip {skip}',
+      target: 'My work knowledge base (private to me)',
+      note: 'Items are processed one by one; a failure does not block the others. Each success enters parsing, chunking and indexing immediately and shows “Processing”.',
+      dropped: 'Only the first 20 items are processed; archive the remaining {count} in another batch.',
+      nothingToDo: 'Everything selected is already archived and up to date.',
+      running: 'Archiving…',
+      start: 'Start archiving',
+      close: 'Close',
+      progress: 'Processed {done} / {total}',
+      summary: '{archived} succeeded · {failed} failed · {skipped} skipped',
+      noRollback: 'Archived items are not rolled back; failed items can be retried separately.',
+      retryFailed: 'Retry failed',
+      status: {
+        archived: 'Archived',
+        failed: 'Failed',
+        skipped: 'Skipped'
+      },
+      reason: {
+        conflict: 'Source content changed, please retry',
+        too_large: 'Content is too large to archive',
+        quota: 'Work knowledge base quota exceeded',
+        forbidden: 'Not allowed to archive this item',
+        network: 'Network timeout, please retry',
+        not_ready: 'Draft is not saved yet',
+        changed: 'Archive baseline has changed',
+        up_to_date: 'Already up to date'
+      }
+    },
+    editor: {
+      back: 'Back to workbench',
+      loading: 'Loading canvas…',
+      loadFailed: 'Failed to load the canvas',
+      notFound: 'Item not found or already deleted',
+      saveIdle: 'Saved',
+      savePending: 'Pending',
+      saveSaving: 'Saving…',
+      saveSaved: 'Saved',
+      saveError: 'Save failed',
+      untitled: 'Untitled',
+      addIcon: 'Add icon',
+      addIconHint: 'Enter an emoji as the item icon (leave empty to clear)',
+      docInfo: {
+        updated: 'Updated {time}',
+        words: '{count} characters',
+        private: 'Only you can see this'
+      }
+    },
+    version: {
+      title: 'Version history',
+      empty: 'No versions yet',
+      restore: 'Restore this version',
+      current: 'Current version',
+      restored: 'Version restored',
+      restoreFailed: 'Restore failed, please retry',
+      conflict: 'Content changed in another tab. Reload before restoring.'
+    },
+    journals: {
+      back: 'Back to workbench',
+      dateNav: 'Journal date navigation',
+      prevWeek: 'Previous seven days',
+      nextWeek: 'Next seven days',
+      today: 'Today',
+      weekday: {
+        sun: 'Sun',
+        mon: 'Mon',
+        tue: 'Tue',
+        wed: 'Wed',
+        thu: 'Thu',
+        fri: 'Fri',
+        sat: 'Sat'
+      },
+      monthGrid: 'Journals calendar',
+      panelTitle: 'Journals calendar',
+      prevMonth: 'Previous month',
+      nextMonth: 'Next month',
+      monthLabel: '{month}/{year}',
+      dateLabel: '{month}/{day}',
+      itemCount: '{count} journal(s)',
+      monthCount: '{count} this month',
+      dayCount: '{count} on this day',
+      selectedDay: '{date} · {count}',
+      truncated: '{count} loaded',
+      legendTitle: 'Archive status legend',
+      togglePanel: 'Show or hide the Journals calendar',
+      emptyDay: 'No journal on this day yet.',
+      emptyTitle: 'No journal on this day',
+      emptyHint: 'You do not need to create every day in advance — start when you have something to record.',
+      pickOne: '{count} journals on this day',
+      pickHint: 'Pick one from the list to view its document and canvas.',
+      new: 'New journal',
+      newHint: 'Created on the selected day · document and canvas share one content',
+      retry: 'Retry',
+      modeSwitch: 'Editor mode',
+      mode: {
+        page: 'Document',
+        edgeless: 'Canvas'
+      },
+      flushFailed: 'Draft not saved yet, staying on the previous day',
+      createFailed: 'Failed to create journal',
+      moveFailed: 'Reschedule failed, date restored'
+    },
+    notice: {
+      gotIt: 'Got it',
+      readAll: 'Mark all read',
+      counts: '{items} canvases/databases, {docs} documents, {knowledge} knowledge items',
+      removed: 'You left this workspace. {counts} are kept for 30 days.',
+      removedWithDeadline: 'You left this workspace. {counts} are kept until {deadline}.',
+      restored: 'You rejoined the workspace. {counts} are restored.',
+      cleanup: '{counts} will be permanently deleted in 7 days; rejoining restores them.',
+      archiveFailed: 'Auto archive failed. Open the document to archive it manually.'
+    },
+    leave: {
+      title: 'Leave workspace',
+      confirm: 'Leave workspace',
+      cancel: 'Cancel',
+      counts: 'You will lose access to {kb} work knowledge base(s), {knowledge} knowledge item(s), {items} canvas/database item(s) and {docs} document(s)',
+      retention: 'Data is kept for {days} days. Rejoining this workspace within {days} days restores it; after that it is permanently deleted.',
+      noTransfer: 'Nothing is transferred to admins or other members.',
+      fallback: 'After leaving you will lose access to this workspace\'s private work data. Rejoining within 30 days restores it.',
+      exportLabel: 'Optional exports:',
+      exportDocs: 'Documents',
+      exportOptional: 'Exporting is optional — you can leave right away.'
+    },
+    docs: {
+      title: 'Documents',
+      subtitle: 'Produced by the work knowledge base; only archived ones enter search.',
+      entry: 'Documents · {count}',
+      backToKb: 'Back to work knowledge base',
+      generate: 'Generate document',
+      open: 'Open',
+      loadFailed: 'Failed to load documents',
+      noVersion: 'This task has no finished document yet',
+      emptyTitle: 'No documents in the work knowledge base yet',
+      emptyHint: 'Generate one and it will show up here, ready to be archived into the knowledge base.',
+      columns: {
+        title: 'Title / theme',
+        status: 'Status',
+        updatedAt: 'Updated',
+        archive: 'Archive',
+        op: 'Actions'
+      },
+      status: {
+        pending: 'Pending',
+        running: 'Generating',
+        success: 'Completed',
+        partial_success: 'Partially completed',
+        failed: 'Failed',
+        cancelled: 'Cancelled'
+      }
+    },
+    pageAi: {
+      menuLabel: 'Page AI actions',
+      group: {
+        review: 'Review text',
+        edit: 'Edit text',
+        generate: 'Generate from text',
+        draft: 'Draft text',
+        other: 'Other'
+      },
+      action: {
+        spelling: 'Fix spelling',
+        grammar: 'Fix grammar',
+        explain: 'Explain selection',
+        translate: 'Translate to · {value}',
+        tone: 'Change tone · {value}',
+        polish: 'Improve writing',
+        expand: 'Expand',
+        shorten: 'Shorten',
+        continue: 'Continue writing',
+        summarize: 'Summarize',
+        headings: 'Suggest headings',
+        outline: 'Generate outline',
+        extractActions: 'Extract action items',
+        brainstorm: 'Brainstorm ideas',
+        article: 'Draft an article',
+        tweet: 'Draft a post',
+        poem: 'Draft a poem',
+        blog: 'Draft a blog intro',
+        chat: 'Continue in AI chat'
+      },
+      submenu: {
+        translate: 'Translate to',
+        tone: 'Change tone'
+      },
+      bar: {
+        ai: 'AI',
+        more: 'More',
+        ask: 'Ask AI',
+        selected: '{count} characters selected'
+      },
+      preview: {
+        title: 'Preview',
+        meta: 'Based on the selection',
+        replace: 'Replace selection',
+        insertBelow: 'Insert below',
+        copy: 'Copy',
+        retry: 'Regenerate',
+        cancel: 'Cancel',
+        copyDone: 'Copied',
+        explainOnly: 'Explanations are shown only and never written to the document'
+      },
+      state: {
+        generating: 'Generating…',
+        directWrite: 'Written directly per your setting',
+        applied: 'Written · undo to revert',
+        selectionChanged: 'The selection changed. Please regenerate.',
+        blockMissing: 'The target text no longer exists; preview closed',
+        itemChanged: 'The item changed; preview discarded',
+        tooLong: 'The selection exceeds 8000 characters. Please process it in parts.',
+        noModel: 'No chat model is available. Add one in model settings first.',
+        streamBroken: 'Generation was interrupted. Partial output kept; you can regenerate.',
+        disabled: 'Workbench AI is turned off',
+        disabledHint: 'Turn it on to ask questions, work on this page, and insert results after confirming.',
+        goSettings: 'Open workbench AI settings',
+        needSelection: 'Select some text first',
+        codeBlockHint: 'Inside a code block only "Explain selection" is available'
+      },
+      slash: {
+        title: 'Commands · type / to insert',
+        foot: 'Commands only fill the input box; nothing is sent automatically',
+        summarize: 'Summarize page',
+        summarizeHint: 'Extract 3–5 key points',
+        outline: 'Generate outline',
+        outlineHint: 'Organize this page by heading levels',
+        extractActions: 'Extract action items',
+        extractActionsHint: 'Pull owners and due dates',
+        translate: 'Translate page',
+        translateHint: 'Translate this page or the selection',
+        explain: 'Explain selection',
+        explainHint: 'Explain meaning, structure and usage',
+        askKb: 'Search work knowledge base',
+        askKbHint: 'Only searches content you can access',
+        targetLang: 'Target language: {lang}',
+        insertToPage: 'Insert into page',
+        empty: 'No matching command'
+      },
+      panel: {
+        title: 'Workbench AI',
+        context: 'This page · {count} characters',
+        close: 'Close AI panel',
+        placeholder: 'Ask a follow-up, or type / for commands…',
+        send: 'Send',
+        disclaimer: 'AI only reads content you can access · it never writes to the knowledge base on its own',
+        pageTooLong: 'This page exceeds 8000 characters. Select the part you want to process.',
+        askFailed: 'Question failed. Please try again later.'
+      }
+    },
+    settings: {
+      title: 'Workbench settings',
+      subtitle: 'These are personal preferences. They are stored on this device only.',
+      open: 'Open workbench settings',
+      storageNote: 'Preferences live in this browser. Clearing browser data restores the defaults; existing documents and archives are unaffected.',
+      resetEditor: 'Restore defaults (editor)',
+      resetAI: 'Restore defaults (workbench AI)',
+      resetDone: 'Defaults restored',
+      tab: {
+        editor: 'Editor',
+        ai: 'Workbench AI'
+      },
+      editor: {
+        text: 'Font and page',
+        create: 'New items',
+        canvas: 'Infinite canvas',
+        note: 'New note style',
+        fontFamily: 'Font',
+        fontSize: 'Font size',
+        pageWidth: 'Page width',
+        showDocInfo: 'Show document info',
+        codeLineNumbers: 'Show line numbers in code blocks',
+        defaultCreateMode: 'Default new item type',
+        createModeHint: 'Applies only to new regular items. Journals are always created as documents.',
+        autoNameWithDate: 'Name with the current date',
+        autoNameHint: 'An empty title uses this device’s date. It does not create a Journal or appear in the Journals calendar.',
+        showAddIcon: 'Show "Add icon" entry',
+        canvasScheme: 'Canvas scheme',
+        scrollZoom: 'Scroll wheel zooms directly',
+        scrollZoomHint: 'When off, the wheel pans and Ctrl/⌘ + wheel zooms; trackpad pinch always zooms.',
+        noteBackground: 'Note background',
+        noteRadius: 'Note corners',
+        noteShadow: 'Note shadow',
+        noteBorderStyle: 'Note border',
+        noteBorderWidth: 'Border width',
+        borderWidthDisabled: 'Width has no effect without a border, but the last value is kept.'
+      },
+      fontFamily: {
+        default: 'Default',
+        serif: 'Serif',
+        mono: 'Monospace'
+      },
+      pageWidth: {
+        standard: 'Standard',
+        wide: 'Full width'
+      },
+      createMode: {
+        page: 'Page',
+        edgeless: 'Infinite canvas'
+      },
+      canvasScheme: {
+        app: 'Follow the current app',
+        plain: 'Plain white, no grid',
+        contrast: 'High-contrast grid'
+      },
+      noteBackground: {
+        white: 'White',
+        cream: 'Cream',
+        transparent: 'Transparent'
+      },
+      noteRadius: {
+        none: 'None',
+        sm: 'Small 4px',
+        md: 'Medium 8px',
+        lg: 'Large 12px'
+      },
+      noteShadow: {
+        none: 'None',
+        box: 'Box',
+        soft: 'Soft'
+      },
+      noteBorderStyle: {
+        solid: 'Solid',
+        dashed: 'Dashed',
+        none: 'No border'
+      },
+      ai: {
+        general: 'Workbench AI',
+        agent: 'Default agent',
+        enabled: 'Enable workbench AI',
+        enabledHint: 'Turning this off hides the sidebar, inline page AI and canvas AI entries. Editing, archiving and submitted tasks are unaffected.',
+        citations: 'Show source citations in answers',
+        confirmInsert: 'Preview before writing',
+        confirmInsertHint: 'When off, results are written directly but can still be undone in one step.',
+        builtin: 'Built-in',
+        mine: 'Created by me',
+        notReady: 'Model unavailable, configure a model first',
+        noAgents: 'No agents available',
+        manageAgents: 'Manage agents',
+        dataScope: 'Data scope: the current item plus your private work knowledge base. Administrators and members cannot see it.',
+        fallback: 'The selected agent is unavailable; switched to the first available one',
+        loadFailed: 'Failed to load agents'
+      }
+    },
+    templates: {
+      title: 'Choose a template',
+      subtitle: 'Start from a template, or create a blank document',
+      close: 'Close template picker',
+      searchPlaceholder: 'Search templates…',
+      use: 'Use',
+      useTemplate: 'Use a template',
+      applying: 'Applying…',
+      loadFailed: 'Template failed to load',
+      retry: 'Retry',
+      noResult: 'No templates found',
+      clearSearch: 'Clear search',
+      applyFailed: 'This template cannot be applied. Start with a blank document.',
+      targetNotEmpty: 'The document already has content, so the template was not applied',
+      entryClosed: 'The document already has content, so the template entry is closed',
+      applied: 'Applied the “{name}” template',
+      startBlank: 'Start with a blank document',
+      footNote: 'Templates are stored in your local workbench and visible only to you',
+      escHint: 'Esc to close',
+      mineEmpty: 'You have no templates yet',
+      mineEmptyHint: 'Open any document and choose “Save as template” from ⋯',
+      mineLoadFailed: 'Failed to load your templates',
+      tab: {
+        recommended: 'Recommended',
+        work: 'Work',
+        record: 'Notes',
+        writing: 'Writing',
+        mine: 'My templates'
+      },
+      save: {
+        entry: 'Save as template',
+        title: 'Save as template',
+        name: 'Name',
+        namePlaceholder: 'Name this template',
+        description: 'Description (optional)',
+        descriptionPlaceholder: 'What is this template for?',
+        assetHint: 'Images and attachments are not copied; later edits to the document do not affect this template.',
+        quota: '{left} of {total} saved',
+        quotaFull: 'Limit reached',
+        confirm: 'Save',
+        cancel: 'Cancel',
+        saved: 'Saved to my templates',
+        failed: 'Failed to save the template',
+        flushFailed: 'The document has not finished saving. Please try again later.'
+      },
+      builtin: {
+        'meeting-notes': {
+          name: 'Meeting notes',
+          description: 'Meeting info, agenda, decisions and action items'
+        },
+        'project-brief': {
+          name: 'Project brief',
+          description: 'Background, goals, scope, milestones and risks'
+        },
+        'weekly-plan': {
+          name: 'Weekly plan',
+          description: 'Goals, daily plan, priorities and Friday review'
+        },
+        okr: {
+          name: 'OKR',
+          description: 'One objective with three key results and confidence'
+        },
+        'weekly-report': {
+          name: 'Weekly report',
+          description: 'What shipped, metrics, issues and next week'
+        },
+        'interview-notes': {
+          name: 'Interview notes',
+          description: 'Interviewee, questions, insights and follow-ups'
+        },
+        'reading-notes': {
+          name: 'Reading notes',
+          description: 'Book, key points, quotes and your thoughts'
+        },
+        'article-draft': {
+          name: 'Article draft',
+          description: 'Lead, outline, body and publish checklist'
+        }
+      }
+    }
   },
   // PM 工作站：项目 / 规划 / 需求 / 版本 / 功能清单
   pm: {

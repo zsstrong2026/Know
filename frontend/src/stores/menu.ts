@@ -31,6 +31,9 @@ export const useMenuStore = defineStore('menuStore', () => {
       children: createMenuChildren()
     },
     { title: '', titleKey: 'menu.knowledgeBase', icon: 'zhishiku', path: 'knowledge-bases' },
+    // 工作台：个人私有的画布/数据库/日历。入口靠后端 workbench 路由自身鉴权，
+    // 不做能力位过滤（P1 不引入 workbench_enabled 开关）。
+    { title: '', titleKey: 'menu.workbench', icon: 'workbench', path: 'workbench' },
     { title: '', titleKey: 'menu.docAssistant', icon: 'doc-assistant', path: 'doc-assistant' },
     // Artifacts only exist where skills run in a sandbox.
     { title: '', titleKey: 'menu.artifacts', icon: 'artifact', path: 'artifacts', requiredCapability: 'settings.sandbox' },
