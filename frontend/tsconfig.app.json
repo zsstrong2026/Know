@@ -6,7 +6,14 @@
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["vite/client"],
-
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "experimentalDecorators": false,
+    "emitDecoratorMetadata": false,
+    "skipLibCheck": true,
+    // @/* 别名原本由 tsconfig.blocksuite.json 提供；该文件把 @blocksuite/* 指向 third_party 源码，
+    // 会让 vue-tsc 去检查无法独立通过 TS6 检查的上游源码。spike 阶段改为模块 shim，
+    // 见 src/types/blocksuite-shim.d.ts。
     "paths": {
       "@/*": ["./src/*"]
     }
