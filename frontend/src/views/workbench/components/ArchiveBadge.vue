@@ -119,6 +119,8 @@ const ariaLabel = computed(() => {
 .chip-action {
   margin-left: auto;
   font-size: var(--app-text-2xs);
+  /* 全局 button 兜底会重置 padding/line-height，这里显式给出与徽标一致的行高 */
+  line-height: 19px;
   color: var(--td-text-color-placeholder);
   text-decoration: underline;
   text-underline-offset: 2px;

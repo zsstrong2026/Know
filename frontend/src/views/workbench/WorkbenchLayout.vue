@@ -32,6 +32,8 @@ import WorkbenchNav from './components/WorkbenchNav.vue'
 import WorkbenchNoticeBanner from './components/WorkbenchNoticeBanner.vue'
 import { useWorkbenchStore } from '@/stores/workbench'
 import { useWorkbenchPrefs } from '@/workbench/use-workbench-prefs'
+// 原生 button 兜底外观：组件内 scoped 写不出 0 优先级规则，见文件头注释
+import './workbench-buttons.css'
 
 const route = useRoute()
 const { t } = useI18n()

@@ -1,0 +1,28 @@
+/**
+ * 工作台原生 <button> 外观重置。
+ *
+ * 为什么需要：TDesign 只重置了 `.t-button`，工作台里自绘的按钮（导航齿轮、
+ * 「新建」、日历箭头、卡片「…」与「归档」、设置页标签等 20 多处）直接使用
+ * 原生 <button>，于是露出浏览器默认外观——2px outset 黑边、#f0f0f0 背景、
+ * Arial 字体、1px 6px 内边距，在视觉上表现为一圈突兀的黑框。
+ *
+ * 为什么写成全局文件而不是组件内 scoped：
+ *   在 scoped 里写 `:deep(:where(button))` 会被编译成 `.workbench-shell[data-v-x] button`，
+ *   优先级被抬到 (0,2,1)，反而盖掉各组件自己的 `.wb-new`、`.ws-tabs button` 等规则。
+ *   这里用 `:where()` 把所有选择器压到 0 优先级（(0,0,0)），
+ *   组件样式无论权重多低都能稳定覆盖，兜底值只负责清掉浏览器默认外观。
+ *
+ * 只作用于工作台根节点，不影响站内其它页面。
+ */
+:where(.workbench-shell) :where(button:not(.t-button)) {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  line-height: inherit;
+  color: inherit;
+  cursor: pointer;
+}
