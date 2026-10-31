@@ -206,14 +206,52 @@ export default defineConfig(({ command, mode }) => {
               || dep.includes('fonts-')
             ))
           }
-          return deps
+          // 主应用只预加载真正首屏需要的依赖。
+          // vendor-blocksuite 是 6MB 级的编辑器包，只有 workbenchItem 路由才会用到；
+          // 若在这里放行，index.html 会 modulepreload 它，首页凭空多背一份 gzip 1.7MB。
+          // 编辑器路由自己的 chunk 仍会按需加载，不受影响。
+          return deps.filter((dep) => !(
+            dep.includes('vendor-blocksuite')
+            || dep.includes('vendor-mermaid')
+            || dep.includes('vendor-highlight')
+          ))
         },
       },
       rollupOptions: {
         // spike 构建只产出编辑器入口；dev 三个入口都可访问；默认构建只产出首页与 embed
         input: buildInput,
         output: {
+          // Rollup 默认会把「依赖的依赖」提升到每个 chunk 头部（hoistTransitiveImports）。
+          // 我们按 vendor 拆分后，这条规则会向几乎所有 chunk 注入
+          // `import "./vendor-blocksuite-xxx.js"` 这类纯副作用语句，
+          // 结果首页只打开工作台列表也要下载 6MB 编辑器包。
+          // 关掉后每个 chunk 只保留自己真正用到的依赖，加载顺序仍由 ESM 图决定。
+          hoistTransitiveImports: false,
           manualChunks(id) {
+            // 共享的 node_modules 小包必须先于下面的 vendor 规则判定：
+            // 否则 Rollup 会把同时被主包与 BlockSuite 引用的依赖归进
+            // vendor-blocksuite，主包为了其中一个导出就要先下载 6MB 编辑器包。
+            if (id.includes('node_modules/setimmediate/')) return 'vendor-polyfill'
+            // jszip 被 docx-preview / @vue-office/pptx 与 BlockSuite 共用。
+            if (id.includes('node_modules/jszip/') || id.includes('node_modules/fflate/')) {
+              return 'vendor-zip'
+            }
+            // dayjs 是 TDesign 的日期基础库：主包的语言包与 BlockSuite 都在用。
+            if (/node_modules[\\/]dayjs[\\/]/.test(id)) return 'vendor-dayjs'
+            // Babel 的 typeof / interop 等运行时 helper（node_modules 内的 tslib 与
+            // @babel/runtime）同样被两侧共用，单独成块避免把主包拖进编辑器包。
+            if (/node_modules[\\/](@babel[\\/]runtime|tslib)[\\/]/.test(id)) return 'vendor-helper'
+            // Vite 注入的 __vitePreload 辅助模块：所有带动态 import 的 chunk 都会引用它。
+            // 若不单独成块，Rollup 会把它并进先出现的 vendor-mermaid，
+            // 于是主入口为了这个几行的 helper 静态引入整包 mermaid。
+            if (id.includes('vite/preload-helper')) return 'vendor-preload'
+            // lodash-es 同时被 mermaid 与 TDesign（表单向导、树选择等）引用。
+            // 不单独成块时会被并入 vendor-mermaid，导致首屏的 TDesign 静态引入
+            // 整包 mermaid（2.8MB）。这里只按需加载 lodash 本身（约 25KB gzip）。
+            if (/node_modules[\\/]lodash-es[\\/]/.test(id)) return 'vendor-lodash'
+            // dompurify 被 mermaid（SVG 清洗）与 TDesign（富文本渲染）共用。
+            // 不单独成块时会并入 vendor-mermaid，首屏 TDesign 因此多背上整包 mermaid。
+            if (/node_modules[\\/]dompurify[\\/]/.test(id)) return 'vendor-dompurify'
             // 只把 vendored BlockSuite 单独成块，避免和 node_modules 供应商混在一个大包里。
             // 首页构建里根本不存在 third_party，因此该分支不会污染首页产物；
             // spike 构建是独立 graph，也不存在跨 entry 的循环 chunk。

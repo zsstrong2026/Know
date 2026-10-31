@@ -562,13 +562,19 @@ router.beforeEach(async (to, from, next) => {
 
   // 部署能力只描述“后端是否提供该功能”，不反映服务健康或是否已配置。
   // 探测失败时 Store 会 fail-open，真正的权限和可用性仍由后端接口校验。
-  const deploymentCapabilities = useDeploymentCapabilitiesStore()
-  await deploymentCapabilities.ensureLoaded()
+  //
+  // 只有目标路由真的声明了 requiredCapability 才去拉取：绝大多数路由（含整个
+  // 工作台）并不需要这份数据，无条件 await 会让每次导航多等一个往返，
+  // 首屏表现为整段空白。
   const requiredCapability = to.meta.requiredCapability as DeploymentCapabilityKey | undefined
-  if (requiredCapability && !deploymentCapabilities.isSupported(requiredCapability)) {
-    MessagePlugin.warning(i18n.global.t('settings.capabilityUnavailable'))
-    next('/platform/knowledge-bases')
-    return
+  if (requiredCapability) {
+    const deploymentCapabilities = useDeploymentCapabilitiesStore()
+    await deploymentCapabilities.ensureLoaded()
+    if (!deploymentCapabilities.isSupported(requiredCapability)) {
+      MessagePlugin.warning(i18n.global.t('settings.capabilityUnavailable'))
+      next('/platform/knowledge-bases')
+      return
+    }
   }
 
   // SystemAdmin gate — checked AFTER auth so a non-admin who's logged

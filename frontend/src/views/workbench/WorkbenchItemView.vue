@@ -140,7 +140,6 @@ import { createPageAIAdapter, type PageAIAdapterOptions } from '@/workbench/ai/e
 import { useWorkbenchPrefs } from '@/workbench/use-workbench-prefs'
 import { useWorkbenchStore } from '@/stores/workbench'
 import { type ArchiveBadgeAction } from '@/workbench/archive-status'
-import { replaceAssetBlocks } from '@/workbench/editor/blocksuite'
 import { shouldAdoptTemplateTitle, type PreparedTemplateSnapshot } from '@/workbench/templates/apply'
 import type { TemplateCardItem } from '@/workbench/templates/picker'
 import type { ArchiveStatus, WorkbenchItem } from '@/types/workbench'
@@ -328,6 +327,9 @@ function openTemplatePicker() {
  * **不 force**，绝不覆盖用户内容。
  */
 async function onTemplateApply(snapshot: PreparedTemplateSnapshot, card: TemplateCardItem) {
+  // 动态 import：静态 import blocksuite 会让整个 BlockSuite 模块图在组件解析阶段
+  // 就必须加载完，把「打开文档」的首屏时间拖到十几秒。只有真正套用模板时才需要它。
+  const { replaceAssetBlocks } = await import('@/workbench/editor/blocksuite')
   const { bytes } = replaceAssetBlocks(snapshot.bytes)
   try {
     await session.mountFromTemplate({
@@ -519,6 +521,9 @@ async function restoreVersion(version: number) {
 }
 
 onMounted(async () => {
+  // 归档状态与条目元数据互不依赖：并行发起，避免把它夹在两次 await 之间
+  // 白等一个往返。refreshArchiveState 自己吞掉错误，也不会抛，这里直接丢弃句柄。
+  void refreshArchiveState()
   try {
     const loaded = await getWorkbenchItem(itemId.value)
     item.value = loaded
@@ -528,7 +533,6 @@ onMounted(async () => {
     loadError.value = workbenchErrorCode(error) === WORKBENCH_ERROR.notFound ? 'notFound' : 'failed'
     return
   }
-  await refreshArchiveState()
 
   // 模板入口：只有 ?template=1 且文档仍为空时才显示选择器（§9.16.2）。
   // 开关关闭时直接当作普通文档打开，不查也不弹。

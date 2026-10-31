@@ -142,8 +142,13 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
     queue?.dispose()
     queue = null
     // 动态 import：只有真正打开内容时才加载 BlockSuite，首屏不背这份体积。
-    const { mountEditor } = await import('./blocksuite')
-    const content = await getWorkbenchContent(itemId.value)
+    // 模块图与内容请求互不依赖，并行发起：整体节省一个串行往返。
+    // 模块加载是这里最贵的一段（vendored 源码有上千个模块），不能排在请求后面。
+    const [bs, content] = await Promise.all([
+      import('./blocksuite'),
+      getWorkbenchContent(itemId.value),
+    ])
+    const { mountEditor } = bs
     baseVersion.value = content.snapshot_version
     const snapshot =
       overrideSnapshot !== undefined
