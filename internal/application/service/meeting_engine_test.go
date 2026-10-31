@@ -460,7 +460,7 @@ func TestRunTurnGuardTriggersHostConvergence(t *testing.T) {
 		{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "触发"},
 	}
 	e, repo := newGuardEngineFixture(t, "room-g", preset)
-	e.roomRepo = &fakeGuardRoomRepoForTurn{}          // GuardMaxExchange=3
+	e.roomRepo = &fakeGuardRoomRepoForTurn{}           // GuardMaxExchange=3
 	e.participantRepo = &fakeTwoAgentParticipantRepo{} // 甲/乙
 	e.agentRepo = &fakeTwoAgentRepoForTurn{}
 	// 每个智能体都 @ 对方 → 每轮都产生新提及 → 子轮持续到硬上限（3 轮 × 2 人 = 6 条）

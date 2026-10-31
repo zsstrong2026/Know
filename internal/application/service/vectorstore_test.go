@@ -866,6 +866,10 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     is_temporary BOOLEAN NOT NULL DEFAULT 0,
     is_pinned INTEGER NOT NULL DEFAULT 0,
     pinned_at DATETIME NULL,
+    -- 000136 迁移新增：系统 KB 标记与私有可见性
+    is_system BOOLEAN NOT NULL DEFAULT 0,
+    system_key VARCHAR(64),
+    visibility VARCHAR(16) NOT NULL DEFAULT 'workspace',
     asr_config TEXT,
 		vector_store_id VARCHAR(36),
 		storage_backend_id VARCHAR(36),
@@ -935,6 +939,13 @@ func (r *realStoreRepo) ExistsByEndpointAndIndex(_ context.Context, _ uint64, _ 
 // realKBRepo is the minimal KnowledgeBaseRepository slice required by the
 // vector-store service (only CountByVectorStoreID is exercised here).
 type realKBRepo struct{ db *gorm.DB }
+
+// GetWorkKnowledgeBase 满足仓储接口新增方法；本文件不涉及工作库。
+func (r *realKBRepo) GetWorkKnowledgeBase(
+	context.Context, uint64, string,
+) (*types.KnowledgeBase, error) {
+	return nil, nil
+}
 
 func (r *realKBRepo) UpdateKnowledgeBaseGeneratedProfile(
 	ctx context.Context, id string, profile *types.KnowledgeBaseProfile,

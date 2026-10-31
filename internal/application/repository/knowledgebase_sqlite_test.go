@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     is_temporary BOOLEAN NOT NULL DEFAULT 0,
     is_pinned INTEGER NOT NULL DEFAULT 0,
     pinned_at DATETIME NULL,
+    -- 000136 迁移新增：系统 KB 标记与私有可见性，模型字段要求这三列存在
+    is_system BOOLEAN NOT NULL DEFAULT 0,
+    system_key VARCHAR(64),
+    visibility VARCHAR(16) NOT NULL DEFAULT 'workspace',
     asr_config TEXT,
     vector_store_id VARCHAR(36),
     storage_backend_id VARCHAR(36),

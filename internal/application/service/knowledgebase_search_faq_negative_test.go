@@ -63,6 +63,11 @@ func TestApplyFAQPostProcessingFiltersNegativeQuestionsAcrossScope(t *testing.T)
 	s := &knowledgeBaseService{
 		chunkRepo:      repo,
 		kbShareService: &fakeKBShareService{allowedKBs: map[string]bool{"kb-shared-faq": true}},
+		// 可见性判定需要按 id 取 KB；三个 KB 都是 workspace 可见，
+		// 其中 kb-shared-faq 属于 tenant 2（跨租户共享场景）。
+		repo: visibilityKBRepo{kbTenants: map[string]uint64{
+			"kb-doc": 1, "kb-faq": 1, "kb-shared-faq": 2,
+		}},
 	}
 	docKB := &types.KnowledgeBase{ID: "kb-doc", TenantID: 1, Type: types.KnowledgeBaseTypeDocument}
 	scope := []*types.KnowledgeBase{

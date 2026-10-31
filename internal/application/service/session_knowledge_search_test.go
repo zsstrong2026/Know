@@ -35,6 +35,13 @@ func (s *searchKBService) GetKnowledgeBasesByIDsOnly(_ context.Context, ids []st
 	return kbs, nil
 }
 
+// GetKnowledgeBaseByID 让替身满足可见性判定：这些都是 tenant 1 的 workspace KB。
+func (s *searchKBService) GetKnowledgeBaseByID(
+	_ context.Context, id string,
+) (*types.KnowledgeBase, error) {
+	return &types.KnowledgeBase{ID: id, TenantID: 1, Visibility: types.KBVisibilityWorkspace}, nil
+}
+
 // fakeRetrieval stands in for CHUNK_SEARCH and CHUNK_MERGE: it records the
 // pipeline request it saw and serves canned retrieval results.
 type fakeRetrieval struct {

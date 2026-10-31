@@ -25,6 +25,13 @@ func (s *stubKBRepoForModelDelete) UpdateKnowledgeBaseGeneratedProfile(
 	return nil
 }
 
+// GetWorkKnowledgeBase 满足仓储接口新增方法；模型删除用例不涉及工作库。
+func (s *stubKBRepoForModelDelete) GetWorkKnowledgeBase(
+	context.Context, uint64, string,
+) (*types.KnowledgeBase, error) {
+	return nil, nil
+}
+
 func (s *stubKBRepoForModelDelete) CreateKnowledgeBase(context.Context, *types.KnowledgeBase) error {
 	return nil
 }

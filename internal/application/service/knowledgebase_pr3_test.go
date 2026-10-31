@@ -91,6 +91,19 @@ func (r *fakeKBRepo) UpdateKnowledgeBaseGeneratedProfile(
 
 func newFakeKBRepo() *fakeKBRepo { return &fakeKBRepo{rows: map[string]*types.KnowledgeBase{}} }
 
+// GetWorkKnowledgeBase 满足仓储接口新增方法。本文件用例不涉及工作库，
+// 按行查找即可；找不到时返回 (nil, nil) 表示不存在。
+func (r *fakeKBRepo) GetWorkKnowledgeBase(
+	_ context.Context, tenantID uint64, userID string,
+) (*types.KnowledgeBase, error) {
+	for _, kb := range r.rows {
+		if kb.TenantID == tenantID && kb.CreatorID == userID && kb.SystemKey == types.KBSystemKeyWork {
+			return kb, nil
+		}
+	}
+	return nil, nil
+}
+
 func (r *fakeKBRepo) CreateKnowledgeBase(_ context.Context, kb *types.KnowledgeBase) error {
 	if r.createErr != nil {
 		return r.createErr

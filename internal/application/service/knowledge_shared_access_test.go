@@ -100,6 +100,9 @@ func newKnowledgeSharedAccessService(t *testing.T, kbShare interfaces.KBShareSer
 	return &knowledgeService{
 		repo:           repo,
 		kbShareService: kbShare,
+		// 可见性判定改为按 id 加载 KB；测试里全部当作 workspace KB，
+		// 否则 Check 会因为 lookup 为 nil 而一律拒绝。
+		kbService: staticKBService{lookup: staticKBLookup(nil)},
 	}, db
 }
 
@@ -207,22 +210,62 @@ func TestGetKnowledgeBatchWithSharedAccessChecksEachKBOnceAndRechecksNextRequest
 	require.Equal(t, 2, shares.calls)
 }
 
+// staticKBLookup 是 KBVisibilityLookup 的测试替身：按 id 返回预置的 KB，
+// 未预置的 id 视为 tenant 2 的 workspace KB（保持既有断言语义）。
+// 内嵌 interfaces.KnowledgeBaseService 以便直接赋给 knowledgeService.kbService。
+type staticKBLookup map[string]*types.KnowledgeBase
+
+func (l staticKBLookup) GetKnowledgeBaseByID(
+	_ context.Context, id string,
+) (*types.KnowledgeBase, error) {
+	if kb, ok := l[id]; ok {
+		return kb, nil
+	}
+	return &types.KnowledgeBase{ID: id, TenantID: 2, Visibility: types.KBVisibilityWorkspace}, nil
+}
+
+// staticKBService 同时满足 KnowledgeBaseService（内嵌空接口）与 KBVisibilityLookup。
+type staticKBService struct {
+	interfaces.KnowledgeBaseService
+	lookup staticKBLookup
+}
+
+func (s staticKBService) GetKnowledgeBaseByID(
+	ctx context.Context, id string,
+) (*types.KnowledgeBase, error) {
+	return s.lookup.GetKnowledgeBaseByID(ctx, id)
+}
+
+// kbLookupOf 把一批 KB 转成 staticKBLookup，避免测试里手写 map。
+func kbLookupOf(kbs []*types.KnowledgeBase) staticKBLookup {
+	lookup := make(staticKBLookup, len(kbs))
+	for _, kb := range kbs {
+		if kb != nil {
+			lookup[kb.ID] = kb
+		}
+	}
+	return lookup
+}
+
 func TestResolveKBReadTenantPreservesServiceBoundary(t *testing.T) {
 	kb := &types.KnowledgeBase{ID: "kb", TenantID: 2}
 	shares := &fakeKBShareService{allowedKBs: map[string]bool{"kb": true}}
-	tenant, err := resolveKBReadTenant(newSharedAccessContext(), kb, shares)
+	// 可见性判定用最小替身：把 "kb" 视为 tenant 2 的 workspace KB。
+	kbs := staticKBLookup{"kb": kb}
+	tenant, err := resolveKBReadTenant(newSharedAccessContext(), kb, shares, kbs)
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), tenant)
 	_, err = resolveKBReadTenant(
 		context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1)),
 		kb,
 		shares,
+		kbs,
 	)
 	require.Error(t, err, "direct cross-tenant calls still require a user identity")
-	_, err = resolveKBReadTenant(newSharedAccessContext(), kb, nil)
+	_, err = resolveKBReadTenant(newSharedAccessContext(), kb, nil, kbs)
 	require.Error(t, err, "a missing share service cannot grant access")
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(2))
-	tenant, err = resolveKBReadTenant(ctx, kb, nil)
+	tenant, err = resolveKBReadTenant(ctx, kb, nil, kbs)
 	require.NoError(t, err, "a service execution context already scoped to the KB remains usable")
 	require.Equal(t, uint64(2), tenant)
 }

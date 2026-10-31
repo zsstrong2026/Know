@@ -14,6 +14,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/application/access"
 	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/application/service"
+	workbenchservice "github.com/Tencent/WeKnora/internal/application/service/workbench"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/filetransport"
@@ -41,6 +42,13 @@ type KnowledgeHandler struct {
 	asynqClient       interfaces.TaskEnqueuer
 	spanRepo          repository.KnowledgeSpanRepository
 	backlog           backlogProbe
+	// workbench 只用于清空工作知识库时同步归档映射；可为 nil（测试与精简装配）。
+	workbench workbenchArchiveMarker
+}
+
+// workbenchArchiveMarker 是清空工作 KB 后同步归档映射的最小依赖面。
+type workbenchArchiveMarker interface {
+	MarkAllDeletedForKB(ctx context.Context, kbID string) (int64, error)
 }
 
 // backlogProbe tells a backlogged document (work still queued) from a stuck
@@ -97,10 +105,16 @@ func NewKnowledgeHandler(
 	asynqClient interfaces.TaskEnqueuer,
 	spanRepo repository.KnowledgeSpanRepository,
 	housekeeping *service.HousekeepingService,
+	workbench *workbenchservice.Service,
 ) *KnowledgeHandler {
 	var backlog backlogProbe
 	if housekeeping != nil {
 		backlog = housekeeping
+	}
+	// *workbenchservice.Service 不实现接口时保持 nil，避免 nil 接口非 nil 值的陷阱。
+	var marker workbenchArchiveMarker
+	if workbench != nil {
+		marker = workbench
 	}
 	return &KnowledgeHandler{
 		backlog:           backlog,
@@ -114,6 +128,7 @@ func NewKnowledgeHandler(
 		userSvc:           userSvc,
 		asynqClient:       asynqClient,
 		spanRepo:          spanRepo,
+		workbench:         marker,
 	}
 }
 
@@ -1964,6 +1979,16 @@ func (h *KnowledgeHandler) ClearKnowledgeBaseContents(c *gin.Context) {
 
 	logger.Infof(ctx, "Knowledge base contents clear task enqueued: %s, kb_id: %s, count: %d",
 		taskID, secutils.SanitizeForLog(kbID), len(knowledgeIDs))
+
+	// 清空的是用户私有工作库时，同步把归档映射标 deleted：
+	// 知识即将被异步删除，映射若留在 active，state 会长时间显示“可检索”。
+	if h.workbench != nil && kb.IsWorkKB() {
+		if _, err := h.workbench.MarkAllDeletedForKB(ctx, kbID); err != nil {
+			// 清空任务已入队，标记失败不回滚；记日志交由对账任务收敛。
+			logger.Warnf(ctx, "Failed to mark workbench archives deleted for kb %s: %v",
+				secutils.SanitizeForLog(kbID), err)
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

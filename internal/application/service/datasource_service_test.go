@@ -133,6 +133,12 @@ func (s *processSyncKBService) DuplicateKnowledgeBase(context.Context, string) (
 	return nil, nil
 }
 func (s *processSyncKBService) GetRepository() interfaces.KnowledgeBaseRepository { return nil }
+func (s *processSyncKBService) EnsureWorkKnowledgeBase(
+	context.Context, uint64, string,
+) (*types.KnowledgeBase, error) {
+	return nil, nil
+}
+func (s *processSyncKBService) PurgeWorkKnowledgeBase(context.Context, string) error { return nil }
 func (s *processSyncKBService) ProcessKBDelete(context.Context, *asynq.Task) error {
 	return nil
 }

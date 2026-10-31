@@ -100,7 +100,7 @@ func TestParseRoadmapDraftBackfillsSubsystem(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "PC端", draft.Subsystem)
 	require.Len(t, draft.Features, 2)
-	assert.Equal(t, "PC端", draft.Features[0].Subsystem)   // 使用批次默认值
+	assert.Equal(t, "PC端", draft.Features[0].Subsystem) // 使用批次默认值
 	assert.Equal(t, "移动端", draft.Features[1].Subsystem) // 行级值不被覆盖
 }
 

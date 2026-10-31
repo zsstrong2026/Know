@@ -112,7 +112,12 @@ func (r sharedChunkFailureRepo) ListChunksByIDOnly(context.Context, []string) ([
 
 func TestSharedChunkReadPropagatesStorageFailure(t *testing.T) {
 	failure := errors.New("shared chunk storage unavailable")
-	svc := &knowledgeBaseService{chunkRepo: sharedChunkFailureRepo{failure: failure}}
+	// 可见性判定要按 id 加载 KB；本用例只验证仓储失败传播，
+	// 仓库在可见性查询之前就已经返回错误，因此给一个最简替身即可。
+	svc := &knowledgeBaseService{
+		chunkRepo: sharedChunkFailureRepo{failure: failure},
+		repo:      visibilityKBRepo{},
+	}
 	rows, err := svc.listChunksByIDWithShared(newSharedAccessContext(), 1, []string{"own", "shared"})
 	require.ErrorIs(t, err, failure)
 	require.Nil(t, rows)

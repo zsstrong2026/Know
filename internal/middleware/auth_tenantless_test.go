@@ -20,8 +20,14 @@ func TestTenantOptionalAPISurface(t *testing.T) {
 		{http.MethodPost, "/api/v1/tenants", true},
 		{http.MethodGet, "/api/v1/me/invitations", true},
 		{http.MethodPost, "/api/v1/me/invitations/12/accept", true},
+		// 用户级工作台通知：被移出最后一个 workspace 后仍要能读（§5.7）。
+		{http.MethodGet, "/api/v1/me/workbench-notices", true},
+		{http.MethodPost, "/api/v1/me/workbench-notices/read-all", true},
+		{http.MethodPost, "/api/v1/me/workbench-notices/n-1/read", true},
 		{http.MethodGet, "/api/v1/knowledge-bases", false},
 		{http.MethodGet, "/api/v1/tenants", false},
+		// 离开预览需要租户统计，不能被放行。
+		{http.MethodGet, "/api/v1/workbench/leave-preview", false},
 	}
 	for _, tt := range tests {
 		if got := isTenantOptionalAPI(tt.path, tt.method); got != tt.want {

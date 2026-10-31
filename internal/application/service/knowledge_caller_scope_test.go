@@ -39,6 +39,27 @@ func TestSharedExecutionFiltersDocumentsChunksAndSearchScope(t *testing.T) {
 		{ID: "private", TenantID: 2},
 		{ID: "onward", TenantID: 3},
 	}
+	// 可见性判定按 id 取 KB，必须让替身返回真实的 tenant，否则 Check 会因
+	// tenant 不一致而拒绝（这正是本次改造要拦住的情况）。
+	svc.kbService = staticKBService{lookup: kbLookupOf(kbs)}
+	// search 自己也是可见性 lookup（kbReadPermissions 传的是 s 本身），
+	// 所以给它一个能真正查到行的仓储。表必须带 deleted_at：
+	// KnowledgeBase 上的 gorm.DeletedAt 会自动追加 `deleted_at IS NULL`。
+	require.NoError(t, db.Exec(`CREATE TABLE IF NOT EXISTS knowledge_bases (
+		id VARCHAR(36) PRIMARY KEY,
+		tenant_id INTEGER NOT NULL,
+		creator_id VARCHAR(36),
+		is_system BOOLEAN NOT NULL DEFAULT 0,
+		system_key VARCHAR(64),
+		visibility VARCHAR(16) NOT NULL DEFAULT 'workspace',
+		deleted_at DATETIME
+	);`).Error)
+	for _, kb := range kbs {
+		require.NoError(t, db.Exec(
+			`INSERT INTO knowledge_bases (id, tenant_id, visibility) VALUES (?, ?, ?)`,
+			kb.ID, kb.TenantID, types.KBVisibilityWorkspace,
+		).Error)
+	}
 	var ids []string
 	for _, kb := range kbs {
 		ids = append(ids, kb.ID)
@@ -60,6 +81,7 @@ func TestSharedExecutionFiltersDocumentsChunksAndSearchScope(t *testing.T) {
 		kgRepo:         svc.repo,
 		chunkRepo:      repository.NewChunkRepository(db),
 		kbShareService: shares,
+		repo:           repository.NewKnowledgeBaseRepository(db),
 	}
 	kbService := &suggestionKBService{kbs: make(map[string]*types.KnowledgeBase)}
 	for _, kb := range kbs {
@@ -111,9 +133,9 @@ func TestSharedExecutionFiltersDocumentsChunksAndSearchScope(t *testing.T) {
 			got = append(got, target.KnowledgeBaseID)
 		}
 		require.ElementsMatch(t, []string{"own", "granted"}, got)
-		_, err = resolveKBReadTenant(ctx, kbs[1], shares)
+		_, err = resolveKBReadTenant(ctx, kbs[1], shares, kbLookupOf(kbs))
 		require.NoError(t, err, "FAQ/tag reads accept the exact upstream grant")
-		_, err = resolveKBReadTenant(ctx, kbs[2], shares)
+		_, err = resolveKBReadTenant(ctx, kbs[2], shares, kbLookupOf(kbs))
 		require.Error(t, err, "FAQ/tag reads cannot access another KB in the execution tenant")
 	}
 	for _, caller := range shares.callers {

@@ -50,6 +50,17 @@ type suggestionKBService struct {
 	kbs map[string]*types.KnowledgeBase
 }
 
+// GetKnowledgeBaseByID 让 suggestionKBService 也能当 KBVisibilityLookup 用：
+// 私有 KB 的可见性判定需要按 id 取到 KB 对象。
+func (s *suggestionKBService) GetKnowledgeBaseByID(
+	_ context.Context, id string,
+) (*types.KnowledgeBase, error) {
+	if kb, ok := s.kbs[id]; ok {
+		return kb, nil
+	}
+	return nil, nil
+}
+
 func (s *suggestionKBService) GetKnowledgeBasesByIDsOnly(
 	_ context.Context,
 	ids []string,
@@ -186,11 +197,19 @@ func (r *suggestionDocRepo) GetKnowledgeByIDOnly(_ context.Context, id string) (
 // must be readable by the caller, as KB IDs already are: a shared agent's
 // message snapshot records them before the agent's scope is applied.
 func TestReadableSuggestionKnowledgeIDs(t *testing.T) {
-	svc := &customAgentService{knowledgeRepo: &suggestionDocRepo{docs: map[string]*types.Knowledge{
-		"own-doc":      {ID: "own-doc", TenantID: 7, KnowledgeBaseID: "own-kb"},
-		"scoped-doc":   {ID: "scoped-doc", TenantID: 84, KnowledgeBaseID: "agent-kb"},
-		"unscoped-doc": {ID: "unscoped-doc", TenantID: 84, KnowledgeBaseID: "other-kb"},
-	}}}
+	svc := &customAgentService{
+		knowledgeRepo: &suggestionDocRepo{docs: map[string]*types.Knowledge{
+			"own-doc":      {ID: "own-doc", TenantID: 7, KnowledgeBaseID: "own-kb"},
+			"scoped-doc":   {ID: "scoped-doc", TenantID: 84, KnowledgeBaseID: "agent-kb"},
+			"unscoped-doc": {ID: "unscoped-doc", TenantID: 84, KnowledgeBaseID: "other-kb"},
+		}},
+		// 可见性判定需要按 id 取 KB；这里全部为 workspace KB。
+		kbService: staticKBService{lookup: staticKBLookup{
+			"own-kb":   {ID: "own-kb", TenantID: 7, Visibility: types.KBVisibilityWorkspace},
+			"agent-kb": {ID: "agent-kb", TenantID: 84, Visibility: types.KBVisibilityWorkspace},
+			"other-kb": {ID: "other-kb", TenantID: 84, Visibility: types.KBVisibilityWorkspace},
+		}},
+	}
 	caller := types.WithCaller(context.Background(),
 		types.Caller{TenantID: 7, UserID: "u", Role: types.TenantRoleAdmin})
 	ids := []string{"own-doc", "scoped-doc", "unscoped-doc", "missing-doc"}

@@ -33,11 +33,36 @@ func (r *failingSharedKnowledgeRepo) GetKnowledgeBatchByIDOnly(context.Context, 
 	return nil, r.err
 }
 
+// visibilityKBRepo 让 knowledgeBaseService 自己也能充当可见性 lookup：
+// 它内部走 GetKnowledgeBaseByID，这里按 kbTenants 返回租户，缺省为 tenant 1。
+// 全部按 workspace 可见，让用例只关注仓储失败的传播。
+type visibilityKBRepo struct {
+	interfaces.KnowledgeBaseRepository
+	kbTenants map[string]uint64
+}
+
+func (r visibilityKBRepo) GetKnowledgeBaseByID(
+	_ context.Context, id string,
+) (*types.KnowledgeBase, error) {
+	tenantID := uint64(1)
+	if id != "" {
+		if t, ok := r.kbTenants[id]; ok {
+			tenantID = t
+		}
+	}
+	return &types.KnowledgeBase{ID: id, TenantID: tenantID, Visibility: types.KBVisibilityWorkspace}, nil
+}
+
 func TestSharedDocumentReadsPropagateStorageFailure(t *testing.T) {
 	for _, failure := range []error{errors.New("database unavailable"), repository.ErrKnowledgeNotFound} {
 		repo := &failingSharedKnowledgeRepo{err: failure}
-		svc := &knowledgeService{repo: repo}
-		search := &knowledgeBaseService{kgRepo: repo}
+		// 可见性判定要按 id 加载 KB：own-kb 属于 tenant 1，
+		// 让本用例只关注仓储失败的传播，而不是权限分支。
+		kbs := staticKBService{lookup: staticKBLookup{
+			"own-kb": {ID: "own-kb", TenantID: 1, Visibility: types.KBVisibilityWorkspace},
+		}}
+		svc := &knowledgeService{repo: repo, kbService: kbs}
+		search := &knowledgeBaseService{kgRepo: repo, repo: visibilityKBRepo{}}
 		rows, err := svc.GetKnowledgeBatchWithSharedAccess(newSharedAccessContext(), 1, []string{"own", "shared"})
 		found, searchErr := search.fetchKnowledgeDataWithShared(newSharedAccessContext(), 1, []string{"own", "shared"})
 		if errors.Is(failure, repository.ErrKnowledgeNotFound) {

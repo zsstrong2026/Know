@@ -30,6 +30,16 @@ func (s *tagTargetKnowledgeBaseService) GetKnowledgeBasesByIDsOnly(
 	return out, nil
 }
 
+// GetKnowledgeBaseByID 让替身满足可见性判定（私有 KB 规则需要按 id 取 KB）。
+func (s *tagTargetKnowledgeBaseService) GetKnowledgeBaseByID(
+	_ context.Context, id string,
+) (*types.KnowledgeBase, error) {
+	if kb := s.kbs[id]; kb != nil {
+		return kb, nil
+	}
+	return nil, nil
+}
+
 type tagTargetKnowledgeService struct {
 	interfaces.KnowledgeService
 	knowledges []*types.Knowledge
