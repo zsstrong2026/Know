@@ -8,7 +8,7 @@ import (
 )
 
 func TestConnectorRegistryIncludesDingTalk(t *testing.T) {
-	registry, err := initConnectorRegistry()
+	registry, err := initConnectorRegistry(nil, nil)
 	if err != nil {
 		t.Fatalf("initConnectorRegistry() error = %v", err)
 	}
@@ -22,7 +22,7 @@ func TestConnectorRegistryIncludesDingTalk(t *testing.T) {
 }
 
 func TestConnectorRegistryIncludesSeafile(t *testing.T) {
-	registry, err := initConnectorRegistry()
+	registry, err := initConnectorRegistry(nil, nil)
 	if err != nil {
 		t.Fatalf("initConnectorRegistry() error = %v", err)
 	}

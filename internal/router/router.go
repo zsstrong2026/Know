@@ -13,6 +13,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/dig"
 
+	"github.com/Tencent/WeKnora/internal/agent/operations"
 	"github.com/Tencent/WeKnora/internal/application/service"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/handler"
@@ -43,6 +44,7 @@ type RouterParams struct {
 	KBShareService               interfaces.KBShareService
 	AgentShareService            interfaces.AgentShareService
 	KBHandler                    *handler.KnowledgeBaseHandler
+	GraphSearchHandler           *handler.GraphSearchHandler
 	KnowledgeHandler             *handler.KnowledgeHandler
 	TenantHandler                *handler.TenantHandler
 	TenantService                interfaces.TenantService
@@ -111,6 +113,9 @@ type RouterParams struct {
 	HostSandbox              service.HostSandboxManager
 	// PMHandler PM 工作站端点聚合（项目/规划/需求/版本/功能清单/任务）
 	PMHandler *handler.PMHandler
+	// v0.9.0：自动化（定时任务）与操作分发
+	AutomationHandler   *handler.AutomationHandler
+	OperationDispatcher *operations.HandlerDispatcher
 }
 
 // workbenchFlags 从配置读取工作台子功能开关（§9.1）。
@@ -196,8 +201,8 @@ func NewRouter(params RouterParams) *gin.Engine {
 		r.Use(embedFrameAncestorsMiddleware(params.EmbedChannelService))
 	}
 
-	// 前端静态文件（仅 Lite 版本内嵌前端）
-	if handler.Edition == "lite" {
+	// Lite bundles the frontend; other editions can explicitly opt in.
+	if handler.Edition == "lite" || strings.TrimSpace(os.Getenv("WEKNORA_WEB_DIR")) != "" {
 		serveFrontendStatic(r)
 	}
 
@@ -326,6 +331,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		)
 		RegisterKnowledgeTagRoutes(v1, params.TagHandler, rbacGuards)
 		RegisterKnowledgeRoutes(v1, params.KnowledgeHandler, rbacGuards)
+		RegisterGraphSearchRoutes(v1, params.GraphSearchHandler, rbacGuards)
 		RegisterFAQRoutes(v1, params.FAQHandler, rbacGuards)
 		RegisterChunkRoutes(v1, params.ChunkHandler, rbacGuards)
 		RegisterSessionRoutes(v1, params.SessionHandler, params.MessageSuggestionHandler, rbacGuards)
@@ -366,6 +372,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 			params.WorkbenchNoticeHandler, params.WorkbenchAIHandler,
 			params.WorkbenchTemplateHandler, workbenchFlags(params.Config), rbacGuards)
 		RegisterWorkbenchNoticeRoutes(v1, params.WorkbenchNoticeHandler)
+		RegisterAutomationRoutes(v1, params.AutomationHandler, rbacGuards)
 		RegisterChunkerDebugRoutes(v1, rbacGuards)
 
 		// Fail fast if any declared API-key policy points at a route
@@ -373,6 +380,11 @@ func NewRouter(params RouterParams) *gin.Engine {
 		// stale template would silently 403 every API key on that route,
 		// so we panic at startup instead of shipping a dead policy.
 		rbacGuards.assertAPIKeyPoliciesMatchRoutes(r)
+	}
+
+	if params.OperationDispatcher != nil {
+		assertOperationRoutesExist(r, operations.Builtin())
+		params.OperationDispatcher.Bind(r)
 	}
 
 	return r

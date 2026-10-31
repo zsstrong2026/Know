@@ -136,7 +136,7 @@ make package-lite   # 打 tarball 发行包（scripts/package-lite.sh）
 | `fmt` | `go fmt ./...` |
 | `lint` | `golangci-lint run` |
 | `deps` | `go mod download` |
-| `docs` | `swag init -g ./cmd/server/main.go -o ./docs --parseDependency --parseInternal` 生成 Swagger 文档 |
+| `docs` | `swag init`（参数见 Makefile，含 `--overridesFile ./docs/swag.overrides`）生成 Swagger 文档 |
 | `install-swagger` | 安装 `swag` CLI |
 
 ### Docker 镜像与服务管理 {#_3-2-docker-镜像与服务管理}

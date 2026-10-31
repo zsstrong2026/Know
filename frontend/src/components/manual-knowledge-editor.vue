@@ -3,7 +3,9 @@ import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import SettingDrawer from '@/components/settings/SettingDrawer.vue'
 import { marked } from 'marked'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
+import { registerUnsavedChanges } from '@/utils/unsavedChanges'
 import { useUIStore } from '@/stores/ui'
+import { resolvePreferredKnowledgeBaseId } from '@/utils/manualKnowledgeDraft'
 import {
   getKnowledgeDetails,
   getKnowledgeBaseById,
@@ -19,6 +21,7 @@ import type { KnowledgeProcessOverrides } from '@/types/knowledgeProcess'
 import { sanitizeHTML, safeMarkdownToHTML, hydrateProtectedFileImages } from '@/utils/security'
 import { continueListOnEnter, countContent, indentOnTab } from '@/utils/markdownEditing'
 import { useI18n } from 'vue-i18n'
+import AssistantActionsButton from '@/components/assistant/AssistantActionsButton.vue'
 
 interface KnowledgeDetailResponse {
   id: string
@@ -54,6 +57,12 @@ const resolveManualKnowledgeStatus = (
 const uiStore = useUIStore()
 const uploadConfirmStore = useUploadConfirmStore()
 const { t } = useI18n()
+// The assistant fills the open editor; the user saves the result.
+const assistantActions = computed(() => ['continue', 'outline', 'polish', 'summarize'].map(action => ({
+  key: action,
+  label: t(`manualEditor.assistant.${action}`),
+  query: t(`manualEditor.assistant.prompts.${action}`),
+})))
 
 const visible = computed({
   get: () => uiStore.manualEditorVisible,
@@ -599,6 +608,9 @@ const loadKnowledgeBases = async () => {
     kbOptions.value = list
 
     if (mode.value === 'create') {
+      // Explicit kbId (KB-page callers) keeps the historical force-insert path.
+      // Chat preferences are soft: only select an id already in the writable
+      // candidate list, otherwise fall back to list[0].
       const presetKbId = uiStore.manualEditorKBId
       if (presetKbId) {
         const exists = list.find((item) => item.value === presetKbId)
@@ -610,7 +622,10 @@ const loadKnowledgeBases = async () => {
         }
         form.kbId = presetKbId
       } else {
-        form.kbId = list[0]?.value ?? ''
+        form.kbId = resolvePreferredKnowledgeBaseId(
+          uiStore.manualEditorPreferredKbIds,
+          list.map((item) => item.value),
+        )
       }
     }
   } catch (error) {
@@ -717,8 +732,13 @@ const initialize = async () => {
     const presetKbId = uiStore.manualEditorKBId
     if (presetKbId) {
       form.kbId = presetKbId
-    } else if (!form.kbId && kbOptions.value.length) {
-      form.kbId = kbOptions.value[0].value
+    } else {
+      // Re-resolve preferences against the loaded candidates (resetForm may have
+      // left form.kbId empty; do not re-apply a preferred id missing from the list).
+      form.kbId = resolvePreferredKnowledgeBaseId(
+        uiStore.manualEditorPreferredKbIds,
+        kbOptions.value.map((item) => item.value),
+      )
     }
     form.title = form.title || generateDefaultTitle()
     form.content = form.content || ''
@@ -851,6 +871,7 @@ const markPristine = () => {
   pristineSnapshot.value = snapshot()
 }
 const isDirty = () => initialLoaded.value && snapshot() !== pristineSnapshot.value
+onBeforeUnmount(registerUnsavedChanges(() => visible.value && isDirty()))
 
 const handleClose = () => {
   if (!isDirty()) {
@@ -1023,6 +1044,8 @@ onBeforeUnmount(() => {
             </template>
           </div>
           <div class="editor-toolbar__view">
+            <AssistantActionsButton :label="$t('manualEditor.assistant.button')"
+              :title="$t('manualEditor.assistant.tooltip')" :actions="assistantActions" @mousedown.prevent />
             <t-tooltip placement="top-right" :show-arrow="false">
               <template #content>
                 <div class="shortcut-sheet">
@@ -1084,7 +1107,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="editor-pane editor-pane--preview" v-show="showPreview">
-            <div ref="previewRoot" class="preview-container" v-html="previewHTML" />
+            <div ref="previewRoot" class="preview-container" data-assistant-ignore v-html="previewHTML" />
           </div>
         </div>
 
