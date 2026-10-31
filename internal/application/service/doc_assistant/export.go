@@ -47,9 +47,9 @@ var (
 )
 
 // normalizeChapterContent 清洗章节正文，供导出使用：
-// 1) 剥离开头与章节标题重复的 Markdown 标题行（模型常在正文首行重复章节名）；
-// 2) 正文内标题级别整体下压，使最浅级别从 ### 起，避免正文小节抢占
-//    章节标题（## → Heading1）的自动编号与目录层级。
+//  1. 剥离开头与章节标题重复的 Markdown 标题行（模型常在正文首行重复章节名）；
+//  2. 正文内标题级别整体下压，使最浅级别从 ### 起，避免正文小节抢占
+//     章节标题（## → Heading1）的自动编号与目录层级。
 func normalizeChapterContent(content, chapterTitle string) string {
 	lines := strings.Split(content, "\n")
 	// 1) 首个非空行若是与章节名同义的标题行，则删除

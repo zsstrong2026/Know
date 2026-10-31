@@ -1,0 +1,202 @@
+package workbench
+
+import (
+	"context"
+	"encoding/base64"
+	"errors"
+	"time"
+
+	apperrors "github.com/Tencent/WeKnora/internal/errors"
+	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
+
+// 文档模板服务（§9.16）。
+//
+// 关键约束（与条目服务不同的地方）：
+//   - 服务端**不做** apply-template：套用由客户端取快照后走普通保存链路，
+//     避免出现第二套 Y.Doc 写入路径；
+//   - 创建模板时服务端从**已落盘的**条目复制字节，不接受客户端上传快照，
+//     因此模板内容与文档版本天然一致；
+//   - 模板硬删，且不参与归档/检索/AI，日志不记录名称、描述与 Y.Doc 内容。
+
+// ListTemplates 取当前用户的模板列表（不含 ydoc）。
+func (s *Service) ListTemplates(ctx context.Context) ([]*types.WorkbenchTemplateSummary, error) {
+	tenantID, ownerID, err := callerScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListTemplates(ctx, tenantID, ownerID)
+}
+
+// CreateTemplate 从当前已保存的文档复制模板。
+func (s *Service) CreateTemplate(
+	ctx context.Context, req *types.CreateWorkbenchTemplateRequest,
+) (*types.WorkbenchTemplateSummary, error) {
+	tenantID, ownerID, err := callerScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req == nil {
+		return nil, apperrors.NewBadRequestError("request body is required")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, mapTemplateValidationError(err)
+	}
+
+	// 配额在 UI 已预检；这里兜底，不新增错误码。
+	count, err := s.repo.CountTemplates(ctx, tenantID, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	if count >= types.WorkbenchTemplateMaxPerOwner {
+		return nil, apperrors.NewBadRequestError("template quota exceeded")
+	}
+
+	// 源条目必须存在、未进回收站、是 canvas，且已保存过内容。
+	source, err := s.repo.GetItem(ctx, tenantID, ownerID, req.SourceItemID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, notFound("workbench template source item not found")
+		}
+		return nil, err
+	}
+	if source == nil || source.Kind != types.WorkbenchKindCanvas {
+		return nil, notFound("workbench template source item not found")
+	}
+	if source.SnapshotVersion <= types.WorkbenchSnapshotVersionInitial || len(source.YDoc) == 0 {
+		return nil, apperrors.NewBadRequestError("source item has no saved content")
+	}
+	if len(source.YDoc) > types.WorkbenchTemplateMaxYDocBytes {
+		return nil, apperrors.NewWorkbenchTooLarge(
+			types.WorkbenchTemplateMaxYDocBytes, int64(len(source.YDoc)),
+		)
+	}
+	if source.EditorSchemaVersion > types.SupportedEditorSchemaVersion {
+		return nil, apperrors.NewWorkbenchSchemaUnsupported(types.SupportedEditorSchemaVersion)
+	}
+
+	now := time.Now().UTC()
+	sourceID := source.ID
+	tpl := &types.WorkbenchTemplate{
+		ID:                  uuid.NewString(),
+		TenantID:            tenantID,
+		OwnerID:             ownerID,
+		Name:                req.Name,
+		Description:         req.Description,
+		YDoc:                source.YDoc,
+		SizeBytes:           len(source.YDoc),
+		EditorSchemaVersion: source.EditorSchemaVersion,
+		SourceItemID:        &sourceID,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	if err := s.repo.CreateTemplate(ctx, tpl); err != nil {
+		return nil, err
+	}
+	// 日志只记 id / 大小 / schema，不记名称、描述与内容。
+	logger.Infof(ctx,
+		"[workbench] template created id=%s size=%d schema=%d",
+		tpl.ID, tpl.SizeBytes, tpl.EditorSchemaVersion)
+	return tpl.ToSummary(), nil
+}
+
+// UpdateTemplate 只改名称与描述。
+func (s *Service) UpdateTemplate(
+	ctx context.Context, id string, req *types.UpdateWorkbenchTemplateRequest,
+) (*types.WorkbenchTemplateSummary, error) {
+	tenantID, ownerID, err := callerScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req == nil {
+		return nil, apperrors.NewBadRequestError("request body is required")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, mapTemplateValidationError(err)
+	}
+
+	fields := make(map[string]any, 2)
+	if req.Name != nil {
+		fields["name"] = *req.Name
+	}
+	if req.Description != nil {
+		fields["description"] = *req.Description
+	}
+	updated, err := s.repo.UpdateTemplate(ctx, tenantID, ownerID, id, fields)
+	if err != nil {
+		return nil, err
+	}
+	if updated == nil {
+		return nil, notFound("workbench template not found")
+	}
+	return updated.ToSummary(), nil
+}
+
+// DeleteTemplate 硬删；已用该模板创建的文档不受影响。
+func (s *Service) DeleteTemplate(ctx context.Context, id string) error {
+	tenantID, ownerID, err := callerScope(ctx)
+	if err != nil {
+		return err
+	}
+	affected, err := s.repo.DeleteTemplate(ctx, tenantID, ownerID, id)
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return notFound("workbench template not found")
+	}
+	return nil
+}
+
+// GetTemplateContent 取模板快照（base64）与 schema，供客户端套用。
+//
+// 客户端拿到后按普通保存链路写入目标文档（base_version=0），
+// 因此服务端没有 apply-template 接口。
+func (s *Service) GetTemplateContent(
+	ctx context.Context, id string,
+) (*types.WorkbenchTemplateContent, error) {
+	tenantID, ownerID, err := callerScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tpl, err := s.repo.GetTemplateWithContent(ctx, tenantID, ownerID, id)
+	if err != nil {
+		return nil, err
+	}
+	if tpl == nil {
+		return nil, notFound("workbench template not found")
+	}
+	if len(tpl.YDoc) == 0 {
+		// 存量坏数据：不静默返回空快照让前端“套用出一个空文档”。
+		return nil, apperrors.NewWorkbenchSchemaUnsupported(types.SupportedEditorSchemaVersion)
+	}
+	if tpl.EditorSchemaVersion > types.SupportedEditorSchemaVersion {
+		return nil, apperrors.NewWorkbenchSchemaUnsupported(types.SupportedEditorSchemaVersion)
+	}
+	return &types.WorkbenchTemplateContent{
+		ID:                  tpl.ID,
+		Name:                tpl.Name,
+		YDoc:                base64.StdEncoding.EncodeToString(tpl.YDoc),
+		EditorSchemaVersion: tpl.EditorSchemaVersion,
+		SizeBytes:           len(tpl.YDoc),
+	}, nil
+}
+
+// mapTemplateValidationError 把 types 里的哨兵翻译成 400 / 413。
+func mapTemplateValidationError(err error) error {
+	switch {
+	case errors.Is(err, types.ErrWorkbenchTemplateTooLarge):
+		return apperrors.NewWorkbenchTooLarge(types.WorkbenchTemplateMaxYDocBytes, 0)
+	case errors.Is(err, types.ErrWorkbenchInvalidTemplateDescription):
+		return apperrors.NewWorkbenchInvalidField("description", "at most 200 characters")
+	case errors.Is(err, types.ErrWorkbenchInvalidTemplateSource):
+		return apperrors.NewWorkbenchInvalidField("source_item_id", "required")
+	case errors.Is(err, types.ErrWorkbenchInvalidTemplateName):
+		return apperrors.NewWorkbenchInvalidField("name", "1-60 characters")
+	default:
+		return apperrors.NewBadRequestError(err.Error())
+	}
+}

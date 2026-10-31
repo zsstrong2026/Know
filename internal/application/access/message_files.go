@@ -99,6 +99,10 @@ func (a MessageKBShareAuthorizer) resourceAccessibleViaSharedKB(
 		if kb == nil || kb.TenantID != resource.TenantID {
 			continue
 		}
+		// 私有知识库不作为共享证据：非创建者看不到它，也就无法凭它取文件。
+		if !CanSeeKB(ctx, kb) {
+			continue
+		}
 		shared, err := permissions.Check(kb.ID, types.OrgRoleViewer)
 		if err == nil && shared {
 			bound, bindingErr := a.Bindings.IsReferencedByKnowledgeBase(

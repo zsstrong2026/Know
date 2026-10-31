@@ -15,6 +15,20 @@ func callerContext() context.Context {
 	return context.WithValue(ctx, types.TenantRoleContextKey, types.TenantRoleContributor)
 }
 
+// workspaceKBLookup 给可见性判定用的最小替身：所有 id 都当作某个 tenant 下的
+// 非私有 KB，因此本文件的既有断言（只关心租户/授权/共享）不受私有化改造影响。
+type workspaceKBLookup struct{ tenantID uint64 }
+
+func (l workspaceKBLookup) GetKnowledgeBaseByID(
+	_ context.Context, id string,
+) (*types.KnowledgeBase, error) {
+	tenantID := l.tenantID
+	if tenantID == 0 {
+		tenantID = 2
+	}
+	return &types.KnowledgeBase{ID: id, TenantID: tenantID, Visibility: types.KBVisibilityWorkspace}, nil
+}
+
 func TestKBGrantSurvivesExecutionSwitchAndDetachWithoutWidening(t *testing.T) {
 	ctx := callerContext()
 	kb := &types.KnowledgeBase{ID: "shared", TenantID: 2}
@@ -71,13 +85,13 @@ func TestKBGrantSurvivesExecutionSwitchAndDetachWithoutWidening(t *testing.T) {
 func TestExecutionTenantDoesNotGrantOwnershipOrChangeShareIdentity(t *testing.T) {
 	ctx := types.WithExecutionTenant(callerContext(), 2)
 	shares := &shareLookup{}
-	allowed, err := NewKBPermissions(ctx, shares).Check("private", 2, types.OrgRoleViewer)
+	allowed, err := NewKBPermissions(ctx, shares, workspaceKBLookup{}).Check("private", 2, types.OrgRoleViewer)
 	require.NoError(t, err)
 	require.False(t, allowed)
 	require.Equal(t, uint64(1), shares.caller)
 	require.Equal(t, types.TenantRoleContributor, shares.role)
 	ctx = types.WithExecutionTenant(context.Background(), 2)
-	allowed, err = NewKBPermissions(ctx, nil).Check("private", 2, types.OrgRoleViewer)
+	allowed, err = NewKBPermissions(ctx, nil, workspaceKBLookup{}).Check("private", 2, types.OrgRoleViewer)
 	require.NoError(t, err)
 	require.False(t, allowed, "an absent caller must not become the execution tenant")
 }
@@ -117,7 +131,7 @@ func TestKBPermissionsOwnerShortcutOnlyGrantsRead(t *testing.T) {
 	roles := []types.TenantRole{types.TenantRoleViewer, types.TenantRoleContributor, types.TenantRoleAdmin}
 	for _, role := range roles {
 		ctx := context.WithValue(callerContext(), types.TenantRoleContextKey, role)
-		permissions := NewKBPermissions(ctx, nil)
+		permissions := NewKBPermissions(ctx, nil, workspaceKBLookup{tenantID: 1})
 		for _, required := range []types.OrgMemberRole{types.OrgRoleViewer, types.OrgRoleEditor, types.OrgRoleAdmin} {
 			allowed, err := permissions.Check("kb", 1, required)
 			require.NoError(t, err)
@@ -129,7 +143,7 @@ func TestKBPermissionsOwnerShortcutOnlyGrantsRead(t *testing.T) {
 			EffectiveTenantID: 1,
 			Permission:        types.OrgRoleEditor,
 		}
-		permissions = NewKBPermissions(grant.Context(ctx), nil)
+		permissions = NewKBPermissions(grant.Context(ctx), nil, workspaceKBLookup{tenantID: 1})
 		allowed, err := permissions.Check("kb", 1, types.OrgRoleEditor)
 		require.NoError(t, err)
 		require.True(t, allowed)

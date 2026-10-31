@@ -35,6 +35,7 @@ type Config struct {
 	IM              *IMConfig              `yaml:"im"               json:"im"`
 	Agent           *AgentConfig           `yaml:"agent"            json:"agent"`
 	Meeting         *MeetingConfig         `yaml:"meeting"          json:"meeting"`
+	Workbench       *WorkbenchConfig       `yaml:"workbench"        json:"workbench"`
 	// FrontendBaseURL is the externally-visible origin of the SPA, used
 	// to compose absolute share-link URLs. Empty falls back to a host-
 	// relative URL ("/register?token=…") which the SPA then resolves
@@ -209,6 +210,29 @@ func DocumentProcessTimeout(cfg *Config) time.Duration {
 		return cfg.KnowledgeBase.DocumentProcessTimeout
 	}
 	return DefaultDocumentProcessTimeout
+}
+
+// WorkbenchConfig 工作台功能开关（§9.1 发布门禁）。
+//
+// 开关只控制入口与路由注册，不改变数据模型：关闭后已写入的数据仍可由
+// 管理员排障读取，但普通用户看不到入口。
+type WorkbenchConfig struct {
+	// Enabled 工作台总开关；关闭时不注册整个 /workbench 路由组。
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// TemplatesEnabled 文档模板开关；关闭时不注册 5 条模板路由，
+	// bootstrap 也不下发 templates_enabled，前端据此隐藏模板入口。
+	TemplatesEnabled bool `yaml:"templates_enabled" json:"templates_enabled"`
+	// JournalsEnabled Journals 开关。
+	JournalsEnabled bool `yaml:"journals_enabled" json:"journals_enabled"`
+	// AIEnabled Page AI 开关。
+	AIEnabled bool `yaml:"ai_enabled" json:"ai_enabled"`
+	// DualModeEnabled 同一 Y.Doc 的 page/edgeless 双形态开关。
+	DualModeEnabled bool `yaml:"dual_mode_enabled" json:"dual_mode_enabled"`
+}
+
+// IsTemplateEnabled 报告文档模板是否开放；nil 视为关闭（发布门禁默认关）。
+func (w *WorkbenchConfig) IsTemplateEnabled() bool {
+	return w != nil && w.TemplatesEnabled
 }
 
 // ImageProcessingConfig 图像处理配置
@@ -609,6 +633,7 @@ func LoadConfig() (*Config, error) {
 	applyNetworkEnvOverrides()
 	applyAuthAndTenantDefaults(&cfg)
 	applyAuditDefaults(&cfg)
+	applyWorkbenchDefaults(&cfg)
 
 	if err := ValidateConfig(&cfg); err != nil {
 		return nil, err
@@ -1015,6 +1040,34 @@ func applyAuditDefaults(cfg *Config) {
 	if value := strings.TrimSpace(os.Getenv("WEKNORA_AUDIT_RETENTION_DAYS")); value != "" {
 		if n, err := strconv.Atoi(value); err == nil && n >= 0 {
 			cfg.Audit.RetentionDays = n
+		}
+	}
+}
+
+// applyWorkbenchDefaults 应用工作台功能开关的默认值与环境变量覆盖（§9.1）。
+//
+// 五个开关默认全关：发布门禁要求先按里程碑验证，再逐个打开；常量不能替代
+// 配置项，所以这里只做「缺省 = false」与 env 覆盖，不硬编码 true。
+func applyWorkbenchDefaults(cfg *Config) {
+	if cfg.Workbench == nil {
+		cfg.Workbench = &WorkbenchConfig{}
+	}
+	for _, item := range []struct {
+		env    string
+		target *bool
+	}{
+		{"WEKNORA_WORKBENCH_ENABLED", &cfg.Workbench.Enabled},
+		{"WEKNORA_WORKBENCH_TEMPLATES_ENABLED", &cfg.Workbench.TemplatesEnabled},
+		{"WEKNORA_WORKBENCH_JOURNALS_ENABLED", &cfg.Workbench.JournalsEnabled},
+		{"WEKNORA_WORKBENCH_AI_ENABLED", &cfg.Workbench.AIEnabled},
+		{"WEKNORA_WORKBENCH_DUAL_MODE_ENABLED", &cfg.Workbench.DualModeEnabled},
+	} {
+		// 只接受明确写出的 true/false；非法值忽略，保留配置文件里的值。
+		switch strings.ToLower(strings.TrimSpace(os.Getenv(item.env))) {
+		case "1", "true", "yes", "on":
+			*item.target = true
+		case "0", "false", "no", "off":
+			*item.target = false
 		}
 	}
 }

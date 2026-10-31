@@ -905,7 +905,7 @@ func (s *knowledgeService) GetKnowledgeBatchWithSharedAccess(ctx context.Context
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	permissions := kbReadPermissions(ctx, s.kbShareService)
+	permissions := kbReadPermissions(ctx, s.kbShareService, s.kbService)
 	rows, err := s.repo.GetKnowledgeBatch(ctx, tenantID, ids)
 	if err != nil {
 		return nil, err

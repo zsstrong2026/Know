@@ -96,9 +96,34 @@ type RouterParams struct {
 	WikiPageHandler              *handler.WikiPageHandler
 	MemoryHandler                *handler.MemoryHandler
 	DocAssistantHandler          *handler.DocAssistantHandler
-	HostSandbox                  service.HostSandboxManager
+	// WorkbenchItemHandler 工作台条目/内容/版本；WorkbenchFolderHandler 文件夹；
+	// WorkbenchArchiveHandler 归档状态/归档/刷新/删除；WorkbenchJournalHandler Journals。
+	WorkbenchItemHandler    *handler.WorkbenchItemHandler
+	WorkbenchFolderHandler  *handler.WorkbenchFolderHandler
+	WorkbenchArchiveHandler *handler.WorkbenchArchiveHandler
+	WorkbenchJournalHandler *handler.WorkbenchJournalHandler
+	// WorkbenchNoticeHandler 用户级通知（tenantless）+ 离开预览。
+	WorkbenchNoticeHandler *handler.WorkbenchNoticeHandler
+	// WorkbenchAIHandler 内联 AI（Page 文本动作与侧栏斜杠命令）。
+	WorkbenchAIHandler *handler.WorkbenchAIHandler
+	// WorkbenchTemplateHandler 文档模板（§9.16）；个人资源，硬删。
+	WorkbenchTemplateHandler *handler.WorkbenchTemplateHandler
+	HostSandbox              service.HostSandboxManager
 	// PMHandler PM 工作站端点聚合（项目/规划/需求/版本/功能清单/任务）
 	PMHandler *handler.PMHandler
+}
+
+// workbenchFlags 从配置读取工作台子功能开关（§9.1）。
+// Config 为 nil（单测常见）时全部视为关闭，与发布门禁默认值一致。
+func workbenchFlags(cfg *config.Config) WorkbenchFeatureFlags {
+	if cfg == nil || cfg.Workbench == nil {
+		return WorkbenchFeatureFlags{}
+	}
+	return WorkbenchFeatureFlags{
+		Templates: cfg.Workbench.TemplatesEnabled,
+		Journals:  cfg.Workbench.JournalsEnabled,
+		AI:        cfg.Workbench.AIEnabled,
+	}
 }
 
 // NewRouter 创建新的路由
@@ -336,6 +361,11 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterWikiPageRoutes(v1, params.WikiPageHandler, rbacGuards)
 		RegisterMemoryRoutes(v1, params.MemoryHandler, rbacGuards)
 		RegisterDocAssistantRoutes(v1, params.DocAssistantHandler, rbacGuards)
+		RegisterWorkbenchRoutes(v1, params.WorkbenchItemHandler, params.WorkbenchFolderHandler,
+			params.WorkbenchArchiveHandler, params.WorkbenchJournalHandler,
+			params.WorkbenchNoticeHandler, params.WorkbenchAIHandler,
+			params.WorkbenchTemplateHandler, workbenchFlags(params.Config), rbacGuards)
+		RegisterWorkbenchNoticeRoutes(v1, params.WorkbenchNoticeHandler)
 		RegisterChunkerDebugRoutes(v1, rbacGuards)
 
 		// Fail fast if any declared API-key policy points at a route

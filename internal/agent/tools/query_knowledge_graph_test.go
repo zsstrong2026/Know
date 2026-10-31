@@ -22,6 +22,18 @@ func (s *stubKnowledgeBaseService) CreateKnowledgeBase(context.Context, *types.K
 	return nil, nil
 }
 
+// EnsureWorkKnowledgeBase 满足服务接口新增方法；知识图谱用例不涉及工作库。
+func (s *stubKnowledgeBaseService) EnsureWorkKnowledgeBase(
+	context.Context, uint64, string,
+) (*types.KnowledgeBase, error) {
+	return nil, nil
+}
+
+// PurgeWorkKnowledgeBase 满足服务接口新增方法；知识图谱用例不涉及工作库。
+func (s *stubKnowledgeBaseService) PurgeWorkKnowledgeBase(context.Context, string) error {
+	return nil
+}
+
 func (s *stubKnowledgeBaseService) GetKnowledgeBaseByID(context.Context, string) (*types.KnowledgeBase, error) {
 	return s.kb, nil
 }

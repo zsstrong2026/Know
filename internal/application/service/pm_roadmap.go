@@ -422,7 +422,6 @@ const roadmapGuideInstructions = `你是产品经理的「功能规划」协作�
 - 同级去重：同一一级模块下无重复或高度重叠的功能项
 - 覆盖度：讨论过的功能点与异常/边界功能均已入表`
 
-
 // buildRoadmapGuideContext 生成引导上下文：项目信息 + 批次信息 + 已填草稿快照
 func buildRoadmapGuideContext(project *types.PMProject, b *types.PMPlanBatch) string {
 	var sb strings.Builder
@@ -570,7 +569,7 @@ func (f pmRoadmapDraftFeature) toFeature() types.PMFeature {
 type pmRoadmapDraftDTO struct {
 	Cognition *types.PMRoadmapCognition `json:"cognition"`
 	// Subsystem 批次级子系统：行级未填写时统一回填，兼容前端只填一处的情况
-	Subsystem string                 `json:"subsystem"`
+	Subsystem string                  `json:"subsystem"`
 	Features  []pmRoadmapDraftFeature `json:"features"`
 	Flows     []types.PMRoadmapFlow   `json:"flows"`
 	Scope     []string                `json:"scope"`

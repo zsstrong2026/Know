@@ -99,6 +99,10 @@ func isTenantOptionalAPI(path, method string) bool {
 		return true
 	case strings.HasPrefix(path, "/api/v1/me/invitations"):
 		return true
+	case strings.HasPrefix(path, "/api/v1/me/workbench-notices"):
+		// 用户级工作台通知必须是 tenantless：被移出最后一个 workspace 后
+		// 仍要能读到“数据保留 30 天”的提醒（§5.7）。
+		return true
 	default:
 		return false
 	}

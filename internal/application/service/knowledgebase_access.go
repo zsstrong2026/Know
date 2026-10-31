@@ -11,11 +11,15 @@ import (
 
 // Service reads accept exact upstream grants. Otherwise cross-tenant reads
 // require a user and organization permission resolved for the original caller.
-func kbReadPermissions(ctx context.Context, shares access.KBShareLookup) *access.KBPermissions {
+//
+// kbs 必传：私有知识库的可见性判定要按 id 加载 KB，缺了它 Check 会一律拒绝。
+func kbReadPermissions(
+	ctx context.Context, shares access.KBShareLookup, kbs access.KBVisibilityLookup,
+) *access.KBPermissions {
 	if types.CallerFromContext(ctx).UserID == "" {
 		shares = nil
 	}
-	return access.NewKBPermissions(ctx, shares)
+	return access.NewKBPermissions(ctx, shares, kbs)
 }
 
 // kbWritableIDs returns the target KBs the caller may modify: those of its own
@@ -28,8 +32,11 @@ func kbReadPermissions(ctx context.Context, shares access.KBShareLookup) *access
 // endpoint principals that run as Viewer, stay read-only), or for a scoped API
 // key the ingest capability, as in access.RequireKBWrite. roleEnforced mirrors
 // the RBAC rollout switch, under which role checks only log.
+//
+// 私有知识库一律不进可写集合：它们只属于创建者本人，不能借共享/Agent 扩大写入面。
 func kbWritableIDs(
-	ctx context.Context, shares access.KBShareLookup, targets types.SearchTargets, roleEnforced bool,
+	ctx context.Context, shares access.KBShareLookup, kbs access.KBVisibilityLookup,
+	targets types.SearchTargets, roleEnforced bool,
 ) []string {
 	caller := types.CallerFromContext(ctx)
 	if scope, ok := types.TenantAPIKeyScopeFromContext(ctx); ok {
@@ -42,7 +49,8 @@ func kbWritableIDs(
 	if caller.UserID == "" {
 		shares = nil
 	}
-	permissions := access.NewKBSharePermissions(ctx, shares, caller.TenantID, caller.Role)
+	permissions := access.NewKBPermissions(ctx, shares, kbs)
+	permissionsForShare := access.NewKBSharePermissions(ctx, shares, caller.TenantID, caller.Role)
 	seen := make(map[string]bool, len(targets))
 	var ids []string
 	for _, target := range targets {
@@ -50,9 +58,14 @@ func kbWritableIDs(
 			continue
 		}
 		seen[target.KnowledgeBaseID] = true
+		// 私有 KB 一律不进可写集合：它们只属于创建者本人，
+		// 不能借共享/Agent 扩大写入面（写入需要显式 grant，见 RequireKBWrite）。
+		if kb := permissions.Lookup(target.KnowledgeBaseID); kb != nil && kb.IsPrivate() {
+			continue
+		}
 		writable := caller.TenantID != 0 && target.TenantID == caller.TenantID
 		if !writable {
-			writable, _ = permissions.Check(target.KnowledgeBaseID, types.OrgRoleEditor)
+			writable, _ = permissionsForShare.Check(target.KnowledgeBaseID, types.OrgRoleEditor)
 		}
 		if writable {
 			ids = append(ids, target.KnowledgeBaseID)
@@ -61,9 +74,12 @@ func kbWritableIDs(
 	return ids
 }
 
-func resolveKBReadTenant(ctx context.Context, kb *types.KnowledgeBase, shares access.KBShareLookup) (uint64, error) {
+func resolveKBReadTenant(
+	ctx context.Context, kb *types.KnowledgeBase, shares access.KBShareLookup,
+	kbs access.KBVisibilityLookup,
+) (uint64, error) {
 	if kb != nil {
-		allowed, err := kbReadPermissions(ctx, shares).Check(kb.ID, kb.TenantID, types.OrgRoleViewer)
+		allowed, err := kbReadPermissions(ctx, shares, kbs).CheckKB(kb, types.OrgRoleViewer)
 		if err == nil && allowed {
 			return kb.TenantID, nil
 		}

@@ -53,6 +53,16 @@ type KnowledgeService interface {
 		payload *types.ManualKnowledgePayload,
 		channel string,
 	) (*types.Knowledge, error)
+	// CreateKnowledgeFromManualWithID 与 CreateKnowledgeFromManual 相同，但由调用方
+	// 指定 knowledge id。工作台归档需要先把映射行与知识 id 绑定，再用这个入口
+	// 创建知识；其余校验、清洗、审计、入队逻辑完全一致。
+	// 只暴露给可信服务，不新增 HTTP 路由。
+	CreateKnowledgeFromManualWithID(
+		ctx context.Context,
+		kbID, knowledgeID string,
+		payload *types.ManualKnowledgePayload,
+		channel string,
+	) (*types.Knowledge, error)
 	// GetKnowledgeByID retrieves knowledge by ID (uses tenant from context).
 	GetKnowledgeByID(ctx context.Context, id string) (*types.Knowledge, error)
 	// GetKnowledgeByIDOnly retrieves knowledge by ID without tenant filter (for permission resolution).

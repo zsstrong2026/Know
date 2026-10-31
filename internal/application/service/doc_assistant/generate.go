@@ -15,10 +15,10 @@ import (
 
 // 检索/生成控制常量
 const (
-	minMaterialRunes      = 50    // 命中素材总字符数下限，低于视为素材不足
-	chunkContentMaxRunes  = 600   // 单个检索片段送入 LLM 的最大字符数
-	contextMaxRunes       = 6000  // 全部片段拼接后的最大字符数
-	referencesMaxChunks   = 200   // 单章引用 chunk 数上限（防引用爆炸）
+	minMaterialRunes     = 50   // 命中素材总字符数下限，低于视为素材不足
+	chunkContentMaxRunes = 600  // 单个检索片段送入 LLM 的最大字符数
+	contextMaxRunes      = 6000 // 全部片段拼接后的最大字符数
+	referencesMaxChunks  = 200  // 单章引用 chunk 数上限（防引用爆炸）
 )
 
 // ProcessGeneration 异步任务 handler：逐章生成，checkpoint 续跑

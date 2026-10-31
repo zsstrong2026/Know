@@ -101,6 +101,12 @@ func ResolveKB(ctx context.Context, request KBRequest, kb *types.KnowledgeBase, 
 	if kb == nil || kb.ID == "" {
 		return nil, ErrNotFound
 	}
+	// 私有知识库只对创建者本人可见。必须在 API Key 授权、同租户放行、
+	// 组织共享与 Agent 回退之前拦截，并统一返回 NotFound（不得返回 403），
+	// 以免通过差异化错误暴露该知识库的存在性。
+	if !CanSeeKB(ctx, kb) {
+		return nil, ErrNotFound
+	}
 	if err := types.AuthorizeTenantAPIKeyKnowledgeBases(ctx, kb.ID); err != nil {
 		return nil, err
 	}

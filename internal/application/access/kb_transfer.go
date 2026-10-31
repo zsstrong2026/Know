@@ -38,6 +38,13 @@ func WithKBTransfer(
 	if taskID == "" {
 		return ctx, ErrForbidden
 	}
+	if source == nil || target == nil {
+		return ctx, ErrForbidden
+	}
+	// 私有知识库对不可见调用者按不存在处理（新建的克隆目标尚未落库，不判定）。
+	if !CanSeeKB(ctx, source) || (!create && !CanSeeKB(ctx, target)) {
+		return ctx, ErrNotFound
+	}
 	if err := validateTransferPair(source, target, caller.TenantID, operation, create); err != nil {
 		return ctx, err
 	}
@@ -152,6 +159,11 @@ func validateTransferPair(
 	}
 	if source.ID == target.ID {
 		return fmt.Errorf("source and target knowledge bases must differ")
+	}
+	// 系统知识库（如个人工作库）与私有知识库一律不参与转移，避免把
+	// 个人私有内容复制或移动到工作区知识库中。
+	if source.IsSystem || source.IsPrivate() || target.IsSystem || target.IsPrivate() {
+		return ErrForbidden
 	}
 	if operation != KBTransferClone && operation != KBTransferMove || create && operation != KBTransferClone {
 		return ErrForbidden

@@ -55,6 +55,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/application/service/file"
 	"github.com/Tencent/WeKnora/internal/application/service/memory"
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
+	workbenchservice "github.com/Tencent/WeKnora/internal/application/service/workbench"
 	"github.com/Tencent/WeKnora/internal/browserskill"
 	"github.com/Tencent/WeKnora/internal/common"
 	"github.com/Tencent/WeKnora/internal/config"
@@ -202,6 +203,45 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewSyncLogRepository))
 	must(container.Provide(repository.NewWikiPageRepository))
 	must(container.Provide(repository.NewMemoryRepository))
+	// 工作台条目仓储（P0-4b spike：仅条目内容读写）
+	must(container.Provide(repository.NewWorkbenchRepository))
+	// 工作台服务：归档写路径依赖知识库与知识服务，用显式构造注入，
+	// 避免 knowledgeService 反查 workbench 形成循环依赖。
+	must(container.Provide(func(
+		repo interfaces.WorkbenchRepository,
+		kbService interfaces.KnowledgeBaseService,
+		knowledgeService interfaces.KnowledgeService,
+		docAssistant interfaces.DocAssistantService,
+		cfg *config.Config,
+	) *workbenchservice.Service {
+		// WithDocTasks 只用到 ListTasks，用来统计“章节文档”数量与离开预览。
+		// WithFeatures 把发布门禁随 bootstrap 下发，前端据此隐藏入口（§9.1）。
+		features := types.WorkbenchFeatureToggles{}
+		if cfg != nil && cfg.Workbench != nil {
+			features = types.WorkbenchFeatureToggles{
+				Templates: cfg.Workbench.TemplatesEnabled,
+				Journals:  cfg.Workbench.JournalsEnabled,
+				AI:        cfg.Workbench.AIEnabled,
+				DualMode:  cfg.Workbench.DualModeEnabled,
+			}
+		}
+		return workbenchservice.NewService(repo).
+			WithArchiveServices(kbService, knowledgeService).
+			WithDocTasks(docAssistant).
+			WithFeatures(features)
+	}))
+	// 工作台内联 AI：只复用模型与智能体的提示词/生成参数，不接工具与检索（§11.2）。
+	// 问答车道额外注入会话检索与知识库服务，检索范围由服务层强制为工作 KB。
+	must(container.Provide(func(
+		repo interfaces.WorkbenchRepository,
+		models interfaces.ModelService,
+		agents interfaces.CustomAgentService,
+		cfg *config.Config,
+		sessions interfaces.SessionService,
+		kbService interfaces.KnowledgeBaseService,
+	) *workbenchservice.AIService {
+		return workbenchservice.NewAIServiceWithDeps(repo, models, agents, cfg, sessions, kbService)
+	}))
 	must(container.Provide(repository.NewTaskPendingOpsRepository))
 	must(container.Provide(repository.NewTaskDeadLetterRepository))
 	must(container.Provide(repository.NewDocTemplateRepository))
@@ -710,6 +750,14 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	}))
 	must(container.Provide(handler.NewOrganizationHandler))
 	must(container.Provide(handler.NewMemoryHandler))
+	// 工作台条目内容 handler（P0-4b spike）
+	must(container.Provide(handler.NewWorkbenchItemHandler))
+	must(container.Provide(handler.NewWorkbenchFolderHandler))
+	must(container.Provide(handler.NewWorkbenchArchiveHandler))
+	must(container.Provide(handler.NewWorkbenchJournalHandler))
+	must(container.Provide(handler.NewWorkbenchNoticeHandler))
+	must(container.Provide(handler.NewWorkbenchAIHandler))
+	must(container.Provide(handler.NewWorkbenchTemplateHandler))
 
 	// Doc assistant handler
 	must(container.Provide(handler.NewDocAssistantHandler))

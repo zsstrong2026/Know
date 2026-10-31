@@ -40,6 +40,7 @@ type knowledgeBaseService struct {
 	retrieveEngine  interfaces.RetrieveEngineRegistry
 	ownership       retriever.TenantStoreOwnership
 	tenantRepo      interfaces.TenantRepository
+	members         activeMembershipLookup
 	fileSvc         interfaces.FileService
 	storageResolver interfaces.StorageBackendResolver
 	graphEngine     interfaces.RetrieveGraphRepository
@@ -64,6 +65,7 @@ func NewKnowledgeBaseService(repo interfaces.KnowledgeBaseRepository,
 	retrieveEngine interfaces.RetrieveEngineRegistry,
 	ownership retriever.TenantStoreOwnership,
 	tenantRepo interfaces.TenantRepository,
+	memberRepo interfaces.TenantMemberRepository,
 	fileSvc interfaces.FileService,
 	storageResolver interfaces.StorageBackendResolver,
 	graphEngine interfaces.RetrieveGraphRepository,
@@ -87,6 +89,7 @@ func NewKnowledgeBaseService(repo interfaces.KnowledgeBaseRepository,
 		retrieveEngine:  retrieveEngine,
 		ownership:       ownership,
 		tenantRepo:      tenantRepo,
+		members:         memberRepo,
 		fileSvc:         fileSvc,
 		storageResolver: storageResolver,
 		graphEngine:     graphEngine,
@@ -364,6 +367,16 @@ func (s *knowledgeBaseService) ListKnowledgeBases(ctx context.Context) ([]*types
 		})
 		return nil, err
 	}
+
+	// 私有工作知识库只对创建者本人可见：同租户其他成员（含 Admin）与
+	// API Key 主体都不返回该行，避免通过列表暴露其存在。
+	visible := make([]*types.KnowledgeBase, 0, len(kbs))
+	for _, kb := range kbs {
+		if access.CanSeeKB(ctx, kb) {
+			visible = append(visible, kb)
+		}
+	}
+	kbs = visible
 
 	// Query knowledge count and chunk count for each knowledge base
 	for _, kb := range kbs {
@@ -874,11 +887,19 @@ func (s *knowledgeBaseService) DeleteKnowledgeBase(ctx context.Context, id strin
 	}
 
 	// Step 2: Enqueue async task for heavy cleanup operations
+	// tenantInfo 可能缺失（内部清理/workspace 解散流程不保证带 TenantInfo），
+	// 直接解引用会 panic；缺失时用系统默认引擎，与租户未配置时的行为一致。
+	var effectiveEngines []types.RetrieverEngineParams
+	if tenantInfo != nil {
+		effectiveEngines = tenantInfo.GetEffectiveEngines()
+	} else {
+		effectiveEngines = types.GetDefaultRetrieverEngines()
+	}
 	payload := types.KBDeletePayload{
 		TenantID:         tenantID,
 		KnowledgeBaseID:  id,
 		DataSourceIDs:    dataSourceIDs,
-		EffectiveEngines: tenantInfo.GetEffectiveEngines(),
+		EffectiveEngines: effectiveEngines,
 		VectorStoreID:    vectorStoreIDSnapshot, // snapshot taken before soft-delete
 	}
 	langfuse.InjectTracing(ctx, &payload)
@@ -892,6 +913,12 @@ func (s *knowledgeBaseService) DeleteKnowledgeBase(ctx context.Context, id strin
 
 	task := asynq.NewTask(types.TypeKBDelete, payloadBytes,
 		asynq.Queue(types.QueueMaintenance), asynq.MaxRetry(3), asynq.Timeout(2*time.Hour))
+	// asynqClient 在纯 Lite/测试装配下可能为 nil；KB 行已软删，重活由后续
+	// 清理任务兜底，不能因为入队不可用而 panic。
+	if s.asynqClient == nil {
+		logger.Warnf(ctx, "No task queue available; KB %s cleanup deferred to background sweep", id)
+		return nil
+	}
 	info, err := s.asynqClient.Enqueue(task)
 	if err != nil {
 		logger.Warnf(ctx, "Failed to enqueue KB delete task: %v", err)

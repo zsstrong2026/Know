@@ -38,10 +38,21 @@ func AuthorizeKBAccess(
 	}
 
 	requestTenantID := types.CallerFromContext(ctx).TenantID
-	permissions := NewKBPermissions(ctx, shares)
+	// 这里每个 kb 都是已加载对象，直接用 CheckKB 避免重复查库。
+	permissions := NewKBPermissions(ctx, shares, nil)
 
 	for _, kb := range kbs {
-		hasPermission, permErr := permissions.Check(kb.ID, kb.TenantID, types.OrgRoleViewer)
+		// 私有知识库对非创建者（含 Admin 与 API Key）一律按不存在处理。
+		if !CanSeeKB(ctx, kb) {
+			logger.WarnWithFields(ctx, logger.Fields{
+				"caller_tenant_id": requestTenantID,
+				"kb_tenant_id":     kb.TenantID,
+				"kb_id":            kb.ID,
+				"reason":           "private KB not visible to caller",
+			}, "search scope rejected: invisible private KB")
+			return apperrors.NewNotFoundError("knowledge base not found")
+		}
+		hasPermission, permErr := permissions.CheckKB(kb, types.OrgRoleViewer)
 		if permErr != nil {
 			logger.ErrorWithFields(ctx, permErr, map[string]interface{}{
 				"caller_tenant_id": requestTenantID,

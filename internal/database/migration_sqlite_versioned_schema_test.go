@@ -16,6 +16,7 @@ import (
 // 000041 task queue, 000053 system settings, 000055 processing spans,
 // 000063 knowledge multi-tags, 000093 browser authorization, 000103 message
 // artifacts, 000136 workbench, 000138 workbench assets.
+// 000045（P1-9）只给 workbench_items 加列，见 versionedSQLiteColumns。
 var versionedSQLiteTables = []string{
 	"memory_extraction_sessions",
 	"task_pending_ops",
@@ -44,6 +45,7 @@ var versionedSQLiteTables = []string{
 	"workbench_orphans",
 	"workbench_notices",
 	"workbench_item_assets",
+	"workbench_templates",
 }
 
 // versionedSQLiteColumns maps each existing table to the columns that the
@@ -62,6 +64,7 @@ var versionedSQLiteColumns = map[string][]string{
 	"doc_generation_tasks": { // 000137
 		"output_kb_id", "auto_archive", "archive_status", "archive_error",
 	},
+	"workbench_items": {"journal_date", "current_mode"}, // 000045（P1-9）
 	"messages": {"attachments", "usage", "sandbox_checkpoint", "context_checkpoint"}, // 000034/085/097/105
 	"sessions": {
 		"parent_session_id", "forked_from_message_id", "fork_bootstrap", // 000097
@@ -85,7 +88,7 @@ var versionedSQLiteColumns = map[string][]string{
 	}, // 000028
 }
 
-const expectedSQLiteMigrationVersion = 44
+const expectedSQLiteMigrationVersion = 46
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)

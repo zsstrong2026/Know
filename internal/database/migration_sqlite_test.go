@@ -56,7 +56,7 @@ func TestWorkbenchTablesSQLite(t *testing.T) {
 	for _, table := range []string{
 		"workbench_items", "workbench_item_versions", "workbench_folders",
 		"workbench_item_links", "workbench_archives", "workbench_orphans",
-		"workbench_notices", "workbench_item_assets",
+		"workbench_notices", "workbench_item_assets", "workbench_templates",
 	} {
 		require.Truef(t, sqliteTableExists(t, db, table), "SQLite migrations must create table %s", table)
 	}

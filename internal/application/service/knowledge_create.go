@@ -740,6 +740,23 @@ func (s *knowledgeService) CreateKnowledgeFromPassageSync(ctx context.Context,
 func (s *knowledgeService) CreateKnowledgeFromManual(ctx context.Context,
 	kbID string, payload *types.ManualKnowledgePayload, channel string,
 ) (*types.Knowledge, error) {
+	return s.createKnowledgeFromManual(ctx, kbID, "", payload, channel)
+}
+
+// CreateKnowledgeFromManualWithID 允许调用方指定 knowledge id。
+// 工作台归档需要先插入映射行再建知识，两者必须绑定同一个 id；
+// 其余行为与 CreateKnowledgeFromManual 完全一致。
+func (s *knowledgeService) CreateKnowledgeFromManualWithID(ctx context.Context,
+	kbID, knowledgeID string, payload *types.ManualKnowledgePayload, channel string,
+) (*types.Knowledge, error) {
+	return s.createKnowledgeFromManual(ctx, kbID, knowledgeID, payload, channel)
+}
+
+// createKnowledgeFromManual 是手动知识的唯一实现。
+// knowledgeID 为空时由 BeforeCreate 钩子生成 UUID，非空时沿用调用方指定的值。
+func (s *knowledgeService) createKnowledgeFromManual(ctx context.Context,
+	kbID, knowledgeID string, payload *types.ManualKnowledgePayload, channel string,
+) (*types.Knowledge, error) {
 	logger.Info(ctx, "Start creating manual knowledge entry")
 
 	if payload == nil {
@@ -788,6 +805,7 @@ func (s *knowledgeService) CreateKnowledgeFromManual(ctx context.Context,
 	meta := types.NewManualKnowledgeMetadata(cleanContent, status, 1)
 
 	knowledge := &types.Knowledge{
+		ID:               knowledgeID, // 空串时由 BeforeCreate 生成 UUID
 		TenantID:         tenantID,
 		KnowledgeBaseID:  kbID,
 		Type:             types.KnowledgeTypeManual,

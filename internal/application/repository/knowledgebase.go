@@ -91,6 +91,29 @@ func (r *knowledgeBaseRepository) ListKnowledgeBasesByTenantID(
 	return kbs, nil
 }
 
+// GetWorkKnowledgeBase returns the user's work knowledge base in the tenant.
+// It returns (nil, nil) when the row does not exist, so lazy creation can
+// distinguish "absent" from a real database failure.
+func (r *knowledgeBaseRepository) GetWorkKnowledgeBase(
+	ctx context.Context, tenantID uint64, userID string,
+) (*types.KnowledgeBase, error) {
+	if tenantID == 0 || userID == "" {
+		return nil, nil
+	}
+	var kb types.KnowledgeBase
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND creator_id = ? AND system_key = ? AND is_system = ?",
+			tenantID, userID, types.KBSystemKeyWork, true).
+		First(&kb).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &kb, nil
+}
+
 // userKBPinRow mirrors the user_kb_pins table. Kept local to the
 // repository because it never escapes the package; callers see the
 // higher-level map[kb_id]pinned_at returned by ListUserKBPinIDs.

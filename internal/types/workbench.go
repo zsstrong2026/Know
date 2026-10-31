@@ -106,6 +106,16 @@ var (
 	ErrWorkbenchInvalidJournalDate         = errors.New("workbench: invalid journal date")
 	ErrWorkbenchInvalidBaseVersion         = errors.New("workbench: invalid base version")
 	ErrWorkbenchInvalidClientID            = errors.New("workbench: client_id is required")
+	// ErrWorkbenchInvalidCursor 表示分页游标无法解码或格式不符。
+	ErrWorkbenchInvalidCursor = errors.New("workbench: invalid cursor")
+
+	// 模板（§9.16）：名称/描述/来源/配额/体积各有独立哨兵，便于 handler 映射到 400/2402。
+	ErrWorkbenchInvalidTemplateName        = errors.New("workbench: invalid template name")
+	ErrWorkbenchInvalidTemplateDescription = errors.New("workbench: invalid template description")
+	ErrWorkbenchInvalidTemplateSource      = errors.New("workbench: invalid template source item")
+	ErrWorkbenchTemplateQuotaExceeded      = errors.New("workbench: template quota exceeded")
+	ErrWorkbenchTemplateEmpty              = errors.New("workbench: template snapshot is empty")
+	ErrWorkbenchTemplateTooLarge           = errors.New("workbench: template snapshot too large")
 )
 
 // DateOnly 表示“本地日历日”，只有 YYYY-MM-DD，没有时刻也没有时区。
@@ -376,7 +386,11 @@ type WorkbenchItemVersion struct {
 	EditorSchemaVersion int    `json:"editor_schema_version"`
 	YDoc                []byte `json:"-" gorm:"column:ydoc;type:bytea"`
 	TextContent         string `json:"-" gorm:"column:text_content;type:text"`
-	SizeBytes           int    `json:"size_bytes" gorm:"column:size_bytes;->"`
+	// 迁移里没有 size_bytes 列：它只在 ListVersions 里由
+	// COALESCE(length(ydoc), 0) 投影到 WorkbenchVersionSummary。
+	// 因此这里必须 `-`（完全忽略）；若写成 `->`（只读），GORM 会把
+	// size_bytes 放进 SELECT 列表，查询直接报列不存在。
+	SizeBytes int `json:"size_bytes" gorm:"-"`
 	// created_by 记录写入该版本的调用者。单写者模型下恒等于 OwnerID，
 	// 保留它是为了日后排查“清理任务写的检查点”和“用户写的检查点”。
 	CreatedBy string    `json:"-" gorm:"type:varchar(36)"`
@@ -599,6 +613,17 @@ type WorkbenchBootstrapLimits struct {
 	ArchiveParts      int   `json:"archive_parts"`
 }
 
+// WorkbenchFeatureToggles 是下发给前端的发布门禁状态（§9.1）。
+//
+// 前端据此隐藏入口；关闭时服务端也不会注册对应路由，两者必须同时生效，
+// 所以开关状态随 bootstrap 一起下发，避免前端硬编码。
+type WorkbenchFeatureToggles struct {
+	Templates bool `json:"templates"`
+	Journals  bool `json:"journals"`
+	AI        bool `json:"ai"`
+	DualMode  bool `json:"dual_mode"`
+}
+
 // WorkbenchBootstrap 工作台启动聚合响应。
 type WorkbenchBootstrap struct {
 	WorkKB             WorkbenchKbSummary       `json:"work_kb"`
@@ -606,6 +631,7 @@ type WorkbenchBootstrap struct {
 	Counts             WorkbenchBootstrapCounts `json:"counts"`
 	UnreadNotices      int                      `json:"unread_notices"`
 	Limits             WorkbenchBootstrapLimits `json:"limits"`
+	Features           WorkbenchFeatureToggles  `json:"features"`
 	ServerTime         time.Time                `json:"server_time"`
 }
 
@@ -727,6 +753,13 @@ type WorkbenchAsset struct {
 
 // WorkbenchItemAsset 是 WorkbenchAsset 的别名，语义为“条目资产”。
 type WorkbenchItemAsset = WorkbenchAsset
+
+// TableName 显式绑定 000138 建的表名。
+//
+// GORM 默认把 WorkbenchAsset 复数化成 workbench_assets，
+// 而迁移里实际叫 workbench_item_assets —— 不改这里，
+// P1-2 第一次查询就会出现 "no such table: workbench_assets"。
+func (*WorkbenchAsset) TableName() string { return "workbench_item_assets" }
 
 // WorkbenchVersionConflictError 携带当前版本号与更新时间，供 handler 组装 2401。
 type WorkbenchVersionConflictError struct {

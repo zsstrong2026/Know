@@ -1151,7 +1151,7 @@ func (s *customAgentService) readableSuggestionKnowledgeIDs(ctx context.Context,
 	if len(knowledgeIDs) > maxSuggestionKnowledgeIDs {
 		knowledgeIDs = knowledgeIDs[:maxSuggestionKnowledgeIDs]
 	}
-	permissions := access.NewKBPermissions(ctx, s.kbShareService)
+	permissions := access.NewKBPermissions(ctx, s.kbShareService, s.kbService)
 	readable := make([]string, 0, len(knowledgeIDs))
 	for _, id := range knowledgeIDs {
 		knowledge, err := s.knowledgeRepo.GetKnowledgeByIDOnly(ctx, id)
@@ -1229,7 +1229,7 @@ func (s *customAgentService) groupKBIDsByEffectiveTenant(
 			kbByID[kb.ID] = kb
 		}
 	}
-	permissions := access.NewKBPermissions(ctx, s.kbShareService)
+	permissions := access.NewKBPermissions(ctx, s.kbShareService, s.kbService)
 	for _, kbID := range kbIDs {
 		kb := kbByID[kbID]
 		if kb == nil {

@@ -479,7 +479,7 @@ func (s *sessionService) buildSearchTargets(
 	fullKBSet := make(map[string]bool)
 
 	// First pass: batch-fetch KBs, then resolve tenant per ID (tenant scope already set by caller)
-	permissions := kbReadPermissions(ctx, s.kbShareService)
+	permissions := kbReadPermissions(ctx, s.kbShareService, s.knowledgeBaseService)
 	kbIDsToFetch := append([]string(nil), knowledgeBaseIDs...)
 	for kbID := range tagIDsByKB {
 		kbIDsToFetch = append(kbIDsToFetch, kbID)

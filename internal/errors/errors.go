@@ -3,6 +3,7 @@ package errors
 import (
 	"fmt"
 	"net/http"
+	"time"
 )
 
 // ErrorCode defines the error code type
@@ -48,6 +49,19 @@ const (
 	// The dedicated code lets clients render structured usage details without
 	// parsing the backwards-compatible English error message.
 	ErrModelInUse ErrorCode = 2300
+
+	// Workbench errors (2400-2499). 错误码是对外稳定契约，客户端按 code 分支，
+	// 新增语义时请追加新值，不要复用已有 code。
+	ErrWorkbenchNotFound        ErrorCode = 2400 // 404：条目不存在或不属于当前用户
+	ErrWorkbenchVersionConflict ErrorCode = 2401 // 409：内容快照版本冲突
+	ErrWorkbenchTooLarge        ErrorCode = 2402 // 413：内容超出体积上限
+	ErrWorkbenchArchiveBusy     ErrorCode = 2404 // 409：同一归档分片正被另一请求处理
+	ErrWorkbenchArchiveStale    ErrorCode = 2405 // 409：归档基线版本已过期
+	ErrWorkbenchNoModel         ErrorCode = 2408 // 409：租户没有可用的聊天模型
+	ErrWorkbenchDecodeFailed    ErrorCode = 2409 // 422：快照无法解码 / schema 版本不支持
+	ErrWorkbenchStreamBroken    ErrorCode = 2410 // 502：模型流式回答中途中断
+	ErrWorkbenchInvalidField    ErrorCode = 2411 // 400：日历/形态等字段非法（details.field 指明字段）
+	ErrWorkbenchSystemKB        ErrorCode = 2412 // 400：系统知识库不允许普通用户操作
 
 	// Add more error codes here
 )
@@ -271,6 +285,131 @@ func NewVectorStoreUnavailableError(message string) *AppError {
 	return &AppError{
 		Code:     ErrVectorStoreUnavailable,
 		Message:  message,
+		HTTPCode: http.StatusBadRequest,
+	}
+}
+
+// Workbench 相关错误构造器。handler 不手拼响应体，统一交给 ErrorHandler 渲染。
+
+// NewWorkbenchNotFoundError 生成 2400/404。不存在与越权共用同一个错误，
+// 避免通过 code 差异探测他人的条目是否存在。
+func NewWorkbenchNotFoundError(message string) *AppError {
+	if message == "" {
+		message = "workbench item not found"
+	}
+	return &AppError{
+		Code:     ErrWorkbenchNotFound,
+		Message:  message,
+		HTTPCode: http.StatusNotFound,
+	}
+}
+
+// NewWorkbenchVersionConflict 生成 2401/409，details 携带当前版本与更新时间，
+// 供前端做“重载后重试”，而不是让用户手工刷新页面。
+func NewWorkbenchVersionConflict(currentVersion int, updatedAt time.Time) *AppError {
+	details := map[string]any{"current_version": currentVersion}
+	if !updatedAt.IsZero() {
+		details["updated_at"] = updatedAt.UTC()
+	}
+	return &AppError{
+		Code:     ErrWorkbenchVersionConflict,
+		Message:  "Workbench content has been updated by another tab",
+		Details:  details,
+		HTTPCode: http.StatusConflict,
+	}
+}
+
+// NewWorkbenchTooLarge 生成 2402/413。details 只放数值，不放正文。
+func NewWorkbenchTooLarge(limit, actual int64) *AppError {
+	return &AppError{
+		Code:     ErrWorkbenchTooLarge,
+		Message:  "workbench content exceeds the size limit",
+		Details:  map[string]any{"limit": limit, "actual": actual},
+		HTTPCode: http.StatusRequestEntityTooLarge,
+	}
+}
+
+// NewWorkbenchArchiveInProgress 生成 2404/409：同一 part 已有 pending 行，
+// 说明另一个标签页/请求正在归档它，调用方应稍后重试而不是并发写知识。
+func NewWorkbenchArchiveInProgress(retryAfter time.Duration) *AppError {
+	ms := int64(retryAfter / time.Millisecond)
+	if ms <= 0 {
+		ms = 1000
+	}
+	return &AppError{
+		Code:     ErrWorkbenchArchiveBusy,
+		Message:  "workbench archive is being processed by another request",
+		Details:  map[string]any{"retry_after_ms": ms},
+		HTTPCode: http.StatusConflict,
+	}
+}
+
+// NewWorkbenchArchiveVersionStale 生成 2405/409：归档请求带的 base_version
+// 落后于源内容，details 带当前版本供前端提示“内容已更新，请重新归档”。
+func NewWorkbenchArchiveVersionStale(currentVersion int) *AppError {
+	return &AppError{
+		Code:     ErrWorkbenchArchiveStale,
+		Message:  "workbench archive source is newer than the request base version",
+		Details:  map[string]any{"current_version": currentVersion},
+		HTTPCode: http.StatusConflict,
+	}
+}
+
+// NewWorkbenchNoModel 生成 2408/409：租户没有可用的聊天模型。
+// 前端据此展示“去配置模型”入口，而不是反复重试同一个必然失败的请求。
+func NewWorkbenchNoModel() *AppError {
+	return &AppError{
+		Code:     ErrWorkbenchNoModel,
+		Message:  "no chat model available for workbench AI",
+		Details:  map[string]any{"reason": "no_chat_model"},
+		HTTPCode: http.StatusConflict,
+	}
+}
+
+// NewWorkbenchStreamBroken 生成 2410/502：流已经开始，但上游 provider 中途断开。
+// 前端保留已生成的部分文本供重试，不自动写入。
+func NewWorkbenchStreamBroken(message string) *AppError {
+	if message == "" {
+		message = "model stream interrupted"
+	}
+	return &AppError{
+		Code:     ErrWorkbenchStreamBroken,
+		Message:  message,
+		HTTPCode: http.StatusBadGateway,
+	}
+}
+
+// NewWorkbenchSchemaUnsupported 生成 2409/422，用于快照解码失败或 schema 版本过高。
+func NewWorkbenchSchemaUnsupported(supported int) *AppError {
+	return &AppError{
+		Code:     ErrWorkbenchDecodeFailed,
+		Message:  "workbench snapshot cannot be decoded or its schema version is unsupported",
+		Details:  map[string]any{"supported_schema_version": supported},
+		HTTPCode: http.StatusUnprocessableEntity,
+	}
+}
+
+// NewWorkbenchInvalidField 生成 2411/400，用于 journal_date / current_mode 等
+// 单字段语义非法。details.field 让前端能定位到具体输入框，而不是笼统报错。
+func NewWorkbenchInvalidField(field, expected string) *AppError {
+	return &AppError{
+		Code:     ErrWorkbenchInvalidField,
+		Message:  fmt.Sprintf("invalid workbench field: %s", field),
+		Details:  map[string]any{"field": field, "expected": expected},
+		HTTPCode: http.StatusBadRequest,
+	}
+}
+
+// NewWorkbenchSystemKBError 生成 2412/400：系统知识库（工作知识库）不接受
+// 普通用户的删除/改名/移动；只有内部清理流程能处理它。
+func NewWorkbenchSystemKBError(message string) *AppError {
+	if message == "" {
+		message = "system knowledge base cannot be modified"
+	}
+	return &AppError{
+		Code:     ErrWorkbenchSystemKB,
+		Message:  message,
+		Details:  map[string]any{"reason": "system_knowledge_base"},
 		HTTPCode: http.StatusBadRequest,
 	}
 }

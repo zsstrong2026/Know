@@ -60,6 +60,16 @@ type KnowledgeBaseService interface {
 	// ListKnowledgeBasesByTenantID lists all knowledge bases for a specific tenant (e.g. for shared agent context).
 	ListKnowledgeBasesByTenantID(ctx context.Context, tenantID uint64) ([]*types.KnowledgeBase, error)
 
+	// EnsureWorkKnowledgeBase returns the caller's private work knowledge base,
+	// creating it lazily on first use. The (tenant, creator, system_key) tuple
+	// is unique, so concurrent callers converge on a single row.
+	EnsureWorkKnowledgeBase(ctx context.Context, tenantID uint64, userID string) (*types.KnowledgeBase, error)
+
+	// PurgeWorkKnowledgeBase 硬删用户的工作知识库（KB + 知识 + chunk 等）。
+	// 不暴露路由，只给内部清理任务与 workspace 解散流程调用；
+	// 实现必须校验 kb.IsSystem && kb.SystemKey == "work"，否则拒绝。
+	PurgeWorkKnowledgeBase(ctx context.Context, kbID string) error
+
 	// UpdateKnowledgeBase updates knowledge base information
 	// Parameters:
 	//   - ctx: Context information
@@ -206,6 +216,10 @@ type KnowledgeBaseRepository interface {
 	//   - List of knowledge base objects
 	//   - Possible errors such as database errors, etc.
 	ListKnowledgeBasesByTenantID(ctx context.Context, tenantID uint64) ([]*types.KnowledgeBase, error)
+
+	// GetWorkKnowledgeBase returns the given user's work knowledge base in the
+	// tenant, or (nil, nil) when it has not been created yet.
+	GetWorkKnowledgeBase(ctx context.Context, tenantID uint64, userID string) (*types.KnowledgeBase, error)
 
 	// UpdateKnowledgeBase updates a knowledge base record
 	// Parameters:
