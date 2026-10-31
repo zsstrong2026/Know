@@ -1,0 +1,36 @@
+# 前端镜像的专用忽略规则（BuildKit：优先于构建上下文根的 .dockerignore）。
+#
+# 为什么需要这个文件：
+#   vite.config.ts 要从仓库根的 third_party/blocksuite 读取 vendored 子树，
+#   因此 frontend/Dockerfile 的构建上下文必须是仓库根目录，而不是 ./frontend。
+#   根目录的 .dockerignore 为了给 app/docreader 镜像瘦身而排除了 frontend/，
+#   直接复用会让前端构建拿不到源码。这里改为「全排除 + 精确白名单」：
+#   只放行 frontend/ 源码与 third_party/blocksuite，其余（含 app 的 Go 源码、
+#   本地数据、测试产物）都不进上下文。
+#
+# 注意：规则按顺序生效，后面的覆盖前面的。
+
+# 默认排除一切
+*
+
+# --- 前端源码 ---
+!frontend
+!frontend/**
+# 依赖与产物由镜像内 npm ci / npm run build 生成，不进上下文
+frontend/node_modules
+frontend/dist
+frontend/dist-ssr
+frontend/coverage
+frontend/logs
+frontend/*.log
+frontend/*.tsbuildinfo
+# 本地配置与敏感文件
+frontend/.env
+frontend/.env.*
+
+# --- vendored BlockSuite 源码树（vite.config.ts 的 ../third_party/blocksuite）---
+# 必须逐级放行：父目录被排除时子项无法重新包含。
+!third_party
+third_party/*
+!third_party/blocksuite
+!third_party/blocksuite/**
