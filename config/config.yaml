@@ -123,3 +123,14 @@ meeting:
   context_max_messages: 50
   # 默认广播模式（sequential），空值回退 sequential
   default_broadcast_mode: sequential
+
+# 工作台功能开关（§9.1 发布门禁）。开关只控制入口与路由注册，不改数据模型：
+# 关闭后已写入的数据仍可读，但普通用户看不到入口。可用环境变量覆盖：
+#   WEKNORA_WORKBENCH_ENABLED / _TEMPLATES_ENABLED / _JOURNALS_ENABLED /
+#   _AI_ENABLED / _DUAL_MODE_ENABLED
+workbench:
+  enabled: false
+  templates_enabled: false
+  journals_enabled: false
+  ai_enabled: false
+  dual_mode_enabled: false
