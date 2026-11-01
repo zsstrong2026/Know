@@ -75,3 +75,7 @@ miniprogram/project.private.config.json
 # 本地 Python 环境与二进制工具包
 /paddleocr-env/
 /tools/
+
+# 本地临时下载的 ppt-generator 技能包
+/ppt-generator/
+/ppt-generator.zip
