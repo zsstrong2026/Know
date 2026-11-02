@@ -1,6 +1,7 @@
 <template>
   <!-- 创建会议弹窗：表单提交成功后 emit('created', room) 交由父级刷新列表并跳转 -->
   <t-dialog :visible="visible" :header="$t('meeting.create')" :width="600"
+    placement="center" dialog-class-name="meeting-form-dialog"
     :close-on-overlay-click="false" attach="body"
     :confirm-btn="{ content: $t('meeting.createAndEnter'), loading: submitting }"
     :cancel-btn="{ content: $t('meeting.cancel') }" @confirm="submit"

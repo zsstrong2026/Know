@@ -428,3 +428,28 @@ function remove(room: MeetingRoom) {
   flex-direction: column;
 }
 </style>
+
+<style lang="less">
+/* 会议室表单弹窗（teleport 到 body，必须用非 scoped 样式）。
+   表单新增议题治理配置后会超过矮视口；居中布局下超长内容会把底部按钮裁到视口外，
+   表现为“提交/保存按钮点击无响应”。这里固定卡片最大高度、让 body 自身滚动，
+   保证 header 与 footer 始终可见可点。 */
+.meeting-form-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 96px);
+  max-height: calc(100dvh - 96px);
+}
+
+.meeting-form-dialog .t-dialog__header,
+.meeting-form-dialog .t-dialog__footer {
+  flex: 0 0 auto;
+}
+
+.meeting-form-dialog .t-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+</style>

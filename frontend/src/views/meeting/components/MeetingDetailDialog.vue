@@ -1,6 +1,7 @@
 <template>
   <!-- 会议详情弹窗：会议设置总入口（标题/描述/参会智能体/讨论模式/路由/护栏/介入/共识） -->
   <t-dialog :visible="visible" :header="$t('meeting.detailTitle')" :width="640"
+    dialog-class-name="meeting-form-dialog"
     :close-on-overlay-click="false" attach="body"
     :confirm-btn="{ content: $t('meeting.save'), loading: saving, disabled: !canSubmit }"
     :cancel-btn="{ content: $t('meeting.cancel') }" @confirm="submit" @close="emit('update:visible', false)">

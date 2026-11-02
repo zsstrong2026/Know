@@ -2,6 +2,7 @@
   <!-- 生成产物弹窗：选形态 + 标题 + 补充要求 → store.requestArtifact（202 异步） -->
   <!-- z-index 2700：需高于 ArtifactDrawer 显式设置的 2600，否则弹窗被抽屉面板遮挡 -->
   <t-dialog :visible="visible" :header="$t('meeting.generateArtifact')" :width="560" :z-index="2700"
+    dialog-class-name="meeting-form-dialog"
     :close-on-overlay-click="false" attach="body"
     :confirm-btn="{ content: $t('meeting.generateArtifact'), loading: submitting }"
     :cancel-btn="{ content: $t('meeting.cancel') }" @confirm="submit"
