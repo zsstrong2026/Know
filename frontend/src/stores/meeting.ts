@@ -4,7 +4,8 @@ import {
   listMeetings, getMeeting, listMessages, sendMessage,
   updateReviewState, generateSolution, rollbackSolution, confirmMeetingFlow,
   listArtifacts, requestArtifact as apiRequestArtifact, regenerateArtifact as apiRegenerateArtifact,
-  type MeetingRoom, type MeetingMessage, type MeetingArtifact, type ArtifactKindType,
+  listAgenda, advanceAgenda as apiAdvanceAgenda,
+  type MeetingRoom, type MeetingMessage, type MeetingArtifact, type MeetingAgendaItem, type ArtifactKindType,
 } from '@/api/meeting';
 
 export const useMeetingStore = defineStore('meetingStore', () => {
@@ -17,6 +18,12 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   const consensusNotice = ref<unknown>(null); // 裁判判定收敛提示（consensus.created）
   const solutionGenerating = ref(false);  // 方案生成中（按钮 loading 用）
   const artifacts = ref<MeetingArtifact[]>([]); // 当前房间产物（solution + generated 统一）
+  const agenda = ref<MeetingAgendaItem[]>([]);  // 当前房间议程（结构性治理；未启用时为空）
+
+  // 当前活跃议题（仅 status=active；用于提示条与"结束议题"按钮）
+  const activeAgendaItem = computed(() => agenda.value.find((it) => it.status === 'active') ?? null);
+  // 已覆盖议题数（用于进度提示）
+  const agendaDoneCount = computed(() => agenda.value.filter((it) => it.status === 'done').length);
 
   // 最近一条开场消息是否处于「等待用户澄清主题」态（与后端 openingNeedsClarification 对齐）；
   // 澄清态下用户直接输入语义为「补充说明」，而非隐式确认开会。
@@ -34,8 +41,12 @@ export const useMeetingStore = defineStore('meetingStore', () => {
 
   async function enterRoom(roomId: string) {
     currentRoom.value = await getMeeting(roomId);
-    const page = await listMessages(roomId);
+    const [page, items] = await Promise.all([
+      listMessages(roomId),
+      listAgenda(roomId).catch(() => [] as MeetingAgendaItem[]), // 议程为可选能力，失败不阻断进房
+    ]);
     messages.value = page;
+    agenda.value = items;
     hasMore.value = page.length >= 100;
   }
 
@@ -99,6 +110,12 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   // 拉取当前房间全部产物（抽屉打开/回滚后刷新）
   async function fetchArtifacts(roomId: string) {
     artifacts.value = await listArtifacts(roomId);
+  }
+
+  // 人工推进议程（跳过/确认当前议题），以服务端返回的最新列表为准
+  async function advanceAgenda(itemId = '') {
+    if (!currentRoom.value) return;
+    agenda.value = await apiAdvanceAgenda(currentRoom.value.id, itemId);
   }
 
   // 按 id 就地 upsert（HTTP 返回值与 SSE 事件共用；SSE 可能先于 HTTP 到达）
@@ -178,6 +195,10 @@ export const useMeetingStore = defineStore('meetingStore', () => {
       consensusNotice.value = data;
     } else if (event === 'artifact.generating' || event === 'artifact.created' || event === 'artifact.failed') {
       upsertArtifact(artifactFromEvent(event, data));
+    } else if (event === 'agenda.updated') {
+      // 议程拆解/推进：后端推完整列表，直接覆盖；讨论推进后前端提示条随之更新
+      const items = (data as { items?: MeetingAgendaItem[] } | null)?.items;
+      if (Array.isArray(items)) agenda.value = items;
     } else if (event === 'discussion.flow_confirmation') {
       // 开场确认事件：无独立状态，开场消息本体经 message.created 回流，按钮组由 payload.stage 渲染
     }
@@ -199,10 +220,12 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     guardNotice.value = null;
     consensusNotice.value = null;
     artifacts.value = [];
+    agenda.value = [];
   }
 
   return { rooms, currentRoom, messages, hasMore, discussing, guardNotice, consensusNotice, solutionGenerating, artifacts,
+    agenda, activeAgendaItem, agendaDoneCount,
     needsClarification,
     fetchRooms, enterRoom, loadEarlier, speak, confirm, setReviewState, generate, rollback, applyStreamEvent, clearGuardNotice, clearConsensusNotice, leaveRoom,
-    fetchArtifacts, requestArtifact, regenerateArtifact };
+    fetchArtifacts, requestArtifact, regenerateArtifact, advanceAgenda };
 });

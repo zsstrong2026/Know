@@ -148,7 +148,7 @@ func buildArtifactPrompt(
 ) string {
 	var b strings.Builder
 	b.WriteString("你是会议室主持人，现在需要为本会议产出一份交付物。\n")
-	fmt.Fprintf(&b, "会议主题：%s\n", room.Title)
+	fmt.Fprintf(&b, "会议主题：%s\n", effectiveTopic(room))
 	if room.Description != "" {
 		b.WriteString("会议描述：" + room.Description + "\n")
 	}

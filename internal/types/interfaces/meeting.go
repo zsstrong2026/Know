@@ -32,11 +32,23 @@ type MeetingMessageRepository interface {
 	ListByRoom(ctx context.Context, roomID string, beforeID string, limit int) ([]*types.MeetingMessage, error)
 	// ListRecent 取最近 limit 条（正序），供 LLM 上下文使用
 	ListRecent(ctx context.Context, roomID string, limit int) ([]*types.MeetingMessage, error)
+	// ListByAgendaItem 取某议程项下最近 limit 条消息（正序），供按议题聚焦上下文
+	ListByAgendaItem(ctx context.Context, roomID string, agendaItemID string, limit int) ([]*types.MeetingMessage, error)
 	UpdateReviewState(ctx context.Context, id string, state string) error
 	CountByRoom(ctx context.Context, roomID string) (int64, error)
 	CountByReviewStates(ctx context.Context, roomID string, states []string) (int64, error)
 	MaxSolutionVersion(ctx context.Context, roomID string) (int, error)
 	ListByReviewState(ctx context.Context, roomID string, state string) ([]*types.MeetingMessage, error)
+}
+
+// MeetingAgendaRepository 议程项存储（按房间隔离，seq 唯一）
+type MeetingAgendaRepository interface {
+	// ReplaceByRoom 全量替换某房间的议程（开场澄清重出时重建）
+	ReplaceByRoom(ctx context.Context, roomID string, items []*types.MeetingAgendaItem) error
+	ListByRoom(ctx context.Context, roomID string) ([]*types.MeetingAgendaItem, error)
+	// Active 返回当前讨论中的议程项；无 active 时返回 nil
+	Active(ctx context.Context, roomID string) (*types.MeetingAgendaItem, error)
+	Update(ctx context.Context, item *types.MeetingAgendaItem) error
 }
 
 type MeetingArtifactRepository interface {
@@ -88,6 +100,10 @@ type MeetingService interface {
 	GetArtifactDetail(ctx context.Context, tenantID uint64, roomID string, artifactID string) (*types.MeetingArtifactDetail, error)
 	// ResolveArtifactDownload 解析 generated 产物下载跳转地址（后台会话消息的产物索引）
 	ResolveArtifactDownload(ctx context.Context, tenantID uint64, roomID string, artifactID string) (string, error)
+	// ListAgenda 本会议议程项（按 seq 升序；未启用议程时返回空列表）
+	ListAgenda(ctx context.Context, tenantID uint64, roomID string) ([]*types.MeetingAgendaItem, error)
+	// AdvanceAgenda 人工推进议程：把指定议程项标记完成并激活下一项（用户主动跳过/确认时使用）
+	AdvanceAgenda(ctx context.Context, tenantID uint64, roomID string, itemID string) ([]*types.MeetingAgendaItem, error)
 }
 
 // MeetingEngine 讨论引擎：同一会议同一时刻仅一个讨论轮次（Redis 锁保证）
@@ -105,4 +121,8 @@ type MeetingEngine interface {
 	IsArtifactRunning(ctx context.Context, roomID string) (bool, error)
 	// RunArtifactGeneration 产物生成主链路（互斥 → 后台会话 → AgentQA → 采集 → 回写 → 广播）
 	RunArtifactGeneration(ctx context.Context, room *types.MeetingRoom, artifact *types.MeetingArtifact) error
+	// ActiveAgendaItem 当前活跃议程项（未启用议程或无活跃项时返回 nil，不触发推进）
+	ActiveAgendaItem(ctx context.Context, room *types.MeetingRoom) (*types.MeetingAgendaItem, error)
+	// ListAgenda 房间全部议程项（按 seq 升序；未启用议程时返回空）
+	ListAgenda(ctx context.Context, room *types.MeetingRoom) ([]*types.MeetingAgendaItem, error)
 }

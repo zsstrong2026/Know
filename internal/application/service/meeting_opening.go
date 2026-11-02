@@ -73,6 +73,9 @@ func buildOpeningPrompt(room *types.MeetingRoom, agents []*types.CustomAgent, fe
 		b.WriteString("## 需要澄清的问题\n仅当主题过于宽泛、缺少关键约束（如目标、范围、时间、对象、评价标准）时输出本节：\n")
 		b.WriteString("用 <need_clarification> 与 </need_clarification> 包裹 1-3 个编号问题，每个问题附上你的推荐答案（形如「1. 问题？推荐：xxx」）。\n")
 		b.WriteString("若主题已足够明确、可直接讨论，请完全省略本节，不要输出 need_clarification 标记。\n")
+		if room.AgendaEnabled {
+			b.WriteString(buildAgendaPromptSection())
+		}
 		b.WriteString("## 建议流程\n给出分段/分轮的会议流程建议：每个阶段的讨论重点、希望哪些智能体先发言，以及需要用户确认或拍板的点。\n")
 		b.WriteString("\n要求：语言简洁、面向普通用户；不要编造会议中不存在的材料；不要展开具体讨论内容（讨论在用户确认后开始）。")
 		return b.String()
@@ -80,6 +83,9 @@ func buildOpeningPrompt(room *types.MeetingRoom, agents []*types.CustomAgent, fe
 	b.WriteString("\n用户对上一版会议流程与主题提出了修改或补充意见：\n" + feedback + "\n")
 	b.WriteString("请结合该意见重新输出开场内容，包含以下部分：\n")
 	b.WriteString("## 主题分析\n首行必须用 <topic_brief> 与 </topic_brief> 包裹收敛后的一句话会议主题（含明确目标与范围），随后是背景、核心问题与关键约束。\n")
+	if room.AgendaEnabled {
+		b.WriteString(buildAgendaPromptSection())
+	}
 	b.WriteString("## 建议流程\n给出分段/分轮的会议流程建议：每个阶段的讨论重点、希望哪些智能体先发言，以及需要用户确认或拍板的点。\n")
 	b.WriteString("\n要求：本次不再追问，直接给出收敛结论（不要输出 need_clarification 标记）；语言简洁、面向普通用户；不要编造会议中不存在的材料。")
 	return b.String()
@@ -103,6 +109,14 @@ func (e *meetingEngine) GenerateOpening(ctx context.Context, room *types.Meeting
 	}
 	// 剥离标记 token：落库内容已是干净的（含澄清问题正文，但不含标记），前端无需感知标记
 	content, topicBrief, needsClarification := parseOpeningMarkers(raw)
+	// 议程拆解：仅在启用议程且非澄清轮时落库（澄清轮还没有稳定主题，拆了也会被覆盖）
+	var agendaItems []*types.MeetingAgendaItem
+	if room.AgendaEnabled {
+		if raw2, ok := parseAgenda(raw); ok && !needsClarification {
+			agendaItems = toAgendaItems(room.ID, raw2, agents)
+		}
+		content = stripAgendaTag(content)
+	}
 	if content == "" {
 		content = strings.TrimSpace(raw)
 	}
@@ -134,6 +148,13 @@ func (e *meetingEngine) GenerateOpening(ctx context.Context, room *types.Meeting
 	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventFlowConfirmation, Data: map[string]interface{}{
 		"room_id": room.ID, "message_id": msg.ID, "stage": MeetingOpeningStage,
 	}})
+	// 议程落库：首次开会用新增，调整流程/回答澄清用重建（覆盖旧议程）
+	if len(agendaItems) > 0 {
+		e.persistAgenda(ctx, room.ID, agendaItems, true)
+		e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventAgendaUpdated, Data: map[string]interface{}{
+			"room_id": room.ID, "items": agendaItems,
+		}})
+	}
 	return nil
 }
 

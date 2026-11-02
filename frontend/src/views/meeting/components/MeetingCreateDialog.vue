@@ -59,6 +59,18 @@
         <t-switch v-model="form.consensusDetectionEnabled" />
         <div class="routing-hint">{{ $t('meeting.consensusDetectionHint') }}</div>
       </t-form-item>
+      <t-form-item :label="$t('meeting.agendaEnabled')">
+        <t-switch v-model="form.agendaEnabled" />
+        <div class="routing-hint">{{ $t('meeting.agendaEnabledHint') }}</div>
+      </t-form-item>
+      <t-form-item :label="$t('meeting.admissionMode')">
+        <t-select v-model="form.admissionMode" :disabled="!form.agendaEnabled">
+          <t-option value="off" :label="$t('meeting.admissionOff')" />
+          <t-option value="observe" :label="$t('meeting.admissionObserve')" />
+          <t-option value="enforce" :label="$t('meeting.admissionEnforce')" />
+        </t-select>
+        <div class="routing-hint">{{ $t('meeting.admissionModeHint') }}</div>
+      </t-form-item>
       <t-form-item :label="$t('meeting.webSearch')">
         <t-switch v-model="form.webSearchEnabled" />
         <div class="routing-hint">{{ $t('meeting.webSearchHint') }}</div>
@@ -73,7 +85,7 @@ import { useI18n } from 'vue-i18n';
 import { MessagePlugin } from 'tdesign-vue-next';
 import {
   createMeeting, isModelHomogeneous,
-  type BroadcastMode, type RoutingMode, type MeetingRoom,
+  type AdmissionMode, type BroadcastMode, type RoutingMode, type MeetingRoom,
 } from '@/api/meeting';
 import { listAgents, type CustomAgent } from '@/api/agent';   // 复用既有智能体列表接口
 import { listKnowledgeBases } from '@/api/knowledge-base';   // 复用既有知识库列表接口
@@ -95,6 +107,8 @@ const form = reactive({
   routingMode: 'host-assign' as RoutingMode,
   hostEveryNRounds: 0, // 0=主持人不介入（默认），每 N 个子轮总结并重定向
   consensusDetectionEnabled: false, // 裁判 + 共识检测开关（默认关闭）
+  agendaEnabled: false, // 结构性治理：议题拆解 + 按议题聚焦（默认关闭）
+  admissionMode: 'off' as AdmissionMode, // 发言准入模式（依赖议题拆解）
   webSearchEnabled: false, // 会议级联网开关（默认关闭）；开启后强制全部参会智能体联网
 });
 
@@ -151,6 +165,8 @@ function resetForm() {
   form.routingMode = 'host-assign';
   form.hostEveryNRounds = 0;
   form.consensusDetectionEnabled = false;
+  form.agendaEnabled = false;
+  form.admissionMode = 'off';
   form.webSearchEnabled = false;
 }
 
@@ -165,7 +181,11 @@ async function submit() {
   }
   submitting.value = true;
   try {
-    const room = await createMeeting(form);
+    // 未开启议题拆解时准入无意义，统一回落为 off（与详情页保存语义一致）
+    const room = await createMeeting({
+      ...form,
+      admissionMode: form.agendaEnabled ? form.admissionMode : 'off',
+    });
     resetForm();
     emit('update:visible', false);
     emit('created', room);

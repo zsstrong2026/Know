@@ -46,6 +46,8 @@ type createMeetingRequest struct {
 	GuardMaxExchange          int      `json:"guard_max_exchange"`
 	HostEveryNRounds          int      `json:"host_every_n_rounds"`
 	ConsensusDetectionEnabled bool     `json:"consensus_detection_enabled"`
+	AgendaEnabled             bool     `json:"agenda_enabled"`
+	AdmissionMode             string   `json:"admission_mode"`
 	KnowledgeBaseIDs          []string `json:"knowledge_base_ids"`
 	WebSearchEnabled          bool     `json:"web_search_enabled"`
 	AgentIDs                  []string `json:"agent_ids" binding:"required,min=1"`
@@ -67,6 +69,8 @@ func (h *MeetingHandler) CreateMeeting(c *gin.Context) {
 		BroadcastMode: req.BroadcastMode, GuardMaxExchange: req.GuardMaxExchange,
 		RoutingMode: req.RoutingMode, HostEveryNRounds: req.HostEveryNRounds,
 		ConsensusDetectionEnabled: req.ConsensusDetectionEnabled,
+		AgendaEnabled:             req.AgendaEnabled,
+		AdmissionMode:             req.AdmissionMode,
 		KnowledgeBaseIDs:          types.StringList(req.KnowledgeBaseIDs),
 		WebSearchEnabled:          req.WebSearchEnabled,
 	}
@@ -122,6 +126,10 @@ type updateMeetingRequest struct {
 	HostEveryNRounds *int `json:"host_every_n_rounds" binding:"omitempty,min=0,max=10"`
 	// 裁判 + 共识检测开关：指针区分「未传」（保留原值）与显式设置
 	ConsensusDetectionEnabled *bool `json:"consensus_detection_enabled"`
+	// 结构性治理开关：指针区分「未传」与显式设置
+	AgendaEnabled *bool `json:"agenda_enabled"`
+	// 发言准入模式：off / observe / enforce（空 = 保留原值）
+	AdmissionMode string `json:"admission_mode" binding:"omitempty,oneof=off observe enforce"`
 }
 
 // UpdateMeeting PATCH /api/v1/meetings/:id —— 白名单更新，归档房间只读
@@ -159,6 +167,13 @@ func (h *MeetingHandler) UpdateMeeting(c *gin.Context) {
 	// 共识检测开关为可选字段：未传（nil）时保留原值
 	if req.ConsensusDetectionEnabled != nil {
 		room.ConsensusDetectionEnabled = *req.ConsensusDetectionEnabled
+	}
+	// 结构性治理开关与准入模式：未传时保留原值
+	if req.AgendaEnabled != nil {
+		room.AgendaEnabled = *req.AgendaEnabled
+	}
+	if req.AdmissionMode != "" {
+		room.AdmissionMode = req.AdmissionMode
 	}
 	if err := h.meetingService.UpdateMeeting(ctx, room); err != nil {
 		c.Error(errors.NewInternalServerError(err.Error()))
@@ -214,6 +229,54 @@ func (h *MeetingHandler) ConfirmFlow(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusAccepted, gin.H{"success": true, "message": "confirmed"})
+}
+
+// ListAgenda GET /api/v1/meetings/:id/agenda —— 议程项列表（按 seq 升序）
+func (h *MeetingHandler) ListAgenda(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	items, err := h.meetingService.ListAgenda(ctx, tenantID, c.Param("id"))
+	if err != nil {
+		if stderrors.Is(err, apprepo.ErrMeetingRoomNotFound) {
+			c.Error(errors.NewNotFoundError("meeting not found"))
+			return
+		}
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{"meeting_id": c.Param("id")})
+		c.Error(errors.NewInternalServerError("Failed to load agenda"))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": items})
+}
+
+type advanceAgendaRequest struct {
+	// ItemID 为空表示推进当前活跃项
+	ItemID string `json:"item_id"`
+}
+
+// AdvanceAgenda POST /api/v1/meetings/:id/agenda/advance —— 人工推进议程
+func (h *MeetingHandler) AdvanceAgenda(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	var req advanceAgendaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	items, err := h.meetingService.AdvanceAgenda(ctx, tenantID, c.Param("id"), req.ItemID)
+	if err != nil {
+		switch {
+		case stderrors.Is(err, service.ErrRoomArchived):
+			c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
+		case stderrors.Is(err, service.ErrTurnRunning):
+			c.Error(errors.NewConflictError("讨论进行中，暂不能推进议程"))
+		case stderrors.Is(err, apprepo.ErrMeetingRoomNotFound):
+			c.Error(errors.NewNotFoundError("meeting not found"))
+		default:
+			c.Error(errors.NewBadRequestError(err.Error()))
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": items})
 }
 
 // ArchiveMeeting POST /api/v1/meetings/:id/archive —— 幂等归档

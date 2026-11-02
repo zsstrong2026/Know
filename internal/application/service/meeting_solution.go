@@ -17,7 +17,7 @@ var ErrNoAdoptedMessages = errors.New("meeting: no adopted messages")
 // adopted 为被用户采纳的意见，rejected 为被用户否决的意见（代表尚未达成一致的一方立场）。
 func buildSolutionPrompt(room *types.MeetingRoom, adopted, rejected []*types.MeetingMessage, nameOf func(agentID string) string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "会议主题：%s\n会议描述：%s\n\n以下是本次讨论中被用户采纳的意见（共 %d 条）：\n", room.Title, room.Description, len(adopted))
+	fmt.Fprintf(&b, "会议主题：%s\n会议描述：%s\n\n以下是本次讨论中被用户采纳的意见（共 %d 条）：\n", effectiveTopic(room), room.Description, len(adopted))
 	for i, m := range adopted {
 		fmt.Fprintf(&b, "%d. %s：%s\n", i+1, nameOf(m.SenderID), m.Content)
 	}

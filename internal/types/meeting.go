@@ -29,6 +29,23 @@ const (
 	// 主持人介入间隔上限（子轮数）：超过该值视为非法/关闭，防止过于稀疏或异常配置
 	MeetingHostEveryNRoundsMax = 10
 
+	// 议程项状态：pending 待讨论 / active 讨论中 / done 已覆盖 / skipped 跳过
+	MeetingAgendaPending = "pending"
+	MeetingAgendaActive  = "active"
+	MeetingAgendaDone    = "done"
+	MeetingAgendaSkipped = "skipped"
+
+	// 发言准入模式：off 关闭 / observe 只记录 / enforce 不通过时要求重写一次（不丢弃发言）
+	MeetingAdmissionOff     = "off"
+	MeetingAdmissionObserve = "observe"
+	MeetingAdmissionEnforce = "enforce"
+
+	// 发言准入结果（落库便于观测与调参）
+	MeetingAdmissionNone      = ""
+	MeetingAdmissionPassed    = "passed"
+	MeetingAdmissionObserved  = "observed"
+	MeetingAdmissionRewritten = "rewritten"
+
 	ParticipantKindHost  = "host"
 	ParticipantKindAgent = "agent"
 
@@ -127,11 +144,11 @@ func (s *StringList) Scan(src interface{}) error {
 
 // MeetingRoom 会议室
 type MeetingRoom struct {
-	ID               string `gorm:"type:varchar(36);primaryKey" json:"id"`
-	TenantID         uint64 `gorm:"index" json:"tenant_id"`
-	CreatedBy        string `gorm:"type:varchar(36);index" json:"created_by"`
-	Title            string `gorm:"type:varchar(255)" json:"title"`
-	Description      string `gorm:"type:text" json:"description"`
+	ID          string `gorm:"type:varchar(36);primaryKey" json:"id"`
+	TenantID    uint64 `gorm:"index" json:"tenant_id"`
+	CreatedBy   string `gorm:"type:varchar(36);index" json:"created_by"`
+	Title       string `gorm:"type:varchar(255)" json:"title"`
+	Description string `gorm:"type:text" json:"description"`
 	// TopicBrief 主持人澄清后收敛的一句话主题；澄清未完成或用户跳过时为空（讨论回退到 Title+Description）
 	TopicBrief       string `gorm:"type:text" json:"topic_brief"`
 	Status           string `gorm:"type:varchar(32);default:active" json:"status"`
@@ -143,10 +160,15 @@ type MeetingRoom struct {
 	// 裁判 + 共识检测：开启后每个子轮结束由独立裁判判定是否收敛，收敛即落共识消息并终止讨论
 	ConsensusDetectionEnabled bool       `gorm:"default:false" json:"consensus_detection_enabled"`
 	KnowledgeBaseIDs          StringList `gorm:"type:jsonb" json:"knowledge_base_ids"`
+	// AgendaEnabled 结构性治理总闸：开启后主持人开场拆解子议题，讨论按议题组织上下文
+	// 并对每条发言做准入判定（否则退回"全量上下文 + 仅提示词约束"的旧行为）
+	AgendaEnabled bool `gorm:"default:false" json:"agenda_enabled"`
+	// AdmissionMode 发言准入模式：off / observe / enforce，见 MeetingAdmission* 常量
+	AdmissionMode string `gorm:"type:varchar(16);default:off" json:"admission_mode"`
 	// WebSearchEnabled 会议级联网搜索总闸（默认关闭）：开启后强制全部参会智能体启用联网检索（需系统已配置搜索服务）
-	WebSearchEnabled         bool       `gorm:"default:false" json:"web_search_enabled"`
-	CurrentSolutionMessageID string     `gorm:"type:varchar(36)" json:"current_solution_message_id"`
-	ContextSummary           string     `gorm:"type:text" json:"context_summary"`
+	WebSearchEnabled         bool   `gorm:"default:false" json:"web_search_enabled"`
+	CurrentSolutionMessageID string `gorm:"type:varchar(36)" json:"current_solution_message_id"`
+	ContextSummary           string `gorm:"type:text" json:"context_summary"`
 	// ArtifactSessionID 懒创建的产物生成后台会话（空 = 尚未生成过产物）；
 	// 会话带隐藏标记不出现在聊天侧栏，属主为会议创建者
 	ArtifactSessionID string         `gorm:"type:varchar(36)" json:"artifact_session_id"`
@@ -195,12 +217,18 @@ type MeetingMessage struct {
 	MentionedAgentIDs StringList `gorm:"type:jsonb" json:"mentioned_agent_ids"`
 	Content           string     `gorm:"type:text" json:"content"`
 	Payload           []byte     `gorm:"type:jsonb" json:"payload,omitempty"`
-	ReviewState       string     `gorm:"type:varchar(16);default:none" json:"review_state"`
-	IsSolution        bool       `gorm:"default:false" json:"is_solution"`
-	SolutionVersion   int        `gorm:"default:0" json:"solution_version"`
-	IsConsensus       bool       `gorm:"default:false" json:"is_consensus"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	// AgendaItemID 发言归属的议程项（空 = 未归属，如开场澄清或议程外追问）
+	AgendaItemID    string `gorm:"type:varchar(36);index" json:"agenda_item_id"`
+	ReviewState     string `gorm:"type:varchar(16);default:none" json:"review_state"`
+	IsSolution      bool   `gorm:"default:false" json:"is_solution"`
+	SolutionVersion int    `gorm:"default:0" json:"solution_version"`
+	IsConsensus     bool   `gorm:"default:false" json:"is_consensus"`
+	// AdmissionState 发言准入判定结果（passed/observed/rewritten；空 = 未判定或关闭）
+	AdmissionState string `gorm:"type:varchar(16);default:''" json:"admission_state"`
+	// AdmissionNote 准入未通过的原因（enforce 模式下用于要求重写；便于运维调参）
+	AdmissionNote string    `gorm:"type:text" json:"admission_note,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 func (MeetingMessage) TableName() string { return "meeting_messages" }
@@ -208,6 +236,38 @@ func (MeetingMessage) TableName() string { return "meeting_messages" }
 func (m *MeetingMessage) BeforeCreate(_ *gorm.DB) error {
 	if m.ID == "" {
 		m.ID = uuid.New().String()
+	}
+	return nil
+}
+
+// MeetingAgendaItem 议程项：主持人开场拆解出的一个子议题。
+// 讨论按议程项组织上下文（只带本议题记录 + 其他议题一句话摘要），
+// 从而避免"全量历史灌入"导致的链式漂移。
+type MeetingAgendaItem struct {
+	ID            string `gorm:"type:varchar(36);primaryKey" json:"id"`
+	MeetingRoomID string `gorm:"type:varchar(36);index:idx_meeting_agenda_room_order" json:"meeting_room_id"`
+	// Seq 议程顺序（0 起），同一房间唯一
+	Seq int `gorm:"index:idx_meeting_agenda_room_order" json:"seq"`
+	// Title 子议题标题（一句话）
+	Title string `gorm:"type:varchar(255);not null" json:"title"`
+	// Goal 该议题要产出的结论（可判定）
+	Goal string `gorm:"type:text" json:"goal"`
+	// OwnerAgentIDs 建议负责的智能体（空 = 由主持人按相关性指派）
+	OwnerAgentIDs StringList `gorm:"type:jsonb" json:"owner_agent_ids"`
+	// KnowledgeBaseIDs 该议题建议检索的知识库（空 = 沿用会议级知识库）
+	KnowledgeBaseIDs StringList `gorm:"type:jsonb" json:"knowledge_base_ids"`
+	Status           string     `gorm:"type:varchar(16);default:pending" json:"status"`
+	// Summary 该议题已达成的小结（由主持人收敛时写入，供后续议题作为上下文）
+	Summary   string    `gorm:"type:text" json:"summary"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (MeetingAgendaItem) TableName() string { return "meeting_agenda_items" }
+
+func (a *MeetingAgendaItem) BeforeCreate(_ *gorm.DB) error {
+	if a.ID == "" {
+		a.ID = uuid.New().String()
 	}
 	return nil
 }

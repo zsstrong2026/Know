@@ -151,6 +151,24 @@ func (r *meetingMessageRepository) ListRecent(ctx context.Context, roomID string
 	return r.ListByRoom(ctx, roomID, "", limit)
 }
 
+// ListByAgendaItem 取某议程项下最近 limit 条消息（正序）；agendaItemID 为空时返回空集
+func (r *meetingMessageRepository) ListByAgendaItem(ctx context.Context, roomID string, agendaItemID string, limit int) ([]*types.MeetingMessage, error) {
+	if agendaItemID == "" {
+		return nil, nil
+	}
+	var desc []*types.MeetingMessage
+	if err := r.db.WithContext(ctx).
+		Where("meeting_room_id = ? AND agenda_item_id = ?", roomID, agendaItemID).
+		Order("created_at DESC, id DESC").Limit(limit).Find(&desc).Error; err != nil {
+		return nil, err
+	}
+	msgs := make([]*types.MeetingMessage, 0, len(desc))
+	for i := len(desc) - 1; i >= 0; i-- {
+		msgs = append(msgs, desc[i])
+	}
+	return msgs, nil
+}
+
 func (r *meetingMessageRepository) UpdateReviewState(ctx context.Context, id string, state string) error {
 	return r.db.WithContext(ctx).Model(&types.MeetingMessage{}).
 		Where("id = ?", id).Update("review_state", state).Error
@@ -185,6 +203,53 @@ func (r *meetingMessageRepository) ListByReviewState(ctx context.Context, roomID
 		Where("meeting_room_id = ? AND review_state = ?", roomID, state).
 		Order("created_at ASC").Find(&msgs).Error
 	return msgs, err
+}
+
+// ---- 议程项 ----
+
+type meetingAgendaRepository struct{ db *gorm.DB }
+
+func NewMeetingAgendaRepository(db *gorm.DB) interfaces.MeetingAgendaRepository {
+	return &meetingAgendaRepository{db: db}
+}
+
+// ReplaceByRoom 全量替换房间议程（事务内删旧插新，保证 seq 唯一索引不冲突）
+func (r *meetingAgendaRepository) ReplaceByRoom(ctx context.Context, roomID string, items []*types.MeetingAgendaItem) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("meeting_room_id = ?", roomID).Delete(&types.MeetingAgendaItem{}).Error; err != nil {
+			return err
+		}
+		if len(items) == 0 {
+			return nil
+		}
+		return tx.Create(items).Error
+	})
+}
+
+func (r *meetingAgendaRepository) ListByRoom(ctx context.Context, roomID string) ([]*types.MeetingAgendaItem, error) {
+	var items []*types.MeetingAgendaItem
+	err := r.db.WithContext(ctx).Where("meeting_room_id = ?", roomID).
+		Order("seq ASC").Find(&items).Error
+	return items, err
+}
+
+// Active 返回 status=active 的议程项；没有则返回 nil, nil（调用方决定是否自动推进）
+func (r *meetingAgendaRepository) Active(ctx context.Context, roomID string) (*types.MeetingAgendaItem, error) {
+	var item types.MeetingAgendaItem
+	err := r.db.WithContext(ctx).
+		Where("meeting_room_id = ? AND status = ?", roomID, types.MeetingAgendaActive).
+		Order("seq ASC").First(&item).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+func (r *meetingAgendaRepository) Update(ctx context.Context, item *types.MeetingAgendaItem) error {
+	return r.db.WithContext(ctx).Save(item).Error
 }
 
 type meetingArtifactRepository struct{ db *gorm.DB }

@@ -22,7 +22,9 @@ const (
 	MeetingEventArtifactGenerating   = "artifact.generating"
 	MeetingEventArtifactCreated      = "artifact.created"
 	MeetingEventArtifactFailed       = "artifact.failed"
-	MeetingEventPing                 = "ping"
+	// MeetingEventAgendaUpdated 议程拆解或推进后推送（前端刷新议程面板）
+	MeetingEventAgendaUpdated = "agenda.updated"
+	MeetingEventPing          = "ping"
 )
 
 // MeetingBroadcaster 进程内按会议房间的发布/订阅（单副本部署前提，见设计风险章节）。

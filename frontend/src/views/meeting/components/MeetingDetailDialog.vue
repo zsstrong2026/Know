@@ -52,6 +52,18 @@
       <t-form-item :label="$t('meeting.consensusDetection')">
         <t-switch v-model="form.consensusDetectionEnabled" :disabled="isArchived" />
       </t-form-item>
+      <t-form-item :label="$t('meeting.agendaEnabled')">
+        <t-switch v-model="form.agendaEnabled" :disabled="isArchived" />
+        <div class="field-hint">{{ $t('meeting.agendaEnabledHint') }}</div>
+      </t-form-item>
+      <t-form-item :label="$t('meeting.admissionMode')">
+        <t-select v-model="form.admissionMode" :disabled="isArchived || !form.agendaEnabled">
+          <t-option value="off" :label="$t('meeting.admissionOff')" />
+          <t-option value="observe" :label="$t('meeting.admissionObserve')" />
+          <t-option value="enforce" :label="$t('meeting.admissionEnforce')" />
+        </t-select>
+        <div class="field-hint">{{ $t('meeting.admissionModeHint') }}</div>
+      </t-form-item>
     </t-form>
   </t-dialog>
 </template>
@@ -62,7 +74,7 @@ import { useI18n } from 'vue-i18n';
 import { MessagePlugin } from 'tdesign-vue-next';
 import {
   getMeeting, replaceParticipants, updateMeeting,
-  type BroadcastMode, type RoutingMode, type MeetingParticipant, type MeetingRoom,
+  type AdmissionMode, type BroadcastMode, type RoutingMode, type MeetingParticipant, type MeetingRoom,
 } from '@/api/meeting';
 import { listAgents, type CustomAgent } from '@/api/agent';
 
@@ -86,6 +98,8 @@ const form = reactive({
   guardMaxExchange: 3,
   hostEveryNRounds: 0,
   consensusDetectionEnabled: false,
+  agendaEnabled: false,
+  admissionMode: 'off' as AdmissionMode,
 });
 
 const isArchived = computed(() => props.room?.status === 'archived');
@@ -124,6 +138,8 @@ function applyRoom(room: MeetingRoom) {
   form.guardMaxExchange = room.guard_max_exchange ?? 3;
   form.hostEveryNRounds = room.host_every_n_rounds ?? 0;
   form.consensusDetectionEnabled = room.consensus_detection_enabled ?? false;
+  form.agendaEnabled = room.agenda_enabled ?? false;
+  form.admissionMode = room.admission_mode ?? 'off';
   setAgentIds(room.participants);
   // 详情接口已带出参会者时直接可用，否则等 loadDetail 补拉
   detailState.value = room.participants ? 'ready' : 'idle';
@@ -205,6 +221,9 @@ async function submit() {
       guard_max_exchange: form.guardMaxExchange,
       host_every_n_rounds: form.hostEveryNRounds,
       consensus_detection_enabled: form.consensusDetectionEnabled,
+      agenda_enabled: form.agendaEnabled,
+      // 未开启议题拆解时准入无意义，统一回落为 off
+      admission_mode: form.agendaEnabled ? form.admissionMode : 'off',
     });
     emit('update:visible', false);
     emit('saved');

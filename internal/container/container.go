@@ -198,6 +198,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewMeetingRoomRepository))
 	must(container.Provide(repository.NewMeetingParticipantRepository))
 	must(container.Provide(repository.NewMeetingMessageRepository))
+	must(container.Provide(repository.NewMeetingAgendaRepository))
 	must(container.Provide(repository.NewMeetingArtifactRepository))
 	must(container.Provide(repository.NewAgentEvalRepository))
 	must(container.Provide(repository.NewOrganizationRepository))

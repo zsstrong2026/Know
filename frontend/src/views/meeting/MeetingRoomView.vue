@@ -29,6 +29,28 @@
     <!-- 待确认提示条：开场流程尚未确认 -->
     <t-alert v-if="isAwaiting" :message="$t('meeting.awaitingBanner')" theme="warning" class="archived-banner" />
 
+    <!-- 议程条：开启结构性治理且已拆解议程时展示，回答"讨论到哪、还剩什么" -->
+    <div v-if="store.currentRoom?.agenda_enabled && store.agenda.length" class="agenda-bar">
+      <div class="agenda-summary">
+        <span class="agenda-progress">
+          {{ $t('meeting.agendaProgress', { current: agendaCurrentIndex, total: store.agenda.length }) }}
+        </span>
+        <span v-if="store.activeAgendaItem" class="agenda-current">
+          {{ store.activeAgendaItem.title }}
+        </span>
+      </div>
+      <div class="agenda-items">
+        <t-tag v-for="item in store.agenda" :key="item.id" size="small" variant="light"
+          :theme="agendaTagTheme(item.status)" :title="item.goal">
+          {{ item.seq + 1 }}. {{ item.title }}
+        </t-tag>
+      </div>
+      <t-button size="small" theme="default" variant="outline" :loading="advancingAgenda"
+        :disabled="store.discussing || isArchived || !store.activeAgendaItem" @click="nextAgenda">
+        {{ $t('meeting.endAgenda') }}
+      </t-button>
+    </div>
+
     <div ref="scrollRef" class="msg-scroll">
       <div class="msg-list">
         <div v-if="store.guardNotice" class="guard-notice">
@@ -72,6 +94,11 @@
                 </t-tag>
                 <t-tag v-else-if="m.sender_kind === 'agent'" size="small" variant="light">
                   {{ $t('meeting.senderAgent') }}
+                </t-tag>
+                <!-- 发言准入结果：observed=仅记录、rewritten=按未通过原因重写过，便于观察治理效果 -->
+                <t-tag v-if="m.admission_state === 'observed' || m.admission_state === 'rewritten'"
+                  size="small" variant="outline" theme="warning" :title="m.admission_note">
+                  {{ m.admission_state === 'rewritten' ? $t('meeting.admissionRewritten') : $t('meeting.admissionObserved') }}
                 </t-tag>
               </div>
               <div class="bubble markdown-content"
@@ -198,6 +225,32 @@ const adjustMode = ref(false); // 「调整流程」输入模式
 
 // 澄清态：待确认 + 最近开场标记 needs_clarification，此时输入框语义为「补充说明主题」
 const needsClarification = computed(() => isAwaiting.value && store.needsClarification);
+
+// ---- 议程条 ----
+const advancingAgenda = ref(false);
+// 当前进度序号：已完成数 + 1（全部完成时停在总数）
+const agendaCurrentIndex = computed(() =>
+  Math.min(store.agendaDoneCount + 1, store.agenda.length || 1));
+// 状态 → tdesign tag 主题：待讨论中性、讨论中主色、已覆盖成功、已跳过弱化
+function agendaTagTheme(status: string): 'default' | 'primary' | 'success' | 'warning' {
+  switch (status) {
+    case 'active': return 'primary';
+    case 'done': return 'success';
+    case 'skipped': return 'warning';
+    default: return 'default';
+  }
+}
+async function nextAgenda() {
+  if (!store.activeAgendaItem) return;
+  advancingAgenda.value = true;
+  try {
+    await store.advanceAgenda(store.activeAgendaItem.id);
+  } catch (e) {
+    toastError(e);
+  } finally {
+    advancingAgenda.value = false;
+  }
+}
 
 const inputPlaceholder = computed(() => {
   if (adjustMode.value) return t('meeting.adjustFlowPlaceholder');
@@ -472,6 +525,51 @@ async function interrupt() {
 .archived-banner {
   flex: 0 0 auto;
   margin: var(--app-space-2) var(--app-space-5) 0;
+}
+
+/* ---------- 议程条 ---------- */
+.agenda-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-3);
+  margin: var(--app-space-2) var(--app-space-5) 0;
+  padding: var(--app-space-2) var(--app-space-3);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-md);
+  background: var(--td-bg-color-page);
+}
+
+.agenda-summary {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 88px;
+}
+
+.agenda-progress {
+  font-size: var(--app-text-sm);
+  color: var(--td-text-color-placeholder);
+}
+
+.agenda-current {
+  font-size: var(--app-text-md);
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.agenda-items {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-1);
+  max-height: 48px;
+  overflow-y: auto;
 }
 
 /* ---------- 消息滚动区 ---------- */

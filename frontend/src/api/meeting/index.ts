@@ -10,6 +10,10 @@ export type ParticipantKind = 'host' | 'agent';
 export type SenderKind = 'user' | 'agent' | 'host' | 'system';
 // 会议房间状态：待确认（开场流程未确认）/ 进行中 / 已归档（只读终态）
 export type MeetingStatus = 'active' | 'awaiting_confirmation' | 'archived';
+// 发言准入模式：关闭 / 只记录 / 未通过要求重写一次
+export type AdmissionMode = 'off' | 'observe' | 'enforce';
+// 议程项状态
+export type AgendaItemStatus = 'pending' | 'active' | 'done' | 'skipped';
 // 产物类别：solution = 评审汇总方案；generated = 用户指定形态生成
 export type ArtifactKind = 'solution' | 'generated';
 // 产物生成状态机：generating → ready | failed
@@ -37,6 +41,10 @@ export interface MeetingRoom {
   host_every_n_rounds: number;
   // 裁判 + 共识检测：开启后每轮结束由独立裁判判定是否收敛
   consensus_detection_enabled: boolean;
+  // 结构性治理总闸：开启后主持人开场拆解子议题、讨论按议题聚焦
+  agenda_enabled: boolean;
+  // 发言准入模式：off / observe / enforce
+  admission_mode: AdmissionMode;
   knowledge_base_ids: string[];
   created_by: string;
   created_at: string;
@@ -67,9 +75,29 @@ export interface MeetingMessage {
   solution_version: number;
   // 裁判判定的共识消息标记
   is_consensus: boolean;
+  // 发言归属的议程项（空 = 未归属）
+  agenda_item_id: string;
+  // 发言准入判定结果（空 = 未判定）
+  admission_state: '' | 'passed' | 'observed' | 'rewritten';
+  admission_note?: string;
   // jsonb 载荷：开场消息为 { stage: 'opening' }（其余消息为 null/缺省）
   payload?: Record<string, unknown> | null;
   created_at: string;
+}
+
+// 议程项：主持人开场拆解出的子议题
+export interface MeetingAgendaItem {
+  id: string;
+  meeting_room_id: string;
+  seq: number;
+  title: string;
+  goal: string;
+  owner_agent_ids: string[];
+  knowledge_base_ids: string[];
+  status: AgendaItemStatus;
+  summary: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // 会议产物（solution 与 generated 统一模型；列表接口不保证 content，详情接口带正文）
@@ -108,6 +136,8 @@ export interface UpdateMeetingRequest {
   guard_max_exchange?: number;
   host_every_n_rounds?: number;
   consensus_detection_enabled?: boolean;
+  agenda_enabled?: boolean;
+  admission_mode?: AdmissionMode;
 }
 
 export interface CreateMeetingInput {
@@ -121,6 +151,9 @@ export interface CreateMeetingInput {
   hostEveryNRounds: number;
   // 裁判 + 共识检测开关：默认关闭
   consensusDetectionEnabled: boolean;
+  // 结构性治理：议程拆解 + 发言准入（默认关闭，保持旧行为）
+  agendaEnabled: boolean;
+  admissionMode: AdmissionMode;
   // 会议级联网开关：默认关闭；开启后强制全部参会智能体联网（需系统已配置搜索服务）
   webSearchEnabled: boolean;
 }
@@ -142,6 +175,8 @@ export function buildCreatePayload(input: CreateMeetingInput) {
     routing_mode: input.routingMode,
     host_every_n_rounds: input.hostEveryNRounds ?? 0,
     consensus_detection_enabled: input.consensusDetectionEnabled ?? false,
+    agenda_enabled: input.agendaEnabled ?? false,
+    admission_mode: input.admissionMode ?? 'off',
     web_search_enabled: input.webSearchEnabled ?? false,
   };
 }
@@ -253,7 +288,22 @@ export async function rollbackSolution(roomId: string, version: number): Promise
   await post(`/api/v1/meetings/${roomId}/solution/rollback`, { version });
 }
 
-// 局部更新会议（标题/描述/发言模式/护栏上限）
+// 会议议程项列表（按 seq 升序）
+export async function listAgenda(roomId: string) {
+  const { get } = await loadRequest();
+  return get<{ data: MeetingAgendaItem[] }>(`/api/v1/meetings/${roomId}/agenda`).then((r) => r.data);
+}
+
+// 人工推进议程：itemId 为空表示推进当前活跃项；返回最新议程
+export async function advanceAgenda(roomId: string, itemId = '') {
+  const { post } = await loadRequest();
+  return post<{ data: MeetingAgendaItem[] }>(
+    `/api/v1/meetings/${roomId}/agenda/advance`,
+    { item_id: itemId },
+  ).then((r) => r.data);
+}
+
+// 局部更新会议（标题/描述/发言模式/护栏上限/结构性治理）
 export async function updateMeeting(roomId: string, data: UpdateMeetingRequest) {
   const { patch } = await loadRequest();
   return patch<{ data: MeetingRoom }>(`/api/v1/meetings/${roomId}`, data).then((r) => r.data);

@@ -53,7 +53,7 @@ func TestBuildSpeakerSelectionPrompt(t *testing.T) {
 		{ID: "a1", Name: "法务顾问", Description: "审合同"},
 		{ID: "a2", Name: "技术架构师", Description: "系统设计"},
 	}
-	p := buildSpeakerSelectionPrompt("客服机器人选型", "数据合规怎么处理？", agents)
+	p := buildSpeakerSelectionPrompt("客服机器人选型", "客服机器人选型", "数据合规怎么处理？", agents)
 	assert.Contains(t, p, "客服机器人选型")
 	assert.Contains(t, p, "数据合规怎么处理？")
 	assert.Contains(t, p, "法务顾问")

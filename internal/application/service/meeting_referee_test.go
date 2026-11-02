@@ -12,7 +12,7 @@ import (
 
 func TestBuildRefereePrompt(t *testing.T) {
 	room := &types.MeetingRoom{ID: "r", Title: "发布方案评审", Description: "评审发布流程"}
-	p := buildRefereePrompt(room, "- 甲: 我建议蓝绿发布\n", 2)
+	p := buildRefereePrompt(room, nil, "- 甲: 我建议蓝绿发布\n", 2)
 	assert.Contains(t, p, room.Title)
 	assert.Contains(t, p, room.Description)
 	assert.Contains(t, p, "2")
@@ -55,7 +55,7 @@ func TestJudgeConsensusFailsSafe(t *testing.T) {
 
 	// 无可用模型
 	e := &meetingEngine{modelService: &stubModelService{}, messageRepo: &fakeMeetingMessageRepo{}, broadcaster: NewMeetingBroadcaster()}
-	assert.False(t, e.judgeConsensus(context.Background(), room, nil, 1).Converged)
+	assert.False(t, e.judgeConsensus(context.Background(), room, nil, nil, 1).Converged)
 
 	// 模型可用但输出不可解析
 	e2 := &meetingEngine{
@@ -65,7 +65,7 @@ func TestJudgeConsensusFailsSafe(t *testing.T) {
 		},
 		messageRepo: &fakeMeetingMessageRepo{}, broadcaster: NewMeetingBroadcaster(),
 	}
-	assert.False(t, e2.judgeConsensus(context.Background(), room, nil, 1).Converged)
+	assert.False(t, e2.judgeConsensus(context.Background(), room, nil, nil, 1).Converged)
 }
 
 // TestConsensusMessageContent 共识正文优先用裁判结论，缺失时回退判定依据/主题

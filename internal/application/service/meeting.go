@@ -17,6 +17,7 @@ type meetingService struct {
 	roomRepo        interfaces.MeetingRoomRepository
 	participantRepo interfaces.MeetingParticipantRepository
 	messageRepo     interfaces.MeetingMessageRepository
+	agendaRepo      interfaces.MeetingAgendaRepository
 	agentRepo       interfaces.CustomAgentRepository
 	artifactRepo    interfaces.MeetingArtifactRepository
 	messageService  interfaces.MessageService // 产物详情/下载：读取后台会话消息
@@ -27,6 +28,7 @@ func NewMeetingService(
 	roomRepo interfaces.MeetingRoomRepository,
 	participantRepo interfaces.MeetingParticipantRepository,
 	messageRepo interfaces.MeetingMessageRepository,
+	agendaRepo interfaces.MeetingAgendaRepository,
 	agentRepo interfaces.CustomAgentRepository,
 	artifactRepo interfaces.MeetingArtifactRepository,
 	messageService interfaces.MessageService,
@@ -34,7 +36,7 @@ func NewMeetingService(
 ) interfaces.MeetingService {
 	return &meetingService{
 		roomRepo: roomRepo, participantRepo: participantRepo,
-		messageRepo: messageRepo, agentRepo: agentRepo,
+		messageRepo: messageRepo, agendaRepo: agendaRepo, agentRepo: agentRepo,
 		artifactRepo: artifactRepo, messageService: messageService,
 		engine: engine,
 	}
@@ -67,6 +69,12 @@ func validateMeetingCreate(room *types.MeetingRoom, agentIDs []string) error {
 	}
 	if room.Status == "" {
 		room.Status = types.MeetingStatusAwaitingConfirmation // 创建即待确认；开场与确认交互见 M3
+	}
+	// 发言准入模式白名单归一化：非法/空值一律关闭（默认不引入额外模型调用）
+	switch room.AdmissionMode {
+	case types.MeetingAdmissionObserve, types.MeetingAdmissionEnforce:
+	default:
+		room.AdmissionMode = types.MeetingAdmissionOff
 	}
 	return nil
 }
@@ -290,6 +298,7 @@ func (s *meetingService) SendUserMessage(ctx context.Context, tenantID uint64, r
 		SenderID:          userID,
 		Content:           content,
 		MentionedAgentIDs: mentionedAgentIDs,
+		AgendaItemID:      s.currentAgendaItemID(ctx, room),
 	}
 	if err := s.messageRepo.Create(ctx, msg); err != nil {
 		return nil, err
@@ -332,6 +341,110 @@ func (s *meetingService) SendUserMessage(ctx context.Context, tenantID uint64, r
 		}
 	}()
 	return msg, nil
+}
+
+// ListAgenda 本会议议程项（未启用议程时返回空列表；只读）
+func (s *meetingService) ListAgenda(ctx context.Context, tenantID uint64, roomID string) ([]*types.MeetingAgendaItem, error) {
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID) // 租户校验
+	if err != nil {
+		return nil, err
+	}
+	if s.agendaRepo == nil {
+		return []*types.MeetingAgendaItem{}, nil
+	}
+	items, err := s.agendaRepo.ListByRoom(ctx, room.ID)
+	if err != nil {
+		return nil, err
+	}
+	if items == nil {
+		return []*types.MeetingAgendaItem{}, nil
+	}
+	return items, nil
+}
+
+// AdvanceAgenda 人工推进议程：把指定项（默认当前活跃项）标记完成并激活下一项。
+// 讨论进行中拒绝（避免与引擎推进竞争）；归档房间只读。
+func (s *meetingService) AdvanceAgenda(ctx context.Context, tenantID uint64, roomID string, itemID string) ([]*types.MeetingAgendaItem, error) {
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID) // 租户校验
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureRoomActive(room); err != nil {
+		return nil, err
+	}
+	if s.agendaRepo == nil {
+		return nil, errors.New("meeting: agenda is not available")
+	}
+	if running, rerr := s.engine.IsTurnRunning(ctx, roomID); rerr == nil && running {
+		return nil, ErrTurnRunning
+	}
+	items, err := s.agendaRepo.ListByRoom(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, errors.New("meeting: no agenda to advance")
+	}
+	// 目标项：显式指定则用之，否则取当前活跃项
+	var target *types.MeetingAgendaItem
+	for _, it := range items {
+		if itemID != "" && it.ID == itemID {
+			target = it
+			break
+		}
+		if itemID == "" && it.Status == types.MeetingAgendaActive {
+			target = it
+			break
+		}
+	}
+	if target == nil {
+		return nil, errors.New("meeting: agenda item not found")
+	}
+	target.Status = types.MeetingAgendaDone
+	if err := s.agendaRepo.Update(ctx, target); err != nil {
+		return nil, err
+	}
+	// 激活下一个待讨论项（已全部完成则无 active）
+	updated, err := s.agendaRepo.ListByRoom(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	for _, it := range updated {
+		if it.Status == types.MeetingAgendaPending {
+			it.Status = types.MeetingAgendaActive
+			if uerr := s.agendaRepo.Update(ctx, it); uerr != nil {
+				return nil, uerr
+			}
+			break
+		}
+	}
+	updated, err = s.agendaRepo.ListByRoom(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	publishEvent(s.engine, roomID, MeetingEvent{Type: MeetingEventAgendaUpdated, Data: map[string]interface{}{
+		"room_id": roomID, "items": updated,
+	}})
+	return updated, nil
+}
+
+// currentAgendaItemID 取用户消息应归属的议程项 ID；未启用议程或无活跃议题时返回空。
+// service 层不持有引擎的闭环逻辑，这里只做只读查询，异常时静默回退为空（不影响发言落库）。
+func (s *meetingService) currentAgendaItemID(ctx context.Context, room *types.MeetingRoom) string {
+	provider, ok := s.engine.(agendaActiveProvider)
+	if !ok || !room.AgendaEnabled {
+		return ""
+	}
+	item, err := provider.ActiveAgendaItem(ctx, room)
+	if err != nil || item == nil {
+		return ""
+	}
+	return item.ID
+}
+
+// agendaActiveProvider 引擎侧暴露"当前活跃议题"的收窄接口（与 broadcasterProvider 同一模式）
+type agendaActiveProvider interface {
+	ActiveAgendaItem(ctx context.Context, room *types.MeetingRoom) (*types.MeetingAgendaItem, error)
 }
 
 func (s *meetingService) ListMessages(ctx context.Context, roomID string, beforeID string, limit int) ([]*types.MeetingMessage, error) {
