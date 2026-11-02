@@ -2,9 +2,11 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import {
   listMeetings, getMeeting, listMessages, sendMessage,
-  updateReviewState, generateSolution, rollbackSolution, confirmMeetingFlow,
+  generateSolution, rollbackSolution, confirmMeetingFlow,
   listArtifacts, requestArtifact as apiRequestArtifact, regenerateArtifact as apiRegenerateArtifact,
   listAgenda, advanceAgenda as apiAdvanceAgenda,
+  appendAgenda as apiAppendAgenda, reopenAgenda as apiReopenAgenda,
+  archiveMeeting,
   type MeetingRoom, type MeetingMessage, type MeetingArtifact, type MeetingAgendaItem, type ArtifactKindType,
 } from '@/api/meeting';
 
@@ -87,14 +89,6 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     }
   }
 
-  // 评审状态流转：HTTP 成功后本地直接更新（SSE review_updated 回流为幂等覆盖）
-  async function setReviewState(messageId: string, state: string) {
-    if (!currentRoom.value) return;
-    const updated = await updateReviewState(currentRoom.value.id, messageId, state);
-    const m = messages.value.find(x => x.id === messageId);
-    if (m) m.review_state = updated.review_state;
-  }
-
   // 方案消息经 SSE message.created 回流，这里只控制 loading；
   // LLM 失败时 HTTP 报错同样走 finally 复位（solution.generating 无配对终态事件）
   async function generate() {
@@ -102,9 +96,18 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     solutionGenerating.value = true;
     try {
       await generateSolution(currentRoom.value.id);
+      consensusNotice.value = null; // 已进入方案生成，下一步决策坞随之收起
     } finally {
       solutionGenerating.value = false;
     }
+  }
+
+  // 结束会议：归档后转只读，下一步决策坞与输入区一并禁用
+  async function archive() {
+    if (!currentRoom.value) return;
+    await archiveMeeting(currentRoom.value.id);
+    currentRoom.value = { ...currentRoom.value, status: 'archived' };
+    consensusNotice.value = null;
   }
 
   // 拉取当前房间全部产物（抽屉打开/回滚后刷新）
@@ -116,6 +119,21 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   async function advanceAgenda(itemId = '') {
     if (!currentRoom.value) return;
     agenda.value = await apiAdvanceAgenda(currentRoom.value.id, itemId);
+    consensusNotice.value = null; // 议题状态已变，旧的收敛提示不再适用
+  }
+
+  // 追加新议题并开启讨论：后端落开题消息（SSE 回流）并异步跑一轮讨论
+  async function appendAgenda(title: string, goal = '') {
+    if (!currentRoom.value) return;
+    agenda.value = await apiAppendAgenda(currentRoom.value.id, title, goal);
+    consensusNotice.value = null;
+  }
+
+  // 恢复指定议题继续讨论：收敛后用户选择「还要补充」时使用
+  async function reopenAgenda(itemId: string) {
+    if (!currentRoom.value) return;
+    agenda.value = await apiReopenAgenda(currentRoom.value.id, itemId);
+    consensusNotice.value = null;
   }
 
   // 按 id 就地 upsert（HTTP 返回值与 SSE 事件共用；SSE 可能先于 HTTP 到达）
@@ -173,9 +191,6 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   function applyStreamEvent(event: string, data: unknown) {
     if (event === 'message.created' && data) {
       appendMessage(data as MeetingMessage);
-    } else if (event === 'message.review_updated' && data) {
-      const m = messages.value.find(x => x.id === (data as MeetingMessage).id);
-      if (m) m.review_state = (data as MeetingMessage).review_state;
     } else if (event === 'solution.generating') {
       solutionGenerating.value = true;
     } else if (event === 'solution.created') {
@@ -226,6 +241,6 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   return { rooms, currentRoom, messages, hasMore, discussing, guardNotice, consensusNotice, solutionGenerating, artifacts,
     agenda, activeAgendaItem, agendaDoneCount,
     needsClarification,
-    fetchRooms, enterRoom, loadEarlier, speak, confirm, setReviewState, generate, rollback, applyStreamEvent, clearGuardNotice, clearConsensusNotice, leaveRoom,
-    fetchArtifacts, requestArtifact, regenerateArtifact, advanceAgenda };
+    fetchRooms, enterRoom, loadEarlier, speak, confirm, generate, archive, rollback, applyStreamEvent, clearGuardNotice, clearConsensusNotice, leaveRoom,
+    fetchArtifacts, requestArtifact, regenerateArtifact, advanceAgenda, appendAgenda, reopenAgenda };
 });

@@ -49,6 +49,8 @@ type MeetingAgendaRepository interface {
 	// Active 返回当前讨论中的议程项；无 active 时返回 nil
 	Active(ctx context.Context, roomID string) (*types.MeetingAgendaItem, error)
 	Update(ctx context.Context, item *types.MeetingAgendaItem) error
+	// Create 追加单个议程项：seq 由仓储按房间内 MAX(seq)+1 分配（规避 UNIQUE(room,seq) 冲突）
+	Create(ctx context.Context, item *types.MeetingAgendaItem) error
 }
 
 type MeetingArtifactRepository interface {
@@ -77,7 +79,7 @@ type MeetingService interface {
 	InterruptDiscussion(ctx context.Context, tenantID uint64, roomID string) error
 	// UpdateReviewState 更新智能体消息的评审状态（pending/adopted/rejected；none 仅初始值不可回设）
 	UpdateReviewState(ctx context.Context, tenantID uint64, roomID string, messageID string, state string) (*types.MeetingMessage, error)
-	// GenerateSolution 主持人基于已采纳意见生成结构化方案（service 先做租户校验再委托引擎）
+	// GenerateSolution 主持人基于讨论记录（含议程进度）生成结构化方案（service 先做租户校验再委托引擎）
 	GenerateSolution(ctx context.Context, tenantID uint64, roomID string, userID string) (*types.MeetingMessage, error)
 	// ListArtifacts 本会议历史方案产物（含正文），按版本升序
 	ListArtifacts(ctx context.Context, tenantID uint64, roomID string) ([]*types.MeetingArtifactDetail, error)
@@ -102,8 +104,12 @@ type MeetingService interface {
 	ResolveArtifactDownload(ctx context.Context, tenantID uint64, roomID string, artifactID string) (string, error)
 	// ListAgenda 本会议议程项（按 seq 升序；未启用议程时返回空列表）
 	ListAgenda(ctx context.Context, tenantID uint64, roomID string) ([]*types.MeetingAgendaItem, error)
-	// AdvanceAgenda 人工推进议程：把指定议程项标记完成并激活下一项（用户主动跳过/确认时使用）
+	// AdvanceAgenda 人工推进议程：把指定议程项标记完成（不再自动激活下一项，由用户决策后续动作）
 	AdvanceAgenda(ctx context.Context, tenantID uint64, roomID string, itemID string) ([]*types.MeetingAgendaItem, error)
+	// AppendAgenda 追加新议题并激活之，同时异步开启新一轮讨论
+	AppendAgenda(ctx context.Context, tenantID uint64, roomID string, userID string, title string, goal string) ([]*types.MeetingAgendaItem, error)
+	// ReopenAgenda 恢复指定议题继续讨论（当前活跃项回退为待讨论）
+	ReopenAgenda(ctx context.Context, tenantID uint64, roomID string, itemID string) ([]*types.MeetingAgendaItem, error)
 }
 
 // MeetingEngine 讨论引擎：同一会议同一时刻仅一个讨论轮次（Redis 锁保证）
@@ -125,4 +131,8 @@ type MeetingEngine interface {
 	ActiveAgendaItem(ctx context.Context, room *types.MeetingRoom) (*types.MeetingAgendaItem, error)
 	// ListAgenda 房间全部议程项（按 seq 升序；未启用议程时返回空）
 	ListAgenda(ctx context.Context, room *types.MeetingRoom) ([]*types.MeetingAgendaItem, error)
+	// AppendAgendaItem 追加新议题；无活跃议题时新项即为活跃项
+	AppendAgendaItem(ctx context.Context, room *types.MeetingRoom, title string, goal string) ([]*types.MeetingAgendaItem, error)
+	// ReopenAgenda 把指定议题恢复为活跃项（其他活跃项回退为待讨论）
+	ReopenAgenda(ctx context.Context, room *types.MeetingRoom, itemID string) ([]*types.MeetingAgendaItem, error)
 }

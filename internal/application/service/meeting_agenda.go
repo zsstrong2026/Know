@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -265,8 +266,9 @@ func (e *meetingEngine) openNextAgenda(ctx context.Context, room *types.MeetingR
 	return msg
 }
 
-// advanceAgenda 结束当前议程项：写小结、标记 done，并激活下一项。
-// 返回是否还有后续议题（false 表示议程已全部覆盖）。
+// advanceAgenda 结束当前议程项：写小结、标记 done。
+// 不再自动激活下一项——后续动作（生成方案/继续讨论/追加议题/结束）由用户的弹框决策驱动。
+// 返回值恒为 true（本议题已结束，本轮讨论收束），保留返回值仅为兼容既有调用。
 func (e *meetingEngine) advanceAgenda(ctx context.Context, room *types.MeetingRoom, active *types.MeetingAgendaItem, summary string) bool {
 	if active == nil || e.agendaRepo == nil {
 		return false
@@ -279,9 +281,88 @@ func (e *meetingEngine) advanceAgenda(ctx context.Context, room *types.MeetingRo
 		logger.Warnf(ctx, "meeting agenda complete failed, room=%s item=%s err=%v", room.ID, active.ID, err)
 		return false
 	}
-	// 激活下一项；返回其是否存在
-	_, next := e.ensureActiveAgenda(ctx, room)
-	return next != nil
+	return true
+}
+
+// ErrAgendaDisabled 会议室未启用议程（不支持追加/恢复议题）
+var ErrAgendaDisabled = errors.New("meeting: agenda is disabled")
+
+// ErrAgendaFull 议程项已达上限，无法继续追加
+var ErrAgendaFull = errors.New("meeting: agenda items reached upper limit")
+
+// ErrAgendaItemNotFound 指定议题不存在于当前会议
+var ErrAgendaItemNotFound = errors.New("meeting: agenda item not found")
+
+// AppendAgendaItem 追加新议题（追加即成为讨论焦点，用户显式要求继续开会时调用）。
+// 规则：议程必须已启用；标题必填；数量不超过 meetingAgendaMaxItems；
+// 当前无活跃议题时，新项直接置为活跃项。
+func (e *meetingEngine) AppendAgendaItem(ctx context.Context, room *types.MeetingRoom, title string, goal string) ([]*types.MeetingAgendaItem, error) {
+	if !room.AgendaEnabled || e.agendaRepo == nil {
+		return nil, ErrAgendaDisabled
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return nil, errors.New("meeting: agenda title is required")
+	}
+	items, err := e.agendaRepo.ListByRoom(ctx, room.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) >= meetingAgendaMaxItems {
+		return nil, ErrAgendaFull
+	}
+	item := &types.MeetingAgendaItem{
+		MeetingRoomID: room.ID,
+		Title:         title,
+		Goal:          strings.TrimSpace(goal),
+		Status:        types.MeetingAgendaPending,
+	}
+	// 没有活跃议题（上一议题已 done/skipped）时，新议题即刻成为讨论焦点；
+	// 仍有活跃议题时保持 pending，由用户后续"恢复讨论"决定切换。
+	if active, aerr := e.agendaRepo.Active(ctx, room.ID); aerr != nil || active == nil {
+		item.Status = types.MeetingAgendaActive
+	}
+	// seq 由仓储按房间内 MAX(seq)+1 分配，规避 UNIQUE(meeting_room_id, seq) 冲突
+	if err := e.agendaRepo.Create(ctx, item); err != nil {
+		return nil, err
+	}
+	e.publishAgendaUpdate(ctx, room.ID)
+	return e.agendaRepo.ListByRoom(ctx, room.ID)
+}
+
+// ReopenAgenda 恢复指定议题继续讨论：目标项置为活跃，其他活跃项回退为待讨论。
+// 已完成议题恢复时保留 Summary，便于继续补充后再次收敛。
+func (e *meetingEngine) ReopenAgenda(ctx context.Context, room *types.MeetingRoom, itemID string) ([]*types.MeetingAgendaItem, error) {
+	if !room.AgendaEnabled || e.agendaRepo == nil {
+		return nil, ErrAgendaDisabled
+	}
+	items, err := e.agendaRepo.ListByRoom(ctx, room.ID)
+	if err != nil {
+		return nil, err
+	}
+	var target *types.MeetingAgendaItem
+	for _, it := range items {
+		if it.ID == itemID {
+			target = it
+			continue
+		}
+		// 其他活跃项回退为待讨论，保证任一时刻只有一个活跃议题
+		if it.Status == types.MeetingAgendaActive {
+			it.Status = types.MeetingAgendaPending
+			if err := e.agendaRepo.Update(ctx, it); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if target == nil {
+		return nil, ErrAgendaItemNotFound
+	}
+	target.Status = types.MeetingAgendaActive
+	if err := e.agendaRepo.Update(ctx, target); err != nil {
+		return nil, err
+	}
+	e.publishAgendaUpdate(ctx, room.ID)
+	return e.agendaRepo.ListByRoom(ctx, room.ID)
 }
 
 // agendaProgressText 生成"议程进度"摘要：已完成项一句话小结 + 未完成项标题。

@@ -15,22 +15,23 @@ import (
 
 func TestBuildSolutionPrompt(t *testing.T) {
 	room := &types.MeetingRoom{Title: "发布方案评审", Description: "讨论 v2 发布策略"}
-	adopted := []*types.MeetingMessage{
+	// 讨论记录：不再区分采纳/否决，全部按时间顺序进入提示词
+	messages := []*types.MeetingMessage{
 		{SenderID: "a1", Content: "建议蓝绿发布"},
 		{SenderID: "a2", Content: "需要回滚预案"},
-	}
-	rejected := []*types.MeetingMessage{
 		{SenderID: "a3", Content: "反对引入新网关"},
 	}
 	nameOf := func(id string) string {
 		return map[string]string{"a1": "架构师", "a2": "测试专家", "a3": "运维"}[id]
 	}
-	out := buildSolutionPrompt(room, adopted, rejected, nameOf)
+	out := buildSolutionPrompt(room, messages, "1. [已完成] 发布策略", nameOf)
 	assert.Contains(t, out, "发布方案评审") // 主题入提示词
 	assert.Contains(t, out, "架构师：建议蓝绿发布")
 	assert.Contains(t, out, "测试专家：需要回滚预案")
-	assert.Contains(t, out, "运维：反对引入新网关") // 被否决意见作为分歧事实来源入提示词
-	assert.Contains(t, out, "## 背景与目标")   // 固定结构五小节
+	assert.Contains(t, out, "运维：反对引入新网关") // 反对意见作为分歧事实来源入提示词
+	assert.Contains(t, out, "议程进度")        // 议程进度入提示词
+	assert.Contains(t, out, "1. [已完成] 发布策略")
+	assert.Contains(t, out, "## 背景与目标") // 固定结构五小节
 	assert.Contains(t, out, "## 分歧与未达成一致的点")
 	assert.Contains(t, out, "## 方案要点")
 	assert.Contains(t, out, "## 风险与待确认事项")
@@ -206,11 +207,13 @@ func solutionEngineFixture(msgRepo interfaces.MeetingMessageRepository, artRepo 
 	}
 }
 
-// TestGenerateSolutionNoAdopted 无采纳意见时拒绝生成：哨兵错误 + 零副作用（T4.4 Step 4 空采纳拦截等价覆盖）
-func TestGenerateSolutionNoAdopted(t *testing.T) {
+// TestGenerateSolutionNoDiscussion 无讨论内容时拒绝生成：哨兵错误 + 零副作用。
+// 新语义：方案基于本次议题的讨论记录生成，与是否采纳无关；只有完全无讨论内容才早退。
+func TestGenerateSolutionNoDiscussion(t *testing.T) {
 	ctx := context.Background()
 	msgRepo := &fakeMeetingMessageRepo{preset: []*types.MeetingMessage{
-		{ID: "p1", MeetingRoomID: "r1", SenderKind: types.MeetingSenderAgent, SenderID: "a1", Content: "待定意见", ReviewState: types.ReviewStatePending},
+		// 空内容消息无信息量，应被过滤掉，等同无讨论内容
+		{ID: "p1", MeetingRoomID: "r1", SenderKind: types.MeetingSenderAgent, SenderID: "a1", Content: "   "},
 	}}
 	artRepo := &fakeArtifactRepo{}
 	roomRepo := &fakeSolutionRoomRepo{}
@@ -223,7 +226,7 @@ func TestGenerateSolutionNoAdopted(t *testing.T) {
 	msg, err := e.GenerateSolution(ctx, room, "user-1")
 
 	assert.Nil(t, msg)
-	assert.ErrorIs(t, err, ErrNoAdoptedMessages)
+	assert.ErrorIs(t, err, ErrNoDiscussionMessages)
 	assert.Empty(t, msgRepo.snapshot(), "不应有消息落库")
 	assert.Empty(t, artRepo.created, "不应有产物落库")
 	assert.Nil(t, roomRepo.updated, "不应更新房间")
@@ -360,7 +363,7 @@ func TestGenerateSolutionFallbackContent(t *testing.T) {
 	msg, err := e.GenerateSolution(ctx, room, "user-1")
 	require.Error(t, err)
 	assert.Nil(t, msg)
-	assert.NotErrorIs(t, err, ErrNoAdoptedMessages, "已有采纳意见，失败应源于模型不可用")
+	assert.NotErrorIs(t, err, ErrNoDiscussionMessages, "已有讨论内容，失败应源于模型不可用")
 	assert.Empty(t, msgRepo.snapshot(), "失败路径不应有消息落库")
 	assert.Empty(t, artRepo.created, "失败路径不应有产物落库")
 	assert.Empty(t, room.CurrentSolutionMessageID)

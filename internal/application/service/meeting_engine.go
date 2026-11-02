@@ -130,17 +130,9 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 			"room_id": roomID, "trigger_message_id": current,
 		}})
 
-		// 裁判判定已收敛：本轮讨论结束。启用议程时自动开题下一议题并继续，
-		// 否则等待用户指示。
+		// 裁判判定已收敛：本轮讨论结束，等待用户在前端「下一步」弹框中选择
+		// （生成方案 / 继续讨论本议题 / 追加新议题 / 结束会议），不再自动开题。
 		if converged {
-			// 启用议程时自动开题下一议题：主持人落"开题"消息并接着讨论，
-			// 避免每个子议题都要用户手动触发一次。
-			if room.AgendaEnabled {
-				if next := e.openNextAgenda(ctx, room); next != nil {
-					current = next.ID
-					continue
-				}
-			}
 			break
 		}
 
@@ -484,7 +476,7 @@ func (e *meetingEngine) detectAndPublishConsensus(ctx context.Context, room *typ
 		return false
 	}
 
-	// 有子议题：落议题小结、推进议程，并决定是否结束本轮（后续议题需要新一轮讨论）
+	// 有子议题：落议题小结并把该议题标记为已完成（不自动开下一题）
 	if item != nil {
 		remaining := pendingAgenda(items, item.ID)
 		if msg, merr := e.appendConsensusMessage(ctx, room.ID, agendaRecap(item, remaining, verdict)); merr == nil {
@@ -493,10 +485,10 @@ func (e *meetingEngine) detectAndPublishConsensus(ctx context.Context, room *typ
 				"reason": verdict.Reason, "completed_rounds": completed,
 			}})
 		}
-		hasNext := e.advanceAgenda(ctx, room, item, firstNonEmpty(verdict.Consensus, verdict.Reason))
+		e.advanceAgenda(ctx, room, item, firstNonEmpty(verdict.Consensus, verdict.Reason))
 		e.publishAgendaUpdate(ctx, room.ID)
-		// 返回 true：结束本议题的讨论轮（下一议题由 RunTurn 自动开题）
-		return hasNext || !verdict.Converged
+		// 返回 true：本议题讨论轮结束，后续动作由用户在「下一步」弹框中决定
+		return true
 	}
 
 	msg, err := e.appendConsensusMessage(ctx, room.ID, consensusMessageContent(room, verdict))

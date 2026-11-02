@@ -279,6 +279,78 @@ func (h *MeetingHandler) AdvanceAgenda(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": items})
 }
 
+type appendAgendaRequest struct {
+	// Title 新议题标题（必填）
+	Title string `json:"title"`
+	// Goal 该议题要产出的结论（可空）
+	Goal string `json:"goal"`
+}
+
+// AppendAgenda POST /api/v1/meetings/:id/agenda/append —— 追加新议题并开启讨论
+func (h *MeetingHandler) AppendAgenda(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	userID, _ := types.UserIDFromContext(ctx)
+	var req appendAgendaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	items, err := h.meetingService.AppendAgenda(ctx, tenantID, c.Param("id"), userID, req.Title, req.Goal)
+	if !h.writeAgendaError(c, err, "暂不能追加议题") {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": items})
+}
+
+type reopenAgendaRequest struct {
+	// ItemID 要恢复讨论的议题 ID（必填）
+	ItemID string `json:"item_id"`
+}
+
+// ReopenAgenda POST /api/v1/meetings/:id/agenda/reopen —— 恢复指定议题继续讨论
+func (h *MeetingHandler) ReopenAgenda(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	var req reopenAgendaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	if req.ItemID == "" {
+		c.Error(errors.NewBadRequestError("请指定要恢复的议题"))
+		return
+	}
+	items, err := h.meetingService.ReopenAgenda(ctx, tenantID, c.Param("id"), req.ItemID)
+	if !h.writeAgendaError(c, err, "暂不能恢复议题讨论") {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": items})
+}
+
+// writeAgendaError 议程类接口的统一错误映射；返回 true 表示 err 为 nil（可继续返回成功）。
+func (h *MeetingHandler) writeAgendaError(c *gin.Context, err error, conflictMsg string) bool {
+	switch {
+	case err == nil:
+		return true
+	case stderrors.Is(err, service.ErrRoomArchived):
+		c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
+	case stderrors.Is(err, service.ErrTurnRunning):
+		c.Error(errors.NewConflictError(conflictMsg))
+	case stderrors.Is(err, apprepo.ErrMeetingRoomNotFound):
+		c.Error(errors.NewNotFoundError("meeting not found"))
+	case stderrors.Is(err, service.ErrAgendaDisabled):
+		c.Error(errors.NewBadRequestError("本会议未启用议程"))
+	case stderrors.Is(err, service.ErrAgendaFull):
+		c.Error(errors.NewBadRequestError("议题数量已达上限，请先结束本议题"))
+	case stderrors.Is(err, service.ErrAgendaItemNotFound):
+		c.Error(errors.NewBadRequestError("指定的议题不存在"))
+	default:
+		c.Error(errors.NewBadRequestError(err.Error()))
+	}
+	return false
+}
+
 // ArchiveMeeting POST /api/v1/meetings/:id/archive —— 幂等归档
 func (h *MeetingHandler) ArchiveMeeting(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -419,8 +491,8 @@ func (h *MeetingHandler) GenerateSolution(c *gin.Context) {
 			c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
 			return
 		}
-		if err == service.ErrNoAdoptedMessages {
-			c.Error(errors.NewBadRequestError("请先在讨论中采纳至少一条意见"))
+		if err == service.ErrNoDiscussionMessages {
+			c.Error(errors.NewBadRequestError("还没有讨论内容，暂无法生成方案"))
 			return
 		}
 		c.Error(errors.NewInternalServerError(err.Error()))

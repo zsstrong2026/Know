@@ -70,7 +70,6 @@ export interface MeetingMessage {
   sender_id: string; // user UUID / agent UUID / ''
   content: string;
   mentioned_agent_ids: string[];
-  review_state: 'none' | 'pending' | 'adopted' | 'rejected';
   is_solution: boolean;
   solution_version: number;
   // 裁判判定的共识消息标记
@@ -261,15 +260,6 @@ export async function interruptMeeting(roomId: string): Promise<void> {
   await post(`/api/v1/meetings/${roomId}/interrupt`, {});
 }
 
-// 更新消息评审状态（adopted/rejected/pending），返回更新后的消息
-export async function updateReviewState(roomId: string, messageId: string, reviewState: string) {
-  const { put } = await loadRequest();
-  return put<{ data: MeetingMessage }>(
-    `/api/v1/meetings/${roomId}/messages/${messageId}/review`,
-    { review_state: reviewState },
-  ).then((r) => r.data);
-}
-
 // 生成主持人方案消息（后端同步等待 LLM 结果；消息本体经 SSE message.created 回流）
 export async function generateSolution(roomId: string) {
   const { post } = await loadRequest();
@@ -299,6 +289,24 @@ export async function advanceAgenda(roomId: string, itemId = '') {
   const { post } = await loadRequest();
   return post<{ data: MeetingAgendaItem[] }>(
     `/api/v1/meetings/${roomId}/agenda/advance`,
+    { item_id: itemId },
+  ).then((r) => r.data);
+}
+
+// 追加新议题并开启讨论（后端同时落一条主持人开题消息，经 SSE 回流）；返回最新议程
+export async function appendAgenda(roomId: string, title: string, goal = '') {
+  const { post } = await loadRequest();
+  return post<{ data: MeetingAgendaItem[] }>(
+    `/api/v1/meetings/${roomId}/agenda/append`,
+    { title, goal },
+  ).then((r) => r.data);
+}
+
+// 恢复指定议题继续讨论（其余 active 回退 pending）；返回最新议程
+export async function reopenAgenda(roomId: string, itemId: string) {
+  const { post } = await loadRequest();
+  return post<{ data: MeetingAgendaItem[] }>(
+    `/api/v1/meetings/${roomId}/agenda/reopen`,
     { item_id: itemId },
   ).then((r) => r.data);
 }

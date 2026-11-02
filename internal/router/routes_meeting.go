@@ -22,6 +22,8 @@ func RegisterMeetingRoutes(r *gin.RouterGroup, meetingHandler *handler.MeetingHa
 		meetings.GET("/:id/messages", g.OwnedMeetingOrAdmin(), meetingHandler.ListMessages)
 		meetings.GET("/:id/agenda", g.OwnedMeetingOrAdmin(), meetingHandler.ListAgenda)
 		meetings.POST("/:id/agenda/advance", g.OwnedMeetingOrAdmin(), meetingHandler.AdvanceAgenda)
+		meetings.POST("/:id/agenda/append", g.OwnedMeetingOrAdmin(), meetingHandler.AppendAgenda)
+		meetings.POST("/:id/agenda/reopen", g.OwnedMeetingOrAdmin(), meetingHandler.ReopenAgenda)
 		meetings.POST("/:id/messages", g.OwnedMeetingOrAdmin(), meetingHandler.SendMessage)
 		meetings.POST("/:id/interrupt", g.OwnedMeetingOrAdmin(), meetingHandler.Interrupt)
 		meetings.PUT("/:id/messages/:mid/review", g.OwnedMeetingOrAdmin(), meetingHandler.UpdateReviewState)

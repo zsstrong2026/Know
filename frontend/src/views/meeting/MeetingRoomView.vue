@@ -54,11 +54,7 @@
           <span>{{ $t('meeting.guardNotice') }}</span>
           <t-button size="small" variant="text" @click="store.clearGuardNotice()">✕</t-button>
         </div>
-        <!-- 裁判判定收敛提示：讨论已结束，提示用户可继续追问或生成方案 -->
-        <div v-if="store.consensusNotice" class="consensus-notice">
-          <span>{{ $t('meeting.consensusNotice') }}</span>
-          <t-button size="small" variant="text" @click="store.clearConsensusNotice()">✕</t-button>
-        </div>
+        <!-- 裁判判定收敛：讨论结束，由输入区上方的「下一步」决策坞引导会议走向 -->
         <div v-if="store.hasMore" class="load-earlier" @click="store.loadEarlier()">
           {{ $t('meeting.loadEarlier') }}
         </div>
@@ -101,15 +97,6 @@
               <div class="bubble markdown-content"
                 :class="{ 'is-solution': m.is_solution, 'is-consensus': m.is_consensus }"
                 v-html="renderMarkdown(m)" />
-              <!-- 评审操作条：仅智能体讨论消息可评审，方案消息不参与；归档后禁用 -->
-              <div v-if="m.sender_kind === 'agent' && !m.is_solution" class="review-bar">
-                <t-button size="small" theme="success" :variant="m.review_state === 'adopted' ? 'base' : 'outline'"
-                  :disabled="isArchived" @click="review(m, 'adopted')">{{ $t('meeting.adopt') }}</t-button>
-                <t-button size="small" theme="danger" :variant="m.review_state === 'rejected' ? 'base' : 'outline'"
-                  :disabled="isArchived" @click="review(m, 'rejected')">{{ $t('meeting.reject') }}</t-button>
-                <t-button size="small" theme="warning" :variant="m.review_state === 'pending' ? 'base' : 'outline'"
-                  :disabled="isArchived" @click="review(m, 'pending')">{{ $t('meeting.pending') }}</t-button>
-              </div>
             </div>
           </div>
         </template>
@@ -149,6 +136,46 @@
         <t-button theme="default" variant="outline" :disabled="confirming" @click="toggleAdjustMode">
           {{ adjustMode ? $t('meeting.cancelAdjustFlow') : $t('meeting.adjustFlow') }}
         </t-button>
+      </div>
+    </div>
+
+    <!-- 共识后的「下一步」：收敛即引导会议走向（生成方案 / 补充讨论 / 追加议题 / 结束会议），替代旧的采纳评审 -->
+    <div v-if="showNextStepDock" class="next-step-dock">
+      <div class="next-step-dock__main">
+        <div class="next-step-dock__title">
+          <t-icon name="check-circle" />
+          <span>{{ $t('meeting.nextStepTitle') }}</span>
+        </div>
+        <p class="next-step-dock__desc">{{ $t('meeting.nextStepDesc') }}</p>
+        <!-- 追加新议题：就地输入标题与目标，确认后才创建并开题 -->
+        <div v-if="appendingAgenda" class="next-step-dock__form">
+          <t-input v-model="newAgendaTitle" size="small" :maxlength="40"
+            :placeholder="$t('meeting.newAgendaTitlePlaceholder')" />
+          <t-input v-model="newAgendaGoal" size="small" :maxlength="120"
+            :placeholder="$t('meeting.newAgendaGoalPlaceholder')" />
+        </div>
+      </div>
+      <div class="next-step-dock__actions">
+        <template v-if="appendingAgenda">
+          <t-button size="small" theme="primary" :loading="agendaActing" :disabled="!newAgendaTitle.trim()"
+            @click="submitNewAgenda">{{ $t('meeting.confirmAppendAgenda') }}</t-button>
+          <t-button size="small" theme="default" variant="outline" :disabled="agendaActing" @click="cancelAppendAgenda">
+            {{ $t('meeting.cancel') }}
+          </t-button>
+        </template>
+        <template v-else>
+          <t-button size="small" theme="primary" :loading="store.solutionGenerating" @click="generateSolution">
+            {{ $t('meeting.nextStepGenerate') }}
+          </t-button>
+          <t-button v-if="store.agenda.length" size="small" theme="default" variant="outline" :loading="agendaActing"
+            :disabled="!supplementItemId" @click="continueAgenda">{{ $t('meeting.nextStepSupplement') }}</t-button>
+          <t-button size="small" theme="default" variant="outline" :disabled="agendaActing" @click="openAppendAgenda">
+            {{ $t('meeting.nextStepAppend') }}
+          </t-button>
+          <t-button size="small" theme="default" variant="text" @click="endMeeting">
+            {{ $t('meeting.nextStepEnd') }}
+          </t-button>
+        </template>
       </div>
     </div>
 
@@ -195,7 +222,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
-import { MessagePlugin } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { useMeetingStore } from '@/stores/meeting';
 import { interruptMeeting, openMeetingStream } from '@/api/meeting';
 import type { MeetingMessage, MeetingParticipant } from '@/api/meeting';
@@ -272,6 +299,82 @@ async function nextAgenda() {
   } finally {
     advancingAgenda.value = false;
   }
+}
+
+// ---- 共识后的「下一步」决策坞 ----
+const appendingAgenda = ref(false);   // 追加议题内联表单是否展开
+const newAgendaTitle = ref('');
+const newAgendaGoal = ref('');
+const agendaActing = ref(false);      // 追加/恢复议题请求进行中
+
+// 收敛提示到达即展开决策坞；归档后不再引导（只读态由提示条告知）
+const showNextStepDock = computed(() => !!store.consensusNotice && !isArchived.value);
+
+// 「补充讨论」目标议题：优先最近一个已结束议题（收敛通常发生在其结束后），无则退回活跃议题
+const supplementItemId = computed(() => {
+  const list = store.agenda;
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (list[i].status === 'done') return list[i].id;
+  }
+  return store.activeAgendaItem?.id ?? '';
+});
+
+function openAppendAgenda() {
+  appendingAgenda.value = true;
+  newAgendaTitle.value = '';
+  newAgendaGoal.value = '';
+}
+
+function cancelAppendAgenda() {
+  appendingAgenda.value = false;
+}
+
+// 议题操作统一收口：loading 开关 + 错误提示，避免多处重复
+async function runAgendaAction(action: () => Promise<void>) {
+  agendaActing.value = true;
+  try {
+    await action();
+  } catch (e) {
+    toastError(e);
+  } finally {
+    agendaActing.value = false;
+  }
+}
+
+// 追加议题：后端落开题消息并经 SSE 回流，成功后收起表单（store 同时清掉收敛提示）
+async function submitNewAgenda() {
+  const title = newAgendaTitle.value.trim();
+  if (!title) return;
+  await runAgendaAction(async () => {
+    await store.appendAgenda(title, newAgendaGoal.value.trim());
+    appendingAgenda.value = false;
+  });
+}
+
+// 继续讨论本议题：恢复最近完成议题为 active，后端重新开题并跑一轮讨论
+async function continueAgenda() {
+  const itemId = supplementItemId.value;
+  if (!itemId) return;
+  await runAgendaAction(() => store.reopenAgenda(itemId));
+}
+
+// 结束会议：归档前二次确认，避免误触导致只读
+function endMeeting() {
+  const dialog = DialogPlugin.confirm({
+    header: t('meeting.endMeetingTitle'),
+    body: t('meeting.endMeetingDesc'),
+    theme: 'warning',
+    confirmBtn: t('meeting.endMeetingConfirm'),
+    cancelBtn: t('meeting.cancel'),
+    onConfirm: async () => {
+      dialog.destroy();
+      try {
+        await store.archive();
+      } catch (e) {
+        toastError(e);
+      }
+    },
+  });
 }
 
 const inputPlaceholder = computed(() => {
@@ -457,15 +560,6 @@ async function send() {
     adjustMode.value = false;
   } catch (e) {
     draft.value = content;                          // 失败时回填，避免丢内容
-    toastError(e);
-  }
-}
-
-// 评审操作：错误 toast；状态由 store 本地更新 + SSE 幂等覆盖
-async function review(m: MeetingMessage, state: string) {
-  try {
-    await store.setReviewState(m.id, state);
-  } catch (e) {
     toastError(e);
   }
 }
@@ -759,11 +853,6 @@ async function interrupt() {
   font-size: var(--app-text-base);
 }
 
-.review-bar {
-  display: flex;
-  gap: var(--app-space-1);
-}
-
 /* ---------- 开场确认坞 ---------- */
 .confirm-dock {
   flex: 0 0 auto;
@@ -819,6 +908,57 @@ async function interrupt() {
 .confirm-dock__actions {
   flex: 0 0 auto;
   display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+}
+
+/* ---------- 共识后的下一步决策坞 ---------- */
+.next-step-dock {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-3);
+  margin: var(--app-space-2) var(--app-space-5) 0;
+  padding: var(--app-space-3) var(--app-space-4);
+  border: 1px solid var(--td-success-color-3);
+  border-radius: var(--app-radius-lg);
+  background: color-mix(in srgb, var(--td-success-color) 6%, var(--td-bg-color-container));
+}
+
+.next-step-dock__main {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.next-step-dock__title {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-1);
+  font-size: var(--app-text-md);
+  font-weight: 500;
+  color: var(--td-text-color-primary);
+}
+
+.next-step-dock__desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--td-text-color-secondary);
+}
+
+/* 追加议题表单：标题与目标上下排布，避免挤压右侧按钮 */
+.next-step-dock__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-1);
+  margin-top: var(--app-space-2);
+}
+
+.next-step-dock__actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--app-space-2);
 }

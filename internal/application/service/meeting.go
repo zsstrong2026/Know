@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -362,7 +363,8 @@ func (s *meetingService) ListAgenda(ctx context.Context, tenantID uint64, roomID
 	return items, nil
 }
 
-// AdvanceAgenda 人工推进议程：把指定项（默认当前活跃项）标记完成并激活下一项。
+// AdvanceAgenda 人工推进议程：把指定项（默认当前活跃项）标记完成。
+// 不再自动激活下一项——后续动作为生成方案/继续讨论/追加议题/结束，由用户在前端弹框中决定。
 // 讨论进行中拒绝（避免与引擎推进竞争）；归档房间只读。
 func (s *meetingService) AdvanceAgenda(ctx context.Context, tenantID uint64, roomID string, itemID string) ([]*types.MeetingAgendaItem, error) {
 	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID) // 租户校验
@@ -373,7 +375,7 @@ func (s *meetingService) AdvanceAgenda(ctx context.Context, tenantID uint64, roo
 		return nil, err
 	}
 	if s.agendaRepo == nil {
-		return nil, errors.New("meeting: agenda is not available")
+		return nil, ErrAgendaDisabled
 	}
 	if running, rerr := s.engine.IsTurnRunning(ctx, roomID); rerr == nil && running {
 		return nil, ErrTurnRunning
@@ -398,27 +400,14 @@ func (s *meetingService) AdvanceAgenda(ctx context.Context, tenantID uint64, roo
 		}
 	}
 	if target == nil {
-		return nil, errors.New("meeting: agenda item not found")
+		return nil, ErrAgendaItemNotFound
 	}
 	target.Status = types.MeetingAgendaDone
 	if err := s.agendaRepo.Update(ctx, target); err != nil {
 		return nil, err
 	}
-	// 激活下一个待讨论项（已全部完成则无 active）
+	// 不再自动激活下一项：用户需在前端「下一步」弹框中显式决定后续动作
 	updated, err := s.agendaRepo.ListByRoom(ctx, roomID)
-	if err != nil {
-		return nil, err
-	}
-	for _, it := range updated {
-		if it.Status == types.MeetingAgendaPending {
-			it.Status = types.MeetingAgendaActive
-			if uerr := s.agendaRepo.Update(ctx, it); uerr != nil {
-				return nil, uerr
-			}
-			break
-		}
-	}
-	updated, err = s.agendaRepo.ListByRoom(ctx, roomID)
 	if err != nil {
 		return nil, err
 	}
@@ -426,6 +415,116 @@ func (s *meetingService) AdvanceAgenda(ctx context.Context, tenantID uint64, roo
 		"room_id": roomID, "items": updated,
 	}})
 	return updated, nil
+}
+
+// AppendAgenda 追加新议题并开启其讨论（用户选择「继续增加议题」时调用）。
+func (s *meetingService) AppendAgenda(
+	ctx context.Context, tenantID uint64, roomID string, userID string, title string, goal string,
+) ([]*types.MeetingAgendaItem, error) {
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID) // 租户校验
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureRoomActive(room); err != nil {
+		return nil, err
+	}
+	if err := s.ensureNoRunningTurn(ctx, roomID); err != nil {
+		return nil, err
+	}
+	items, err := s.engine.AppendAgendaItem(ctx, room, strings.TrimSpace(title), strings.TrimSpace(goal))
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.startAgendaDiscussion(ctx, roomID, items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// ReopenAgenda 恢复指定议题继续讨论（用户选择「本议题还需补充」时调用）。
+func (s *meetingService) ReopenAgenda(
+	ctx context.Context, tenantID uint64, roomID string, itemID string,
+) ([]*types.MeetingAgendaItem, error) {
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID) // 租户校验
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureRoomActive(room); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(itemID) == "" {
+		return nil, ErrAgendaItemNotFound
+	}
+	if err := s.ensureNoRunningTurn(ctx, roomID); err != nil {
+		return nil, err
+	}
+	items, err := s.engine.ReopenAgenda(ctx, room, itemID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.startAgendaDiscussion(ctx, roomID, items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// ensureNoRunningTurn 讨论进行中拒绝议程变更（避免与引擎推进竞争）
+func (s *meetingService) ensureNoRunningTurn(ctx context.Context, roomID string) error {
+	running, err := s.engine.IsTurnRunning(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	if running {
+		return ErrTurnRunning
+	}
+	return nil
+}
+
+// startAgendaDiscussion 为当前活跃议题落一条「议题开题」主持消息，并异步开启新一轮讨论。
+// 引擎的 AppendAgendaItem/ReopenAgenda 只改议程状态不触发讨论，而 RunTurn 需要合法触发消息 ID，
+// 故由 service 层补齐这一环；无活跃议题时返回 (nil, nil) 表示无需开题。
+func (s *meetingService) startAgendaDiscussion(
+	ctx context.Context, roomID string, items []*types.MeetingAgendaItem,
+) (*types.MeetingMessage, error) {
+	var active *types.MeetingAgendaItem
+	for _, it := range items {
+		if it.Status == types.MeetingAgendaActive {
+			active = it
+			break
+		}
+	}
+	if active == nil {
+		return nil, nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "【议题开题】%d/%d「%s」", active.Seq+1, len(items), active.Title)
+	if active.Goal != "" {
+		b.WriteString("\n本议题要产出的结论：" + active.Goal)
+	}
+	b.WriteString("\n请各位围绕本议题给出见解；已有结论的部分不必重复。")
+	msg := &types.MeetingMessage{
+		MeetingRoomID: roomID,
+		SenderKind:    types.MeetingSenderHost,
+		AgendaItemID:  active.ID,
+		Content:       b.String(),
+	}
+	if err := s.messageRepo.Create(ctx, msg); err != nil {
+		return nil, err
+	}
+	publishEvent(s.engine, roomID, MeetingEvent{Type: MeetingEventMessageCreated, Data: msg})
+	// 异步开跑讨论轮：不阻塞接口返回，失败仅记日志
+	go func() {
+		bgCtx := logger.CloneContext(ctx)
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Errorf(bgCtx, "meeting RunTurn panic, room=%s recover=%v", roomID, r)
+			}
+		}()
+		if err := s.engine.RunTurn(bgCtx, roomID, msg.ID); err != nil {
+			logger.Errorf(bgCtx, "meeting RunTurn failed, room=%s err=%v", roomID, err)
+		}
+	}()
+	return msg, nil
 }
 
 // currentAgendaItemID 取用户消息应归属的议程项 ID；未启用议程或无活跃议题时返回空。

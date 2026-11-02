@@ -99,7 +99,27 @@ func (f *fakeMeetingMessageRepo) Create(_ context.Context, msg *types.MeetingMes
 	return nil
 }
 
-func (f *fakeMeetingMessageRepo) ListRecent(_ context.Context, _ string, _ int) ([]*types.MeetingMessage, error) {
+// ListRecent 返回房间内最近 limit 条消息（旧->新正序），对齐真实仓储语义
+func (f *fakeMeetingMessageRepo) ListRecent(_ context.Context, roomID string, limit int) ([]*types.MeetingMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	all := f.allMsgs()
+	filtered := make([]*types.MeetingMessage, 0, len(all))
+	for _, m := range all {
+		// 未标注房间的预置消息视为通用夹具，一并返回
+		if m.MeetingRoomID != "" && m.MeetingRoomID != roomID {
+			continue
+		}
+		filtered = append(filtered, m)
+	}
+	if limit > 0 && len(filtered) > limit {
+		filtered = filtered[len(filtered)-limit:]
+	}
+	return filtered, nil
+}
+
+// ListByAgendaItem 夹具无按议题索引的消息，返回空集（避免嵌入接口 nil 调用 panic）
+func (f *fakeMeetingMessageRepo) ListByAgendaItem(_ context.Context, _ string, _ string, _ int) ([]*types.MeetingMessage, error) {
 	return nil, nil
 }
 

@@ -252,6 +252,18 @@ func (r *meetingAgendaRepository) Update(ctx context.Context, item *types.Meetin
 	return r.db.WithContext(ctx).Save(item).Error
 }
 
+// Create 追加单个议程项：seq 取房间内 MAX(seq)+1，避免与 UNIQUE(meeting_room_id, seq) 冲突
+func (r *meetingAgendaRepository) Create(ctx context.Context, item *types.MeetingAgendaItem) error {
+	var maxSeq int
+	if err := r.db.WithContext(ctx).Model(&types.MeetingAgendaItem{}).
+		Where("meeting_room_id = ?", item.MeetingRoomID).
+		Select("COALESCE(MAX(seq), -1)").Scan(&maxSeq).Error; err != nil {
+		return err
+	}
+	item.Seq = maxSeq + 1
+	return r.db.WithContext(ctx).Create(item).Error
+}
+
 type meetingArtifactRepository struct{ db *gorm.DB }
 
 func NewMeetingArtifactRepository(db *gorm.DB) interfaces.MeetingArtifactRepository {
