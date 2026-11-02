@@ -79,3 +79,6 @@ miniprogram/project.private.config.json
 # 本地临时下载的 ppt-generator 技能包
 /ppt-generator/
 /ppt-generator.zip
+
+# 根目录的立项汇报大纲文档（本地业务资料，不入库）
+/安防集成平台产品化改造_立项汇报大纲*.docx
