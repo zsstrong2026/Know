@@ -3107,7 +3107,8 @@ defineExpose({
             </button>
           </t-tooltip>
           <t-tooltip v-else :content="`${isReplying && canSteer ? $t('input.steerAfter') : $t('input.send')} · Enter`">
-            <button type="button" @click="createSession(query)" class="control-btn send-btn" data-guide="chat-send"
+            <!-- mousedown.prevent：避免点击时输入框先失焦/输入法组合被打断而吞掉 click -->
+            <button type="button" @mousedown.prevent @click="createSession(query)" class="control-btn send-btn" data-guide="chat-send"
               :disabled="!query.trim() || composerLocked" :class="{ 'disabled': !query.trim() || composerLocked }"
               :aria-label="isReplying && canSteer ? $t('input.steerAfter') : $t('input.send')">
               <t-icon name="arrow-up" />
@@ -4063,6 +4064,10 @@ const getImgSrc = (url: string) => {
   z-index: 9999;
   background: transparent;
   touch-action: none;
+  /* 透明遮罩只用于承接"点击外部关闭"，不能拦截下层控件：
+     下拉关闭由 document click 监听兜底，因此这里放行点击，
+     避免遮罩意外残留时把输入框发送按钮一起挡住。 */
+  pointer-events: none;
 }
 
 .model-selector-dropdown {
@@ -4075,6 +4080,7 @@ const getImgSrc = (url: string) => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  pointer-events: auto;
   margin: 0 !important;
   padding: 0 !important;
   transform: none !important;
@@ -4353,5 +4359,18 @@ const getImgSrc = (url: string) => {
     color: var(--td-brand-color-active);
     text-decoration: underline;
   }
+}
+</style>
+
+<style lang="less">
+/* AgentSelector 通过 Teleport 挂在 body 上，scoped 样式无法命中，故用全局规则。
+   其透明全屏遮罩同样只用于"点击外部关闭"（Input-field 已有 document click 兜底），
+   放行点击，避免遮罩残留时挡住输入框的发送按钮。 */
+.agent-selector-overlay {
+  pointer-events: none;
+}
+
+.agent-selector-dropdown {
+  pointer-events: auto;
 }
 </style>
