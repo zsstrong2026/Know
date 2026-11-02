@@ -392,6 +392,13 @@ const router = createRouter({
               meta: { requiresInit: true, requiresAuth: true },
             },
             {
+              // 模板管理：个人模板的列表/改名/删除；发布门禁关闭时入口不出现
+              path: "templates",
+              name: "workbenchTemplates",
+              component: () => import("../views/workbench/WorkbenchTemplates.vue"),
+              meta: { requiresInit: true, requiresAuth: true },
+            },
+            {
               // 编辑页：唯一会加载 BlockSuite 的路由
               path: "items/:itemId",
               name: "workbenchItem",

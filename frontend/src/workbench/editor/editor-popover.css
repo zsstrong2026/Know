@@ -1,0 +1,24 @@
+/**
+ * BlockSuite 浮层的全局样式。
+ *
+ * 斜杠菜单挂在 document.body 上，不在工作台的 scoped 容器里；
+ * 上游把它画在 `--affine-v2-layer-background-overlayPanel` 背景上，
+ * 该变量默认是白色，放在白底页面上会像“透明”。这里只在菜单宿主上
+ * 覆盖成主题的一次级容器色，让菜单成为清晰可见的色块（深色模式自动跟随）。
+ *
+ * 用宿主元素而不是 :root：只影响斜杠菜单，不改变其它 AFFiNE 浮层。
+ */
+affine-slash-menu {
+  --affine-v2-layer-background-overlayPanel: var(--td-bg-color-secondarycontainer);
+}
+
+/**
+ * 无限画布底部缩放条（置中 / 缩小 / 百分比 / 放大）。
+ *
+ * 产品形态不需要这条控件，整条隐藏；窄屏下同一个 widget 里的折叠按钮
+ * 也一并隐藏。宿主组件的 shadow 里用 `:host { display: flex }` 撑开，
+ * 优先级高于类型选择器，因此必须用 !important 才能覆盖。
+ */
+affine-edgeless-zoom-toolbar-widget {
+  display: none !important;
+}

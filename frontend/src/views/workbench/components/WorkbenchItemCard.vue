@@ -50,7 +50,7 @@
           trigger="click"
           placement="bottom-right"
           attach="body"
-          @click="onMenu($event)"
+          @click="onMenu"
         >
           <button class="card-more" type="button" :aria-label="$t('workbench.item.open')" @click.stop>
             <t-icon name="ellipsis" size="14px" />
@@ -71,6 +71,12 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ArchiveBadge from './ArchiveBadge.vue'
+import { formatRelativeTime, itemCaption } from '@/workbench/item-display'
+import {
+  buildItemMenuOptions,
+  resolveItemMenuAction,
+  type WorkbenchItemMenuAction,
+} from '@/workbench/item-menu'
 import type { ArchiveBadgeAction } from '@/workbench/archive-status'
 import type { WorkbenchItem } from '@/types/workbench'
 
@@ -87,95 +93,19 @@ const emit = defineEmits<{
   open: [item: WorkbenchItem]
   favorite: [item: WorkbenchItem]
   archive: [item: WorkbenchItem, action: ArchiveBadgeAction]
-  rename: [item: WorkbenchItem]
-  move: [item: WorkbenchItem]
-  pin: [item: WorkbenchItem]
-  trashItem: [item: WorkbenchItem]
-  deleteArchives: [item: WorkbenchItem]
-  restore: [item: WorkbenchItem]
-  purge: [item: WorkbenchItem]
+  /** 「…」菜单里的动作统一上抛，由列表页派发，卡片不自己 switch */
+  menu: [item: WorkbenchItem, action: WorkbenchItemMenuAction]
 }>()
 
 const { t } = useI18n()
 
-const describe = computed(() => {
-  const mode = props.item.current_mode ?? 'edgeless'
-  const parts = [props.item.kind === 'database' ? 'database' : 'canvas', mode]
-  if (props.item.journal_date) parts.push(props.item.journal_date)
-  return parts.join(' · ')
-})
-
-const updatedLabel = computed(() => formatRelative(props.item.updated_at))
-
-/** 相对时间：7 天内用“x 分钟/小时/天前”，更早显示日期。 */
-function formatRelative(raw: string): string {
-  const time = new Date(raw).getTime()
-  if (!Number.isFinite(time)) return ''
-  const diff = Date.now() - time
-  const minute = 60_000
-  const hour = 60 * minute
-  const day = 24 * hour
-  if (diff < minute) return '刚刚'
-  if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`
-  if (diff < day) return `${Math.floor(diff / hour)} 小时前`
-  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`
-  return new Date(time).toLocaleDateString()
-}
-
-const menuOptions = computed(() => {
-  if (props.trashed) {
-    return [
-      { content: t('workbench.item.restore'), value: 'restore' },
-      { content: t('workbench.item.purge'), value: 'purge' },
-    ]
-  }
-  return [
-    { content: t('workbench.item.open'), value: 'open' },
-    { content: t('workbench.item.rename'), value: 'rename' },
-    { content: t('workbench.item.move'), value: 'move' },
-    // 只有画布能钉到日历（Journals 只含 canvas）。
-    ...(props.item.kind === 'canvas'
-      ? [{ content: t('workbench.item.pin'), value: 'pin' }]
-      : []),
-    { content: t('workbench.archive.action.update'), value: 'archive' },
-    { content: t('workbench.archive.deleteTitle'), value: 'deleteArchives' },
-    { content: t('workbench.item.delete'), value: 'trash' },
-  ]
-})
+const describe = computed(() => itemCaption(props.item))
+const updatedLabel = computed(() => formatRelativeTime(props.item.updated_at))
+const menuOptions = computed(() => buildItemMenuOptions(props.item, props.trashed, t))
 
 function onMenu(data: { value?: string | number }) {
-  const value = String(data.value ?? '')
-  switch (value) {
-    case 'open':
-      emit('open', props.item)
-      break
-    case 'rename':
-      emit('rename', props.item)
-      break
-    case 'move':
-      emit('move', props.item)
-      break
-    case 'pin':
-      emit('pin', props.item)
-      break
-    case 'archive':
-      emit('archive', props.item, 'update')
-      break
-    case 'deleteArchives':
-      emit('deleteArchives', props.item)
-      break
-    case 'trash':
-      emit('trashItem', props.item)
-      break
-    case 'restore':
-      emit('restore', props.item)
-      break
-    case 'purge':
-      emit('purge', props.item)
-      break
-    default:
-      break
-  }
+  const action = resolveItemMenuAction(data.value)
+  if (action) emit('menu', props.item, action)
 }
 </script>
 

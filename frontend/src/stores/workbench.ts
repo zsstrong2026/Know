@@ -342,13 +342,14 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
     return folder
   }
 
-  /** 删除文件夹：后端把其中的条目上移到父级，这里同步刷新两类数据。 */
+  /** 删除文件夹：后端把其中的子文件夹与条目上移到父级，这里同步树结构。 */
   async function removeFolder(id: string) {
+    const removed = folders.value.find((row) => row.id === id)
     await deleteWorkbenchFolder(id)
-    folders.value = folders.value.filter((row) => row.id !== id)
-    folders.value = folders.value.map((row) =>
-      row.parent_id === id ? { ...row, parent_id: null } : row,
-    )
+    folders.value = folders.value
+      .filter((row) => row.id !== id)
+      // 直接子级的父级应回挂到被删文件夹的父级（后端同口径），而不是一律提到根。
+      .map((row) => (row.parent_id === id ? { ...row, parent_id: removed?.parent_id ?? null } : row))
   }
 
   return {

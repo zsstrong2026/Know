@@ -72,7 +72,7 @@
       </div>
     </template>
 
-    <div v-else class="card-grid" :class="`is-${viewMode}`">
+    <div v-else-if="viewMode === 'cards'" class="card-grid">
       <div
         v-for="item in store.items"
         :key="item.id"
@@ -94,15 +94,30 @@
           @open="selectMode ? toggleCandidate(item) : open(item)"
           @favorite="toggleFavorite"
           @archive="onArchive"
-          @rename="rename"
-          @move="move"
-          @pin="pinToDate"
-          @trash-item="trash"
-          @delete-archives="deleteArchives"
-          @restore="restore"
-          @purge="purge"
+          @menu="onItemMenu"
         />
       </div>
+    </div>
+
+    <!-- 列表视图：AFFiNE 风格——按更新时间分组，行内无边框、悬停浅底 -->
+    <div v-else class="wb-rows">
+      <section v-for="group in groupedItems" :key="group.day" class="rows-group">
+        <div v-if="group.label" class="group-head">
+          {{ group.label }} · {{ group.items.length }}
+        </div>
+        <WorkbenchItemRow
+          v-for="item in group.items"
+          :key="item.id"
+          :item="item"
+          :trashed="scope === 'trash'"
+          :selectable="selectMode"
+          :selected="selectedIds.has(item.id)"
+          @open="selectMode ? toggleCandidate(item) : open(item)"
+          @favorite="toggleFavorite"
+          @archive="onArchive"
+          @menu="onItemMenu"
+        />
+      </section>
     </div>
 
     <div v-if="store.nextCursor && !store.loading" class="wb-load-more">
@@ -132,12 +147,15 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import WorkbenchItemCard from './components/WorkbenchItemCard.vue'
+import WorkbenchItemRow from './components/WorkbenchItemRow.vue'
 import BatchArchiveBar from './components/BatchArchiveBar.vue'
 import BatchArchiveDialog from './components/BatchArchiveDialog.vue'
 import { useWorkbenchStore } from '@/stores/workbench'
 import { canDeleteArchive } from '@/workbench/archive-status'
 import { batchOpFor, capBatchSelection, type BatchArchiveCandidate } from '@/workbench/batch-archive'
 import { todayISO } from '@/workbench/journals/date-only'
+import { groupItemsByDay, todayStart } from '@/workbench/item-display'
+import type { WorkbenchItemMenuAction } from '@/workbench/item-menu'
 import { deleteArchive } from '@/api/workbench'
 import type { ArchiveBadgeAction } from '@/workbench/archive-status'
 import type { WorkbenchItem, WorkbenchScope } from '@/types/workbench'
@@ -149,11 +167,63 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const store = useWorkbenchStore()
 
 const keyword = ref('')
 const viewMode = ref<'cards' | 'list'>('cards')
+
+/** 列表视图按更新日期分组；服务端已按 updated_at 降序，顺序原样保留 */
+const groupedItems = computed(() =>
+  groupItemsByDay(store.items).map((group) => ({
+    day: group.day,
+    items: group.items,
+    label: group.day === todayStart() ? t('workbench.list.groupToday') : formatDayLabel(group.day),
+  })),
+)
+
+/** 日期小标题：跟随界面语言；时间非法时留空，该组不显示标题 */
+function formatDayLabel(day: number): string {
+  if (!Number.isFinite(day)) return ''
+  return new Date(day).toLocaleDateString(locale.value, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+}
+
+/** 「…」菜单只上报动作，卡片与列表行共用这一处派发 */
+function onItemMenu(item: WorkbenchItem, action: WorkbenchItemMenuAction) {
+  switch (action) {
+    case 'open':
+      open(item)
+      break
+    case 'rename':
+      void rename(item)
+      break
+    case 'move':
+      void move(item)
+      break
+    case 'pin':
+      void pinToDate(item)
+      break
+    case 'archive':
+      void onArchive(item, 'update')
+      break
+    case 'deleteArchives':
+      deleteArchives(item)
+      break
+    case 'trash':
+      void trash(item)
+      break
+    case 'restore':
+      void restore(item)
+      break
+    case 'purge':
+      purge(item)
+      break
+  }
+}
 
 // ---- 批量归档（§9.8.1） ----
 const selectMode = ref(false)
@@ -518,16 +588,29 @@ async function onArchive(item: WorkbenchItem, action: ArchiveBadgeAction) {
   overflow-y: auto;
   padding-bottom: var(--app-space-6);
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: var(--app-space-4);
   align-content: start;
 }
 
-.card-grid.is-cards {
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+/* 列表视图：白底容器 + 圆角，行本身无边框，靠悬停底色分界（对齐 AFFiNE） */
+.wb-rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--app-space-1) var(--app-space-2) var(--app-space-3);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-lg);
+  background: var(--td-bg-color-container);
 }
 
-.card-grid.is-list {
-  grid-template-columns: minmax(0, 1fr);
+/* 日期小标题：左缘与行内图标对齐，避免标题比行内容更“缩进” */
+.group-head {
+  padding: var(--app-space-3) 10px var(--app-space-1);
+  font-size: var(--app-text-sm);
+  line-height: 18px;
+  color: var(--td-text-color-placeholder);
+  user-select: none;
 }
 
 .card-cell {

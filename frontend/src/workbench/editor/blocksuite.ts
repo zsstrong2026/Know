@@ -22,10 +22,17 @@ import {
   FontConfigExtension,
 } from '@blocksuite/affine/shared/services'
 import { BlockStdScope } from '@blocksuite/affine/std'
+import { insertEdgelessTextCommand } from '@blocksuite/affine-gfx-text'
+import { TextSelection } from '@blocksuite/std'
+import { GfxControllerIdentifier } from '@blocksuite/std/gfx'
 import { Text } from '@blocksuite/store'
 import { TestWorkspace } from '@blocksuite/store/test'
 import { signal } from '@preact/signals-core'
 import * as Y from 'yjs'
+import { ParagraphViewExtension } from '@blocksuite/affine-block-paragraph/view'
+import { localizedParagraphPlaceholder, translateSlashMenuItem } from './slash-menu-locale'
+// 斜杠菜单挂在 body 上，必须用全局样式覆盖其浮层背景
+import './editor-popover.css'
 
 // 上游类型在 TS6 下无法被检查（见 src/types/blocksuite-shim.d.ts），
 // 这里用宽松别名承接内部标注；对外导出的接口（MountEditorOptions / CanvasHandle）仍是精确类型。
@@ -216,6 +223,10 @@ let storeExtensions: BsExtension[] | null = null
  */
 export function ensureBlockSuiteElements(): void {
   if (specsByMode) return
+  // 空段落占位跟随应用语言（"Type '/' for commands" 在中文环境显示为中文）
+  viewManager.configure(ParagraphViewExtension, {
+    getPlaceholder: localizedParagraphPlaceholder,
+  })
   // 两种 mode 都提前 setup：切 mode 时元素已注册，避免运行时抛未定义元素
   specsByMode = {
     page: [...viewManager.get('page'), FontConfigExtension(CommunityCanvasTextFonts)],
@@ -311,6 +322,165 @@ function createSettingExtension(setting$: unknown): BsExtension {
   })
 }
 
+/**
+ * 给斜杠菜单挂上按当前语言翻译的转换器。
+ *
+ * 菜单组件是 Lit 自定义元素，首帧后才出现在 host 里；
+ * 先同步试一次，找不到再按帧重试有限次数（切 mode 时也会重新挂）。
+ */
+function installSlashMenuLocale(root: HTMLElement): void {
+  const apply = (): boolean => {
+    const widget = root.querySelector('affine-slash-menu-widget') as
+      | { configItemTransform?: (item: any) => any }
+      | null
+    if (!widget) return false
+    widget.configItemTransform = translateSlashMenuItem as (item: any) => any
+    return true
+  }
+  if (apply()) return
+
+  let frames = 0
+  const retry = () => {
+    if (apply() || frames >= 20) return
+    frames += 1
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(retry)
+    else window.setTimeout(retry, 16)
+  }
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(retry)
+  else window.setTimeout(retry, 16)
+}
+
+/**
+ * 斜杠菜单兜底。
+ *
+ * 上游只监听 beforeInput；在部分输入法/合成输入下该事件不会带出完整
+ * 的 "/" 文本，菜单就不会弹。这里再监听一次 input：确认 slash 已经落进
+ * 编辑器后，直接调用 widget 的处理入口（和上游走同一条菜单构建链路）。
+ */
+function installSlashMenuFallback(element: HTMLElement): () => void {
+  /** 字符落进编辑器后，再调用上游的菜单构建入口。 */
+  const tryOpen = (target: EventTarget | null) => {
+    window.setTimeout(() => {
+      if (document.querySelector('affine-slash-menu')) return
+      const widget = element.querySelector('affine-slash-menu-widget') as
+        | {
+            _handleInput?: (editor: any, isCompositionEnd: boolean) => void
+            _getInlineEditor?: (evt: Event) => any
+          }
+        | null
+      if (!widget?._handleInput) return
+      const inlineHost = (target as HTMLElement | null)?.closest?.('.inline-editor') as
+        | { inlineEditor?: any }
+        | null
+      const editor =
+        inlineHost?.inlineEditor
+        ?? widget._getInlineEditor?.(new InputEvent('beforeInput', { data: '/' }))
+      if (!editor) return
+      const open = () => {
+        const w = widget as any
+        try {
+          // 上游要求 inlineRange 已跟上真实光标；输入事件后选区同步是异步的，
+          // 这里主动同步一次，避免 getTextPoint 读到 "/" 之前的前缀而直接 return。
+          w.host?.selection && editor.syncInlineRange?.()
+          // 上游还要求 host 上有 TextSelection；焦点异常时它可能缺失，
+          // 缺失就直接补一条，保证 _handleInput 能走到菜单构建分支。
+          if (!w.host?.selection?.find?.(TextSelection)) {
+            const blockId = (target as HTMLElement | null)
+              ?.closest?.('[data-block-id]')?.getAttribute('data-block-id')
+            const range = editor.getInlineRange?.()
+            if (blockId && range) {
+              w.host?.selection?.set?.([
+                new TextSelection({ from: { blockId, index: range.index, length: 0 }, to: null }),
+              ])
+            }
+          }
+          widget._handleInput?.(editor, true)
+        } catch (error) {
+          console.error('[wb-slash] handleInput failed', error)
+        }
+      }
+      // 上游的菜单构建要求 inlineRange / DOM 文本都已同步，先等一帧渲染再试
+      if (typeof editor.waitForUpdate === 'function') {
+        editor.waitForUpdate().then(open, open)
+      } else {
+        open()
+      }
+    }, 60)
+  }
+
+  const onInput = (event: Event) => {
+    if ((event as InputEvent).data === '/') tryOpen(event.target)
+  }
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== '/') return
+    const target = event.target as HTMLElement | null
+    if (!target?.closest('.inline-editor, .affine-page-root, .affine-editor-container')) return
+    // 编辑器内的 "/" 不交给全局命令面板；字符仍由编辑器自己插入
+    event.stopPropagation()
+    tryOpen(target)
+  }
+
+  element.addEventListener('input', onInput, true)
+  element.addEventListener('keydown', onKeyDown)
+  return () => {
+    element.removeEventListener('input', onInput, true)
+    element.removeEventListener('keydown', onKeyDown)
+  }
+}
+
+/**
+ * 无限画布：单击空白处直接创建可编辑文本块。
+ *
+ * 上游默认只在空白双击时创建（DblClickAddEdgelessText），这里按产品要求
+ * 把入口扩展到单击，但复用上游同一个命令，保证块结构和进入编辑态的方式
+ * 与 AFFiNE 完全一致：
+ *   - 拖动超过阈值（框选 / 平移）不创建
+ *   - 点在已有元素、笔记、工具栏上不创建
+ *   - 空白处新建的空文本块在失焦时由上游逻辑自动删除
+ */
+function installEdgelessBlankClickText(std: any, element: HTMLElement): () => void {
+  const gfx = std.get(GfxControllerIdentifier)
+  let down: { x: number; y: number } | null = null
+
+  const onPointerDown = (event: PointerEvent) => {
+    down = event.button === 0 ? { x: event.clientX, y: event.clientY } : null
+  }
+
+  const onClick = (event: MouseEvent) => {
+    const origin = down
+    down = null
+    if (!origin) return
+    // 框选、平移、轻微抖动都不应该落成文本块
+    if (Math.abs(event.clientX - origin.x) > 4 || Math.abs(event.clientY - origin.y) > 4) return
+
+    const target = event.target as HTMLElement | null
+    if (
+      target?.closest(
+        'affine-edgeless-toolbar, affine-edgeless-zoom-toolbar-widget, affine-note, ' +
+          'affine-edgeless-text, .inline-editor, button, input, textarea, [role="toolbar"]',
+      )
+    ) {
+      return
+    }
+
+    // clientX/clientY 是相对浏览器窗口的坐标，必须先减去画布视口的 left/top；
+    // 直接传给 toModelCoord 会多算一段左侧导航 + 顶部偏移，文本块就落到右下很远的位置。
+    const [x, y] = gfx.viewport.toModelCoordFromClientCoord([event.clientX, event.clientY])
+    // 点在画布已有元素（形状 / 图片等）上时交给元素自己的交互
+    if (gfx.getElementByPoint(x, y)) return
+
+    std.command.exec(insertEdgelessTextCommand, { x, y })
+  }
+
+  element.addEventListener('pointerdown', onPointerDown, true)
+  element.addEventListener('click', onClick, true)
+  return () => {
+    element.removeEventListener('pointerdown', onPointerDown, true)
+    element.removeEventListener('click', onClick, true)
+  }
+}
+
 function attachView(params: {
   store: BsStore
   mode: EditorMode
@@ -334,9 +504,30 @@ function attachView(params: {
   const hadViewportClass = element.classList.contains(viewportClass)
   element.classList.add(viewportClass)
   element.appendChild(host)
+  // 菜单文案跟随当前 i18n 语言（中文环境不再显示英文命令）
+  installSlashMenuLocale(element)
+  // 无限画布：空白处单击直接落一个可编辑文本块（AFFiNE 的空白双击效果）
+  const removeBlankClickText =
+    mode === 'edgeless' ? installEdgelessBlankClickText(std, element) : null
+
+  if (mode === 'edgeless') {
+    // 页面模式的内容都放在 note 里，切到画布后是一张卡片；
+    // 视口默认从 (0,0) 开始，卡片会只露出左上角。这里挂载完成后
+    // 适配一次视图，让页面内容以完整卡片的形式出现在画布中央。
+    const fit = () => {
+      if (!host.isConnected) return
+      try {
+        (std as any).get?.(GfxControllerIdentifier)?.fitToScreen?.()
+      } catch {
+        // 空画布或 surface 尚未就绪时忽略；下次挂载会再试
+      }
+    }
+    requestAnimationFrame(() => requestAnimationFrame(fit))
+  }
 
   return {
     detach() {
+      removeBlankClickText?.()
       // host.remove() 触发 disconnectedCallback → std.unmount()，释放该 std 自己的订阅
       host.remove()
       if (!hadViewportClass) element.classList.remove(viewportClass)
@@ -465,6 +656,7 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
   // 3. 渲染：render() 只创建 EditorHost，插入 DOM 后 connectedCallback 才真正 mount
   let currentMode: EditorMode = mode
   let view: AttachedView = attachView({ store, mode, element, specs, setting$ })
+  const removeSlashFallback = installSlashMenuFallback(element)
   stats.viewMounts += 1
 
   return {
@@ -501,6 +693,7 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
     },
     destroy: () => {
       subscriptions.forEach(sub => sub.unsubscribe())
+      removeSlashFallback()
       view.detach()
       stats.viewUnmounts += 1
       store.dispose()

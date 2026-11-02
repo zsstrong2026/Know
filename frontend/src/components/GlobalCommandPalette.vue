@@ -567,6 +567,14 @@ const isEditingElement = (el: EventTarget | null): boolean => {
   const tag = (node.tagName || '').toUpperCase()
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
   if (node.isContentEditable) return true
+  // BlockSuite 编辑器焦点落在 affine-page-root / inline-editor 上，
+  // 两者都不是原生 input；不排除的话，在文档里输入 "/" 会误开全局搜索。
+  if (
+    typeof node.closest === 'function'
+    && node.closest('.affine-page-root, .affine-edgeless-root, .affine-editor-container, .inline-editor')
+  ) {
+    return true
+  }
   return false
 }
 

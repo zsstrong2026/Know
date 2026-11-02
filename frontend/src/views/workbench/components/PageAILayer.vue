@@ -1,6 +1,19 @@
 <template>
   <!-- Page AI 层：浮动工具条 + 五组菜单 + 结果预览 + 右侧 AI 侧栏（§9.15） -->
   <div class="page-ai" :class="{ 'is-collapsed': !panelOpen }">
+    <!-- 常驻 AI 入口：无选区也能打开侧栏（改写/问答都从这里进） -->
+    <button
+      v-if="editable && !panelOpen"
+      class="pai-launcher"
+      type="button"
+      :aria-label="t('workbench.pageAi.bar.open')"
+      :title="t('workbench.pageAi.bar.open')"
+      @click="panelOpen = true"
+    >
+      <t-icon name="star" size="14px" />
+      <span>{{ t('workbench.pageAi.bar.ai') }}</span>
+    </button>
+
     <!-- 浮动工具条：选区非空且位于可编辑文本块时出现 -->
     <div v-if="barVisible" class="pai-bar" role="toolbar" :aria-label="t('workbench.pageAi.bar.ai')">
       <span class="pai-brand"><t-icon name="star" size="11px" />{{ t('workbench.pageAi.bar.ai') }}</span>
@@ -16,6 +29,9 @@
       </button>
       <span class="pai-sep" />
       <button type="button" @click="openPanel">{{ t('workbench.pageAi.bar.ask') }}</button>
+      <button type="button" :disabled="codeOnlyActive" @click="quickAction('edit.polish')">
+        {{ t('workbench.pageAi.bar.rewrite') }}
+      </button>
       <span v-if="tooLong" class="pai-warn">{{ t('workbench.pageAi.state.tooLong') }}</span>
     </div>
 
@@ -48,6 +64,25 @@
           <t-icon name="close" size="13px" />
         </button>
       </header>
+
+      <!-- 智能体选择：与工作台设置里的默认智能体共用同一份偏好 -->
+      <div class="pp-agent">
+        <t-select
+          :value="activeAgentId"
+          size="small"
+          class="pp-agent-select"
+          :loading="agentsLoading"
+          :placeholder="t('workbench.pageAi.panel.agentPlaceholder')"
+          @change="onAgentChange"
+        >
+          <t-option
+            v-for="agent in agentOptions"
+            :key="agent.id"
+            :value="agent.id"
+            :label="agent.label"
+          />
+        </t-select>
+      </div>
 
       <div class="pp-quick">
         <button v-for="cmd in quickCommands" :key="cmd.id" type="button" @click="runSlash(cmd.id)">
@@ -129,6 +164,9 @@ import PageAIResult from './PageAIResult.vue'
 import { usePageAI, type PageAIEditorAdapter } from '@/workbench/ai/use-page-ai'
 import { streamAskAI, WorkbenchAIError, type AskAIReference } from '@/workbench/ai/use-inline-ai'
 import { WORKBENCH_ERROR } from '@/workbench/error-code'
+import { listAgents, type CustomAgent } from '@/api/agent'
+import { useWorkbenchPrefs } from '@/workbench/use-workbench-prefs'
+import { resolveDefaultAgent } from '@/workbench/ai/prefs'
 import {
   INLINE_AI_TEXT_LIMIT,
   type InlineAIRequest,
@@ -156,9 +194,15 @@ const props = defineProps<{
   confirmInsert?: boolean
 }>()
 
+const emit = defineEmits<{
+  /** 侧栏开合上报：父级据此收窄编辑区，避免侧栏覆盖正文 */
+  'panel-change': [open: boolean]
+}>()
+
 const { t } = useI18n()
 const menuOpen = ref(false)
-const panelOpen = ref(false)
+/** 侧栏默认展开：编辑页进入即可看到 AI 对话与改写入口 */
+const panelOpen = ref(true)
 const draft = ref('')
 const slashOpen = ref(false)
 const slashIndex = ref(0)
@@ -177,10 +221,56 @@ const barVisible = computed(() => props.editable && hasSelection.value)
 /** 代码块判定以编辑器实况为准，props.codeOnly 只是补充信号。 */
 const codeOnlyActive = computed(() => inCodeBlock.value || Boolean(props.codeOnly))
 
+// ---- 智能体选择（与设置页共用同一份 aiPrefs） ----
+const { aiPrefs, updateAIPrefs } = useWorkbenchPrefs()
+const agents = ref<CustomAgent[]>([])
+const agentsLoading = ref(false)
+/**
+ * 侧栏当前使用的智能体：优先取本条偏好的 defaultAgentId；
+ * props.agentId 只是兜底，保证调用方显式指定时不被打回默认。
+ */
+const activeAgentId = computed(() => {
+  const selected = aiPrefs.value.defaultAgentId || props.agentId || ''
+  return resolveDefaultAgent(
+    selected,
+    agents.value.map((agent) => ({ id: agent.id, is_builtin: agent.is_builtin })),
+  )
+})
+
+/** 下拉选项：内置在前、其余按后端顺序；空 id 表示跟随租户默认模型。 */
+const agentOptions = computed(() => [
+  { id: '', label: t('workbench.pageAi.panel.agentDefault') },
+  ...agents.value.map((agent) => ({
+    id: agent.id,
+    label: agent.is_builtin
+      ? t('workbench.pageAi.panel.agentBuiltin', { name: agent.name })
+      : agent.name,
+  })),
+])
+
+async function loadAgents() {
+  if (agents.value.length > 0 || agentsLoading.value) return
+  agentsLoading.value = true
+  try {
+    const response = await listAgents()
+    agents.value = response?.data ?? []
+  } catch {
+    // 智能体列表失败只影响下拉，问答仍可走租户默认模型。
+    agents.value = []
+  } finally {
+    agentsLoading.value = false
+  }
+}
+
+/** 切换智能体：写入偏好，后续内联与问答都用它。 */
+function onAgentChange(value: string | number | boolean) {
+  updateAIPrefs({ defaultAgentId: String(value ?? '') })
+}
+
 const ai = usePageAI({
   editor: () => props.adapter(),
   itemId: () => props.itemId,
-  agentId: () => props.agentId ?? '',
+  agentId: () => activeAgentId.value || props.agentId || '',
   confirmInsert: () => props.confirmInsert ?? true,
   onError: (err) => {
     // 只提示类型，不显示正文（§9.15.5）。
@@ -208,10 +298,13 @@ const SLASH_COMMANDS = [
   { id: 'translate', labelKey: 'workbench.pageAi.slash.translate', hintKey: 'workbench.pageAi.slash.translateHint', action: 'translate', needsSelection: false },
   { id: 'explain', labelKey: 'workbench.pageAi.slash.explain', hintKey: 'workbench.pageAi.slash.explainHint', action: 'custom', needsSelection: true },
   { id: 'askKb', labelKey: 'workbench.pageAi.slash.askKb', hintKey: 'workbench.pageAi.slash.askKbHint', action: null, needsSelection: false },
+  { id: 'polish', labelKey: 'workbench.pageAi.slash.rewrite', hintKey: 'workbench.pageAi.slash.polishHint', action: 'polish', needsSelection: false },
 ] as const
 
-/** 侧栏快捷 chips 用前四个内联命令，与斜杠共用处理。 */
-const quickCommands = SLASH_COMMANDS.slice(0, 4)
+/** 侧栏快捷 chips：四个常用内联命令 + 「改进写作」改写入口，与斜杠共用处理。 */
+const quickCommands = computed(() =>
+  SLASH_COMMANDS.filter((cmd) => ['summarize', 'outline', 'extractActions', 'translate', 'polish'].includes(cmd.id)),
+)
 
 const filteredCommands = computed(() => {
   const keyword = draft.value.replace(/^\//, '').trim()
@@ -242,6 +335,8 @@ function onDocumentSelectionChange() {
 onMounted(() => {
   document.addEventListener('selectionchange', onDocumentSelectionChange)
   refreshSelection()
+  // 侧栏默认展开，进入编辑页即拉一次智能体列表供下拉使用。
+  void loadAgents()
 })
 
 watch(
@@ -461,11 +556,12 @@ onBeforeUnmount(() => {
 
 /** 侧栏关闭时清掉问答输出，下次打开不残留上一次的答案。 */
 watch(panelOpen, (open) => {
+  emit('panel-change', open)
   if (open) return
   askAnswer.value = ''
   askReferences.value = []
   slashOpen.value = false
-})
+}, { immediate: true })
 
 defineExpose({ refreshSelection })
 </script>
@@ -475,6 +571,8 @@ defineExpose({ refreshSelection })
   position: absolute;
   inset: 0;
   display: flex;
+  /* 侧栏固定贴右：与 .editor-mount 让出的 right:340px 对应，避免覆盖正文 */
+  justify-content: flex-end;
   pointer-events: none;
 
   > * {
@@ -549,13 +647,58 @@ defineExpose({ refreshSelection })
   z-index: 20;
 }
 
+/* 侧栏展开时，预览卡片让出右栏宽度：320px 的卡片贴在 right:16px 上会正好
+   压住 AI 输入区，导致输入框点不到。这里把它移到编辑区右下角。 */
+.page-ai:not(.is-collapsed) .pai-result-host {
+  right: calc(var(--workbench-ai-panel-width, 340px) + var(--app-space-4));
+}
+
 .pai-panel {
-  width: 320px;
-  margin-left: auto;
+  /* 宽度含左侧 1px 分隔线：编辑区让出同一数值即可完全不相交 */
+  box-sizing: border-box;
+  width: var(--workbench-ai-panel-width, 340px);
+  flex: none;
   display: flex;
   flex-direction: column;
+  /* 侧栏压在工具条/菜单/预览卡片之上：输入区任何时候都要能点中 */
+  position: relative;
+  z-index: 30;
   border-left: 1px solid var(--td-component-stroke);
   background: var(--td-bg-color-container);
+}
+
+/* 常驻 AI 启动按钮：侧栏收起时贴在编辑区右侧，任何时刻都能唤起 AI */
+.pai-launcher {
+  position: absolute;
+  top: var(--app-space-3);
+  right: var(--app-space-4);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 var(--app-space-3);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-pill);
+  background: var(--td-bg-color-container);
+  box-shadow: var(--td-shadow-1);
+  font-size: var(--app-text-xs);
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  transition: color var(--app-motion-fast) ease, border-color var(--app-motion-fast) ease;
+
+  &:hover {
+    border-color: var(--td-brand-color);
+    color: var(--td-brand-color);
+  }
+}
+
+.pp-agent {
+  padding: var(--app-space-2) var(--app-space-2) 0;
+}
+
+.pp-agent-select {
+  width: 100%;
 }
 
 .pp-head {

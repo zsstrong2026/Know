@@ -59,12 +59,22 @@
           class="nav-group-add"
           type="button"
           :aria-label="$t('workbench.nav.newFolder')"
-          @click="createFolder"
+          @click="startCreateFolder"
         >
           <t-icon name="add" size="13px" />
         </button>
       </div>
-      <FolderTree :folders="store.folders" :active-id="activeFolderId" @select="openFolder" />
+      <FolderTree
+        ref="folderTreeRef"
+        :folders="store.folders"
+        :active-id="activeFolderId"
+        @select="openFolder"
+        @create-folder="onCreateFolder"
+        @rename-folder="onRenameFolder"
+        @delete-folder="onDeleteFolder"
+        @add-existing="onAddExistingDocs"
+        @create-item="onCreateItemInFolder"
+      />
     </div>
 
     <div class="wb-nav-foot">
@@ -80,6 +90,14 @@
         </span>
       </button>
     </div>
+
+    <!-- 添加已有文档：文件夹行菜单 → 弹窗多选后批量移入 -->
+    <AddDocsToFolderDialog
+      v-model="addDocsOpen"
+      :folder-id="addDocsFolder?.id ?? ''"
+      :folder-name="addDocsFolder?.name ?? ''"
+      @added="onDocsAdded"
+    />
   </aside>
 </template>
 
@@ -90,12 +108,13 @@
  * 只负责导航与“新建”动作；文件夹数据由 layout 统一拉取后放进 store，
  * 避免每个子页面各自请求一次。
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { useWorkbenchStore } from '@/stores/workbench'
 import FolderTree from './FolderTree.vue'
+import AddDocsToFolderDialog from './AddDocsToFolderDialog.vue'
 
 const props = defineProps<{
   /** 当前选中的文件夹 id（来自路由参数）；为空表示不在文件夹视图 */
@@ -112,6 +131,13 @@ const router = useRouter()
 const { t } = useI18n()
 const store = useWorkbenchStore()
 
+/** 文件夹树的“新建”输入由子组件管理；头部 + 复用同一套行内输入。 */
+const folderTreeRef = ref<InstanceType<typeof FolderTree> | null>(null)
+
+/** 「添加已有文档」弹窗：目标文件夹在打开时确定。 */
+const addDocsOpen = ref(false)
+const addDocsFolder = ref<{ id: string; name: string } | null>(null)
+
 /** 导航行：Journals 受发布门禁控制，关闭时不出现（§9.1）。 */
 const navEntries = computed(() =>
   [
@@ -119,6 +145,7 @@ const navEntries = computed(() =>
     { name: 'workbenchJournals', labelKey: 'workbench.nav.journals', icon: 'calendar', match: 'workbenchJournals', gate: 'journals' },
     { name: 'workbenchDatabases', labelKey: 'workbench.nav.databases', icon: 'table', match: 'workbenchDatabases' },
     { name: 'workbenchFavorites', labelKey: 'workbench.nav.favorites', icon: 'star', match: 'workbenchFavorites' },
+    { name: 'workbenchTemplates', labelKey: 'workbench.nav.templates', icon: 'template', match: 'workbenchTemplates', gate: 'templates' },
     { name: 'workbenchTrash', labelKey: 'workbench.nav.trash', icon: 'delete', match: 'workbenchTrash' },
   ].filter((entry) => !entry.gate || store.features[entry.gate as keyof typeof store.features]),
 )
@@ -126,10 +153,10 @@ const navEntries = computed(() =>
 const createOptions = computed(() => [
   // 「新建文档」不是新的 item kind：它就是 page 形态的普通条目，
   // 只是创建后带 ?template=1 走模板选择器（§9.16.2）。模板关闭时不出现。
+  // 文件夹不再出现在这里：它属于文件夹树自身的操作（新建子文件夹 / 头部 +）。
   ...(store.features.templates ? [{ content: t('workbench.new.document'), value: 'document' }] : []),
   { content: t('workbench.new.canvas'), value: 'canvas' },
   { content: t('workbench.new.database'), value: 'database' },
-  { content: t('workbench.new.folder'), value: 'folder' },
 ])
 
 /** 齿轮二级菜单：只有「编辑器」与「工作台 AI」两项（§9.14.1）。 */
@@ -157,10 +184,6 @@ function isActive(match: string): boolean {
 
 async function onCreate(data: { value?: string | number }) {
   const value = String(data.value ?? '')
-  if (value === 'folder') {
-    await createFolder()
-    return
-  }
   if (value === 'document') {
     await createDocument()
     return
@@ -200,16 +223,97 @@ async function createDocument() {
   }
 }
 
-/** 新建文件夹用浏览器内置输入，避免为一步操作引入整套对话框。 */
-async function createFolder() {
-  const name = window.prompt(t('workbench.nav.newFolder'))
-  if (!name || !name.trim()) return
+/** 头部「+」：复用文件夹树的行内输入，在根级新建文件夹。 */
+function startCreateFolder() {
+  folderTreeRef.value?.startCreate(null)
+}
+
+/** 文件夹树提交新建（根级或某个文件夹下）。 */
+async function onCreateFolder(payload: { name: string; parentId: string | null }) {
   try {
-    const folder = await store.addFolder(name.trim(), props.activeFolderId || null)
+    const folder = await store.addFolder(payload.name, payload.parentId)
     await router.push({ name: 'workbenchFolder', params: { folderId: folder.id } })
   } catch {
-    MessagePlugin.error(t('workbench.item.renameFailed'))
+    MessagePlugin.error(t('workbench.nav.folderCreateFailed'))
   }
+}
+
+/** 行内重命名提交。 */
+async function onRenameFolder(payload: { id: string; name: string }) {
+  try {
+    await store.renameFolder(payload.id, payload.name)
+  } catch {
+    MessagePlugin.error(t('workbench.nav.folderRenameFailed'))
+  }
+}
+
+/**
+ * 删除文件夹：后端把子文件夹与文档上移到父级，不级联删除。
+ * 若正在查看该文件夹，删除后回到父级（没有父级则回最近）。
+ */
+function onDeleteFolder(folder: { id: string; name: string; parent_id: string | null }) {
+  const dialog = DialogPlugin.confirm({
+    header: t('workbench.nav.deleteFolderTitle'),
+    body: t('workbench.nav.deleteFolderBody', { name: folder.name }),
+    theme: 'warning',
+    confirmBtn: t('workbench.nav.deleteFolderConfirm'),
+    onConfirm: async () => {
+      try {
+        await store.removeFolder(folder.id)
+        window.dispatchEvent(new CustomEvent('workbench:items-changed'))
+        MessagePlugin.success(t('workbench.nav.folderDeleted'))
+        if (route.name === 'workbenchFolder' && String(route.params.folderId ?? '') === folder.id) {
+          if (folder.parent_id) {
+            await router.push({ name: 'workbenchFolder', params: { folderId: folder.parent_id } })
+          } else {
+            await router.push({ name: 'workbenchRecent' })
+          }
+        }
+        dialog.hide()
+      } catch {
+        MessagePlugin.error(t('workbench.nav.folderDeleteFailed'))
+      }
+    },
+  })
+}
+
+/**
+ * 从文件夹行直接新建条目。
+ *
+ * 文件夹只收纳文档/画布，因此这里不再提供数据库。
+ * 「新建文档」固定 page 形态并可选走模板选择器；画布沿用编辑器偏好。
+ */
+async function onCreateItemInFolder(payload: {
+  folderId: string
+  kind: 'document' | 'canvas'
+}) {
+  try {
+    const item = await store.createItem(
+      'canvas',
+      payload.kind === 'document' ? t('workbench.editor.untitled') : undefined,
+      payload.folderId,
+      payload.kind === 'document' ? 'page' : undefined,
+    )
+    const useTemplate = payload.kind === 'document' && store.features.templates
+    await router.push({
+      name: 'workbenchItem',
+      params: { itemId: item.id },
+      ...(useTemplate ? { query: { template: '1' } } : {}),
+    })
+  } catch {
+    MessagePlugin.error(t('workbench.editor.loadFailed'))
+  }
+}
+
+/** 打开「添加已有文档」弹窗。 */
+function onAddExistingDocs(folder: { id: string; name: string }) {
+  addDocsFolder.value = { id: folder.id, name: folder.name }
+  addDocsOpen.value = true
+}
+
+/** 弹窗完成批量移动后，刷新当前列表（文件夹视图 / 最近等）。 */
+function onDocsAdded() {
+  window.dispatchEvent(new CustomEvent('workbench:items-changed'))
 }
 
 function openFolder(folderId: string) {
@@ -238,18 +342,33 @@ async function toggleJournalPanel() {
 </script>
 
 <style lang="less" scoped>
+/**
+ * 胶囊浮岛（方案 A，见 docs/design/workbench-nav-capsule.html）：
+ * 把整块二级导航做成独立圆角卡片，菜单项独立胶囊；
+ * 选中项填充品牌绿，与全局侧栏的浅灰行拉开层级。
+ */
 .wb-nav {
-  width: 216px;
+  width: 232px;
   flex: none;
   display: flex;
   flex-direction: column;
-  background: var(--td-bg-color-secondarycontainer);
-  border-right: 1px solid var(--td-component-stroke);
+  box-sizing: border-box;
+  margin: 10px 8px 10px 10px;
+  padding: 12px 10px 10px;
+  background: var(--td-bg-color-container);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: calc(var(--app-radius-xl) + 6px);
+  box-shadow: 0 12px 32px rgba(22, 32, 26, 0.10);
+  overflow: hidden;
   min-height: 0;
 }
 
+:root[theme-mode='dark'] .wb-nav {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+}
+
 .wb-nav-head {
-  padding: var(--app-space-4) var(--app-space-4) var(--app-space-2);
+  padding: 2px 5px 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -258,81 +377,101 @@ async function toggleJournalPanel() {
 .wb-nav-title {
   display: flex;
   align-items: center;
-  gap: var(--app-space-2);
+  gap: 6px;
   font-size: var(--app-text-base);
   font-weight: 600;
   color: var(--td-text-color-primary);
 }
 
 .wb-nav-title span {
+  padding: 2px 6px;
+  border-radius: var(--app-radius-pill);
+  background: var(--td-brand-color-1);
+  color: var(--td-brand-color-7);
   font-size: var(--app-text-2xs);
-  font-weight: 500;
-  color: var(--td-text-color-placeholder);
-  border: 1px solid var(--td-component-stroke);
-  border-radius: var(--app-radius-xs);
-  padding: 0 var(--app-space-1);
-  line-height: var(--app-text-xl);
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .wb-nav-gear {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--app-radius-xs);
+  width: 26px;
+  height: 26px;
+  border-radius: var(--app-radius-pill);
   color: var(--td-text-color-placeholder);
 
   &:hover {
-    background: var(--td-bg-color-container-hover);
+    background: var(--td-bg-color-secondarycontainer);
     color: var(--td-text-color-primary);
   }
 }
 
 .wb-new-wrap {
-  margin: 0 var(--app-space-3) var(--app-space-3);
+  margin: 0 2px;
 }
 
 .wb-new {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 var(--app-space-2) 0 var(--app-space-3);
-  border-radius: var(--app-radius-sm);
-  background: var(--td-brand-color);
-  color: var(--td-text-color-anti);
+  gap: var(--app-space-2);
+  height: 36px;
+  padding: 0 var(--app-space-3);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-pill);
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-primary);
   font-size: var(--app-text-md);
   font-weight: 500;
+  transition: border-color var(--app-motion-fast) ease, box-shadow var(--app-motion-fast) ease;
 
   &:hover {
-    background: var(--td-brand-color-hover);
+    border-color: var(--td-brand-color);
+    box-shadow: 0 0 0 3px var(--td-brand-color-1);
   }
 }
 
-.wb-new-caret {
+.wb-new :deep(.t-icon) {
+  color: var(--td-brand-color);
+}
+
+/* 加号用品牌绿，下拉箭头仍保持弱化：:deep 与上一规则同权重且更靠后 */
+.wb-new :deep(.wb-new-caret) {
   margin-left: auto;
-  opacity: 0.8;
+  color: var(--td-text-color-placeholder);
 }
 
 .wb-nav-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--app-space-1) var(--app-space-2);
+  /* 向两侧借出卡片内边距，让胶囊的柔和投影不被滚动容器裁掉 */
+  margin: 0 -6px;
+  padding: 10px 6px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+
+  &:hover {
+    scrollbar-color: var(--td-scrollbar-color) transparent;
+  }
 }
 
 .nav-item {
   display: flex;
   align-items: center;
   gap: 9px;
-  height: 30px;
-  padding: 0 var(--app-space-2);
-  margin-bottom: 1px;
-  border-radius: var(--app-radius-xs);
+  height: 38px;
+  padding: 0 var(--app-space-3);
+  margin-bottom: 2px;
+  border-radius: var(--app-radius-pill);
   font-size: var(--app-text-md);
   color: var(--td-text-color-secondary);
   text-decoration: none;
+  transition:
+    background-color var(--app-motion-fast) ease,
+    color var(--app-motion-fast) ease,
+    box-shadow var(--app-motion-fast) ease;
 
   &:hover {
     background: var(--td-bg-color-container-hover);
@@ -340,9 +479,12 @@ async function toggleJournalPanel() {
   }
 
   &.is-active {
-    background: var(--td-brand-color-1);
-    color: var(--td-brand-color);
+    background-image: linear-gradient(135deg, var(--td-brand-color-4), var(--td-brand-color-6));
+    color: var(--td-text-color-anti);
     font-weight: 500;
+    box-shadow:
+      0 10px 20px color-mix(in srgb, var(--td-brand-color) 28%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
   }
 }
 
@@ -350,24 +492,39 @@ async function toggleJournalPanel() {
   margin-left: auto;
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   flex: none;
-  border-radius: var(--app-radius-xs);
+  border-radius: var(--app-radius-pill);
+  background: var(--td-bg-color-secondarycontainer);
   color: var(--td-text-color-placeholder);
+  transition:
+    background-color var(--app-motion-fast) ease,
+    color var(--app-motion-fast) ease;
 
   &:hover {
-    background: var(--td-bg-color-container-active);
+    background: var(--td-bg-color-secondarycontainer-hover);
     color: var(--td-brand-color);
+  }
+}
+
+.nav-item.is-active .nav-cal-btn {
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--td-text-color-anti);
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.28);
   }
 }
 
 .nav-group-label {
   display: flex;
   align-items: center;
-  margin: var(--app-space-3) 0 var(--app-space-1);
-  padding: 0 var(--app-space-2);
-  font-size: var(--app-text-xs);
+  margin: 13px 0 5px;
+  padding: 11px 9px 0;
+  border-top: 1px solid var(--td-component-stroke);
+  font-size: var(--app-text-2xs);
+  letter-spacing: 0.05em;
   color: var(--td-text-color-placeholder);
 }
 
@@ -375,16 +532,19 @@ async function toggleJournalPanel() {
   margin-left: auto;
   display: grid;
   place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--app-radius-sm);
   color: var(--td-text-color-placeholder);
 
   &:hover {
+    background: var(--td-bg-color-secondarycontainer);
     color: var(--td-text-color-primary);
   }
 }
 
 .wb-nav-foot {
-  padding: var(--app-space-3);
-  border-top: 1px solid var(--td-component-stroke);
+  padding: 12px 0 0;
 }
 
 .wk-card {
@@ -393,21 +553,24 @@ async function toggleJournalPanel() {
   align-items: center;
   gap: var(--app-space-2);
   padding: var(--app-space-2);
-  border-radius: var(--app-radius-sm);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-xl);
+  background: var(--td-bg-color-secondarycontainer);
   text-align: left;
+  transition: border-color var(--app-motion-fast) ease;
 
   &:hover {
-    background: var(--td-bg-color-container-hover);
+    border-color: var(--td-brand-color);
   }
 }
 
 .wk-icon {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   flex: none;
   display: grid;
   place-items: center;
-  border-radius: var(--app-radius-sm);
+  border-radius: var(--app-radius-md);
   background: var(--td-brand-color-1);
   color: var(--td-brand-color);
 }

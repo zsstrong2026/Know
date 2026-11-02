@@ -1,5 +1,5 @@
 /**
- * 工作台原生 <button> 外观重置。
+ * 工作台控件兜底外观：原生 <button> 重置 + 分段单选选中态。
  *
  * 为什么需要：TDesign 只重置了 `.t-button`，工作台里自绘的按钮（导航齿轮、
  * 「新建」、日历箭头、卡片「…」与「归档」、设置页标签等 20 多处）直接使用
@@ -25,4 +25,72 @@
   line-height: inherit;
   color: inherit;
   cursor: pointer;
+}
+
+/* ---- 分段单选（variant="default-filled"）选中态 ----
+ * TDesign 的 filled 变体本是「滑动白块 + 主文字色」，但全局 theme.css 把选中项
+ * 背景刷成了品牌绿、文字仍继承主文字色，浅色模式下呈「亮绿底 + 近黑字」，
+ * 既突兀又低对比。工作台统一为「浅槽 + 浮起滑块 + 品牌绿文字」：
+ * 与 ws-agent、ws-tabs 的选中语言一致，深浅模式分别保证可读性。
+ * 选择器带 .workbench-shell 前缀，只影响工作台，且权重高于全局覆盖。
+ */
+.workbench-shell .t-radio-group.t-radio-group--filled {
+  padding: 2px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-md);
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.workbench-shell .t-radio-group.t-radio-group--filled .t-radio-button {
+  border: 0;
+  border-radius: calc(var(--app-radius-md) - 2px);
+  background: transparent;
+  color: var(--td-text-color-secondary);
+  transition: color 0.2s ease;
+}
+
+/* 全局样式给 label 与内部 span 都刷了绿底，这里全部还原成透明，
+   选中态的高亮交给滑动块，避免双层底色叠在一起。 */
+.workbench-shell .t-radio-group.t-radio-group--filled .t-radio-button .t-radio-button__label,
+.workbench-shell .t-radio-group.t-radio-group--filled .t-radio-button .t-radio-button__input {
+  background: transparent;
+  color: inherit;
+}
+
+/* 滑动块：浅色白块、深色稍亮块，各自叠一层极细描边与投影来“浮起”。 */
+.workbench-shell .t-radio-group.t-radio-group--filled .t-radio-group__bg-block {
+  border-radius: calc(var(--app-radius-md) - 2px);
+  background: var(--td-bg-color-container);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 0 0 1px color-mix(in srgb, var(--td-text-color-primary) 6%, transparent);
+}
+
+.workbench-shell .t-radio-group.t-radio-group--filled .t-radio-button.t-is-checked {
+  color: var(--td-brand-color-7);
+  font-weight: 500;
+}
+
+/* 未选中项 hover 只提亮文字，不铺底色，避免和滑块互相干扰。 */
+.workbench-shell .t-radio-group.t-radio-group--filled
+  .t-radio-button:hover:not(.t-is-disabled):not(.t-is-checked) {
+  color: var(--td-text-color-primary);
+}
+
+/* 深色模式下选中块比槽略亮，文字用更亮的绿保证对比度。 */
+:root[theme-mode='dark']
+  .workbench-shell
+  .t-radio-group.t-radio-group--filled
+  .t-radio-group__bg-block {
+  background: color-mix(in srgb, var(--td-text-color-primary) 12%, var(--td-bg-color-container));
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+:root[theme-mode='dark']
+  .workbench-shell
+  .t-radio-group.t-radio-group--filled
+  .t-radio-button.t-is-checked {
+  color: var(--td-brand-color-8);
 }

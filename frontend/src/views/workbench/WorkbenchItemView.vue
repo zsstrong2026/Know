@@ -65,7 +65,7 @@
       </span>
     </div>
 
-    <div v-if="!loadError" class="editor-host" :class="{ 'is-ready': ready }">
+    <div v-if="!loadError" class="editor-host" :class="{ 'is-ready': ready, 'is-ai-open': aiPanelOpen }">
       <!-- BlockSuite 挂载点：由 editor-session 注入宿主元素 -->
       <div ref="hostRef" class="editor-mount" />
       <div v-if="!ready && !pickerOpen" class="editor-loading">{{ $t('workbench.editor.loading') }}</div>
@@ -78,6 +78,9 @@
         :adapter="aiAdapter"
         :item-id="itemId"
         :editable="true"
+        :agent-id="aiPrefs.defaultAgentId"
+        :confirm-insert="aiPrefs.confirmInsert"
+        @panel-change="(open: boolean) => (aiPanelOpen = open)"
       />
     </div>
 
@@ -170,6 +173,8 @@ const aiFeatureEnabled = computed(() => workbenchStore.features.ai)
 
 /** 选择器是否打开；打开期间不挂载编辑器 */
 const pickerOpen = ref(false)
+/** AI 侧栏是否展开：由 PageAILayer 上报，用于收窄编辑区而不是覆盖它 */
+const aiPanelOpen = ref(false)
 /** 服务端快照版本；>0 表示文档已有内容，模板入口全部关闭 */
 const snapshotVersion = ref(0)
 const saveDialogOpen = ref(false)
@@ -674,10 +679,23 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
+/**
+ * AI 侧栏展开时：编辑区让出右侧面板宽度，而不是被侧栏覆盖。
+ * 宽度由 --workbench-ai-panel-width 统一控制，与 .pai-panel 保持同值。
+ */
+.editor-host {
+  --workbench-ai-panel-width: 340px;
+}
+
+.editor-host.is-ai-open .editor-mount {
+  right: var(--workbench-ai-panel-width);
+}
+
 .editor-mount {
   position: absolute;
   inset: 0;
   overflow: hidden;
+  transition: right var(--app-motion-base) ease;
 }
 
 .editor-loading {

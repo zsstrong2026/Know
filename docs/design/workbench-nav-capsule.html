@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作台导航 · 胶囊化设计稿</title>
+<style>
+  /* ========== 设计稿页面基础 ========== */
+  * { box-sizing: border-box; }
+  html { -webkit-font-smoothing: antialiased; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: #16201a;
+    background:
+      radial-gradient(900px 420px at 8% -6%, rgba(7, 192, 95, .10), transparent 62%),
+      radial-gradient(700px 380px at 96% 4%, rgba(9, 244, 121, .07), transparent 60%),
+      #f1f3f1;
+  }
+  .doc { max-width: 1260px; margin: 0 auto; padding: 56px 28px 88px; }
+
+  /* ========== 顶部标题区 ========== */
+  .doc-head { margin-bottom: 34px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 11px; font-weight: 600; letter-spacing: .16em;
+    color: #04813b; text-transform: uppercase;
+  }
+  .eyebrow::before { content: ""; width: 22px; height: 1px; background: #07c05f; }
+  h1 { margin: 14px 0 0; font-size: 38px; line-height: 1.18; letter-spacing: -.02em; font-weight: 650; }
+  h1 em { font-style: normal; color: #07a94f; }
+  .lead { margin: 14px 0 0; max-width: 760px; font-size: 14px; line-height: 1.8; color: rgba(22, 32, 26, .62); }
+  .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 22px; }
+  .fact {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 30px; padding: 0 12px;
+    border: 1px solid rgba(18, 40, 26, .10); border-radius: 999px;
+    background: rgba(255, 255, 255, .7);
+    font-size: 12px; color: rgba(22, 32, 26, .66);
+  }
+  .fact .dot { width: 8px; height: 8px; border-radius: 50%; background: #07c05f; box-shadow: 0 0 0 3px rgba(7, 192, 95, .14); }
+  .theme-switch {
+    position: absolute; top: 40px; right: max(28px, calc((100vw - 1260px) / 2 + 28px));
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px; border-radius: 999px;
+    border: 1px solid rgba(18, 40, 26, .10); background: rgba(255, 255, 255, .76);
+    backdrop-filter: blur(8px);
+  }
+  .theme-switch span { padding: 0 8px; font-size: 11px; color: rgba(22, 32, 26, .48); }
+  .mode-btn {
+    height: 28px; padding: 0 14px; border: 0; border-radius: 999px;
+    background: transparent; color: rgba(22, 32, 26, .6);
+    font-size: 12px; font-family: inherit; cursor: pointer;
+  }
+  .mode-btn.is-on { background: #17251c; color: #fff; }
+
+  /* ========== 方案卡 ========== */
+  .proposal {
+    margin-top: 26px; padding: 26px 26px 22px;
+    border: 1px solid rgba(18, 40, 26, .09); border-radius: 24px;
+    background: rgba(255, 255, 255, .78);
+    box-shadow: 0 1px 2px rgba(18, 40, 26, .03), 0 18px 40px -30px rgba(18, 40, 26, .28);
+  }
+  .proposal-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 18px; margin-bottom: 18px; }
+  .proposal-title { display: flex; align-items: center; gap: 10px; }
+  .proposal-title h2 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -.01em; }
+  .badge {
+    display: inline-flex; align-items: center; height: 24px; padding: 0 10px;
+    border-radius: 999px; font-size: 11px; font-weight: 600;
+    background: rgba(18, 40, 26, .06); color: rgba(22, 32, 26, .62);
+  }
+  .badge.rec { background: #e9f8ec; color: #04813b; }
+  .proposal-desc { flex-basis: 100%; margin: 0; max-width: 840px; font-size: 13px; line-height: 1.75; color: rgba(22, 32, 26, .58); }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+  .tag {
+    height: 24px; display: inline-flex; align-items: center; padding: 0 10px;
+    border-radius: 999px; font-size: 11px; color: rgba(22, 32, 26, .56);
+    background: rgba(18, 40, 26, .045);
+  }
+  .tag.good { color: #047a3a; background: #edf9f0; }
+  .tag.warn { color: #8a5a11; background: #fdf5e7; }
+
+  .mock { overflow-x: auto; padding-bottom: 2px; }
+  .window {
+    width: 1180px; min-width: 1180px;
+    border: 1px solid rgba(18, 40, 26, .12); border-radius: 16px;
+    overflow: hidden; background: #fff;
+    box-shadow: 0 30px 60px -34px rgba(18, 40, 26, .38), 0 2px 4px rgba(18, 40, 26, .04);
+  }
+  .window-bar {
+    display: flex; align-items: center; gap: 12px;
+    height: 36px; padding: 0 14px;
+    background: var(--m-sidebar); border-bottom: 1px solid var(--m-line);
+    color: var(--m-text-3); font-size: 11px;
+  }
+  .traffic { display: inline-flex; gap: 5px; }
+  .traffic i { width: 9px; height: 9px; border-radius: 50%; background: var(--m-line); }
+  .traffic i:first-child { background: #f0b8b5; }
+  .traffic i:nth-child(2) { background: #f3d9a4; }
+  .traffic i:nth-child(3) { background: #b9e1c6; }
+  .window-title { color: var(--m-text-2); }
+  .window-dim { margin-left: auto; }
+
+  /* ========== Mock 主题变量 ========== */
+  .mock[data-theme="light"] {
+    --m-page: #eef0ee;
+    --m-sidebar: #f9f9f9;
+    --m-container: #ffffff;
+    --m-elevated: #ffffff;
+    --m-subtle: #f3f5f3;
+    --m-line: #e7e9e7;
+    --m-text: rgba(0, 0, 0, .90);
+    --m-text-2: rgba(0, 0, 0, .60);
+    --m-text-3: rgba(0, 0, 0, .40);
+    --m-brand: #07c05f;
+    --m-brand-strong: #049b38;
+    --m-brand-soft: #e9f8ec;
+    --m-shadow: 0 18px 44px rgba(20, 35, 25, .10);
+    --m-thumb-a: #eaf8ef;
+    --m-thumb-b: #f7f8f7;
+    --m-thumb-card: #ffffff;
+    --m-thumb-line: #e6ebe8;
+    --m-thumb-border: #e1ece5;
+  }
+  .mock[data-theme="dark"] {
+    --m-page: #1b1b1b;
+    --m-sidebar: #181818;
+    --m-container: #242424;
+    --m-elevated: #2c2c2c;
+    --m-subtle: #2c2c2c;
+    --m-line: #383838;
+    --m-text: rgba(255, 255, 255, .90);
+    --m-text-2: rgba(255, 255, 255, .55);
+    --m-text-3: rgba(255, 255, 255, .35);
+    --m-brand: #07c05f;
+    --m-brand-strong: #08dd6e;
+    --m-brand-soft: rgba(7, 192, 95, .16);
+    --m-shadow: 0 18px 44px rgba(0, 0, 0, .48);
+    --m-thumb-a: #1f2b23;
+    --m-thumb-b: #232323;
+    --m-thumb-card: #2b2b2b;
+    --m-thumb-line: #3a3f3b;
+    --m-thumb-border: #39423c;
+  }
+
+  .app { display: flex; height: 664px; background: var(--m-page); color: var(--m-text); overflow: hidden; }
+  .wb-shell { flex: 1; min-width: 0; display: flex; background: var(--m-page); }
+  .wb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .grow { flex: 1; }
+
+  /* 统一图标 */
+  .ic {
+    width: 16px; height: 16px; flex: none;
+    fill: none; stroke: currentColor; stroke-width: 1.7;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .ic.sm { width: 13px; height: 13px; }
+  .ic.xs { width: 11px; height: 11px; stroke-width: 1.9; }
+  .ic.lock { width: 10px; height: 10px; stroke-width: 2; }
+
+  /* ========== 全局侧栏（现状保留） ========== */
+  .g-sidebar {
+    width: 236px; flex: none; display: flex; flex-direction: column;
+    padding: 10px 8px 8px; gap: 3px;
+    background: var(--m-sidebar);
+    border-right: 1px solid var(--m-line);
+  }
+  .g-logo-row { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 8px 7px; }
+  .g-logo { display: flex; align-items: center; gap: 8px; }
+  .g-mark {
+    width: 26px; height: 26px; border-radius: 8px;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, #07c05f, #049b38);
+    color: #fff; font-size: 13px; font-weight: 700;
+    box-shadow: 0 4px 10px rgba(7, 192, 95, .28);
+  }
+  .g-word { font-size: 16px; font-weight: 650; letter-spacing: .4px; }
+  .g-tools { display: flex; gap: 1px; }
+  .g-icon-btn {
+    width: 26px; height: 26px; border: 0; border-radius: 7px;
+    display: grid; place-items: center;
+    background: transparent; color: var(--m-text-2); cursor: pointer;
+  }
+  .g-icon-btn:hover { background: var(--m-subtle); color: var(--m-text); }
+  .g-icon-btn .ic { width: 15px; height: 15px; }
+  .g-menu { display: flex; flex-direction: column; gap: 1px; }
+  .g-item {
+    display: flex; align-items: center; gap: 9px;
+    height: 33px; padding: 0 9px; border-radius: 8px;
+    font-size: 13px; font-weight: 500; color: var(--m-text); cursor: pointer;
+  }
+  .g-item .ic { color: var(--m-text-2); }
+  .g-item:hover { background: var(--m-subtle); }
+  .g-item.is-active { background: var(--m-brand-soft); color: var(--m-brand-strong); }
+  .g-item.is-active .ic { color: var(--m-brand-strong); }
+  .g-history {
+    margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--m-line);
+    display: flex; flex-direction: column; gap: 1px; min-height: 0;
+  }
+  .g-history-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 9px 5px; font-size: 10.5px; letter-spacing: .06em; color: var(--m-text-3);
+  }
+  .g-history-head .g-icon-btn { width: 18px; height: 18px; }
+  .g-session {
+    display: flex; align-items: center; gap: 7px;
+    height: 30px; padding: 0 9px; border-radius: 7px;
+    font-size: 12px; color: var(--m-text-2);
+  }
+  .g-session .ic { width: 13px; height: 13px; color: var(--m-text-3); }
+  .g-session span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .g-session:hover { background: var(--m-subtle); color: var(--m-text); }
+  .g-user {
+    margin-top: auto; display: flex; align-items: center; gap: 8px;
+    padding: 8px; border-radius: 10px; border-top: 1px solid var(--m-line);
+  }
+  .g-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--m-brand-soft); color: var(--m-brand-strong);
+    font-size: 12px; font-weight: 600;
+  }
+  .g-user-meta { display: flex; flex-direction: column; line-height: 1.35; min-width: 0; }
+  .g-user-meta b { font-size: 12px; font-weight: 600; }
+  .g-user-meta small { font-size: 10px; color: var(--m-text-3); }
+
+  /* ========== 内容区（三方案复用） ========== */
+  .wb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 15px; padding: 20px 24px 18px; }
+  .wb-page-head { display: flex; align-items: flex-start; gap: 16px; }
+  .wb-page-title { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -.01em; }
+  .wb-page-sub { margin: 4px 0 0; font-size: 12px; color: var(--m-text-2); }
+  .wb-head-actions { margin-left: auto; display: flex; gap: 8px; }
+  .btn-outline, .btn-primary {
+    height: 32px; padding: 0 12px; border-radius: 8px;
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; font-family: inherit; cursor: pointer;
+  }
+  .btn-outline { border: 1px solid var(--m-line); background: var(--m-container); color: var(--m-text); }
+  .btn-primary { border: 0; background: var(--m-brand); color: #fff; font-weight: 500; box-shadow: 0 6px 14px rgba(7, 192, 95, .22); }
+  .btn-primary .ic { width: 14px; height: 14px; }
+  .wb-toolbar { display: flex; align-items: center; gap: 10px; }
+  .search-box {
+    width: 220px; height: 32px; padding: 0 10px;
+    display: flex; align-items: center; gap: 7px;
+    border: 1px solid var(--m-line); border-radius: 8px;
+    background: var(--m-container); font-size: 12px; color: var(--m-text-3);
+  }
+  .search-box .ic { width: 14px; height: 14px; }
+  .wb-count { font-size: 11.5px; color: var(--m-text-3); }
+  .seg { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--m-subtle); }
+  .seg button {
+    height: 25px; padding: 0 12px; border: 0; border-radius: 999px;
+    background: transparent; color: var(--m-text-2);
+    font-size: 11.5px; font-family: inherit; cursor: pointer;
+  }
+  .seg button.is-active { background: var(--m-container); color: var(--m-brand-strong); font-weight: 500; box-shadow: 0 1px 3px rgba(0, 0, 0, .07); }
+
+  .card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .item-card {
+    border: 1px solid var(--m-line); border-radius: 14px;
+    background: var(--m-container); overflow: hidden;
+    display: flex; flex-direction: column;
+    box-shadow: 0 1px 2px rgba(18, 40, 26, .03);
+  }
+  .thumb { position: relative; height: 104px; overflow: hidden; }
+  .thumb--board { background: linear-gradient(135deg, var(--m-thumb-a), var(--m-thumb-b)); }
+  .thumb--board .tile {
+    position: absolute; background: var(--m-thumb-card);
+    border: 1px solid var(--m-thumb-border); border-radius: 6px;
+    box-shadow: 0 2px 5px rgba(20, 60, 35, .05);
+  }
+  .thumb--board .tile-a { left: 16px; top: 16px; width: 74px; height: 38px; }
+  .thumb--board .tile-b { left: 100px; top: 16px; width: 44px; height: 38px; background: #d9f5e3; border-color: #c3ecd2; }
+  .thumb--board .tile-c { left: 16px; top: 62px; width: 44px; height: 30px; }
+  .thumb--board .tile-d { left: 68px; top: 62px; width: 76px; height: 30px; }
+  .thumb--doc { background: var(--m-thumb-b); padding: 18px 20px; display: flex; flex-direction: column; gap: 7px; }
+  .d-line { height: 5px; border-radius: 3px; background: var(--m-thumb-line); }
+  .d-line.w80 { width: 80%; }
+  .d-line.w60 { width: 60%; }
+  .d-line.w70 { width: 70%; }
+  .d-line.w40 { width: 40%; }
+  .d-line.accent { background: var(--m-brand-soft); }
+  .thumb--table { background: var(--m-thumb-b); padding: 14px 16px; }
+  .tbl { height: 100%; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; }
+  .tbl span { border-radius: 4px; background: var(--m-thumb-card); border: 1px solid var(--m-thumb-line); }
+  .tbl span.th { background: var(--m-thumb-a); border-color: var(--m-thumb-border); }
+  .card-body { position: relative; padding: 11px 12px 12px; display: flex; flex-direction: column; gap: 4px; }
+  .card-title { padding-right: 20px; font-size: 13px; font-weight: 600; }
+  .card-meta { font-size: 11px; color: var(--m-text-3); }
+  .card-more {
+    position: absolute; right: 8px; top: 8px; width: 22px; height: 22px;
+    border: 0; border-radius: 6px; background: transparent;
+    color: var(--m-text-3); font-size: 14px; cursor: pointer; line-height: 1;
+  }
+  .card-more:hover { background: var(--m-subtle); color: var(--m-text); }
+  .wb-footnote { margin-top: auto; display: flex; align-items: center; gap: 14px; font-size: 10.5px; color: var(--m-text-3); }
+  .wb-footnote .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--m-brand); }
+
+  /* ========== 方案 A：胶囊浮岛 ========== */
+  .wb-rail { flex: none; display: flex; flex-direction: column; min-height: 0; }
+  .wb-rail--float { width: 240px; padding: 10px; }
+  .island {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+    padding: 12px 10px 10px;
+    border: 1px solid var(--m-line); border-radius: 18px;
+    background: var(--m-container); box-shadow: var(--m-shadow);
+  }
+  .rail-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 5px 10px; }
+  .rail-title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 650; }
+  .beta {
+    padding: 2px 6px; border-radius: 999px;
+    background: var(--m-brand-soft); color: var(--m-brand-strong);
+    font-size: 9px; font-weight: 700; letter-spacing: .05em;
+  }
+  .icon-btn {
+    width: 26px; height: 26px; border: 0; border-radius: 999px;
+    display: grid; place-items: center;
+    background: transparent; color: var(--m-text-3); cursor: pointer;
+  }
+  .icon-btn:hover { background: var(--m-subtle); color: var(--m-text); }
+  .new-pill {
+    height: 36px; padding: 0 12px; margin: 0 2px;
+    display: flex; align-items: center; gap: 7px;
+    border: 1px solid var(--m-line); border-radius: 999px;
+    background: var(--m-container); color: var(--m-text);
+    font-size: 12.5px; font-weight: 500; font-family: inherit; cursor: pointer;
+    transition: border-color .18s ease, box-shadow .18s ease;
+  }
+  .new-pill .ic { color: var(--m-brand-strong); }
+  .new-pill .caret { margin-left: auto; width: 13px; height: 13px; color: var(--m-text-3); }
+  .new-pill:hover { border-color: var(--m-brand); box-shadow: 0 0 0 3px var(--m-brand-soft); }
+
+  .rail-pills { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+  .rail-pill {
+    height: 38px; padding: 0 12px;
+    display: flex; align-items: center; gap: 9px;
+    border: 0; border-radius: 999px; background: transparent;
+    color: var(--m-text-2); font-size: 13px; font-family: inherit; cursor: pointer;
+    transition: background .16s ease, color .16s ease, box-shadow .16s ease;
+  }
+  .rail-pill .ic { width: 16px; height: 16px; color: var(--m-text-3); }
+  .rail-pill:hover { background: var(--m-subtle); color: var(--m-text); }
+  .rail-pill:hover .ic { color: var(--m-text-2); }
+  .rail-pill.is-active {
+    background: linear-gradient(135deg, #07c05f 0%, #049b38 100%);
+    color: #fff; font-weight: 500;
+    box-shadow: 0 10px 20px rgba(7, 192, 95, .28), inset 0 1px 0 rgba(255, 255, 255, .18);
+  }
+  .rail-pill.is-active .ic { color: #fff; }
+  .pill-mini {
+    margin-left: auto; width: 22px; height: 22px; flex: none;
+    display: grid; place-items: center; border: 0; border-radius: 999px;
+    background: var(--m-subtle); color: var(--m-text-3); cursor: pointer;
+  }
+  .pill-mini .ic { width: 12px; height: 12px; }
+  .rail-pill.is-active .pill-mini { background: rgba(255, 255, 255, .18); color: #fff; }
+
+  .folder-block {
+    margin-top: 13px; padding-top: 11px; border-top: 1px solid var(--m-line);
+    display: flex; flex-direction: column; gap: 1px; min-height: 0;
+  }
+  .folder-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 9px 5px; font-size: 10.5px; letter-spacing: .05em; color: var(--m-text-3);
+  }
+  .mini-add { width: 18px; height: 18px; border: 0; border-radius: 6px; display: grid; place-items: center; background: transparent; color: var(--m-text-3); cursor: pointer; }
+  .mini-add:hover { background: var(--m-subtle); color: var(--m-text); }
+  .folder-row {
+    height: 29px; padding: 0 9px;
+    display: flex; align-items: center; gap: 6px;
+    border: 0; border-radius: 999px; background: transparent;
+    color: var(--m-text-2); font-size: 12px; font-family: inherit; text-align: left; cursor: pointer;
+  }
+  .folder-row .ic { width: 13px; height: 13px; color: var(--m-text-3); }
+  .folder-row .chev { width: 11px; height: 11px; }
+  .folder-row:hover { background: var(--m-subtle); color: var(--m-text); }
+  .folder-row.is-active { background: var(--m-brand-soft); color: var(--m-brand-strong); }
+  .folder-row.is-active .ic { color: var(--m-brand-strong); }
+  .wkb-card {
+    margin-top: auto; width: 100%; padding: 8px; border: 1px solid var(--m-line); border-radius: 14px;
+    display: flex; align-items: center; gap: 8px; text-align: left;
+    background: var(--m-subtle); color: var(--m-text); font-family: inherit; cursor: pointer;
+  }
+  .wkb-icon {
+    width: 28px; height: 28px; flex: none; display: grid; place-items: center;
+    border-radius: 9px; background: var(--m-brand-soft); color: var(--m-brand-strong);
+  }
+  .wkb-icon .ic { width: 14px; height: 14px; }
+  .wkb-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .wkb-copy b { font-size: 11.5px; font-weight: 600; }
+  .wkb-copy small { display: flex; align-items: center; gap: 3px; font-size: 10px; color: var(--m-text-3); }
+
+  /* ========== 方案 B：胶囊顶栏 ========== */
+  .topnav-wrap { display: flex; align-items: center; gap: 8px; padding: 14px 24px 0; }
+  .top-capsule {
+    display: inline-flex; align-items: center; gap: 2px; padding: 4px;
+    border: 1px solid var(--m-line); border-radius: 999px;
+    background: var(--m-container);
+    box-shadow: 0 8px 22px rgba(20, 35, 25, .07);
+  }
+  .top-pill {
+    height: 34px; padding: 0 13px;
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 0; border-radius: 999px; background: transparent;
+    color: var(--m-text-2); font-size: 12.5px; font-family: inherit; cursor: pointer;
+    transition: background .16s ease, color .16s ease;
+  }
+  .top-pill .ic { width: 15px; height: 15px; color: var(--m-text-3); }
+  .top-pill:hover { background: var(--m-subtle); color: var(--m-text); }
+  .top-pill.is-active {
+    background: linear-gradient(135deg, #07c05f 0%, #049b38 100%);
+    color: #fff; font-weight: 500;
+    box-shadow: 0 6px 14px rgba(7, 192, 95, .24);
+  }
+  .top-pill.is-active .ic { color: #fff; }
+  .top-divider { width: 1px; height: 22px; margin: 0 4px; background: var(--m-line); }
+  .round-btn {
+    width: 34px; height: 34px; border: 0; border-radius: 999px;
+    display: grid; place-items: center;
+    background: transparent; color: var(--m-text-3); cursor: pointer;
+  }
+  .round-btn:hover { background: var(--m-subtle); color: var(--m-text); }
+  .chip {
+    height: 34px; padding: 0 13px;
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--m-line); border-radius: 999px;
+    background: var(--m-container); color: var(--m-text); font-size: 12.5px; font-family: inherit; cursor: pointer;
+  }
+  .chip .ic { width: 14px; height: 14px; color: var(--m-text-2); }
+  .chip .caret { width: 12px; height: 12px; color: var(--m-text-3); }
+  .chip:hover { border-color: var(--m-brand); color: var(--m-brand-strong); }
+  .primary-pill {
+    height: 34px; padding: 0 15px;
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 0; border-radius: 999px;
+    background: var(--m-brand); color: #fff;
+    font-size: 12.5px; font-weight: 500; font-family: inherit; cursor: pointer;
+    box-shadow: 0 8px 18px rgba(7, 192, 95, .26);
+  }
+  .primary-pill .ic { width: 14px; height: 14px; }
+
+  /* ========== 方案 C：胶囊滑轨 ========== */
+  .wb-rail--track { width: 228px; padding: 12px 10px; }
+  .track-head { padding: 2px 4px 10px; }
+  .new-pill--soft { margin: 0 2px; background: var(--m-container); }
+  .pill-track {
+    margin-top: 10px; padding: 4px;
+    display: flex; flex-direction: column; gap: 1px;
+    border: 1px solid var(--m-line); border-radius: 999px;
+    background: var(--m-subtle);
+  }
+  .track-row {
+    height: 37px; padding: 0 13px;
+    display: flex; align-items: center; gap: 9px;
+    border: 0; border-radius: 999px; background: transparent;
+    color: var(--m-text-2); font-size: 13px; font-family: inherit; cursor: pointer;
+    transition: background .2s ease, color .2s ease, box-shadow .2s ease;
+  }
+  .track-row .ic { width: 16px; height: 16px; color: var(--m-text-3); }
+  .track-row:hover { color: var(--m-text); }
+  .track-row.is-active {
+    background: var(--m-container); color: var(--m-brand-strong); font-weight: 500;
+    box-shadow: 0 2px 8px rgba(20, 35, 25, .10), 0 0 0 1px rgba(7, 192, 95, .10);
+  }
+  .track-row.is-active .ic { color: var(--m-brand-strong); }
+  .track-row .pill-mini { background: transparent; }
+  .track-row .pill-mini .ic { color: var(--m-text-3); }
+  .folder-block--plain { border-top: 0; margin-top: 16px; padding-top: 0; }
+  .folder-block--plain .folder-head { padding-left: 10px; }
+  .wkb-card--plain { background: var(--m-container); }
+
+  /* ========== 设计稿说明区 ========== */
+  .section-title { display: flex; align-items: center; gap: 10px; margin: 48px 0 16px; }
+  .section-title h2 { margin: 0; font-size: 20px; font-weight: 650; }
+  .section-title::after { content: ""; flex: 1; height: 1px; background: rgba(18, 40, 26, .10); }
+
+  .spec-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .spec-card {
+    padding: 18px 18px 16px;
+    border: 1px solid rgba(18, 40, 26, .09); border-radius: 16px;
+    background: rgba(255, 255, 255, .78);
+  }
+  .spec-card h3 { margin: 0 0 10px; font-size: 13px; font-weight: 650; letter-spacing: .01em; }
+  .spec-card ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 7px; }
+  .spec-card li { display: flex; gap: 8px; font-size: 12px; line-height: 1.55; color: rgba(22, 32, 26, .62); }
+  .spec-card li b { flex: none; min-width: 64px; font-weight: 600; color: rgba(22, 32, 26, .82); }
+  .spec-card li code {
+    padding: 1px 5px; border-radius: 5px; background: rgba(18, 40, 26, .06);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px;
+  }
+
+  table.compare {
+    width: 100%; margin-top: 18px; border-collapse: separate; border-spacing: 0;
+    border: 1px solid rgba(18, 40, 26, .09); border-radius: 14px; overflow: hidden;
+    background: rgba(255, 255, 255, .8); font-size: 12px;
+  }
+  table.compare th, table.compare td { padding: 12px 14px; text-align: left; border-bottom: 1px solid rgba(18, 40, 26, .07); }
+  table.compare th { background: rgba(18, 40, 26, .04); font-weight: 600; color: rgba(22, 32, 26, .7); }
+  table.compare tr:last-child td { border-bottom: 0; }
+  table.compare td.a { font-weight: 600; color: #047a3a; }
+
+  .decision {
+    margin-top: 20px; padding: 18px 20px;
+    border: 1px solid rgba(7, 192, 95, .25); border-radius: 16px;
+    background: linear-gradient(135deg, rgba(233, 248, 236, .9), rgba(255, 255, 255, .75));
+    font-size: 13px; line-height: 1.75; color: rgba(22, 32, 26, .7);
+  }
+  .decision b { color: #046b33; }
+
+  .caption {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px;
+    margin-top: 12px; font-size: 11px; color: rgba(22, 32, 26, .5);
+  }
+  .caption strong { font-weight: 600; color: rgba(22, 32, 26, .65); }
+  .caption .sep { width: 1px; height: 10px; background: rgba(18, 40, 26, .12); }
+
+  @media (max-width: 1320px) {
+    .theme-switch { position: static; margin-top: 18px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 图标 sprite：全部内联，无外部依赖 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v18H6a2 2 0 0 1-2-2z"/><path d="M4 17h15"/></symbol>
+  <symbol id="i-layout" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16l-1.8-4.5L5 9.7l5.2-1.8z"/><path d="M18 15l.9 2.2L21 18l-2.1.8L18 21l-.9-2.2L15 18l2.1-.8z"/></symbol>
+  <symbol id="i-cube" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></symbol>
+  <symbol id="i-robot" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4M8 13h.01M16 13h.01M9 19v2M15 19v2"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/></symbol>
+  <symbol id="i-kanban" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="11" rx="1"/><rect x="17" y="4" width="4" height="7" rx="1"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></symbol>
+  <symbol id="i-toolbox" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 11h18"/></symbol>
+  <symbol id="i-building" viewBox="0 0 24 24"><rect x="4" y="3" width="10" height="18"/><path d="M14 9h6v12M7 7h.01M11 7h.01M7 11h.01M11 11h.01M7 15h.01M11 15h.01"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></symbol>
+  <symbol id="i-table" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/><path d="M10 10v6M14 10v6"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+</svg>
+
+<!-- 全局侧栏模板（三套方案共用） -->
+<template id="tpl-sidebar">
+  <aside class="g-sidebar">
+    <div class="g-logo-row">
+      <div class="g-logo"><span class="g-mark">天</span><span class="g-word">天禄</span></div>
+      <div class="g-tools">
+        <button class="g-icon-btn" type="button" title="搜索"><svg class="ic"><use href="#i-search"/></svg></button>
+        <button class="g-icon-btn" type="button" title="折叠侧栏"><svg class="ic"><use href="#i-panel"/></svg></button>
+      </div>
+    </div>
+    <nav class="g-menu">
+      <div class="g-item"><svg class="ic"><use href="#i-chat"/></svg><span>对话</span></div>
+      <div class="g-item"><svg class="ic"><use href="#i-book"/></svg><span>知识库</span></div>
+      <div class="g-item is-active"><svg class="ic"><use href="#i-layout"/></svg><span>工作台</span></div>
+      <div class="g-item"><svg class="ic"><use href="#i-sparkle"/></svg><span>方案助手</span></div>
+      <div class="g-item"><svg class="ic"><use href="#i-cube"/></svg><span>产物</span></div>
+      <div class="g-item"><svg class="ic"><use href="#i-robot"/></svg><span>智能体</span></div>
+      <div class="g-item"><svg class="ic"><use href="#i-video"/></svg><span>会议室</span></div>
+      <div class="g-item"><svg class="ic"><use href="#i-kanban"/></svg><span>PM 工作站</span></div>
+      <div class="g-item"><svg class="ic"><use href="#i-bolt"/></svg><span>自动化</span></div>
+      <div class="g-item"><svg class="ic"><use href="#i-toolbox"/></svg><span>工具箱</span></div>
+      <div class="g-item"><svg class="ic"><use href="#i-building"/></svg><span>组织</span></div>
+    </nav>
+    <div class="g-history">
+      <div class="g-history-head"><span>聊天</span><button class="g-icon-btn" type="button"><svg class="ic"><use href="#i-plus"/></svg></button></div>
+      <div class="g-session"><svg class="ic"><use href="#i-chat"/></svg><span>知识库落地问题与方案</span></div>
+      <div class="g-session"><svg class="ic"><use href="#i-chat"/></svg><span>会议纪要整理 · 10-28</span></div>
+      <div class="g-session"><svg class="ic"><use href="#i-chat"/></svg><span>企业知识库面试题集</span></div>
+      <div class="g-session"><svg class="ic"><use href="#i-chat"/></svg><span>FDE 前端面试题集</span></div>
+    </div>
+    <div class="g-user">
+      <span class="g-avatar">张</span>
+      <div class="g-user-meta"><b>张老师</b><small>个人空间</small></div>
+      <button class="g-icon-btn" type="button"><svg class="ic"><use href="#i-gear"/></svg></button>
+    </div>
+  </aside>
+</template>
+
+<!-- 内容区模板（三套方案共用） -->
+<template id="tpl-content">
+  <div class="wb-page">
+    <header class="wb-page-head">
+      <div>
+        <h3 class="wb-page-title">最近</h3>
+        <p class="wb-page-sub">上次打开的画布、数据库与页面，按更新时间排序</p>
+      </div>
+      <div class="wb-head-actions">
+        <button class="btn-outline" type="button"><svg class="ic"><use href="#i-table"/></svg>新建数据库</button>
+        <button class="btn-primary" type="button"><svg class="ic"><use href="#i-plus"/></svg>新建画布</button>
+      </div>
+    </header>
+    <div class="wb-toolbar">
+      <div class="search-box"><svg class="ic"><use href="#i-search"/></svg><span>搜索标题…</span></div>
+      <span class="grow"></span>
+      <span class="wb-count">共 12 条</span>
+      <div class="seg"><button class="is-active" type="button">卡片</button><button type="button">列表</button></div>
+    </div>
+    <div class="card-grid">
+      <article class="item-card">
+        <div class="thumb thumb--board"><span class="tile tile-a"></span><span class="tile tile-b"></span><span class="tile tile-c"></span><span class="tile tile-d"></span></div>
+        <div class="card-body"><div class="card-title">Q4 产品路线图</div><div class="card-meta">画布 · 2 小时前编辑</div><button class="card-more" type="button">···</button></div>
+      </article>
+      <article class="item-card">
+        <div class="thumb thumb--doc"><span class="d-line w80"></span><span class="d-line w60"></span><span class="d-line w70"></span><span class="d-line accent w40"></span></div>
+        <div class="card-body"><div class="card-title">需求评审记录</div><div class="card-meta">画布 · 昨天编辑</div><button class="card-more" type="button">···</button></div>
+      </article>
+      <article class="item-card">
+        <div class="thumb thumb--board"><span class="tile tile-a"></span><span class="tile tile-b"></span><span class="tile tile-c"></span><span class="tile tile-d"></span></div>
+        <div class="card-body"><div class="card-title">客户访谈纪要</div><div class="card-meta">画布 · 昨天编辑</div><button class="card-more" type="button">···</button></div>
+      </article>
+      <article class="item-card">
+        <div class="thumb thumb--table"><div class="tbl"><span class="th"></span><span class="th"></span><span class="th"></span><span></span><span></span><span></span><span></span><span></span><span></span></div></div>
+        <div class="card-body"><div class="card-title">功能清单 v2</div><div class="card-meta">数据库 · 3 天前编辑</div><button class="card-more" type="button">···</button></div>
+      </article>
+      <article class="item-card">
+        <div class="thumb thumb--doc"><span class="d-line w70"></span><span class="d-line w80"></span><span class="d-line w60"></span><span class="d-line accent w40"></span></div>
+        <div class="card-body"><div class="card-title">竞品调研 · 企业知识库</div><div class="card-meta">画布 · 上周编辑</div><button class="card-more" type="button">···</button></div>
+      </article>
+      <article class="item-card">
+        <div class="thumb thumb--table"><div class="tbl"><span class="th"></span><span class="th"></span><span class="th"></span><span></span><span></span><span></span><span></span><span></span><span></span></div></div>
+        <div class="card-body"><div class="card-title">迭代排期</div><div class="card-meta">数据库 · 上周编辑</div><button class="card-more" type="button">···</button></div>
+      </article>
+    </div>
+    <div class="wb-footnote"><span class="dot"></span><span>最近同步 · 1 分钟前</span><span>工作台模板已开启</span></div>
+  </div>
+</template>
+
+<div class="doc">
+  <header class="doc-head">
+    <div class="eyebrow">Workbench · Navigation Redesign</div>
+    <h1>工作台导航<em>胶囊化</em>设计稿</h1>
+    <p class="lead">
+      当前左侧是「全局导航（260px）+ 工作台二级导航（216px）」两条灰色竖向列表，行高、图标与选中态几乎同构，
+      层级只能靠位置判断，整体视觉偏重。以下三套方案把工作台菜单切换为胶囊语言，信息架构与品牌绿保持不变。
+    </p>
+    <div class="facts">
+      <span class="fact"><span class="dot"></span>品牌绿 #07C05F</span>
+      <span class="fact">胶囊圆角 999px</span>
+      <span class="fact">沿用 --td-* / --app-* 令牌</span>
+      <span class="fact">含浅色 / 深色两种模式</span>
+    </div>
+    <div class="theme-switch" role="group" aria-label="预览模式">
+      <span>预览</span>
+      <button class="mode-btn is-on" type="button" data-mode="light">浅色</button>
+      <button class="mode-btn" type="button" data-mode="dark">深色</button>
+    </div>
+  </header>
+
+  <!-- 方案 A -->
+  <section class="proposal">
+    <div class="proposal-head">
+      <div class="proposal-title">
+        <span class="badge rec">推荐</span>
+        <h2>方案 A · 胶囊浮岛</h2>
+      </div>
+      <div class="tags">
+        <span class="tag good">信息架构不变</span>
+        <span class="tag good">文件夹常驻可见</span>
+        <span class="tag">左侧仍为两条</span>
+      </div>
+      <p class="proposal-desc">
+        保留二级导航，把整块栏做成悬浮的圆角卡片，菜单项独立成胶囊。选中项填充品牌绿、白字、带柔和投影，
+        与全局导航的「浅灰行 + 绿色文字」形成明确对比，两条栏不再看起来像同一组列表。
+      </p>
+    </div>
+    <div class="mock" data-theme="light">
+      <div class="window">
+        <div class="window-bar">
+          <span class="traffic"><i></i><i></i><i></i></span>
+          <span class="window-title">天禄 · 工作台 / 最近</span>
+          <span class="window-dim">1440 × 900</span>
+        </div>
+        <div class="app">
+          <div class="sidebar-slot"></div>
+          <div class="wb-shell">
+            <aside class="wb-rail wb-rail--float">
+              <div class="island">
+                <div class="rail-head">
+                  <div class="rail-title">工作台<span class="beta">BETA</span></div>
+                  <button class="icon-btn" type="button" aria-label="工作台设置"><svg class="ic"><use href="#i-gear"/></svg></button>
+                </div>
+                <button class="new-pill" type="button">
+                  <svg class="ic"><use href="#i-plus"/></svg><span>新建</span>
+                  <svg class="ic caret"><use href="#i-chevron-down"/></svg>
+                </button>
+                <nav class="rail-pills" data-nav-group>
+                  <button class="rail-pill is-active" type="button" data-nav><svg class="ic"><use href="#i-history"/></svg><span>最近</span></button>
+                  <button class="rail-pill" type="button" data-nav><svg class="ic"><use href="#i-book"/></svg><span>Journals</span><span class="pill-mini"><svg class="ic"><use href="#i-calendar"/></svg></span></button>
+                  <button class="rail-pill" type="button" data-nav><svg class="ic"><use href="#i-table"/></svg><span>数据库</span></button>
+                  <button class="rail-pill" type="button" data-nav><svg class="ic"><use href="#i-star"/></svg><span>收藏</span></button>
+                  <button class="rail-pill" type="button" data-nav><svg class="ic"><use href="#i-trash"/></svg><span>回收站</span></button>
+                </nav>
+                <div class="folder-block">
+                  <div class="folder-head"><span>文件夹</span><button class="mini-add" type="button" aria-label="新建文件夹"><svg class="ic"><use href="#i-plus"/></svg></button></div>
+                  <button class="folder-row" type="button"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic"><use href="#i-folder"/></svg><span>产品规划</span></button>
+                  <button class="folder-row is-active" type="button" style="padding-left:26px"><svg class="ic"><use href="#i-folder"/></svg><span>需求文档</span></button>
+                  <button class="folder-row" type="button"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic"><use href="#i-folder"/></svg><span>会议纪要</span></button>
+                  <button class="folder-row" type="button"><svg class="ic chev"><use href="#i-chevron-right"/></svg><svg class="ic"><use href="#i-folder"/></svg><span>研究资料</span></button>
+                </div>
+                <button class="wkb-card" type="button">
+                  <span class="wkb-icon"><svg class="ic"><use href="#i-book"/></svg></span>
+                  <span class="wkb-copy"><b>工作知识库</b><small><svg class="ic lock"><use href="#i-lock"/></svg>128 条 · 仅自己可见</small></span>
+                </button>
+              </div>
+            </aside>
+            <div class="wb-main"><div class="content-slot"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="caption">
+      <strong>交互示意</strong><span>点击胶囊切换选中态</span><span class="sep"></span>
+      <span>文件夹保留层级缩进与展开</span><span class="sep"></span>
+      <span>Journals 行右侧日历按钮保留</span>
+    </div>
+  </section>
+
+  <!-- 方案 B -->
+  <section class="proposal">
+    <div class="proposal-head">
+      <div class="proposal-title">
+        <span class="badge">可选</span>
+        <h2>方案 B · 胶囊顶栏</h2>
+      </div>
+      <div class="tags">
+        <span class="tag good">左侧只剩一条导航</span>
+        <span class="tag">文件夹改浮层</span>
+        <span class="tag warn">改动范围较大</span>
+      </div>
+      <p class="proposal-desc">
+        直接取消工作台的左侧二级导航，把 5 个入口收进内容区顶部的一条胶囊分段栏；文件夹与新建收为右侧胶囊按钮，
+        文件夹树点开为浮层。左侧只剩全局导航，最彻底地消除“两个导航栏”的重复感。
+      </p>
+    </div>
+    <div class="mock" data-theme="light">
+      <div class="window">
+        <div class="window-bar">
+          <span class="traffic"><i></i><i></i><i></i></span>
+          <span class="window-title">天禄 · 工作台 / 最近</span>
+          <span class="window-dim">1440 × 900</span>
+        </div>
+        <div class="app">
+          <div class="sidebar-slot"></div>
+          <div class="wb-shell">
+            <div class="wb-main">
+              <div class="topnav-wrap">
+                <div class="top-capsule" data-nav-group>
+                  <button class="top-pill is-active" type="button" data-nav><svg class="ic"><use href="#i-history"/></svg>最近</button>
+                  <button class="top-pill" type="button" data-nav><svg class="ic"><use href="#i-book"/></svg>Journals</button>
+                  <button class="top-pill" type="button" data-nav><svg class="ic"><use href="#i-table"/></svg>数据库</button>
+                  <button class="top-pill" type="button" data-nav><svg class="ic"><use href="#i-star"/></svg>收藏</button>
+                  <button class="top-pill" type="button" data-nav><svg class="ic"><use href="#i-trash"/></svg>回收站</button>
+                  <span class="top-divider"></span>
+                  <button class="round-btn" type="button" aria-label="工作台设置"><svg class="ic"><use href="#i-gear"/></svg></button>
+                </div>
+                <span class="grow"></span>
+                <button class="chip" type="button"><svg class="ic"><use href="#i-folder"/></svg>文件夹<svg class="ic caret"><use href="#i-chevron-down"/></svg></button>
+                <button class="primary-pill" type="button"><svg class="ic"><use href="#i-plus"/></svg>新建</button>
+              </div>
+              <div class="content-slot"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="caption">
+      <strong>交互示意</strong><span>顶部胶囊横向切换</span><span class="sep"></span>
+      <span>“文件夹”点开为浮层树</span><span class="sep"></span>
+      <span>内容区宽度增加 216px</span>
+    </div>
+  </section>
+
+  <!-- 方案 C -->
+  <section class="proposal">
+    <div class="proposal-head">
+      <div class="proposal-title">
+        <span class="badge">备选</span>
+        <h2>方案 C · 胶囊滑轨</h2>
+      </div>
+      <div class="tags">
+        <span class="tag good">视觉噪音更低</span>
+        <span class="tag good">文件夹常驻</span>
+        <span class="tag">选中块在轨道内滑动</span>
+      </div>
+      <p class="proposal-desc">
+        5 个入口共享一条纵向胶囊轨道，未选中项透明、选中项浮起为白色小胶囊并配品牌绿文字。
+        比方案 A 更克制，绿色只做点睛；侧栏可进一步收窄为 56px 图标条，适合内容优先的场景。
+      </p>
+    </div>
+    <div class="mock" data-theme="light">
+      <div class="window">
+        <div class="window-bar">
+          <span class="traffic"><i></i><i></i><i></i></span>
+          <span class="window-title">天禄 · 工作台 / 最近</span>
+          <span class="window-dim">1440 × 900</span>
+        </div>
+        <div class="app">
+          <div class="sidebar-slot"></div>
+          <div class="wb-shell">
+            <aside class="wb-rail wb-rail--track">
+              <div class="rail-head track-head">
+                <div class="rail-title">工作台<span class="beta">BETA</span></div>
+                <button class="icon-btn" type="button" aria-label="工作台设置"><svg class="ic"><use href="#i-gear"/></svg></button>
+              </div>
+              <button class="new-pill new-pill--soft" type="button">
+                <svg class="ic"><use href="#i-plus"/></svg><span>新建</span>
+                <svg class="ic caret"><use href="#i-chevron-down"/></svg>
+              </button>
+              <div class="pill-track" data-nav-group>
+                <button class="track-row is-active" type="button" data-nav><svg class="ic"><use href="#i-history"/></svg><span>最近</span></button>
+                <button class="track-row" type="button" data-nav><svg class="ic"><use href="#i-book"/></svg><span>Journals</span><span class="pill-mini"><svg class="ic"><use href="#i-calendar"/></svg></span></button>
+                <button class="track-row" type="button" data-nav><svg class="ic"><use href="#i-table"/></svg><span>数据库</span></button>
+                <button class="track-row" type="button" data-nav><svg class="ic"><use href="#i-star"/></svg><span>收藏</span></button>
+                <button class="track-row" type="button" data-nav><svg class="ic"><use href="#i-trash"/></svg><span>回收站</span></button>
+              </div>
+              <div class="folder-block folder-block--plain">
+                <div class="folder-head"><span>文件夹</span><button class="mini-add" type="button" aria-label="新建文件夹"><svg class="ic"><use href="#i-plus"/></svg></button></div>
+                <button class="folder-row" type="button"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic"><use href="#i-folder"/></svg><span>产品规划</span></button>
+                <button class="folder-row is-active" type="button" style="padding-left:26px"><svg class="ic"><use href="#i-folder"/></svg><span>需求文档</span></button>
+                <button class="folder-row" type="button"><svg class="ic chev"><use href="#i-chevron-down"/></svg><svg class="ic"><use href="#i-folder"/></svg><span>会议纪要</span></button>
+                <button class="folder-row" type="button"><svg class="ic chev"><use href="#i-chevron-right"/></svg><svg class="ic"><use href="#i-folder"/></svg><span>研究资料</span></button>
+              </div>
+              <button class="wkb-card wkb-card--plain" type="button">
+                <span class="wkb-icon"><svg class="ic"><use href="#i-book"/></svg></span>
+                <span class="wkb-copy"><b>工作知识库</b><small><svg class="ic lock"><use href="#i-lock"/></svg>128 条 · 仅自己可见</small></span>
+              </button>
+            </aside>
+            <div class="wb-main"><div class="content-slot"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="caption">
+      <strong>交互示意</strong><span>选中块在轨道内滑动</span><span class="sep"></span>
+      <span>轨道可折叠为 56px 图标胶囊条</span><span class="sep"></span>
+      <span>品牌绿只用于选中文字与图标</span>
+    </div>
+  </section>
+
+  <!-- 对比与落地 -->
+  <div class="section-title"><h2>方案对比</h2></div>
+  <table class="compare">
+    <thead>
+      <tr>
+        <th>方案</th><th>左侧导航数量</th><th>文件夹</th><th>视觉重量</th><th>改动范围</th><th>适合</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="a">A · 胶囊浮岛</td><td>2 条</td><td>常驻，层级缩进</td><td>中（浮岛 + 绿色选中）</td><td>WorkbenchNav + FolderTree 样式</td><td>保留现有信息架构，先解决视觉重复</td>
+      </tr>
+      <tr>
+        <td>B · 胶囊顶栏</td><td>1 条</td><td>浮层，默认收起</td><td>低（内容区更开阔）</td><td>WorkbenchLayout 结构调整 + 新增文件夹浮层</td><td>明确要“左侧只剩一条栏”</td>
+      </tr>
+      <tr>
+        <td>C · 胶囊滑轨</td><td>2 条</td><td>常驻，层级缩进</td><td>低（绿色仅点睛）</td><td>WorkbenchNav + FolderTree 样式</td><td>想降噪，同时保留文件夹常驻</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title"><h2>设计规格</h2></div>
+  <div class="spec-grid">
+    <div class="spec-card">
+      <h3>胶囊尺寸</h3>
+      <ul>
+        <li><b>菜单项</b>38px 高 · 圆角 999px · 左右内边距 12px</li>
+        <li><b>图标</b>16px 线性图标，与文字间距 9px</li>
+        <li><b>间距</b>胶囊之间 2px，避免“粘连”</li>
+        <li><b>文件夹行</b>29px 高，同样胶囊形，保持缩进</li>
+      </ul>
+    </div>
+    <div class="spec-card">
+      <h3>状态与色彩</h3>
+      <ul>
+        <li><b>选中</b><code>#07C05F → #049B38</code> 135° 渐变，白字 + 柔和绿投影</li>
+        <li><b>悬停</b><code>--td-bg-color-container-hover</code>，文字转主色</li>
+        <li><b>浮岛</b>圆角 18px、1px 描边、<code>0 18px 44px</code> 低透明阴影</li>
+        <li><b>深色</b>选中仍用品牌绿，靠描边与阴影分隔，避免发光过重</li>
+      </ul>
+    </div>
+    <div class="spec-card">
+      <h3>代码落点</h3>
+      <ul>
+        <li><b>A / C</b>改 [WorkbenchNav.vue] 模板与样式，[FolderTree.vue] 圆角；布局不动</li>
+        <li><b>B</b>改 [WorkbenchLayout.vue] 结构，移除二级导航，新增顶部胶囊栏与文件夹浮层</li>
+        <li><b>文案</b>沿用现有 i18n key，无需新增词条</li>
+        <li><b>兜底</b>保留 workbench-buttons.css，现有按钮重置规则继续生效</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="decision">
+    <b>建议：</b>先按方案 A 实现，改动集中在 <b>WorkbenchNav.vue</b>，不动路由与布局，风险最低；如果目标是“左侧只留一条导航”，
+    则选方案 B，内容区可多出约 216px 宽度，但需要额外处理文件夹浮层与 Journals 日历入口。方案 C 适合后续做“折叠成图标条”的进阶形态。
+  </div>
+</div>
+
+<script>
+(function () {
+  // 克隆共用模板，保证三套方案里的全局侧栏与内容区完全一致
+  var sidebarTpl = document.getElementById('tpl-sidebar');
+  var contentTpl = document.getElementById('tpl-content');
+  document.querySelectorAll('.sidebar-slot').forEach(function (slot) {
+    slot.appendChild(sidebarTpl.content.cloneNode(true));
+  });
+  document.querySelectorAll('.content-slot').forEach(function (slot) {
+    slot.appendChild(contentTpl.content.cloneNode(true));
+  });
+
+  // 胶囊选中态切换：每组导航独立，互不影响
+  document.querySelectorAll('[data-nav-group]').forEach(function (group) {
+    group.querySelectorAll('[data-nav]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        group.querySelectorAll('[data-nav]').forEach(function (item) {
+          item.classList.remove('is-active');
+        });
+        btn.classList.add('is-active');
+      });
+    });
+  });
+
+  // 浅色 / 深色预览，同时作用于三张稿子
+  var modeButtons = document.querySelectorAll('.mode-btn');
+  modeButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var mode = btn.dataset.mode;
+      modeButtons.forEach(function (item) {
+        item.classList.toggle('is-on', item === btn);
+      });
+      document.querySelectorAll('.mock').forEach(function (mock) {
+        mock.dataset.theme = mode;
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
