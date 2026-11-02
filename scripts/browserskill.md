@@ -1,13 +1,13 @@
 # BrowserSkill upstream integration
 
-The extension and daemon are based on the official `ext-v0.3.1` tag, commit
-`da6bf4eed2dd7256567e152df8c903c87f6598c3` (including the upstream PRs #291,
+The extension and daemon are based on the official `ext-v0.4.0` tag, commit
+`7e300ff6a35b326ac9abd03f315f30769ad01861` (including the upstream PRs #291,
 #296, #297 and #318 that WeKnora previously pinned from `main`). Both report
-version `0.3.1`; the exact source baseline is recorded in
+version `0.4.0`; the exact source baseline is recorded in
 `scripts/browserskill-release.json`. The daemon is built with
 `cargo build --locked --release -p bsk` from the same commit because upstream
-has not published a matching CLI 0.3.1 binary. The store builds of extension
-0.3.1 match this baseline. Native builds
+has not published a matching CLI 0.4.0 binary. The store builds of extension
+0.4.0 match this baseline. Native builds
 require Rust/Cargo and a C compiler (plus CMake on Linux). Docker builds on the
 target architecture.
 
@@ -47,7 +47,7 @@ stops preview polling in WeKnora. Completed tasks use native session stop.
 
 The preview and focus side channel is now the official optional UI channel
 documented in the upstream
-[remote connection contract](https://github.com/Tencent/BrowserSkill/blob/da6bf4eed2dd7256567e152df8c903c87f6598c3/docs/remote-extension-connection.md#optional-ui-channel).
+[remote connection contract](https://github.com/Tencent/BrowserSkill/blob/7e300ff6a35b326ac9abd03f315f30769ad01861/docs/remote-extension-connection.md#optional-ui-channel).
 Only authenticated remote sockets handle these request frames; they bypass the
 native automation queue and never start a session:
 
@@ -68,7 +68,7 @@ error except `unknown_method` to a transient preview failure. Extensions built
 before PR #296 answer `unknown_method`;
 WeKnora then disables preview polling and reports the extension as outdated.
 
-## Behavior of the 0.3.1 extension
+## Behavior of the 0.4.0 extension
 
 - Remote tasks use official dedicated Agent Windows. No `tabGroups` permission.
 - Popup attribution follows upstream PR #297: only a main-frame navigation

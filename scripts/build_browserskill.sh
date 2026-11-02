@@ -44,7 +44,7 @@ cp "$build_dir/source/apps/extension/dist/browser-skillextension-${extension_ver
 cp "$build_dir/source/LICENSE" "$output_dir/BrowserSkill-LICENSE"
 
 # Build the daemon from the same pinned source; upstream has not published a
-# matching CLI 0.3.1 binary.
+# matching CLI 0.4.0 binary.
 cargo_target_dir="${CARGO_TARGET_DIR:-$build_dir/target}"
 mkdir -p "$cargo_target_dir"
 cargo_target_dir="$(cd "$cargo_target_dir" && pwd)"

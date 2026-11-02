@@ -56,7 +56,7 @@ WeKnora 通过 BrowserSkill daemon 和 [BrowserSkill](https://github.com/Tencent
 
 ```dotenv
 BROWSERSKILL_BINARY=/opt/weknora/browserskill/bsk
-BROWSERSKILL_EXTENSION_PATH=/opt/weknora/browserskill/browser-skill-weknora-0.3.1.zip
+BROWSERSKILL_EXTENSION_PATH=/opt/weknora/browserskill/browser-skill-weknora-0.4.0.zip
 BROWSERSKILL_MAX_CONNECTIONS=32
 ```
 
