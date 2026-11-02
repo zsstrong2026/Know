@@ -26,9 +26,6 @@
     <!-- 归档只读态提示条 -->
     <t-alert v-if="isArchived" :message="$t('meeting.archivedBanner')" theme="info" class="archived-banner" />
 
-    <!-- 待确认提示条：开场流程尚未确认 -->
-    <t-alert v-if="isAwaiting" :message="$t('meeting.awaitingBanner')" theme="warning" class="archived-banner" />
-
     <!-- 议程条：开启结构性治理且已拆解议程时展示，回答"讨论到哪、还剩什么" -->
     <div v-if="store.currentRoom?.agenda_enabled && store.agenda.length" class="agenda-bar">
       <div class="agenda-summary">
@@ -113,19 +110,6 @@
                 <t-button size="small" theme="warning" :variant="m.review_state === 'pending' ? 'base' : 'outline'"
                   :disabled="isArchived" @click="review(m, 'pending')">{{ $t('meeting.pending') }}</t-button>
               </div>
-              <!-- 开场确认按钮组：仅待确认状态下、最近一条开场消息下方展示 -->
-              <div v-if="m.sender_kind === 'host' && isLatestOpening(m) && isAwaiting" class="opening-actions">
-                <t-button size="small" theme="primary" :loading="confirming" :disabled="adjustMode"
-                  @click="startMeeting">
-                  {{ $t('meeting.startMeeting') }}
-                </t-button>
-                <t-button size="small" theme="default" variant="outline" :class="{ 'is-active': adjustMode }"
-                  @click="adjustMode = !adjustMode">
-                  {{ $t('meeting.adjustFlow') }}
-                </t-button>
-                <!-- 澄清态：提示可在下方输入框回答，或直接「开始会议」跳过澄清 -->
-                <p v-if="needsClarification" class="opening-hint">{{ $t('meeting.clarifyHint') }}</p>
-              </div>
             </div>
           </div>
         </template>
@@ -141,6 +125,32 @@
       :current-solution-message-id="store.currentRoom?.current_solution_message_id ?? ''" />
 
     <ArtifactGenerateDialog v-model:visible="showGenerate" @requested="showArtifacts = true" />
+
+    <!-- 开场确认坞：待确认态常驻输入区上方，免去回滚消息找按钮；两种语义（澄清 / 确认）共用一处 -->
+    <div v-if="isAwaiting" class="confirm-dock">
+      <div class="confirm-dock__main">
+        <div class="confirm-dock__title">
+          <t-icon name="chat-bubble-smile" />
+          <span>{{ needsClarification ? $t('meeting.confirmDockClarifyTitle') : $t('meeting.confirmDockTitle') }}</span>
+        </div>
+        <p class="confirm-dock__desc">
+          {{ needsClarification ? $t('meeting.confirmDockClarifyDesc') : $t('meeting.confirmDockDesc') }}
+        </p>
+        <!-- 已收敛主题：让用户先核对主持人理解的是否为他要讨论的议题 -->
+        <p v-if="topicBrief" class="confirm-dock__topic">
+          <span class="confirm-dock__topic-label">{{ $t('meeting.confirmDockTopic') }}</span>
+          <span>{{ topicBrief }}</span>
+        </p>
+      </div>
+      <div class="confirm-dock__actions">
+        <t-button theme="primary" :loading="confirming" :disabled="adjustMode" @click="startMeeting">
+          {{ needsClarification ? $t('meeting.skipClarifyStart') : $t('meeting.startMeeting') }}
+        </t-button>
+        <t-button theme="default" variant="outline" :disabled="confirming" @click="toggleAdjustMode">
+          {{ adjustMode ? $t('meeting.cancelAdjustFlow') : $t('meeting.adjustFlow') }}
+        </t-button>
+      </div>
+    </div>
 
     <footer class="input-bar">
       <div class="input-inner">
@@ -164,7 +174,7 @@
         </div>
         <!-- t-textarea 的 keyup 会以组件参数回调（非原生事件），故在其外层原生 div 上监听并借冒泡触发 -->
         <div class="editor" @keyup.ctrl.enter="send">
-          <t-textarea v-model="draft" :autosize="{ minRows: 2, maxRows: 6 }"
+          <t-textarea ref="draftRef" v-model="draft" :autosize="{ minRows: 2, maxRows: 6 }"
             :disabled="store.discussing || isArchived" :placeholder="inputPlaceholder" />
         </div>
         <div class="input-actions">
@@ -205,6 +215,7 @@ const { t } = useI18n();
 const store = useMeetingStore();
 
 const draft = ref('');
+const draftRef = ref<{ focus?: () => void } | null>(null); // 「调整流程」时把光标送进输入框
 // 本次发言 @ 提及的智能体（仅视图本地状态，发送时取其 agent_id 传给后端）
 const mentions = ref<MeetingParticipant[]>([]);
 const showArtifacts = ref(false); // 历史产物抽屉可见性（视图本地状态，不入 store）
@@ -222,6 +233,17 @@ const isArchived = computed(() => store.currentRoom?.status === 'archived');
 const isAwaiting = computed(() => store.currentRoom?.status === 'awaiting_confirmation');
 const confirming = ref(false); // 「开始会议」按钮 loading
 const adjustMode = ref(false); // 「调整流程」输入模式
+
+// 切换调整模式：进入时聚焦输入框，让「去哪输入」这件事无需猜测
+async function toggleAdjustMode() {
+  adjustMode.value = !adjustMode.value;
+  if (!adjustMode.value) return;
+  await nextTick();
+  draftRef.value?.focus?.();
+}
+
+// 待确认态展示的主持人收敛主题（未澄清时为空，仅展示原始标题语义）
+const topicBrief = computed(() => (store.currentRoom?.topic_brief || '').trim());
 
 // 澄清态：待确认 + 最近开场标记 needs_clarification，此时输入框语义为「补充说明主题」
 const needsClarification = computed(() => isAwaiting.value && store.needsClarification);
@@ -742,19 +764,63 @@ async function interrupt() {
   gap: var(--app-space-1);
 }
 
-.opening-actions {
+/* ---------- 开场确认坞 ---------- */
+.confirm-dock {
+  flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--app-space-2);
+  align-items: center;
+  gap: var(--app-space-3);
+  margin: var(--app-space-2) var(--app-space-5) 0;
+  padding: var(--app-space-3) var(--app-space-4);
+  border: 1px solid var(--td-brand-color-3);
+  border-radius: var(--app-radius-lg);
+  background: var(--td-brand-color-light);
 }
 
-/* 澄清态提示：整行展示在按钮下方 */
-.opening-hint {
-  flex-basis: 100%;
-  margin: 0;
+.confirm-dock__main {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.confirm-dock__title {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-1);
+  font-size: var(--app-text-md);
+  font-weight: 500;
+  color: var(--td-text-color-primary);
+}
+
+.confirm-dock__desc {
+  margin: 4px 0 0;
   font-size: 12px;
   line-height: 18px;
-  color: var(--td-text-color-placeholder);
+  color: var(--td-text-color-secondary);
+}
+
+/* 收敛主题：一行内可换行，避免长主题把按钮挤出可视区 */
+.confirm-dock__topic {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--td-text-color-primary);
+  word-break: break-word;
+}
+
+.confirm-dock__topic-label {
+  margin-right: var(--app-space-1);
+  padding: 0 6px;
+  border-radius: var(--app-radius-sm);
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-secondary);
+}
+
+.confirm-dock__actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
 }
 
 .adjust-chip {
