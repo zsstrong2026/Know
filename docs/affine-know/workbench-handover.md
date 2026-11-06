@@ -158,7 +158,7 @@ git status --short               # 预期有大量未提交改动，见 §2.3
 | P2 | P2-3 资产与 blobSync | ✅ `assets.ts` + 后端 asset 服务 + 30 天孤儿缓冲 |
 | P2 | P2-5 文档全局列表 | ✅ `WorkbenchDocs.vue` + `doc_document_global.go` |
 | P2 | P2-8 双形态 | ⚠️ 数据层已验证（切换不产生版本、不丢内容）；**edgeless 视口平移/缩放保持未验证** |
-| P2 | P2-4 画布导出 ZIP/PNG | ❌ 未实现（无相关代码） |
+| P2 | P2-4 画布导出 ZIP/PNG | ✅ ZIP 完成（`workbench/export/`）；**PNG 明确不支持** |
 | P2 | P2-6 画布 AI / Agent patch | ❌ 未实现（`page-actions.ts` 只有 page 动作，无 edgeless 聚类/生成 Frame） |
 | P3 | P3-1 数据库工具条 | ✅ `DatabaseToolbar.vue` + `database-session.ts` |
 | P3 | P3-2 独立数据库视图 | ✅ 全屏/返回不重载，`?focus=database` |
@@ -261,11 +261,18 @@ workbench:
 1. `sandbox_allocation_test.go`、`schedule` 相关用例：`gorm.Open` 后加 `t.Cleanup` 里 `sqlDB.Close()`（注意要先于 TempDir 清理注册）。
 2. `knowledge_download_test.go`：把 `os.ReadDir(os.TempDir())` 换成只看本用例创建的临时文件（或同时 `t.Setenv("TMP", …)` 与 `t.Setenv("TEMP", …)`）。
 
-### R4 P2-4 画布导出（ZIP / PNG）
+### R4 P2-4 画布导出（2026-11-06 已完成，PNG 明确不支持）
 
-- 做什么：导出当前画布为 ZIP（快照 + 资产 + `manifest.json`），PNG 给出明确结论（可导出或明确不支持，不要含糊）。
-- 参考：开发计划 §6.1 P2-4；资产读取复用 `editor/assets.ts` 的 resolver。
-- 验收：ZIP manifest 正确（条目、block 数、资产清单、schema 版本）；大画布不崩；导出不修改 Y.Doc、不产生版本；owner 隔离（他人资产 404）。
+- 代码：`src/workbench/export/package.ts`（纯逻辑，12 条单测）、`export-canvas.ts`（取快照/资产/下载）。
+- 包内容：`manifest.json` + `content.ydoc`（快照字节）+ `content.md`（投影正文）+ `assets/<assetId>.<ext>`。
+- 入口：条目页顶栏「…」→「导出画布包」，导出中置灰；动态 import，不进首屏 chunk。
+- 资产：与渲染共用 `editor/assets.ts` 的 resolver 与缓存（不重复下载），4 并发且保序；
+  取不到只记 `missing`，整包照常产出 —— 这是「大画布不崩」的口径。
+- 只读：不 flush、不 markDirty、不产生版本；他人资产走同一条 404 → null 路径。
+- **PNG 结论：不支持。** BlockSuite v0.27.4 的 `affine/gfx`、`affine/edgeless` 里没有
+  `toPng` / `exportToPng` / `toBlob` 之类公开 API；自己按 gfx 元素序列化 SVG 再栅格化，
+  保真度与预算都不可控。结论同时写进 `manifest.capabilities.png = false`，
+  避免外部工具以为包里漏了文件。
 
 ### R5 P2-6 画布 AI / Agent patch
 
@@ -384,7 +391,7 @@ node scripts/editor-spike-check.mjs --url=http://127.0.0.1:4173/editor-spike.htm
 | 检查 | 结果 |
 | --- | --- |
 | `npm run type-check` | ✅ exit 0 |
-| `npx tsx --test "src/workbench/**/*.test.ts"` | ✅ 172 pass / 0 fail |
+| `npx tsx --test "src/workbench/**/*.test.ts"` | ✅ 192 pass / 0 fail |
 | `npm run check-i18n` | ❌ 2 个 zh-CN 多余 key（见 R2） |
 | `go test ./internal/application/service/workbench/` | ✅ ok 1.329s |
 | `go test ./internal/router/ ./internal/types/ ./internal/config/` | ✅ ok |
