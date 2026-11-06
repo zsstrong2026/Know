@@ -73,6 +73,13 @@ export interface SaveQueue {
   /** 当前基线版本：归档提交时作为 base_version */
   getBaseVersion(): number
   state(): SaveState
+  /**
+   * 最近一次成功写入的时间戳（ms）；从未保存过返回 null。
+   *
+   * 给「事项」这类没有顶栏的页面显示「已保存 · 16:03」用：
+   * 时间必须来自真正落盘的那一刻，不能用组件挂载时间冒充。
+   */
+  lastSavedAt(): number | null
   dispose(): void
 }
 
@@ -88,6 +95,8 @@ export function createSaveQueue(options: SaveQueueOptions): SaveQueue {
 
   let baseVersion = options.baseVersion
   let state: SaveState = 'idle'
+  /** 最近一次 saved 的时间；只由成功写入更新，冲突/失败不刷新它。 */
+  let lastSavedAt: number | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
   let pending = false
   let inFlight: Promise<void> | null = null
@@ -118,6 +127,7 @@ export function createSaveQueue(options: SaveQueueOptions): SaveQueue {
           force,
         })
         baseVersion = result.snapshot_version
+        lastSavedAt = Date.now()
         setState('saved')
       } catch (error) {
         const code = workbenchErrorCode(error)
@@ -184,6 +194,8 @@ export function createSaveQueue(options: SaveQueueOptions): SaveQueue {
     getBaseVersion: () => baseVersion,
 
     state: () => state,
+
+    lastSavedAt: () => lastSavedAt,
 
     dispose() {
       disposed = true

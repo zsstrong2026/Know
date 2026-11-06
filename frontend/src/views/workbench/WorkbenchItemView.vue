@@ -99,7 +99,13 @@
       :controller="dbController"
       :state="dbState"
       :actions="dbMenuActions"
+      :save-label="saveLabel"
+      :save-tone="saveState"
+      :saved-at-label="savedAtLabel"
+      :archive-status="archiveStatus"
+      :archived-version="archivedVersion"
       @action="onToolbarAction"
+      @archive="onArchiveAction"
     />
 
     <!-- 行详情抽屉：自研只读版，数据来自同一个 dataSource（原型 .db-drawer） -->
@@ -456,7 +462,7 @@ const session = useEditorSession({
   item,
   onConflict: () => openConflictDialog(),
 })
-const { saveState, baseVersion } = session
+const { saveState, baseVersion, savedAt } = session
 // setup 里直接解构 ref 后，模板中的 ready 需要单独暴露（模板不会自动 unwrap 嵌套对象字段）。
 const ready = session.ready
 
@@ -515,13 +521,39 @@ const saveLabel = computed(() => {
   }
 })
 
-/** 冲突三选项：用我的版本覆盖 / 重载服务端版本 / 稍后手动处理。 */
+/**
+ * 最近一次保存的时间（工具条右侧显示「已保存 · 16:03」）。
+ *
+ * 优先用队列里真正落盘的时间；页面刚打开还没保存过时退回条目的 updated_at，
+ * 否则会显示成「已保存」却没有时间。跨天时补上日期，避免昨天的 16:03 被当今天。
+ */
+const savedAtLabel = computed(() => {
+  const stamp = savedAt.value ?? (item.value?.updated_at ? Date.parse(item.value.updated_at) : Number.NaN)
+  if (!Number.isFinite(stamp)) return ''
+  const at = new Date(stamp)
+  if (Number.isNaN(at.getTime())) return ''
+  const hh = String(at.getHours()).padStart(2, '0')
+  const mm = String(at.getMinutes()).padStart(2, '0')
+  const now = new Date()
+  const sameDay =
+    at.getFullYear() === now.getFullYear() &&
+    at.getMonth() === now.getMonth() &&
+    at.getDate() === now.getDate()
+  return sameDay ? `${hh}:${mm}` : `${at.getMonth() + 1}-${at.getDate()} ${hh}:${mm}`
+})
+
+/**
+ * 冲突三选项：用我的版本覆盖 / 重载服务端版本 / 稍后处理。
+ *
+ * 关闭按钮（✕、遮罩、Esc）走 onClose，只收起弹窗、保留本地改动，
+ * **不能**复用 onCancel —— 那等于用户什么都没选就丢掉了自己的编辑。
+ */
 function openConflictDialog() {
   const dialog = DialogPlugin({
-    header: t('workbench.editor.saveError'),
-    body: t('workbench.editor.saveError'),
-    confirmBtn: t('workbench.editor.saveSaved'),
-    cancelBtn: t('workbench.editor.loadFailed'),
+    header: t('workbench.editor.conflictTitle'),
+    body: t('workbench.editor.conflictBody'),
+    confirmBtn: t('workbench.editor.conflictOverwrite'),
+    cancelBtn: t('workbench.editor.conflictReload'),
     onConfirm: async () => {
       await session.forceSave()
       dialog.hide()
@@ -530,6 +562,7 @@ function openConflictDialog() {
       dialog.hide()
       await session.reload()
     },
+    onClose: () => dialog.hide(),
   })
 }
 
@@ -746,6 +779,17 @@ async function onImportFileChange(event: Event) {
   }
 }
 
+/**
+ * 内容落盘后，已归档的快照立即过期。
+ *
+ * 与服务端口径一致（归档行的 source_version < 条目的 snapshot_version 即 stale），
+ * 本地先切徽标可以让「事项 → 知识库」的关系一眼可见：改完这片表格，
+ * 徽标就从「已归档」变成「归档已过期」，点一下就是重新同步。
+ */
+watch(saveState, (state) => {
+  if (state === 'saved' && archiveStatus.value === 'active') archiveStatus.value = 'stale'
+})
+
 async function refreshArchiveState() {
   try {
     const state = await getArchiveState('item', itemId.value)
@@ -770,6 +814,7 @@ async function refreshArchiveState() {
  */
 async function onArchiveAction(action: ArchiveBadgeAction) {
   if (action === 'none' || action === 'progress') return
+  // 事项的归档正文就是当前表格的投影（Markdown 表格，§6.3「数据库按当前视图生成」）。
   const markdown = session.markdown()
   if (!markdown.trim()) {
     MessagePlugin.warning(t('workbench.archive.status.none'))
@@ -788,7 +833,9 @@ async function onArchiveAction(action: ArchiveBadgeAction) {
       await refreshArchive(payload)
     }
     await refreshArchiveState()
-    MessagePlugin.success(t('workbench.archive.action.create'))
+    MessagePlugin.success(
+      t(action === 'update' || action === 'retry' ? 'workbench.archive.action.update' : 'workbench.archive.action.create'),
+    )
   } catch (error) {
     if (workbenchErrorCode(error) === WORKBENCH_ERROR.archiveStale) {
       MessagePlugin.warning(t('workbench.archive.status.stale'))

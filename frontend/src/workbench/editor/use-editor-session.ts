@@ -54,6 +54,8 @@ export interface EditorSessionOptions {
 export interface EditorSession {
   ready: Ref<boolean>
   saveState: Ref<SaveState>
+  /** 最近一次成功保存的时间戳（ms）；没保存过是 null。事项页用它显示「已保存 · 16:03」 */
+  savedAt: Ref<number | null>
   editor: Ref<CanvasHandle | null>
   /** 最近一次成功保存后的快照版本，归档时作为 base_version */
   baseVersion: Ref<number>
@@ -164,6 +166,8 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
   const { itemId, host, item } = options
   const ready = ref(false)
   const saveState = ref<SaveState>('idle')
+  /** 最近一次成功落盘的时间；只在 saved 状态推进，冲突/失败不刷新。 */
+  const savedAt = ref<number | null>(null)
   // shallowRef：编辑器实例内部有大量不可序列化字段，深度代理只会拖慢渲染。
   const editor = shallowRef<CanvasHandle | null>(null)
   const baseVersion = ref(0)
@@ -263,7 +267,11 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
       onState: (state) => {
         saveState.value = state
         // 保存成功即推进基线，归档时的 base_version 才不会落后
-        if (state === 'saved') syncBaseVersion()
+        if (state === 'saved') {
+          // 队列里的时间戳才是真正落盘的那一刻；回退到 Date.now() 只兜首帧时序。
+          savedAt.value = queue?.lastSavedAt() ?? Date.now()
+          syncBaseVersion()
+        }
         if (state === 'conflict') options.onConflict?.()
       },
       // 空文档且显式要求延迟：只有用户真的改了内容才落盘（§9.16.2）。
@@ -406,6 +414,7 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
   return {
     ready,
     saveState,
+    savedAt,
     editor,
     baseVersion,
     mode,

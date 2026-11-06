@@ -938,6 +938,11 @@
       saveSaving: 'Saving…',
       saveSaved: 'Saved',
       saveError: 'Save failed',
+      conflictTitle: 'This content was updated elsewhere',
+      conflictBody:
+        'Your latest changes are not saved yet. Overwrite keeps your current content and replaces the server copy; Reload latest discards your local changes. You can also close this and handle it later.',
+      conflictOverwrite: 'Overwrite with mine',
+      conflictReload: 'Reload latest',
       untitled: 'Untitled',
       addIcon: 'Add icon',
       addIconHint: 'Enter an emoji as the item icon (leave empty to clear)',

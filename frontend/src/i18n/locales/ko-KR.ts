@@ -9650,6 +9650,11 @@
       saveSaving: '저장 중…',
       saveSaved: '저장됨',
       saveError: '저장 실패',
+      conflictTitle: '이 콘텐츠가 다른 곳에서 업데이트되었습니다',
+      conflictBody:
+        '최신 변경 사항이 아직 저장되지 않았습니다. "내 버전으로 덮어쓰기"는 현재 내용으로 서버를 덮어쓰고, "최신 버전 다시 불러오기"는 로컬 변경을 버립니다. 이 창을 닫고 나중에 처리할 수도 있습니다.',
+      conflictOverwrite: '내 버전으로 덮어쓰기',
+      conflictReload: '최신 버전 다시 불러오기',
       untitled: '제목 없음',
       addIcon: '아이콘 추가',
       addIconHint: '이모지를 입력해 항목 아이콘으로 사용합니다(비우면 삭제)',

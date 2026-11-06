@@ -9651,6 +9651,11 @@
       saveSaving: '正在儲存…',
       saveSaved: '已儲存',
       saveError: '儲存失敗',
+      conflictTitle: '這份內容已在其他位置更新',
+      conflictBody:
+        '你最新的改動還沒儲存。選「用我的版本覆蓋」會以目前內容覆蓋伺服器；選「重新載入最新版本」會放棄本機改動。也可以先關掉這個提示，稍後自行處理。',
+      conflictOverwrite: '用我的版本覆蓋',
+      conflictReload: '重新載入最新版本',
       untitled: '未命名',
       addIcon: '新增圖示',
       addIconHint: '輸入一個 emoji 作為項目圖示（留空可清除）',

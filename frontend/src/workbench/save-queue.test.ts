@@ -145,3 +145,15 @@ test('未开启 deferBlankCommit 时行为不变', async () => {
   await queue.flush()
   assert.equal(calls.length, 1)
 })
+
+test('lastSavedAt 只在真正落盘后推进', async () => {
+  const { queue } = makeQueue()
+  assert.equal(queue.lastSavedAt(), null)
+  queue.markDirty()
+  await settle(queue)
+  const first = queue.lastSavedAt()
+  assert.ok(typeof first === 'number' && first > 0)
+  // 冲突不刷新时间：它并不代表内容已经写成功
+  await queue.flush()
+  assert.equal(queue.lastSavedAt(), first)
+})

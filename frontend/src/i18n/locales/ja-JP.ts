@@ -938,6 +938,11 @@
       saveSaving: '保存中…',
       saveSaved: '保存済み',
       saveError: '保存に失敗しました',
+      conflictTitle: 'この内容は別の場所で更新されています',
+      conflictBody:
+        '最新の変更はまだ保存されていません。「自分のバージョンで上書き」は現在の内容でサーバー側を置き換え、「最新を再読み込み」はローカルの変更を破棄します。このまま閉じて後で対応することもできます。',
+      conflictOverwrite: '自分のバージョンで上書き',
+      conflictReload: '最新を再読み込み',
       untitled: '無題',
       addIcon: 'アイコンを追加',
       addIconHint: '絵文字を入力してアイテムのアイコンにします（空欄でクリア）',

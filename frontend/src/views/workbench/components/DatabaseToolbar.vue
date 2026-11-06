@@ -78,6 +78,19 @@
 
       <span class="spacer" />
 
+      <!-- 事项没有顶栏：保存状态、最近保存时间、归档徽章都收到工具条右侧 -->
+      <span v-if="saveLabel" class="db-save" :class="`is-${saveTone ?? 'idle'}`">
+        <span class="s-dot" />{{ saveLabel }}
+        <template v-if="savedAtLabel"> · {{ savedAtLabel }}</template>
+      </span>
+
+      <ArchiveBadge
+        v-if="archiveStatus"
+        :status="archiveStatus"
+        :archived-version="archivedVersion ?? 0"
+        @action="onArchiveAction"
+      />
+
       <t-input
         v-model="searchText"
         class="db-search"
@@ -136,15 +149,35 @@ import { useI18n } from 'vue-i18n'
 import type { DatabaseToolbarController } from '@/workbench/editor/database-session'
 import type { DatabaseFilterInput } from '@/workbench/editor/database-session'
 import type { DatabaseToolbarState } from '@/workbench/editor/database-state'
+import type { ArchiveBadgeAction } from '@/workbench/archive-status'
+import type { ArchiveStatus } from '@/types/workbench'
+import type { SaveState } from '@/workbench/save-queue'
+import ArchiveBadge from './ArchiveBadge.vue'
 
 const props = defineProps<{
   controller: DatabaseToolbarController | null
   state: DatabaseToolbarState
   /** 工具条右侧「⋯」菜单项；空数组时不渲染按钮（画布内数据库块走顶栏菜单） */
   actions?: Array<{ value: string; label: string; disabled?: boolean }>
+  /** 保存状态文案与语义（已保存 / 正在保存… / 保存失败），来自编辑器会话 */
+  saveLabel?: string
+  saveTone?: SaveState
+  /** 最近一次成功保存的时间（16:03）；为空则只显示状态文案 */
+  savedAtLabel?: string
+  /** 归档状态：事项表的改动同步到工作知识库 */
+  archiveStatus?: ArchiveStatus
+  archivedVersion?: number
 }>()
 
-const emit = defineEmits<{ action: [value: string] }>()
+const emit = defineEmits<{
+  action: [value: string]
+  /** 归档/更新归档；具体调用仍由条目页统一处理 */
+  archive: [action: ArchiveBadgeAction]
+}>()
+
+function onArchiveAction(action: ArchiveBadgeAction) {
+  emit('archive', action)
+}
 
 const { t } = useI18n()
 const state = computed(() => props.state)
@@ -546,6 +579,38 @@ function newRow() {
   border-radius: 50%;
   background: var(--td-brand-color);
   vertical-align: middle;
+}
+
+/* 保存状态：原型顶栏的「圆点 + 草稿已暂存 · 11:20」，现在落在工具条右侧 */
+.db-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--td-text-color-placeholder);
+  white-space: nowrap;
+}
+
+.db-save .s-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #12a150;
+}
+
+.db-save.is-pending .s-dot,
+.db-save.is-saving .s-dot {
+  background: #ed7b2f;
+}
+
+.db-save.is-error .s-dot,
+.db-save.is-conflict .s-dot {
+  background: #e34d59;
+}
+
+.db-save.is-error,
+.db-save.is-conflict {
+  color: #c9353f;
 }
 
 .spacer {

@@ -9651,6 +9651,11 @@
       saveSaving: '正在保存…',
       saveSaved: '已保存',
       saveError: '保存失败',
+      conflictTitle: '这份内容已在其他位置更新',
+      conflictBody:
+        '你的最新改动还没有保存。选「用我的版本覆盖」会以当前内容覆盖服务端；选「重载最新版本」会放弃本地改动。也可以先关掉这个提示，稍后自己处理。',
+      conflictOverwrite: '用我的版本覆盖',
+      conflictReload: '重载最新版本',
       untitled: '未命名',
       addIcon: '添加图标',
       addIconHint: '输入一个 emoji 作为条目标图（留空可清除）',
