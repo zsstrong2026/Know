@@ -1,4 +1,4 @@
-export default {
+﻿export default {
   modelCatalog: {
     "title": "模型目錄",
     "description": "模型目錄決定新增模型時可選的模型清單，以及脈絡視窗、是否支持思考等預設參數。在這裡修改後，所有空間立即生效。",
@@ -3188,7 +3188,12 @@ export default {
       sessionsByTitle: '對話（按標題）',
       commands: '命令',
       recent: '最近搜尋',
-      quickActions: '快捷操作'
+      quickActions: '快捷操作',
+      workbench: '工作台'
+    },
+    workbench: {
+      item: '畫布 / 資料庫條目',
+      document: '章節文件'
     },
     scope: {
       placeholder: '在本知識庫中搜尋…',
@@ -9299,7 +9304,7 @@ export default {
       title: '工作台',
       beta: 'BETA',
       recent: '最近',
-      databases: '資料庫',
+      databases: '事項',
       favorites: '收藏',
       templates: '範本',
       trash: '回收站',
@@ -9347,18 +9352,52 @@ export default {
       folder: '新增資料夾',
       folderHint: '在工作台內整理條目'
     },
+    import: {
+      entry: '匯入資料',
+      title: '匯入資料',
+      pick: '選擇檔案',
+      pickHint: '支援 PDF / DOCX / PPTX / XLSX / MD / HTML，單一檔案不超過 50MB',
+      pickHintAttachment: '支援 PDF / DOCX / PPTX / XLSX / MD / HTML，單一檔案不超過 20MB',
+      rejected: '已略過 {count} 個檔案：',
+      selected: '已選 {count} 個檔案',
+      submit: '開始匯入',
+      cancel: '取消',
+      retry: '重試失敗 {count} 項',
+      enqueued: '已提交 {count} 個檔案，進度請見上傳面板',
+      attached: '已插入 {count} 個附件',
+      insertFailed: '附件已上傳但插入失敗，請重新整理後再試',
+      failed: '工作知識庫尚未就緒，請稍後再試',
+      target: {
+        kb: '加入工作知識庫',
+        attachment: '作為本條目的附件'
+      },
+      hint: {
+        kb: '解析後進入你的私有工作知識庫，可被檢索與問答；管理員與成員不可見。',
+        attachment: '只作為附件儲存在目前條目（單一檔案不超過 20MB），可下載與預覽；不參與檢索，需要被搜尋時請選擇加入工作知識庫。'
+      },
+      state: {
+        pending: '待匯入',
+        uploading: '上傳中',
+        done: '已完成',
+        failed: '失敗'
+      },
+      reason: {
+        empty: '空檔案',
+        too_large: '超過大小上限',
+        unsupported: '不支援的格式'
+      }
+    },
     list: {
       searchPlaceholder: '搜尋標題…',
       total: '共 {count} 個條目',
       loadedAll: '已載入全部',
       sortRecent: '最近更新',
       groupToday: '今天',
-      newCanvas: '新增畫布',
-      newDatabase: '新增資料庫',
+      newDocument: '新增文件',
       cards: '卡片檢視',
       list: '清單檢視',
       emptyTitle: '還沒有內容',
-      emptyHint: '新增畫布或資料庫，內容只保存在你自己的空間裡。',
+      emptyHint: '新增文件，內容只保存在你自己的空間裡。',
       emptySearchTitle: '沒有找到符合的內容',
       emptySearchHint: '試試更短的關鍵字，或清空搜尋。',
       emptyTrashTitle: '回收站是空的',
@@ -9369,6 +9408,11 @@ export default {
     },
     item: {
       untitled: '未命名',
+      untitledDocument: '未命名文件',
+      untitledDatabase: '未命名資料庫',
+      canvas: '畫布',
+      document: '文件',
+      database: '事項',
       open: '開啟',
       rename: '重新命名',
       move: '移動到資料夾',
@@ -9385,6 +9429,152 @@ export default {
       restoreFailed: '還原失敗',
       favoriteFailed: '更新收藏失敗',
       more: '更多操作'
+    },
+    modeSwitch: {
+      label: '形態切換',
+      page: '文件',
+      edgeless: '無限畫布',
+      syncFailed: '形態偏好未同步，下次進入將按伺服器記錄開啟'
+    },
+    canvasHistory: {
+      undo: '復原',
+      redo: '重做'
+    },
+    database: {
+      columns: {
+        title: '事項',
+        status: '狀態',
+        date: '截止日',
+        owner: '負責人',
+        priority: '優先級',
+        relation: '關聯文件',
+        description: '描述',
+        source: '需求來源',
+        valueAchieved: '價值達成',
+        version: '所屬版本'
+      },
+      caption: '表格 / 看板 / 日曆',
+      views: {
+        table: '表格',
+        kanban: '看板',
+        calendar: 'Calendar 視圖'
+      },
+      status: {
+        todo: '待開始',
+        doing: '進行中',
+        done: '已完成'
+      },
+      /** 新增列的下拉选项值；写进 Y.Doc 时按当前语言落库。 */
+      options: {
+        source: {
+          customer: '客戶回饋',
+          internal: '內部提出',
+          competitor: '競品分析'
+        },
+        value: {
+          achieved: '已達成',
+          partial: '部分達成',
+          missed: '未達成'
+        },
+        version: {
+          backlog: '未排期',
+          v1: 'v1.0.0',
+          v12: 'v1.2.0'
+        }
+      },
+      focus: {
+        open: '全螢幕開啟資料庫',
+        backToCanvas: '返回畫布'
+      },
+      toolbar: {
+        filter: '篩選',
+        filterHint: '用上游篩選面板編輯條件',
+        filterGroup: '{count} 個條件',
+        dateColumn: '日期屬性',
+        sort: '排序',
+        sortHint: '點擊切換升冪或降冪',
+        searchPlaceholder: '搜尋列…',
+        search: '搜尋需求',
+        sortBy: '排序：{field}',
+        reset: '清除',
+        newRow: '新建一列',
+        rowDetail: '表格行詳情',
+        close: '關閉',
+        exportCsv: '匯出 CSV',
+        importCsv: '匯入 CSV',
+        importDone: '已匯入 {count} 列',
+        importEmpty: '檔案裡沒有可匯入的列',
+        importFailed: 'CSV 解析失敗，請確認表頭與編碼'
+      },
+      ai: {
+        entry: '用 AI 生成欄位與列',
+        title: 'AI 生成欄位與列',
+        hint: '描述你要補充的欄位或列，AI 會先給出預覽，確認後才寫入表格。',
+        placeholder: '例如：增加一欄「風險等級」（高/中/低），並依現有事項補上取值',
+        context: '目前 {columns} 欄 · {rows} 列參與生成',
+        truncated: '列數較多，只取前 50 列作為參考',
+        generate: '生成預覽',
+        cancel: '取消',
+        apply: '寫入表格',
+        applyDisabled: '暫無可寫入內容',
+        applied: '已寫入：新增 {columns} 欄、{rows} 列，填寫 {cells} 個儲存格',
+        applyFailed: '寫入失敗，已回滾本次變更',
+        preview: {
+          title: '寫入預覽',
+          counts: '{columns} 欄 · {rows} 列 · {cells} 個儲存格',
+          overwrite: '將覆蓋原值',
+          overwriteConfirm: '有 {count} 個儲存格已有內容，確認允許覆蓋',
+          invalid: '有 {count} 項無法寫入，請重新生成',
+          blocked: '補丁無法套用到目前表格，請調整描述後重新生成',
+          empty: 'AI 沒有給出可執行的變更',
+          tagColumn: '新增欄',
+          tagRow: '新增列',
+          tagCell: '填儲存格',
+          column: '新增欄「{name}」（{type}）',
+          columnWithOptions: '新增欄「{name}」（{type}）：{options}',
+          row: '新增列「{title}」：{cells}',
+          rowOnly: '新增列「{title}」',
+          cell: '把「{row}」的「{column}」設為 {value}'
+        },
+        state: {
+          notReady: '表格還沒準備好，請稍後再試',
+          noModel: '目前空間沒有可用的模型，請先到設定裡配置',
+          tooLong: '描述太長，請精簡後再試',
+          notFound: '項目不存在或無權存取',
+          invalid: 'AI 回傳的內容無法解析，請重新生成',
+          failed: '生成失敗，請稍後再試'
+        }
+      },
+      collect: {
+        entry: '收集事項',
+        title: '收集事項',
+        hint: '從正文待辦中提取事項，確認後同步到「事項」庫',
+        empty: '正文裡還沒有待辦事項',
+        count: '已選 {selected} / {total}',
+        selectAll: '全選',
+        selectNone: '全不選',
+        done: '已完成',
+        cancel: '取消',
+        confirm: '同步到事項',
+        applied: '已收集 {count} 條事項',
+        failed: '收集失敗，請稍後再試'
+      },
+      filterFn: {
+        is: '等於',
+        isNot: '不等於',
+        contains: '包含',
+        doesNoContains: '不包含',
+        startsWith: '開頭是',
+        endsWith: '結尾是',
+        isOneOf: '屬於',
+        isNotOneOf: '不屬於',
+        isEmpty: '為空',
+        isNotEmpty: '不為空',
+        before: '早於',
+        after: '晚於',
+        isChecked: '已勾選',
+        isUnchecked: '未勾選'
+      }
     },
     archive: {
       status: {
@@ -9553,6 +9743,9 @@ export default {
       noVersion: '該任務還沒有產生完成的文件',
       emptyTitle: '工作知識庫裡還沒有章節文件',
       emptyHint: '產生一份文件後，它會出現在這裡並可以歸檔到知識庫。',
+      searchPlaceholder: '搜尋文件標題',
+      loadMore: '載入更多',
+      untitled: '未命名文件',
       columns: {
         title: '標題 / 主題',
         status: '產生狀態',
@@ -9566,7 +9759,9 @@ export default {
         success: '已完成',
         partial_success: '部分完成',
         failed: '產生失敗',
-        cancelled: '已取消'
+        cancelled: '已取消',
+        generated: '已產生',
+        edited: '已編輯'
       }
     },
     pageAi: {

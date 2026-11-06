@@ -8,6 +8,7 @@
  */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import i18n from '@/i18n'
 import {
   createWorkbenchItem,
   deleteWorkbenchFolder,
@@ -29,6 +30,7 @@ import {
 import { currentMonth, formatJournalTitle, todayISO } from '@/workbench/journals/date-only'
 import { resolveCreateTitle } from '@/workbench/editor/prefs'
 import { currentEditorPrefs } from '@/workbench/use-workbench-prefs'
+import type { CollectedTodo } from '@/workbench/editor/collect-todos'
 import type {
   WorkbenchBootstrap,
   WorkbenchFolder,
@@ -89,6 +91,13 @@ export function mergeJournalEntry(
   const next = [...list]
   next.splice(index, 1, entry)
   return next
+}
+
+/** 已确认待写入「事项」库的收集结果；跨条目传递，不落服务端。 */
+export interface PendingCollect {
+  /** 目标（事项）条目 id：事项页只在匹配时消费 */
+  itemId: string
+  todos: CollectedTodo[]
 }
 
 export const useWorkbenchStore = defineStore('workbenchStore', () => {
@@ -184,6 +193,33 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
     await markAllWorkbenchNoticesRead()
   }
 
+  /**
+   * 唯一「事项」条目（kind='database'）。
+   *
+   * 事项是全局单例：不提供新建入口，进入事项视图时按需创建一次。
+   * 用模块级 promise 缓存并发结果，避免多个调用同时创建出两条。
+   */
+  let thingsItemPromise: Promise<WorkbenchItem> | null = null
+  function ensureThingsItem(): Promise<WorkbenchItem> {
+    if (!thingsItemPromise) {
+      thingsItemPromise = (async () => {
+        // 历史上可能已存在多条数据库条目：复用最近更新的一条，其余保留但不再暴露
+        const page = await listWorkbenchItems({ kind: 'database', limit: 1 })
+        const existing = page.items[0]
+        if (existing) return existing
+        return createWorkbenchItem({
+          kind: 'database',
+          title: i18n.global.t('workbench.nav.databases'),
+        })
+      })().catch((error) => {
+        // 失败时清空缓存，下次进入可以重试
+        thingsItemPromise = null
+        throw error
+      })
+    }
+    return thingsItemPromise
+  }
+
   async function createItem(
     kind: WorkbenchItemKind,
     title?: string,
@@ -195,9 +231,14 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
     // Journal 不走这里（createJournal 固定 page + 固定标题），因此两者互不影响（§9.14.4）。
     const prefs = currentEditorPrefs()
     const resolvedTitle = resolveCreateTitle(prefs, title ?? '')
+    // 占位标题走 i18n：英文界面不该出现中文「未命名」。
+    const placeholder =
+      kind === 'database'
+        ? i18n.global.t('workbench.item.untitledDatabase')
+        : i18n.global.t('workbench.item.untitledDocument')
     const item = await createWorkbenchItem({
       kind,
-      title: resolvedTitle || (kind === 'database' ? '未命名数据库' : '未命名画布'),
+      title: resolvedTitle || placeholder,
       folder_id: folderId ?? null,
       // 数据库条目的形态由 kind 决定，不受页面/画布偏好与 override 影响。
       ...(kind === 'canvas' ? { current_mode: modeOverride ?? prefs.defaultCreateMode } : {}),
@@ -352,6 +393,25 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
       .map((row) => (row.parent_id === id ? { ...row, parent_id: removed?.parent_id ?? null } : row))
   }
 
+  /**
+   * 待写入「事项」库的收集结果。
+   *
+   * 文档页没有事项库的 dataSource，无法直接写库；用户确认后先暂存，
+   * 由事项页在数据库工具就绪后取出并应用。
+   */
+  const pendingCollect = ref<PendingCollect | null>(null)
+
+  function setPendingCollect(payload: PendingCollect) {
+    pendingCollect.value = payload
+  }
+
+  /** 取出并清空暂存：同一批待办只应用一次。 */
+  function takePendingCollect(): PendingCollect | null {
+    const payload = pendingCollect.value
+    pendingCollect.value = null
+    return payload
+  }
+
   return {
     bootstrap,
     items,
@@ -375,6 +435,7 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
     fetchNotices,
     markNoticeRead,
     markAllNoticesRead,
+    ensureThingsItem,
     createItem,
     createJournal,
     fetchJournals,
@@ -393,5 +454,7 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
     renameFolder,
     moveFolder,
     removeFolder,
+    setPendingCollect,
+    takePendingCollect,
   }
 })

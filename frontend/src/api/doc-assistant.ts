@@ -1,4 +1,5 @@
 import { get, post, put, del, getDown } from '@/utils/request'
+import type { ArchiveStatus } from '@/types/workbench'
 
 // ---------------------------------------------------------------------------
 // 文档助手（Doc Assistant）API 封装。全部接口位于 /api/v1/doc-assistant，
@@ -164,6 +165,50 @@ export function deleteDocTask(id: string) {
 export function listDocDocuments(taskId: string) {
   return get<{ success: boolean; data: DocDocument[] }>(
     `/api/v1/doc-assistant/tasks/${encodeURIComponent(taskId)}/documents`,
+  )
+}
+
+/**
+ * 全局文档列表的一行（P2-5）。
+ *
+ * 标题取自生成任务的 theme；archive_status / archived_version 由工作台归档
+ * （source_type='doc'）计算，不读任务上的 archive_status 旧字段。
+ */
+export interface DocDocumentSummary {
+  id: string
+  task_id: string
+  title: string
+  version: number
+  status: DocDocumentStatus
+  archive_status?: ArchiveStatus
+  archived_version?: number
+  created_at: string
+}
+
+export interface DocDocumentPage {
+  documents: DocDocumentSummary[]
+  next_cursor: string
+}
+
+export interface ListDocDocumentsParams {
+  /** 只取每个任务的最新版本，默认 true */
+  latest_only?: boolean
+  /** 按任务主题搜索 */
+  q?: string
+  cursor?: string
+  limit?: number
+}
+
+/** 全局章节文档列表（跨任务，owner 由服务端从 JWT 取）。 */
+export function listDocDocumentsGlobal(params: ListDocDocumentsParams = {}) {
+  const query = new URLSearchParams()
+  if (params.latest_only === false) query.set('latest_only', 'false')
+  if (params.q) query.set('q', params.q)
+  if (params.cursor) query.set('cursor', params.cursor)
+  if (params.limit) query.set('limit', String(params.limit))
+  const suffix = query.toString()
+  return get<{ success: boolean; data: DocDocumentPage }>(
+    `/api/v1/doc-assistant/documents${suffix ? `?${suffix}` : ''}`,
   )
 }
 

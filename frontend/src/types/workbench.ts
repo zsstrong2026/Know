@@ -120,6 +120,20 @@ export interface WorkbenchVersionSummary {
   created_at: string
 }
 
+/**
+ * 条目资产元数据（§12.1）。
+ *
+ * 不含 storage_path：服务端从不在响应里给出存储路径，下载只认 asset id。
+ */
+export interface WorkbenchAsset {
+  id: string
+  item_id: string
+  original_name: string
+  mime_type: string
+  size_bytes: number
+  created_at: string
+}
+
 /** 文档模板元数据（§9.16）；不含 ydoc，最多 50 条，不分页。 */
 export interface WorkbenchTemplateSummary {
   id: string

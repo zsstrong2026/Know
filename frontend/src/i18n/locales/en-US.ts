@@ -1,4 +1,4 @@
-export default {
+﻿export default {
   modelCatalog: {
     "title": "Model catalog",
     "description": "The model catalog defines which models are offered when adding a model, along with defaults such as context window and reasoning support. Changes here apply to all workspaces immediately.",
@@ -591,7 +591,7 @@ export default {
       title: 'Workbench',
       beta: 'BETA',
       recent: 'Recent',
-      databases: 'Databases',
+      databases: 'Items',
       favorites: 'Favorites',
       templates: 'Templates',
       trash: 'Trash',
@@ -639,18 +639,52 @@ export default {
       folder: 'New folder',
       folderHint: 'Organize items inside the workbench'
     },
+    import: {
+      entry: 'Import material',
+      title: 'Import material',
+      pick: 'Choose files',
+      pickHint: 'PDF / DOCX / PPTX / XLSX / MD / HTML, up to 50MB per file',
+      pickHintAttachment: 'PDF / DOCX / PPTX / XLSX / MD / HTML, up to 20MB per file',
+      rejected: '{count} files skipped:',
+      selected: '{count} files selected',
+      submit: 'Start import',
+      cancel: 'Cancel',
+      retry: 'Retry {count} failed',
+      enqueued: '{count} files queued; see the upload panel for progress',
+      attached: '{count} attachments inserted',
+      insertFailed: 'Uploaded, but inserting the attachment failed. Refresh and try again',
+      failed: 'Your work knowledge base is not ready yet, please try again later',
+      target: {
+        kb: 'Add to work knowledge base',
+        attachment: 'Attach to this item'
+      },
+      hint: {
+        kb: 'Parsed into your private work knowledge base for search and Q&A; admins and members cannot see it.',
+        attachment: 'Stored as an attachment on this item (up to 20MB per file) for download and preview. It is not searchable; choose the knowledge base option if it needs to be found.'
+      },
+      state: {
+        pending: 'Pending',
+        uploading: 'Uploading',
+        done: 'Done',
+        failed: 'Failed'
+      },
+      reason: {
+        empty: 'Empty file',
+        too_large: 'Above the size limit',
+        unsupported: 'Unsupported format'
+      }
+    },
     list: {
       searchPlaceholder: 'Search by title…',
       total: '{count} items',
       loadedAll: 'All items loaded',
       sortRecent: 'Recently updated',
       groupToday: 'Today',
-      newCanvas: 'New canvas',
-      newDatabase: 'New database',
+      newDocument: 'New document',
       cards: 'Card view',
       list: 'List view',
       emptyTitle: 'Nothing here yet',
-      emptyHint: 'Create a canvas or a database. Everything stays in your own space.',
+      emptyHint: 'Create a document. Everything stays in your own space.',
       emptySearchTitle: 'No matching items',
       emptySearchHint: 'Try a shorter keyword, or clear the search.',
       emptyTrashTitle: 'Trash is empty',
@@ -661,6 +695,11 @@ export default {
     },
     item: {
       untitled: 'Untitled',
+      untitledDocument: 'Untitled document',
+      untitledDatabase: 'Untitled database',
+      canvas: 'Canvas',
+      document: 'Document',
+      database: 'Item',
       open: 'Open',
       rename: 'Rename',
       move: 'Move to folder',
@@ -677,6 +716,152 @@ export default {
       restoreFailed: 'Restore failed',
       favoriteFailed: 'Failed to update favorite',
       more: 'More actions'
+    },
+    modeSwitch: {
+      label: 'Editor mode',
+      page: 'Page',
+      edgeless: 'Edgeless',
+      syncFailed: 'Mode preference not synced; next open follows the server value'
+    },
+    canvasHistory: {
+      undo: 'Undo',
+      redo: 'Redo'
+    },
+    database: {
+      columns: {
+        title: 'Item',
+        status: 'Status',
+        date: 'Due',
+        owner: 'Owner',
+        priority: 'Priority',
+        relation: 'Linked doc',
+        description: 'Description',
+        source: 'Source',
+        valueAchieved: 'Value achieved',
+        version: 'Release'
+      },
+      caption: 'Table / Kanban / Calendar',
+      views: {
+        table: 'Table',
+        kanban: 'Kanban',
+        calendar: 'Calendar'
+      },
+      status: {
+        todo: 'To do',
+        doing: 'In progress',
+        done: 'Done'
+      },
+      /** 新增列的下拉选项值；写进 Y.Doc 时按当前语言落库。 */
+      options: {
+        source: {
+          customer: 'Customer feedback',
+          internal: 'Internal',
+          competitor: 'Competitor analysis'
+        },
+        value: {
+          achieved: 'Achieved',
+          partial: 'Partially achieved',
+          missed: 'Not achieved'
+        },
+        version: {
+          backlog: 'Backlog',
+          v1: 'v1.0.0',
+          v12: 'v1.2.0'
+        }
+      },
+      focus: {
+        open: 'Open database full screen',
+        backToCanvas: 'Back to canvas'
+      },
+      toolbar: {
+        filter: 'Filter',
+        filterHint: 'Edit conditions in the upstream filter panel',
+        filterGroup: '{count} rules',
+        dateColumn: 'Date property',
+        sort: 'Sort',
+        sortHint: 'Click to toggle ascending/descending',
+        searchPlaceholder: 'Search rows…',
+        search: 'Search items',
+        sortBy: 'Sort: {field}',
+        reset: 'Clear',
+        newRow: 'New row',
+        rowDetail: 'Row details',
+        close: 'Close',
+        exportCsv: 'Export CSV',
+        importCsv: 'Import CSV',
+        importDone: 'Imported {count} rows',
+        importEmpty: 'No rows to import in this file',
+        importFailed: 'Failed to parse CSV. Check the header and encoding.'
+      },
+      ai: {
+        entry: 'Generate columns and rows with AI',
+        title: 'Generate columns and rows',
+        hint: 'Describe the fields or rows you need. AI shows a preview first and writes only after you confirm.',
+        placeholder: 'e.g. Add a "Risk" column (high/medium/low) and fill it for the rows above',
+        context: '{columns} columns · {rows} rows included',
+        truncated: 'Too many rows; only the first 50 are used as reference',
+        generate: 'Generate preview',
+        cancel: 'Cancel',
+        apply: 'Write to table',
+        applyDisabled: 'Nothing to write yet',
+        applied: 'Written: {columns} new columns, {rows} new rows, {cells} cells filled',
+        applyFailed: 'Write failed; all changes were rolled back',
+        preview: {
+          title: 'Preview',
+          counts: '{columns} columns · {rows} rows · {cells} cells',
+          overwrite: 'Overwrites value',
+          overwriteConfirm: '{count} cells already have content. Allow overwriting them.',
+          invalid: '{count} items cannot be written. Please regenerate.',
+          blocked: 'This patch cannot be applied to the current table. Adjust the request and regenerate.',
+          empty: 'AI returned no applicable changes',
+          tagColumn: 'New column',
+          tagRow: 'New row',
+          tagCell: 'Set cell',
+          column: 'Add column "{name}" ({type})',
+          columnWithOptions: 'Add column "{name}" ({type}): {options}',
+          row: 'Add row "{title}": {cells}',
+          rowOnly: 'Add row "{title}"',
+          cell: 'Set "{column}" of "{row}" to {value}'
+        },
+        state: {
+          notReady: 'The table is not ready yet. Try again in a moment.',
+          noModel: 'No model is available in this workspace. Configure one in settings.',
+          tooLong: 'The description is too long. Shorten it and try again.',
+          notFound: 'Item not found or not accessible',
+          invalid: 'AI returned something unreadable. Please regenerate.',
+          failed: 'Generation failed. Try again later.'
+        }
+      },
+      collect: {
+        entry: 'Collect items',
+        title: 'Collect items',
+        hint: 'Extract items from to-dos in this document and sync them to Items after you confirm.',
+        empty: 'No to-dos in this document yet',
+        count: 'Selected {selected} / {total}',
+        selectAll: 'Select all',
+        selectNone: 'Select none',
+        done: 'Done',
+        cancel: 'Cancel',
+        confirm: 'Sync to Items',
+        applied: '{count} items collected',
+        failed: 'Collection failed. Try again later.'
+      },
+      filterFn: {
+        is: 'is',
+        isNot: 'is not',
+        contains: 'contains',
+        doesNoContains: "doesn't contain",
+        startsWith: 'starts with',
+        endsWith: 'ends with',
+        isOneOf: 'is one of',
+        isNotOneOf: 'is not one of',
+        isEmpty: 'is empty',
+        isNotEmpty: 'is not empty',
+        before: 'is before',
+        after: 'is after',
+        isChecked: 'is checked',
+        isUnchecked: 'is unchecked'
+      }
     },
     archive: {
       status: {
@@ -845,6 +1030,9 @@ export default {
       noVersion: 'This task has no finished document yet',
       emptyTitle: 'No documents in the work knowledge base yet',
       emptyHint: 'Generate one and it will show up here, ready to be archived into the knowledge base.',
+      searchPlaceholder: 'Search document titles',
+      loadMore: 'Load more',
+      untitled: 'Untitled document',
       columns: {
         title: 'Title / theme',
         status: 'Status',
@@ -858,7 +1046,9 @@ export default {
         success: 'Completed',
         partial_success: 'Partially completed',
         failed: 'Failed',
-        cancelled: 'Cancelled'
+        cancelled: 'Cancelled',
+        generated: 'Generated',
+        edited: 'Edited'
       }
     },
     pageAi: {
@@ -8858,7 +9048,12 @@ export default {
       sessionsByTitle: 'Chats (by title)',
       commands: 'Commands',
       recent: 'Recent',
-      quickActions: 'Quick actions'
+      quickActions: 'Quick actions',
+      workbench: 'Workbench'
+    },
+    workbench: {
+      item: 'Canvas / database item',
+      document: 'Chapter document'
     },
     match: {
       vector: 'Vector',

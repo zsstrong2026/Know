@@ -1,4 +1,4 @@
-export default {
+﻿export default {
   modelCatalog: {
     "title": "模型目录",
     "description": "模型目录决定添加模型时可选的模型列表，以及上下文窗口、是否支持思考等默认参数。在这里修改后，所有空间立即生效。",
@@ -3188,7 +3188,12 @@ export default {
       sessionsByTitle: '对话（按标题）',
       commands: '命令',
       recent: '最近搜索',
-      quickActions: '快捷操作'
+      quickActions: '快捷操作',
+      workbench: '工作台'
+    },
+    workbench: {
+      item: '画布 / 数据库条目',
+      document: '章节文档'
     },
     scope: {
       placeholder: '在本知识库中搜索…',
@@ -9299,7 +9304,7 @@ export default {
       title: '工作台',
       beta: 'BETA',
       recent: '最近',
-      databases: '数据库',
+      databases: '事项',
       favorites: '收藏',
       templates: '模板',
       trash: '回收站',
@@ -9347,18 +9352,52 @@ export default {
       folder: '新建文件夹',
       folderHint: '在工作台内整理条目'
     },
+    import: {
+      entry: '导入资料',
+      title: '导入资料',
+      pick: '选择文件',
+      pickHint: '支持 PDF / DOCX / PPTX / XLSX / MD / HTML，单个文件不超过 50MB',
+      pickHintAttachment: '支持 PDF / DOCX / PPTX / XLSX / MD / HTML，单个文件不超过 20MB',
+      rejected: '{count} 个文件已跳过：',
+      selected: '已选 {count} 个文件',
+      submit: '开始导入',
+      cancel: '取消',
+      retry: '重试失败 {count} 项',
+      enqueued: '已提交 {count} 个文件，进度见上传面板',
+      attached: '已插入 {count} 个附件',
+      insertFailed: '附件已上传但插入失败，请刷新后重试',
+      failed: '工作知识库尚未就绪，请稍后再试',
+      target: {
+        kb: '加入工作知识库',
+        attachment: '作为本条目的附件'
+      },
+      hint: {
+        kb: '解析后进入你的私有工作知识库，可被检索与问答；管理员与成员不可见。',
+        attachment: '只作为附件保存在当前条目（单个文件不超过 20MB），可下载与预览；不参与检索，需要被搜索时请选择加入工作知识库。'
+      },
+      state: {
+        pending: '待导入',
+        uploading: '上传中',
+        done: '已完成',
+        failed: '失败'
+      },
+      reason: {
+        empty: '空文件',
+        too_large: '超过大小上限',
+        unsupported: '不支持的格式'
+      }
+    },
     list: {
       searchPlaceholder: '搜索标题…',
       total: '共 {count} 个条目',
       loadedAll: '已加载全部',
       sortRecent: '最近更新',
       groupToday: '今天',
-      newCanvas: '新建画布',
-      newDatabase: '新建数据库',
+      newDocument: '新建文档',
       cards: '卡片视图',
       list: '列表视图',
       emptyTitle: '还没有内容',
-      emptyHint: '新建画布或数据库，内容只保存在你自己的空间里。',
+      emptyHint: '新建文档，内容只保存在你自己的空间里。',
       emptySearchTitle: '没有找到匹配的内容',
       emptySearchHint: '试试更短的关键词，或清空搜索。',
       emptyTrashTitle: '回收站是空的',
@@ -9369,6 +9408,11 @@ export default {
     },
     item: {
       untitled: '未命名',
+      untitledDocument: '未命名文档',
+      untitledDatabase: '未命名数据库',
+      canvas: '画布',
+      document: '文档',
+      database: '事项',
       open: '打开',
       rename: '重命名',
       move: '移动到文件夹',
@@ -9385,6 +9429,152 @@ export default {
       restoreFailed: '恢复失败',
       favoriteFailed: '更新收藏失败',
       more: '更多操作'
+    },
+    modeSwitch: {
+      label: '形态切换',
+      page: '文档',
+      edgeless: '无限画布',
+      syncFailed: '形态偏好未同步，下次进入将按服务端记录打开'
+    },
+    canvasHistory: {
+      undo: '撤销',
+      redo: '重做'
+    },
+    database: {
+      columns: {
+        title: '事项',
+        status: '状态',
+        date: '截止日',
+        owner: '负责人',
+        priority: '优先级',
+        relation: '关联文档',
+        description: '描述',
+        source: '需求来源',
+        valueAchieved: '价值达成',
+        version: '所属版本'
+      },
+      caption: '表格 / 看板 / 日历',
+      views: {
+        table: '表格',
+        kanban: '看板',
+        calendar: 'Calendar 视图'
+      },
+      status: {
+        todo: '待开始',
+        doing: '进行中',
+        done: '已完成'
+      },
+      /** 新增列的下拉选项值；写进 Y.Doc 时按当前语言落库。 */
+      options: {
+        source: {
+          customer: '客户反馈',
+          internal: '内部提出',
+          competitor: '竞品分析'
+        },
+        value: {
+          achieved: '已达成',
+          partial: '部分达成',
+          missed: '未达成'
+        },
+        version: {
+          backlog: '未排期',
+          v1: 'v1.0.0',
+          v12: 'v1.2.0'
+        }
+      },
+      focus: {
+        open: '全屏打开数据库',
+        backToCanvas: '返回画布'
+      },
+      toolbar: {
+        filter: '筛选',
+        filterHint: '用上游筛选面板编辑条件',
+        filterGroup: '{count} 个条件',
+        dateColumn: '日期属性',
+        sort: '排序',
+        sortHint: '点击切换升降序',
+        searchPlaceholder: '搜索行…',
+        search: '搜索需求',
+        sortBy: '排序：{field}',
+        reset: '清除',
+        newRow: '新建一行',
+        rowDetail: '表格行详情',
+        close: '关闭',
+        exportCsv: '导出 CSV',
+        importCsv: '导入 CSV',
+        importDone: '已导入 {count} 行',
+        importEmpty: '文件里没有可导入的行',
+        importFailed: 'CSV 解析失败，请确认表头与编码'
+      },
+      ai: {
+        entry: '用 AI 生成列与行',
+        title: 'AI 生成列与行',
+        hint: '描述你要补充的字段或行，AI 会先给出预览，确认后才写入表格。',
+        placeholder: '例如：增加一列「风险等级」（高/中/低），并按现有事项补上取值',
+        context: '当前 {columns} 列 · {rows} 行参与生成',
+        truncated: '行数较多，只取前 50 行作为参考',
+        generate: '生成预览',
+        cancel: '取消',
+        apply: '写入表格',
+        applyDisabled: '暂无可写入内容',
+        applied: '已写入：新建 {columns} 列、{rows} 行，填写 {cells} 个单元格',
+        applyFailed: '写入失败，已回滚本次改动',
+        preview: {
+          title: '写入预览',
+          counts: '{columns} 列 · {rows} 行 · {cells} 个单元格',
+          overwrite: '将覆盖原值',
+          overwriteConfirm: '有 {count} 个单元格已有内容，确认允许覆盖',
+          invalid: '有 {count} 项无法写入，请重新生成',
+          blocked: '补丁无法应用到当前表格，请调整描述后重新生成',
+          empty: 'AI 没有给出可执行的改动',
+          tagColumn: '新建列',
+          tagRow: '新建行',
+          tagCell: '填单元格',
+          column: '新建列「{name}」（{type}）',
+          columnWithOptions: '新建列「{name}」（{type}）：{options}',
+          row: '新建行「{title}」：{cells}',
+          rowOnly: '新建行「{title}」',
+          cell: '把「{row}」的「{column}」设为 {value}'
+        },
+        state: {
+          notReady: '表格还没准备好，请稍后再试',
+          noModel: '当前空间没有可用的模型，请先到设置里配置',
+          tooLong: '描述太长，请精简后再试',
+          notFound: '条目不存在或无权访问',
+          invalid: 'AI 返回的内容无法解析，请重新生成',
+          failed: '生成失败，请稍后重试'
+        }
+      },
+      collect: {
+        entry: '收集事项',
+        title: '收集事项',
+        hint: '从正文待办中提取事项，确认后同步到「事项」库',
+        empty: '正文里还没有待办事项',
+        count: '已选 {selected} / {total}',
+        selectAll: '全选',
+        selectNone: '全不选',
+        done: '已完成',
+        cancel: '取消',
+        confirm: '同步到事项',
+        applied: '已收集 {count} 条事项',
+        failed: '收集失败，请稍后重试'
+      },
+      filterFn: {
+        is: '等于',
+        isNot: '不等于',
+        contains: '包含',
+        doesNoContains: '不包含',
+        startsWith: '开头是',
+        endsWith: '结尾是',
+        isOneOf: '属于',
+        isNotOneOf: '不属于',
+        isEmpty: '为空',
+        isNotEmpty: '不为空',
+        before: '早于',
+        after: '晚于',
+        isChecked: '已勾选',
+        isUnchecked: '未勾选'
+      }
     },
     archive: {
       status: {
@@ -9553,6 +9743,9 @@ export default {
       noVersion: '该任务还没有生成完成的文档',
       emptyTitle: '工作知识库里还没有章节文档',
       emptyHint: '生成一份文档后，它会出现在这里并可以归档到知识库。',
+      searchPlaceholder: '搜索文档标题',
+      loadMore: '加载更多',
+      untitled: '未命名文档',
       columns: {
         title: '标题 / 主题',
         status: '生成状态',
@@ -9566,7 +9759,9 @@ export default {
         success: '已完成',
         partial_success: '部分完成',
         failed: '生成失败',
-        cancelled: '已取消'
+        cancelled: '已取消',
+        generated: '已生成',
+        edited: '已编辑'
       }
     },
     pageAi: {

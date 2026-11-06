@@ -7,12 +7,13 @@
  *   - 统一在后端响应 `{ success, data }` 上解包，调用方直接拿业务对象；
  *   - 错误码统一用 workbenchErrorCode() 读取，不要在别处再抄一份判断。
  */
-import { get, patch, post, put, del } from '@/utils/request'
+import { get, patch, post, postUpload, put, del } from '@/utils/request'
 import { WORKBENCH_ERROR, workbenchConflictVersion, workbenchErrorCode } from '@/workbench/error-code'
 import type {
   ArchiveSourceType,
   SaveWorkbenchContentResult,
   WorkbenchArchiveState,
+  WorkbenchAsset,
   WorkbenchBootstrap,
   WorkbenchFolder,
   WorkbenchItem,
@@ -152,6 +153,44 @@ export function restoreWorkbenchVersion(
   ).then((r) => r.data)
 }
 
+// ---- 条目资产（§12.1） ----
+// 上传走 multipart（postUpload 会自动带 boundary 与更长的超时）；
+// 下载不在这里：BlockSuite 需要 Blob，由 workbench/editor/assets.ts 直接 fetch。
+
+export function uploadWorkbenchAsset(itemId: string, file: File): Promise<WorkbenchAsset> {
+  const form = new FormData()
+  form.append('file', file)
+  return postUpload(`${BASE}/items/${encodeURIComponent(itemId)}/assets`, form).then(
+    (r) => r.data as WorkbenchAsset,
+  )
+}
+
+export function listWorkbenchAssets(itemId: string): Promise<WorkbenchAsset[]> {
+  return get<{ success: boolean; data: { assets: WorkbenchAsset[] } }>(
+    `${BASE}/items/${encodeURIComponent(itemId)}/assets`,
+  ).then((r) => r.data.assets)
+}
+
+export function deleteWorkbenchAsset(itemId: string, assetId: string): Promise<void> {
+  return del<void>(
+    `${BASE}/items/${encodeURIComponent(itemId)}/assets/${encodeURIComponent(assetId)}`,
+  ).then(() => undefined)
+}
+
+/**
+ * 上报实际引用的资产，刷新服务端 last_seen_at。
+ *
+ * 服务端不解析 Y.Doc，只能靠这个调用判断“文件是否还被引用”。
+ * 失败不应影响编辑与保存，调用方自行吞掉错误。
+ */
+export function touchWorkbenchAssets(itemId: string, assetIds: string[]): Promise<number> {
+  if (assetIds.length === 0) return Promise.resolve(0)
+  return post<{ success: boolean; data: { touched: number } }>(
+    `${BASE}/items/${encodeURIComponent(itemId)}/assets/touch`,
+    { asset_ids: assetIds },
+  ).then((r) => r.data.touched)
+}
+
 export function listWorkbenchFolders(): Promise<WorkbenchFolder[]> {
   return get<{ success: boolean; data: { folders: WorkbenchFolder[] } }>(`${BASE}/folders`)
     .then((r) => r.data.folders)
@@ -255,6 +294,31 @@ export function deleteArchive(payload: {
 }): Promise<WorkbenchArchiveState> {
   return post<{ success: boolean; data: WorkbenchArchiveState }>(`${BASE}/archives/delete`, payload)
     .then((r) => r.data)
+}
+
+// ---- 数据库 AI（P3-5） ----
+// 非流式：模型必须整包返回补丁，前端先预览再写入（§11.7）。
+// 这里只发请求，补丁校验与写入分别在 workbench/ai/database-patch.ts 与
+// workbench/editor/database-ai.ts。
+
+export interface DatabaseAIPayload {
+  item_id: string
+  prompt: string
+  agent_id?: string
+  columns: Array<{ id: string; name: string; type: string }>
+  rows: Array<{ id: string; title: string; cells: Record<string, string> }>
+  truncated?: boolean
+}
+
+export function requestDatabasePatch(payload: DatabaseAIPayload): Promise<{
+  patch: { ops: unknown[] }
+  model_id?: string
+  agent_id?: string
+}> {
+  return post<{ success: boolean; data: { patch: { ops: unknown[] }; model_id?: string; agent_id?: string } }>(
+    `${BASE}/ai/database`,
+    payload,
+  ).then((r) => r.data)
 }
 
 /** 月历数据：只返回 kind='canvas' 且 journal_date 落在该月的条目（§7.11）。 */

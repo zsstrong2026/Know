@@ -3,12 +3,30 @@
  *
  * 卡片视图与列表视图共用同一套口径，避免两个视图对同一条目给出不同描述。
  */
+import i18n from '@/i18n'
 import type { WorkbenchItem } from '@/types/workbench'
 
-/** 副标题：类型 · 形态 · 日历日期，卡片描述与列表行第二行共用。 */
-export function itemCaption(item: WorkbenchItem): string {
+/**
+ * 副标题：查看模式 · 日历日期，卡片描述与列表行第二行共用。
+ *
+ * 文档与画布是同一份内容的两种查看模式，因此这里只描述当前模式，
+ * 不再输出「画布 · 文档」这种把两者并列的错误口径。
+ * 文案走 i18n（`t` 可选，默认取全局实例）。
+ */
+export function itemCaption(
+  item: WorkbenchItem,
+  translate?: (key: string) => string,
+): string {
+  const t = translate ?? ((key: string) => i18n.global.t(key))
+  if (item.kind === 'database') {
+    const parts = [t('workbench.database.caption')]
+    if (item.journal_date) parts.push(item.journal_date)
+    return parts.join(' · ')
+  }
   const mode = item.current_mode ?? 'edgeless'
-  const parts = [item.kind === 'database' ? 'database' : 'canvas', mode]
+  const parts = [
+    t(mode === 'page' ? 'workbench.modeSwitch.page' : 'workbench.modeSwitch.edgeless'),
+  ]
   if (item.journal_date) parts.push(item.journal_date)
   return parts.join(' · ')
 }

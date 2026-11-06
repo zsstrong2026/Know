@@ -1,4 +1,4 @@
-export default {
+﻿export default {
   modelCatalog: {
     "title": "モデルカタログ",
     "description": "モデルカタログは、モデル追加時に選べるモデル一覧と、コンテキスト長や思考対応などの既定値を定義します。ここでの変更はすべてのワークスペースに即時反映されます。",
@@ -591,7 +591,7 @@ export default {
       title: 'ワークベンチ',
       beta: 'BETA',
       recent: '最近',
-      databases: 'データベース',
+      databases: '事項',
       favorites: 'お気に入り',
       templates: 'テンプレート',
       trash: 'ゴミ箱',
@@ -639,18 +639,52 @@ export default {
       folder: '新しいフォルダー',
       folderHint: 'ワークベンチ内でアイテムを整理'
     },
+    import: {
+      entry: '資料をインポート',
+      title: '資料をインポート',
+      pick: 'ファイルを選択',
+      pickHint: 'PDF / DOCX / PPTX / XLSX / MD / HTML、1 ファイル 50MB まで',
+      pickHintAttachment: 'PDF / DOCX / PPTX / XLSX / MD / HTML、1 ファイル 20MB まで',
+      rejected: '{count} 件のファイルをスキップしました：',
+      selected: '{count} 件のファイルを選択',
+      submit: 'インポート開始',
+      cancel: 'キャンセル',
+      retry: '失敗した {count} 件を再試行',
+      enqueued: '{count} 件を送信しました。進行状況はアップロードパネルで確認できます',
+      attached: '{count} 件の添付を挿入しました',
+      insertFailed: 'アップロードは完了しましたが添付の挿入に失敗しました。再読み込みして再試行してください',
+      failed: 'ワーク用ナレッジベースがまだ準備できていません。しばらくしてから再試行してください',
+      target: {
+        kb: 'ワーク用ナレッジベースに追加',
+        attachment: 'このアイテムの添付にする'
+      },
+      hint: {
+        kb: '解析後、自分専用のワーク用ナレッジベースに入り、検索と質問応答に使えます。管理者とメンバーには見えません。',
+        attachment: 'このアイテムの添付として保存され（1 ファイル 20MB まで）、ダウンロードとプレビューができます。検索対象外のため、検索したい場合はナレッジベースへの追加を選んでください。'
+      },
+      state: {
+        pending: '待機中',
+        uploading: 'アップロード中',
+        done: '完了',
+        failed: '失敗'
+      },
+      reason: {
+        empty: '空のファイル',
+        too_large: 'サイズ上限を超えています',
+        unsupported: '未対応の形式'
+      }
+    },
     list: {
       searchPlaceholder: 'タイトルで検索…',
       total: '全 {count} 件',
       loadedAll: 'すべて読み込み済み',
       sortRecent: '更新が新しい順',
       groupToday: '今日',
-      newCanvas: '新しいキャンバス',
-      newDatabase: '新しいデータベース',
+      newDocument: '新規ドキュメント',
       cards: 'カード表示',
       list: 'リスト表示',
       emptyTitle: 'まだ何もありません',
-      emptyHint: 'キャンバスかデータベースを作成してください。内容は自分の空間にのみ保存されます。',
+      emptyHint: 'ドキュメントを作成してください。内容は自分の空間にのみ保存されます。',
       emptySearchTitle: '一致する内容がありません',
       emptySearchHint: '短いキーワードにするか、検索をクリアしてください。',
       emptyTrashTitle: 'ゴミ箱は空です',
@@ -661,6 +695,11 @@ export default {
     },
     item: {
       untitled: '無題',
+      untitledDocument: '無題のドキュメント',
+      untitledDatabase: '無題のデータベース',
+      canvas: 'キャンバス',
+      document: 'ドキュメント',
+      database: '事項',
       open: '開く',
       rename: '名前を変更',
       move: 'フォルダーへ移動',
@@ -677,6 +716,152 @@ export default {
       restoreFailed: '復元に失敗しました',
       favoriteFailed: 'お気に入りの更新に失敗しました',
       more: 'その他の操作'
+    },
+    modeSwitch: {
+      label: '表示モード',
+      page: 'ページ',
+      edgeless: 'エッジレス',
+      syncFailed: 'モード設定を同期できませんでした。次回はサーバーの値で開きます'
+    },
+    canvasHistory: {
+      undo: '元に戻す',
+      redo: 'やり直す'
+    },
+    database: {
+      columns: {
+        title: '項目',
+        status: 'ステータス',
+        date: '期限',
+        owner: '担当者',
+        priority: '優先度',
+        relation: '関連ドキュメント',
+        description: '説明',
+        source: '要望元',
+        valueAchieved: '価値達成',
+        version: '対象バージョン'
+      },
+      caption: 'テーブル / かんばん / カレンダー',
+      views: {
+        table: 'テーブル',
+        kanban: 'かんばん',
+        calendar: 'カレンダー'
+      },
+      status: {
+        todo: '未着手',
+        doing: '進行中',
+        done: '完了'
+      },
+      /** 新增列的下拉选项值；写进 Y.Doc 时按当前语言落库。 */
+      options: {
+        source: {
+          customer: '顧客フィードバック',
+          internal: '社内提案',
+          competitor: '競合分析'
+        },
+        value: {
+          achieved: '達成',
+          partial: '一部達成',
+          missed: '未達成'
+        },
+        version: {
+          backlog: '未計画',
+          v1: 'v1.0.0',
+          v12: 'v1.2.0'
+        }
+      },
+      focus: {
+        open: 'データベースを全画面で開く',
+        backToCanvas: 'キャンバスに戻る'
+      },
+      toolbar: {
+        filter: 'フィルター',
+        filterHint: '上流のフィルターパネルで条件を編集',
+        filterGroup: '{count} 件の条件',
+        dateColumn: '日付プロパティ',
+        sort: '並べ替え',
+        sortHint: 'クリックで昇順・降順を切り替え',
+        searchPlaceholder: '行を検索…',
+        search: '要望を検索',
+        sortBy: '並べ替え：{field}',
+        reset: 'クリア',
+        newRow: '新しい行',
+        rowDetail: '行の詳細',
+        close: '閉じる',
+        exportCsv: 'CSV を書き出す',
+        importCsv: 'CSV を読み込む',
+        importDone: '{count} 行を読み込みました',
+        importEmpty: '読み込める行がありません',
+        importFailed: 'CSV を解析できません。ヘッダーと文字コードを確認してください'
+      },
+      ai: {
+        entry: 'AI で列と行を生成',
+        title: 'AI で列と行を生成',
+        hint: '追加したいフィールドや行を説明すると、AI がまずプレビューを表示し、確認後にだけ表へ書き込みます。',
+        placeholder: '例：「リスク度」（高/中/低）列を追加し、既存の項目に値を埋めてください',
+        context: '列 {columns} 件 · 行 {rows} 件を生成に使用',
+        truncated: '行が多いため、先頭 50 行だけを参考にします',
+        generate: 'プレビューを生成',
+        cancel: 'キャンセル',
+        apply: '表に書き込む',
+        applyDisabled: '書き込める内容がありません',
+        applied: '書き込み完了：列 {columns} 件、行 {rows} 件を追加し、セル {cells} 件を入力',
+        applyFailed: '書き込みに失敗したため、変更をすべて取り消しました',
+        preview: {
+          title: '書き込みプレビュー',
+          counts: '列 {columns} 件 · 行 {rows} 件 · セル {cells} 件',
+          overwrite: '既存値を上書き',
+          overwriteConfirm: '内容が入っているセルが {count} 件あります。上書きを許可しますか。',
+          invalid: '{count} 件は書き込めません。再生成してください。',
+          blocked: 'このパッチは現在の表に適用できません。説明を調整して再生成してください。',
+          empty: '適用できる変更はありませんでした',
+          tagColumn: '新しい列',
+          tagRow: '新しい行',
+          tagCell: 'セル入力',
+          column: '列「{name}」（{type}）を追加',
+          columnWithOptions: '列「{name}」（{type}）を追加：{options}',
+          row: '行「{title}」を追加：{cells}',
+          rowOnly: '行「{title}」を追加',
+          cell: '「{row}」の「{column}」を {value} に設定'
+        },
+        state: {
+          notReady: '表の準備ができていません。少し待ってから再度お試しください。',
+          noModel: 'このワークスペースに利用できるモデルがありません。設定で構成してください。',
+          tooLong: '説明が長すぎます。短くして再度お試しください。',
+          notFound: '項目が見つからないか、アクセス権がありません',
+          invalid: 'AI の応答を解析できませんでした。再生成してください。',
+          failed: '生成に失敗しました。しばらくしてから再度お試しください。'
+        }
+      },
+      collect: {
+        entry: '事項を収集',
+        title: '事項を収集',
+        hint: '本文の ToDo から事項を抽出し、確認後に「事項」に同期します',
+        empty: '本文に ToDo はまだありません',
+        count: '選択済み {selected} / {total}',
+        selectAll: 'すべて選択',
+        selectNone: '選択を解除',
+        done: '完了',
+        cancel: 'キャンセル',
+        confirm: '事項に同期',
+        applied: '{count} 件の事項を収集しました',
+        failed: '収集に失敗しました。しばらくしてから再度お試しください。'
+      },
+      filterFn: {
+        is: 'と等しい',
+        isNot: 'と等しくない',
+        contains: 'を含む',
+        doesNoContains: 'を含まない',
+        startsWith: 'で始まる',
+        endsWith: 'で終わる',
+        isOneOf: 'いずれかである',
+        isNotOneOf: 'いずれでもない',
+        isEmpty: 'が空',
+        isNotEmpty: 'が空でない',
+        before: 'より前',
+        after: 'より後',
+        isChecked: 'チェック済み',
+        isUnchecked: '未チェック'
+      }
     },
     archive: {
       status: {
@@ -845,6 +1030,9 @@ export default {
       noVersion: 'このタスクにはまだ完成したドキュメントがありません',
       emptyTitle: 'ワークナレッジベースに章節ドキュメントがありません',
       emptyHint: 'ドキュメントを生成するとここに表示され、ナレッジベースへアーカイブできます。',
+      searchPlaceholder: 'ドキュメントのタイトルを検索',
+      loadMore: 'さらに読み込む',
+      untitled: '無題のドキュメント',
       columns: {
         title: 'タイトル / テーマ',
         status: 'ステータス',
@@ -858,7 +1046,9 @@ export default {
         success: '完了',
         partial_success: '一部完了',
         failed: '失敗',
-        cancelled: 'キャンセル済み'
+        cancelled: 'キャンセル済み',
+        generated: '生成済み',
+        edited: '編集済み'
       }
     },
     pageAi: {
@@ -8858,7 +9048,12 @@ export default {
       sessionsByTitle: 'チャット（タイトル）',
       commands: 'コマンド',
       recent: '最近',
-      quickActions: 'クイックアクション'
+      quickActions: 'クイックアクション',
+      workbench: 'ワークベンチ'
+    },
+    workbench: {
+      item: 'キャンバス / データベース項目',
+      document: '章節ドキュメント'
     },
     match: {
       vector: 'ベクトル',

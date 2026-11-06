@@ -1,4 +1,4 @@
-export default {
+﻿export default {
   modelCatalog: {
     "title": "모델 카탈로그",
     "description": "모델 카탈로그는 모델 추가 시 선택할 수 있는 모델 목록과 컨텍스트 창, 추론 지원 여부 같은 기본값을 정의합니다. 여기서 변경하면 모든 워크스페이스에 즉시 적용됩니다.",
@@ -3186,7 +3186,12 @@ export default {
       sessionsByTitle: '대화（제목별）',
       commands: '명령',
       recent: '최근 검색',
-      quickActions: '빠른 작업'
+      quickActions: '빠른 작업',
+      workbench: '워크벤치'
+    },
+    workbench: {
+      item: '캔버스 / 데이터베이스 항목',
+      document: '챕터 문서'
     },
     scope: {
       placeholder: '이 지식베이스에서 검색…',
@@ -9298,7 +9303,7 @@ export default {
       title: '워크벤치',
       beta: 'BETA',
       recent: '최근',
-      databases: '데이터베이스',
+      databases: '항목',
       favorites: '즐겨찾기',
       templates: '템플릿',
       trash: '휴지통',
@@ -9346,18 +9351,52 @@ export default {
       folder: '새 폴더',
       folderHint: '워크벤치 안에서 항목 정리'
     },
+    import: {
+      entry: '자료 가져오기',
+      title: '자료 가져오기',
+      pick: '파일 선택',
+      pickHint: 'PDF / DOCX / PPTX / XLSX / MD / HTML, 파일당 최대 50MB',
+      pickHintAttachment: 'PDF / DOCX / PPTX / XLSX / MD / HTML, 파일당 최대 20MB',
+      rejected: '{count}개 파일을 건너뛰었습니다:',
+      selected: '{count}개 파일 선택됨',
+      submit: '가져오기 시작',
+      cancel: '취소',
+      retry: '실패한 {count}개 재시도',
+      enqueued: '{count}개 파일을 제출했습니다. 진행 상황은 업로드 패널에서 확인하세요',
+      attached: '첨부 {count}개를 삽입했습니다',
+      insertFailed: '업로드는 완료되었지만 첨부 삽입에 실패했습니다. 새로 고친 후 다시 시도하세요',
+      failed: '작업 지식 베이스가 아직 준비되지 않았습니다. 잠시 후 다시 시도하세요',
+      target: {
+        kb: '작업 지식 베이스에 추가',
+        attachment: '이 항목의 첨부로 저장'
+      },
+      hint: {
+        kb: '분석 후 개인 작업 지식 베이스에 들어가 검색과 질의응답에 사용됩니다. 관리자와 구성원에게는 보이지 않습니다.',
+        attachment: '이 항목의 첨부로만 저장되며(파일당 최대 20MB) 다운로드와 미리보기가 가능합니다. 검색 대상이 아니므로 검색이 필요하면 지식 베이스 추가를 선택하세요.'
+      },
+      state: {
+        pending: '대기 중',
+        uploading: '업로드 중',
+        done: '완료',
+        failed: '실패'
+      },
+      reason: {
+        empty: '빈 파일',
+        too_large: '크기 한도 초과',
+        unsupported: '지원하지 않는 형식'
+      }
+    },
     list: {
       searchPlaceholder: '제목으로 검색…',
       total: '항목 {count}개',
       loadedAll: '모두 불러옴',
       sortRecent: '최근 업데이트순',
       groupToday: '오늘',
-      newCanvas: '새 캔버스',
-      newDatabase: '새 데이터베이스',
+      newDocument: '새 문서',
       cards: '카드 보기',
       list: '목록 보기',
       emptyTitle: '아직 내용이 없습니다',
-      emptyHint: '캔버스나 데이터베이스를 만들어 보세요. 내용은 내 공간에만 저장됩니다.',
+      emptyHint: '문서를 만들어 보세요. 내용은 내 공간에만 저장됩니다.',
       emptySearchTitle: '일치하는 항목이 없습니다',
       emptySearchHint: '더 짧은 키워드를 입력하거나 검색을 지우세요.',
       emptyTrashTitle: '휴지통이 비어 있습니다',
@@ -9368,6 +9407,11 @@ export default {
     },
     item: {
       untitled: '제목 없음',
+      untitledDocument: '제목 없는 문서',
+      untitledDatabase: '제목 없는 데이터베이스',
+      canvas: '캔버스',
+      document: '문서',
+      database: '항목',
       open: '열기',
       rename: '이름 바꾸기',
       move: '폴더로 이동',
@@ -9384,6 +9428,152 @@ export default {
       restoreFailed: '복원하지 못했습니다',
       favoriteFailed: '즐겨찾기를 갱신하지 못했습니다',
       more: '추가 작업'
+    },
+    modeSwitch: {
+      label: '보기 모드',
+      page: '페이지',
+      edgeless: '엣지리스',
+      syncFailed: '모드 설정을 동기화하지 못했습니다. 다음에는 서버 값으로 열립니다'
+    },
+    canvasHistory: {
+      undo: '실행 취소',
+      redo: '다시 실행'
+    },
+    database: {
+      columns: {
+        title: '항목',
+        status: '상태',
+        date: '마감일',
+        owner: '담당자',
+        priority: '우선순위',
+        relation: '연관 문서',
+        description: '설명',
+        source: '요청 출처',
+        valueAchieved: '가치 달성',
+        version: '대상 버전'
+      },
+      caption: '표 / 칸반 / 캘린더',
+      views: {
+        table: '표',
+        kanban: '칸반',
+        calendar: '캘린더'
+      },
+      status: {
+        todo: '시작 전',
+        doing: '진행 중',
+        done: '완료'
+      },
+      /** 新增列的下拉选项值；写进 Y.Doc 时按当前语言落库。 */
+      options: {
+        source: {
+          customer: '고객 피드백',
+          internal: '내부 제안',
+          competitor: '경쟁사 분석'
+        },
+        value: {
+          achieved: '달성',
+          partial: '부분 달성',
+          missed: '미달성'
+        },
+        version: {
+          backlog: '미정',
+          v1: 'v1.0.0',
+          v12: 'v1.2.0'
+        }
+      },
+      focus: {
+        open: '데이터베이스를 전체 화면으로 열기',
+        backToCanvas: '캔버스로 돌아가기'
+      },
+      toolbar: {
+        filter: '필터',
+        filterHint: '업스트림 필터 패널에서 조건 편집',
+        filterGroup: '조건 {count}개',
+        dateColumn: '날짜 속성',
+        sort: '정렬',
+        sortHint: '클릭하여 오름차순/내림차순 전환',
+        searchPlaceholder: '행 검색…',
+        search: '요구사항 검색',
+        sortBy: '정렬: {field}',
+        reset: '초기화',
+        newRow: '새 행',
+        rowDetail: '행 상세',
+        close: '닫기',
+        exportCsv: 'CSV 내보내기',
+        importCsv: 'CSV 가져오기',
+        importDone: '{count}개 행을 가져왔습니다',
+        importEmpty: '가져올 행이 없습니다',
+        importFailed: 'CSV를 해석하지 못했습니다. 헤더와 인코딩을 확인하세요'
+      },
+      ai: {
+        entry: 'AI로 열과 행 생성',
+        title: 'AI로 열과 행 생성',
+        hint: '필요한 필드나 행을 설명하면 AI가 먼저 미리보기를 보여 주고, 확인한 뒤에만 표에 기록합니다.',
+        placeholder: '예: 「위험도」(높음/보통/낮음) 열을 추가하고 기존 항목에 값을 채워 주세요',
+        context: '열 {columns}개 · 행 {rows}개가 생성에 사용됩니다',
+        truncated: '행이 많아 앞쪽 50개만 참고합니다',
+        generate: '미리보기 생성',
+        cancel: '취소',
+        apply: '표에 기록',
+        applyDisabled: '기록할 내용이 없습니다',
+        applied: '기록 완료: 열 {columns}개, 행 {rows}개 추가, 셀 {cells}개 입력',
+        applyFailed: '기록에 실패하여 변경을 모두 되돌렸습니다',
+        preview: {
+          title: '기록 미리보기',
+          counts: '열 {columns}개 · 행 {rows}개 · 셀 {cells}개',
+          overwrite: '기존 값 덮어쓰기',
+          overwriteConfirm: '이미 내용이 있는 셀이 {count}개 있습니다. 덮어쓰기를 허용하시겠습니까?',
+          invalid: '{count}개 항목을 기록할 수 없습니다. 다시 생성하세요.',
+          blocked: '이 패치를 현재 표에 적용할 수 없습니다. 설명을 조정해 다시 생성하세요.',
+          empty: '적용할 변경이 없습니다',
+          tagColumn: '새 열',
+          tagRow: '새 행',
+          tagCell: '셀 입력',
+          column: '열 "{name}"({type}) 추가',
+          columnWithOptions: '열 "{name}"({type}) 추가: {options}',
+          row: '행 "{title}" 추가: {cells}',
+          rowOnly: '행 "{title}" 추가',
+          cell: '"{row}"의 "{column}"을(를) {value}로 설정'
+        },
+        state: {
+          notReady: '표가 아직 준비되지 않았습니다. 잠시 후 다시 시도하세요.',
+          noModel: '이 공간에 사용 가능한 모델이 없습니다. 설정에서 구성하세요.',
+          tooLong: '설명이 너무 깁니다. 줄여서 다시 시도하세요.',
+          notFound: '항목을 찾을 수 없거나 접근 권한이 없습니다',
+          invalid: 'AI 응답을 해석할 수 없습니다. 다시 생성하세요.',
+          failed: '생성에 실패했습니다. 잠시 후 다시 시도하세요.'
+        }
+      },
+      collect: {
+        entry: '항목 수집',
+        title: '항목 수집',
+        hint: '본문의 할 일에서 항목을 추출하고, 확인 후 「항목」에 동기화합니다',
+        empty: '본문에 아직 할 일이 없습니다',
+        count: '선택 {selected} / {total}',
+        selectAll: '전체 선택',
+        selectNone: '선택 해제',
+        done: '완료',
+        cancel: '취소',
+        confirm: '항목에 동기화',
+        applied: '항목 {count}개를 수집했습니다',
+        failed: '수집에 실패했습니다. 잠시 후 다시 시도하세요.'
+      },
+      filterFn: {
+        is: '같음',
+        isNot: '같지 않음',
+        contains: '포함',
+        doesNoContains: '포함하지 않음',
+        startsWith: '시작 문자',
+        endsWith: '끝 문자',
+        isOneOf: '다음 중 하나',
+        isNotOneOf: '다음 중 아님',
+        isEmpty: '비어 있음',
+        isNotEmpty: '비어 있지 않음',
+        before: '이전',
+        after: '이후',
+        isChecked: '체크됨',
+        isUnchecked: '체크 안 됨'
+      }
     },
     archive: {
       status: {
@@ -9552,6 +9742,9 @@ export default {
       noVersion: '이 작업에는 아직 완료된 문서가 없습니다',
       emptyTitle: '업무 지식베이스에 챕터 문서가 없습니다',
       emptyHint: '문서를 생성하면 여기에 표시되고 지식베이스에 보관할 수 있습니다.',
+      searchPlaceholder: '문서 제목 검색',
+      loadMore: '더 불러오기',
+      untitled: '제목 없는 문서',
       columns: {
         title: '제목 / 주제',
         status: '상태',
@@ -9565,7 +9758,9 @@ export default {
         success: '완료',
         partial_success: '부분 완료',
         failed: '실패',
-        cancelled: '취소됨'
+        cancelled: '취소됨',
+        generated: '생성됨',
+        edited: '편집됨'
       }
     },
     pageAi: {
