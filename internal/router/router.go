@@ -110,6 +110,8 @@ type RouterParams struct {
 	WorkbenchAIHandler *handler.WorkbenchAIHandler
 	// WorkbenchTemplateHandler 文档模板（§9.16）；个人资源，硬删。
 	WorkbenchTemplateHandler *handler.WorkbenchTemplateHandler
+	// WorkbenchAssetHandler 条目资产（§12.1）；未注入时不注册资产端点。
+	WorkbenchAssetHandler *handler.WorkbenchAssetHandler
 	HostSandbox              service.HostSandboxManager
 	// PMHandler PM 工作站端点聚合（项目/规划/需求/版本/功能清单/任务）
 	PMHandler *handler.PMHandler
@@ -370,7 +372,8 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterWorkbenchRoutes(v1, params.WorkbenchItemHandler, params.WorkbenchFolderHandler,
 			params.WorkbenchArchiveHandler, params.WorkbenchJournalHandler,
 			params.WorkbenchNoticeHandler, params.WorkbenchAIHandler,
-			params.WorkbenchTemplateHandler, workbenchFlags(params.Config), rbacGuards)
+			params.WorkbenchTemplateHandler, params.WorkbenchAssetHandler,
+			workbenchFlags(params.Config), rbacGuards)
 		RegisterWorkbenchNoticeRoutes(v1, params.WorkbenchNoticeHandler)
 		RegisterAutomationRoutes(v1, params.AutomationHandler, rbacGuards)
 		RegisterChunkerDebugRoutes(v1, rbacGuards)

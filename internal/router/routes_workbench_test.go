@@ -71,6 +71,11 @@ func newWorkbenchTemplateHandlerForTest() *handler.WorkbenchTemplateHandler {
 	return handler.NewWorkbenchTemplateHandler(workbench.NewService(emptyWorkbenchRepo{}))
 }
 
+// newWorkbenchAssetHandlerForTest 只为注册路由；未注入 AssetStore 时端点返回 503。
+func newWorkbenchAssetHandlerForTest() *handler.WorkbenchAssetHandler {
+	return handler.NewWorkbenchAssetHandler(workbench.NewService(emptyWorkbenchRepo{}))
+}
+
 // workbenchTestEngine 复刻 rbac 测试引擎：注入租户/用户/角色，可选 API Key scope。
 func workbenchTestEngine(t *testing.T, apiKeyScope *types.TenantAPIKeyScope) *gin.Engine {
 	t.Helper()
@@ -96,7 +101,7 @@ func workbenchTestEngine(t *testing.T, apiKeyScope *types.TenantAPIKeyScope) *gi
 	RegisterWorkbenchRoutes(r.Group("/api/v1"), h, newWorkbenchFolderHandlerForTest(),
 		newWorkbenchArchiveHandlerForTest(), newWorkbenchJournalHandlerForTest(),
 		newWorkbenchNoticeHandlerForTest(), newWorkbenchAIHandlerForTest(),
-		newWorkbenchTemplateHandlerForTest(),
+		newWorkbenchTemplateHandlerForTest(), newWorkbenchAssetHandlerForTest(),
 		// 测试引擎把三个门禁全部打开，覆盖到所有子路由。
 		WorkbenchFeatureFlags{Templates: true, Journals: true, AI: true}, guards)
 	RegisterWorkbenchNoticeRoutes(r.Group("/api/v1"), newWorkbenchNoticeHandlerForTest())
@@ -134,6 +139,8 @@ func TestWorkbenchRoutes_DenyAPIKeyPrincipal(t *testing.T) {
 				// 内联 AI：即使请求体非法，也必须先被 API Key 门禁挡住。
 				httptest.NewRequest(http.MethodPost, "/api/v1/workbench/ai/inline", nil),
 				httptest.NewRequest(http.MethodPost, "/api/v1/workbench/ai/ask", nil),
+				// 数据库 AI（P3-5）同样只认 JWT。
+				httptest.NewRequest(http.MethodPost, "/api/v1/workbench/ai/database", nil),
 				// 用户级通知：tenantless 不等于对 API Key 开放。
 				httptest.NewRequest(http.MethodGet, "/api/v1/me/workbench-notices", nil),
 				httptest.NewRequest(http.MethodPost, "/api/v1/me/workbench-notices/read-all", nil),
@@ -181,7 +188,7 @@ func workbenchGatedEngine(t *testing.T, flags WorkbenchFeatureFlags) *gin.Engine
 	RegisterWorkbenchRoutes(r.Group("/api/v1"), h, newWorkbenchFolderHandlerForTest(),
 		newWorkbenchArchiveHandlerForTest(), newWorkbenchJournalHandlerForTest(),
 		newWorkbenchNoticeHandlerForTest(), newWorkbenchAIHandlerForTest(),
-		newWorkbenchTemplateHandlerForTest(), flags, guards)
+		newWorkbenchTemplateHandlerForTest(), newWorkbenchAssetHandlerForTest(), flags, guards)
 	return r
 }
 
@@ -195,6 +202,7 @@ func TestWorkbenchRoutes_FeatureFlagsSkipRegistration(t *testing.T) {
 		httptest.NewRequest(http.MethodPost, "/api/v1/workbench/templates", nil),
 		httptest.NewRequest(http.MethodGet, "/api/v1/workbench/journals/month", nil),
 		httptest.NewRequest(http.MethodPost, "/api/v1/workbench/ai/inline", nil),
+		httptest.NewRequest(http.MethodPost, "/api/v1/workbench/ai/database", nil),
 	} {
 		rec := httptest.NewRecorder()
 		engine.ServeHTTP(rec, req)

@@ -32,6 +32,7 @@ func RegisterWorkbenchRoutes(
 	noticeHandler *handler.WorkbenchNoticeHandler,
 	aiHandler *handler.WorkbenchAIHandler,
 	templateHandler *handler.WorkbenchTemplateHandler,
+	assetHandler *handler.WorkbenchAssetHandler,
 	flags WorkbenchFeatureFlags,
 	g *rbacGuards,
 ) {
@@ -82,6 +83,8 @@ func RegisterWorkbenchRoutes(
 		group.POST("/ai/inline", g.Viewer(), aiHandler.Inline)
 		// 问答车道：只查当前用户的私有工作 KB，检索范围由服务端强制（§11.8）。
 		group.POST("/ai/ask", g.Viewer(), aiHandler.Ask)
+		// 数据库 AI（P3-5）：自然语言 → 补丁，前端预览确认后再写入（§11.7）。
+		group.POST("/ai/database", g.Viewer(), aiHandler.Database)
 	}
 	if templateHandler != nil && flags.Templates {
 		// 文档模板（§9.16）：个人资源，按 tenant_id + owner_id 隔离；
@@ -91,6 +94,16 @@ func RegisterWorkbenchRoutes(
 		group.PATCH("/templates/:id", g.Viewer(), templateHandler.UpdateTemplate)
 		group.DELETE("/templates/:id", g.Viewer(), templateHandler.DeleteTemplate)
 		group.GET("/templates/:id/content", g.Viewer(), templateHandler.GetTemplateContent)
+	}
+	if assetHandler != nil {
+		// 资产（§12.1）：上传 multipart，下载只认 asset id。
+		// touch 是引用上报，须在 /:asset_id 之前注册，避免被它当成 id 吞掉。
+		group.POST("/items/:id/assets/touch", g.Viewer(), assetHandler.TouchItemAssets)
+		group.POST("/items/:id/assets", g.Viewer(), assetHandler.UploadItemAsset)
+		group.GET("/items/:id/assets", g.Viewer(), assetHandler.ListItemAssets)
+		group.DELETE("/items/:id/assets/:asset_id", g.Viewer(), assetHandler.DeleteItemAsset)
+		// 下载不带 item 前缀：BlockSuite 只知道 asset id，拼不出 item 路径。
+		group.GET("/assets/:asset_id", g.Viewer(), assetHandler.DownloadAsset)
 	}
 }
 

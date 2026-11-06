@@ -217,15 +217,19 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewWorkbenchRepository))
 	// 工作台服务：归档写路径依赖知识库与知识服务，用显式构造注入，
 	// 避免 knowledgeService 反查 workbench 形成循环依赖。
+	// 注意：docAssistant 不能写进下面的构造参数。docAssistant 的构造链是
+	// SessionService → … → TenantMemberService → workbench.Service，
+	// 直接声明会让 dig 判定为循环依赖，改由文件末尾的 Invoke 回填。
 	must(container.Provide(func(
 		repo interfaces.WorkbenchRepository,
 		kbService interfaces.KnowledgeBaseService,
 		knowledgeService interfaces.KnowledgeService,
-		docAssistant interfaces.DocAssistantService,
+		fileService interfaces.FileService,
 		cfg *config.Config,
 	) *workbenchservice.Service {
 		// WithDocTasks 只用到 ListTasks，用来统计“章节文档”数量与离开预览。
 		// WithFeatures 把发布门禁随 bootstrap 下发，前端据此隐藏入口（§9.1）。
+		// WithAssetStore 复用现有 FileService，不新造存储（§12.1）。
 		features := types.WorkbenchFeatureToggles{}
 		if cfg != nil && cfg.Workbench != nil {
 			features = types.WorkbenchFeatureToggles{
@@ -235,10 +239,13 @@ func BuildContainer(container *dig.Container) *dig.Container {
 				DualMode:  cfg.Workbench.DualModeEnabled,
 			}
 		}
-		return workbenchservice.NewService(repo).
+		svc := workbenchservice.NewService(repo).
 			WithArchiveServices(kbService, knowledgeService).
-			WithDocTasks(docAssistant).
 			WithFeatures(features)
+		if fileService != nil {
+			svc = svc.WithAssetStore(workbenchservice.NewFileServiceAssetStore(fileService))
+		}
+		return svc
 	}))
 	// 工作台内联 AI：只复用模型与智能体的提示词/生成参数，不接工具与检索（§11.2）。
 	// 问答车道额外注入会话检索与知识库服务，检索范围由服务层强制为工作 KB。
@@ -317,7 +324,17 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	logger.Debugf(ctx, "[Container] Registering business services...")
 	must(container.Provide(service.NewTenantService))
 	must(container.Provide(service.NewTenantAPIKeyService))
-	must(container.Provide(service.NewTenantMemberService))
+	// 成员服务需要挂工作台生命周期钩子（30 天保留标记 + 站内通知，§5.5）。
+	// 钩子用窄接口注入，避免 service 包反向 import workbench 包。
+	must(container.Provide(func(
+		repo interfaces.TenantMemberRepository,
+		audit interfaces.AuditLogService,
+		userRepo interfaces.UserRepository,
+		tokenRepo interfaces.AuthTokenRepository,
+		hooks *workbenchservice.Service,
+	) interfaces.TenantMemberService {
+		return service.NewTenantMemberServiceWithLifecycle(repo, audit, userRepo, tokenRepo, hooks)
+	}))
 	must(container.Provide(service.NewTenantInvitationService))
 	must(container.Provide(service.NewAuditLogService))
 	must(container.Provide(service.NewAuditLogRetentionRunner))
@@ -946,9 +963,34 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewWorkbenchNoticeHandler))
 	must(container.Provide(handler.NewWorkbenchAIHandler))
 	must(container.Provide(handler.NewWorkbenchTemplateHandler))
+	must(container.Provide(handler.NewWorkbenchAssetHandler))
+	// 工作台清理器：回收站 30 天硬删、孤儿清理与 7 天预警、归档对账（§5.6）。
+	must(container.Provide(workbenchservice.NewCleanupRunner))
+	must(container.Invoke(startWorkbenchCleanup))
+
+	// 工作台章节文档列表延迟回填：workbench.Service 的构造参数里不能直接要
+	// docAssistant（会形成 workbench ↔ docAssistant ↔ tenantMember 的环，
+	// 见工作台 provider 处注释），必须等到 docAssistant 已注册后在这里补上。
+	must(container.Invoke(func(
+		svc *workbenchservice.Service,
+		docAssistant interfaces.DocAssistantService,
+	) {
+		svc.WithDocTasks(docAssistant)
+	}))
 
 	// Doc assistant handler
-	must(container.Provide(handler.NewDocAssistantHandler))
+	// 文档助手 handler 额外接工作台服务，用于给全局文档列表补归档徽标（P2-5）。
+	// 用 Setter 注入窄接口，doc_assistant 包本身不依赖 workbench 包。
+	must(container.Provide(func(
+		docAssistant interfaces.DocAssistantService,
+		wb *workbenchservice.Service,
+	) *handler.DocAssistantHandler {
+		h := handler.NewDocAssistantHandler(docAssistant)
+		if wb != nil {
+			h = h.WithDocArchiveFiller(wb)
+		}
+		return h
+	}))
 	must(container.Provide(handler.NewAutomationHandler))
 
 	// Data source handler
@@ -2470,6 +2512,21 @@ func startTemporaryDocumentCleanup(svc interfaces.TemporaryDocumentService, clea
 	}()
 	cleaner.RegisterWithName("TemporaryDocumentCleanup", func() error {
 		close(stop)
+		return nil
+	})
+}
+
+// startWorkbenchCleanup 启动工作台清理循环并注册停机清理（§5.6）。
+//
+// 与 AuditLogRetentionRunner 同构：容器初始化时起协程，ResourceCleaner 停机时
+// 通知退出，避免 SIGTERM 卡在一轮长扫描上。runner 为空时静默跳过。
+func startWorkbenchCleanup(runner *workbenchservice.CleanupRunner, cleaner interfaces.ResourceCleaner) {
+	if runner == nil {
+		return
+	}
+	runner.Start(context.Background())
+	cleaner.RegisterWithName("WorkbenchCleanupRunner", func() error {
+		runner.StopWithin(cleanupStepTimeout)
 		return nil
 	})
 }
