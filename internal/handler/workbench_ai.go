@@ -165,6 +165,24 @@ func (h *WorkbenchAIHandler) Ask(c *gin.Context) {
 	}
 }
 
+// Database POST /api/v1/workbench/ai/database
+//
+// 非流式：模型输出必须是整包 JSON 补丁，逐字流式没有意义（半截 JSON 无法预览）。
+// 前端拿到补丁后先在本地预览，用户确认才写入，写入走正常保存链路（§11.7）。
+func (h *WorkbenchAIHandler) Database(c *gin.Context) {
+	var req types.WorkbenchAIDatabaseRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewValidationError("Invalid request data").WithDetails(err.Error()))
+		return
+	}
+	result, err := h.service.DatabasePatch(c.Request.Context(), req)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+
 // writeInlineEvent 写一帧并 flush；返回 false 表示连接已断。
 func writeInlineEvent(c *gin.Context, event string, data gin.H) bool {
 	payload, err := json.Marshal(data)
