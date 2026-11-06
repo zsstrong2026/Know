@@ -116,6 +116,9 @@ var (
 	ErrWorkbenchTemplateQuotaExceeded      = errors.New("workbench: template quota exceeded")
 	ErrWorkbenchTemplateEmpty              = errors.New("workbench: template snapshot is empty")
 	ErrWorkbenchTemplateTooLarge           = errors.New("workbench: template snapshot too large")
+
+	// ErrWorkbenchTooManyAssetIDs 表示一次上报的资产 id 数量超过单条目上限。
+	ErrWorkbenchTooManyAssetIDs = errors.New("workbench: too many asset ids")
 )
 
 // DateOnly 表示“本地日历日”，只有 YYYY-MM-DD，没有时刻也没有时区。
@@ -733,6 +736,7 @@ type WorkbenchCleanupStats struct {
 	VersionsDeleted int `json:"versions_deleted"`
 	TrashPurged     int `json:"trash_purged"`
 	NoticesCreated  int `json:"notices_created"`
+	AssetsPurged    int `json:"assets_purged"`
 }
 
 // WorkbenchAsset 条目资产（§12.1）；storage_path 与 content_hash 不外泄。
@@ -753,6 +757,22 @@ type WorkbenchAsset struct {
 
 // WorkbenchItemAsset 是 WorkbenchAsset 的别名，语义为“条目资产”。
 type WorkbenchItemAsset = WorkbenchAsset
+
+// WorkbenchAssetTouchRequest 是“刷新资产引用时间”的请求体（§12.2）。
+//
+// 服务端不解析 Y.Doc，因此“资产是否仍被引用”只能由客户端在打开文档后上报。
+// 上限 200 与单条目资产数上限一致，避免一次请求拖垮同一条目。
+type WorkbenchAssetTouchRequest struct {
+	AssetIDs []string `json:"asset_ids"`
+}
+
+// Validate 校验请求体；空列表是合法输入（等价于无操作）。
+func (r *WorkbenchAssetTouchRequest) Validate() error {
+	if len(r.AssetIDs) > WorkbenchMaxAssetsPerItem {
+		return ErrWorkbenchTooManyAssetIDs
+	}
+	return nil
+}
 
 // TableName 显式绑定 000138 建的表名。
 //

@@ -110,6 +110,11 @@ type WorkbenchVersionRepository interface {
 	PruneVersions(
 		ctx context.Context, tenantID uint64, ownerID, itemID string, keep int,
 	) (int64, error)
+
+	// PruneExpiredVersions 跨用户执行版本保留：删除 created_at 早于 before
+	// 且不在每个条目最近 keep 个版本内的行（清理任务用）。
+	// limit<=0 表示不限量；返回删除行数。
+	PruneExpiredVersions(ctx context.Context, before time.Time, keep, limit int) (int64, error)
 }
 
 // WorkbenchFolderRepository 文件夹仓储。
@@ -141,6 +146,82 @@ type WorkbenchRepository interface {
 	WorkbenchArchiveRepository
 	WorkbenchNoticeRepository
 	WorkbenchTemplateRepository
+	WorkbenchOrphanRepository
+	WorkbenchAssetRepository
+}
+
+// WorkbenchAssetRepository 条目资产元数据仓储（§12.1）。
+//
+// 只存元数据与存储路径，文件本体由 AssetStore 负责。三条约定：
+//   - 所有查询都带 tenant_id + owner_id，越权与不存在同样返回 (nil, nil) 或 0 行；
+//   - 软删只写 deleted_at，物理文件由服务层在明确时机删除；
+//   - 同一 item 下同 content_hash 的 live 行唯一（uq_wia_item_hash），
+//     重复上传时靠它去重，不重复落盘。
+type WorkbenchAssetRepository interface {
+	// CreateAsset 插入资产行；content_hash 冲突时返回唯一索引错误，
+	// 调用方应改用 GetLiveAssetByHash 读回既有行。
+	CreateAsset(ctx context.Context, asset *types.WorkbenchAsset) error
+
+	// GetAsset 按 id 取 live 资产；越权与不存在都返回 (nil, nil)。
+	GetAsset(ctx context.Context, tenantID uint64, ownerID, id string) (*types.WorkbenchAsset, error)
+
+	// GetLiveAssetByHash 按内容哈希查同 item 下的 live 资产，用于上传去重。
+	GetLiveAssetByHash(
+		ctx context.Context, tenantID uint64, ownerID, itemID, contentHash string,
+	) (*types.WorkbenchAsset, error)
+
+	// ListAssets 按 created_at 升序返回 item 下的 live 资产。
+	ListAssets(
+		ctx context.Context, tenantID uint64, ownerID, itemID string,
+	) ([]*types.WorkbenchAsset, error)
+
+	// CountAssets 统计 live 资产数（配额检查用）。
+	CountAssets(ctx context.Context, tenantID uint64, ownerID, itemID string) (int64, error)
+
+	// TouchAsset 更新 last_seen_at，返回影响行数。
+	TouchAsset(
+		ctx context.Context, tenantID uint64, ownerID, id string, seenAt time.Time,
+	) (int64, error)
+
+	// SoftDeleteAsset 软删资产行，返回影响行数。
+	SoftDeleteAsset(ctx context.Context, tenantID uint64, ownerID, id string) (int64, error)
+
+	// ListStaleAssets 跨用户取 COALESCE(last_seen_at, created_at) < cutoff 的 live 资产，
+	// 供清理任务回收长期未被引用的文件；limit<=0 表示不限量。
+	ListStaleAssets(ctx context.Context, cutoff time.Time, limit int) ([]*types.WorkbenchAsset, error)
+
+	// ListAssetPathsByItem 返回某 item 全部资产（含已软删）的 storage_path。
+	// 硬删条目时必须先取：PurgeItem 会连带删掉 asset 行，之后再也查不到路径。
+	ListAssetPathsByItem(
+		ctx context.Context, tenantID uint64, ownerID, itemID string,
+	) ([]string, error)
+}
+
+// WorkbenchOrphanRepository 成员离开后的 30 天保留标记（§5.5）。
+//
+// 与其余仓储不同，这里的方法**不带 owner 过滤**：清理任务需要跨用户扫描
+// 到期与即将到期的行，owner 由 orphan 行自身给出。
+type WorkbenchOrphanRepository interface {
+	// UpsertOrphan 写入或重置一条保留标记；重新被移除时重置 30 天。
+	UpsertOrphan(ctx context.Context, orphan *types.WorkbenchOrphan) error
+
+	// GetOrphan 返回该 (tenant, user) 的保留标记；没有则 (nil, nil)。
+	GetOrphan(ctx context.Context, tenantID uint64, userID string) (*types.WorkbenchOrphan, error)
+
+	// DeleteOrphan 删除保留标记（重新加入时），返回影响行数。
+	DeleteOrphan(ctx context.Context, tenantID uint64, userID string) (int64, error)
+
+	// ListOrphansDue 返回 purge_after <= at 的标记，按 purge_after 升序。
+	ListOrphansDue(ctx context.Context, at time.Time, limit int) ([]*types.WorkbenchOrphan, error)
+
+	// ListOrphansExpiring 返回 from < purge_after <= to 的标记（7 天预警窗口）。
+	ListOrphansExpiring(
+		ctx context.Context, from, to time.Time, limit int,
+	) ([]*types.WorkbenchOrphan, error)
+
+	// PurgeOwnerData 硬删该 owner 在工作台的全部数据行（条目/版本/文件夹/
+	// 引用/资产/归档/模板），不含 orphan 标记本身。
+	PurgeOwnerData(ctx context.Context, tenantID uint64, ownerID string) error
 }
 
 // WorkbenchTemplateRepository 文档模板仓储（§9.16）。
@@ -257,4 +338,11 @@ type WorkbenchArchiveRepository interface {
 	) (int64, error)
 
 	CountArchiveParts(ctx context.Context, tenantID uint64, ownerID string) (int64, error)
+
+	// ListLiveArchives 跨用户取 live 映射（status IN ('active','pending')），
+	// 供清理任务的归档对账使用；按 id 升序保证分批推进不重复。
+	ListLiveArchives(ctx context.Context, limit int) ([]*types.WorkbenchArchive, error)
+
+	// ActivatePending 把超时未完成的 pending 映射置为 active（对账步骤用）。
+	ActivatePending(ctx context.Context, id string) (int64, error)
 }
