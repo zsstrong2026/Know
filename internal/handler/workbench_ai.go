@@ -183,6 +183,24 @@ func (h *WorkbenchAIHandler) Database(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }
 
+// Canvas POST /api/v1/workbench/ai/canvas
+//
+// 与 Database 同构：非流式整包 JSON 补丁，前端预览确认后在一个 BlockSuite
+// 事务里写入（P2-6）。服务端不解析 Y.Doc，元素快照由前端带上。
+func (h *WorkbenchAIHandler) Canvas(c *gin.Context) {
+	var req types.WorkbenchAICanvasRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewValidationError("Invalid request data").WithDetails(err.Error()))
+		return
+	}
+	result, err := h.service.CanvasPatch(c.Request.Context(), req)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+
 // writeInlineEvent 写一帧并 flush；返回 false 表示连接已断。
 func writeInlineEvent(c *gin.Context, event string, data gin.H) bool {
 	payload, err := json.Marshal(data)

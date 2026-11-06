@@ -321,6 +321,39 @@ export function requestDatabasePatch(payload: DatabaseAIPayload): Promise<{
   ).then((r) => r.data)
 }
 
+// ---- 画布 AI（P2-6） ----
+// 与数据库 AI 同构：非流式整包补丁，前端预览确认后一次性写入。
+// 元素快照由前端带上，服务端不解析 Y.Doc。
+
+export interface CanvasAIPayload {
+  item_id: string
+  prompt: string
+  agent_id?: string
+  elements: Array<{
+    id: string
+    kind: string
+    text: string
+    x: number
+    y: number
+    w: number
+    h: number
+    frame_id: string
+  }>
+  frames: Array<{ id: string; title: string; x: number; y: number; w: number; h: number }>
+  truncated?: boolean
+}
+
+export function requestCanvasPatch(payload: CanvasAIPayload): Promise<{
+  patch: { ops: unknown[] }
+  model_id?: string
+  agent_id?: string
+}> {
+  return post<{ success: boolean; data: { patch: { ops: unknown[] }; model_id?: string; agent_id?: string } }>(
+    `${BASE}/ai/canvas`,
+    payload,
+  ).then((r) => r.data)
+}
+
 /** 月历数据：只返回 kind='canvas' 且 journal_date 落在该月的条目（§7.11）。 */
 export function getJournalsMonth(month?: string): Promise<WorkbenchJournalMonth> {
   const query = month ? `?month=${encodeURIComponent(month)}` : ''

@@ -717,6 +717,27 @@
       favoriteFailed: 'Failed to update favorite',
       more: 'More actions'
     },
+    canvasAi: {
+      entry: 'Tidy canvas with AI',
+      title: 'Tidy canvas with AI',
+      hint: 'Describe how to organize the canvas. AI only creates groups and moves elements; it never deletes anything.',
+      placeholder: 'e.g. Group the notes by topic, one frame per group, laid out side by side',
+      generate: 'Generate preview',
+      cancel: 'Cancel',
+      apply: 'Apply',
+      context: '{elements} elements · {frames} frames',
+      truncated: 'Large canvas: only the first 300 elements were used',
+      preview: 'Will apply',
+      frameTag: 'Group',
+      moveTag: 'Move',
+      frameLine: 'Create "{title}" with {count} elements',
+      moveLine: 'Move element to ({x}, {y})',
+      untitled: 'Untitled group',
+      empty: 'AI thinks this canvas does not need tidying',
+      skipped: 'Ignored {count} instructions that could not be applied',
+      done: 'Created {frames} groups and moved {moves} elements',
+      failed: 'Generation failed, please try again'
+    },
     export: {
       entry: 'Export canvas package',
       running: 'Exporting…',

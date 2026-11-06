@@ -717,6 +717,27 @@
       favoriteFailed: 'お気に入りの更新に失敗しました',
       more: 'その他の操作'
     },
+    canvasAi: {
+      entry: 'AI でキャンバスを整理',
+      title: 'AI でキャンバスを整理',
+      hint: '整理のしかたを書いてください。AI は「グループ作成」と「要素の移動」だけを行い、削除はしません。',
+      placeholder: '例：付箋をテーマ別に 3 グループへ分け、それぞれ Frame を作って並べる',
+      generate: 'プレビューを生成',
+      cancel: 'キャンセル',
+      apply: '適用',
+      context: '{elements} 個の要素 · {frames} 個のグループ',
+      truncated: '要素が多いため、先頭 300 個のみ参照しました',
+      preview: '実行内容',
+      frameTag: 'グループ',
+      moveTag: '移動',
+      frameLine: '「{title}」を作成し、{count} 個の要素をまとめる',
+      moveLine: '要素を（{x}, {y}）へ移動',
+      untitled: '無題のグループ',
+      empty: 'このキャンバスは整理不要と AI が判断しました',
+      skipped: '適用できない指示を {count} 件無視しました',
+      done: '{frames} 個のグループを作成し、{moves} 個の要素を移動しました',
+      failed: '生成に失敗しました。もう一度お試しください'
+    },
     export: {
       entry: 'キャンバスを書き出す',
       running: '書き出し中…',

@@ -9430,6 +9430,27 @@
       favoriteFailed: '更新收藏失敗',
       more: '更多操作'
     },
+    canvasAi: {
+      entry: '用 AI 整理畫布',
+      title: '用 AI 整理畫布',
+      hint: '描述你想怎麼整理，AI 只做「新增群組」和「平移元素」，不會刪除任何內容。',
+      placeholder: '例如：依主題把便籤分成三組，每組建立一個 Frame 並排好',
+      generate: '產生預覽',
+      cancel: '取消',
+      apply: '套用',
+      context: '{elements} 個元素 · {frames} 個群組',
+      truncated: '元素較多，只取前 300 個作為參考',
+      preview: '將執行',
+      frameTag: '群組',
+      moveTag: '移動',
+      frameLine: '新增「{title}」，收納 {count} 個元素',
+      moveLine: '把元素移到（{x}, {y}）',
+      untitled: '未命名群組',
+      empty: 'AI 認為這張畫布暫時不需要整理',
+      skipped: '已忽略 {count} 條無法套用的指令',
+      done: '已產生 {frames} 個群組，移動 {moves} 個元素',
+      failed: '產生失敗，請重試'
+    },
     export: {
       entry: '匯出畫布包',
       running: '正在匯出…',

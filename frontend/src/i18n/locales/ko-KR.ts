@@ -9429,6 +9429,27 @@
       favoriteFailed: '즐겨찾기를 갱신하지 못했습니다',
       more: '추가 작업'
     },
+    canvasAi: {
+      entry: 'AI로 캔버스 정리',
+      title: 'AI로 캔버스 정리',
+      hint: '어떻게 정리할지 설명하세요. AI는 그룹 생성과 요소 이동만 하며 삭제하지 않습니다.',
+      placeholder: '예: 메모를 주제별로 세 그룹으로 나누고 그룹마다 Frame을 만들어 정렬',
+      generate: '미리보기 생성',
+      cancel: '취소',
+      apply: '적용',
+      context: '요소 {elements}개 · 그룹 {frames}개',
+      truncated: '요소가 많아 처음 300개만 참고했습니다',
+      preview: '적용할 작업',
+      frameTag: '그룹',
+      moveTag: '이동',
+      frameLine: '"{title}" 생성, 요소 {count}개 포함',
+      moveLine: '요소를 ({x}, {y})로 이동',
+      untitled: '제목 없는 그룹',
+      empty: 'AI가 이 캔버스는 정리가 필요 없다고 판단했습니다',
+      skipped: '적용할 수 없는 지시 {count}개를 무시했습니다',
+      done: '그룹 {frames}개를 만들고 요소 {moves}개를 이동했습니다',
+      failed: '생성에 실패했습니다. 다시 시도하세요'
+    },
     export: {
       entry: '캔버스 패키지 내보내기',
       running: '내보내는 중…',

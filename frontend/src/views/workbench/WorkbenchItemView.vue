@@ -187,6 +187,17 @@
       :agent-id="aiPrefs.defaultAgentId"
     />
 
+    <!-- 画布 AI（P2-6）：自然语言 → 分组/平移补丁，预览确认后一次性写入 -->
+    <CanvasAIDialog
+      v-if="canUseAI && !isDatabase"
+      v-model:visible="canvasAIOpen"
+      :item-id="itemId"
+      :agent-id="aiPrefs.defaultAgentId"
+      :snapshot="readCanvasSnapshotForAI"
+      :apply="applyCanvasPlanFromAI"
+      @applied="onCanvasAIApplied"
+    />
+
     <!-- 导入资料（P4-1）：加入工作知识库或作为本条目附件。
          数据库条目的“页面”是数据视图，没有正文可插附件，因此只提供加入知识库 -->
     <ImportMaterialDialog
@@ -223,6 +234,7 @@ import ModeSwitch from './components/ModeSwitch.vue'
 import DatabaseToolbar from './components/DatabaseToolbar.vue'
 import DatabaseRowDrawer from './components/DatabaseRowDrawer.vue'
 import DatabaseAIDialog from './components/DatabaseAIDialog.vue'
+import CanvasAIDialog from './components/CanvasAIDialog.vue'
 import ImportMaterialDialog from './components/ImportMaterialDialog.vue'
 import CollectDialog from './components/CollectDialog.vue'
 import {
@@ -253,6 +265,8 @@ import { EMPTY_DATABASE_STATE } from '@/workbench/editor/database-state'
 import { installCalendarEdgeFlip } from '@/workbench/editor/database-calendar'
 import { installDatabaseTextLocale } from '@/workbench/editor/database-text-locale'
 import { installDatabaseCellDecorator } from '@/workbench/editor/database-cell-decorator'
+import { applyCanvasPlan, readCanvasSnapshot } from '@/workbench/editor/canvas-ai'
+import type { CanvasPlan } from '@/workbench/ai/canvas-patch'
 
 const route = useRoute()
 const router = useRouter()
@@ -432,6 +446,12 @@ async function onCollectConfirm(picked: CollectedTodo[]) {
 const moreOptions = computed(() => [
   // 导入资料（P4-1）：加入工作知识库 / 作为本条目附件两条路径
   { content: t('workbench.import.entry'), value: 'import-material' },
+  // 画布 AI（P2-6）：只在无限画布形态出现——Page 形态没有 surface 可整理
+  {
+    content: t('workbench.canvasAi.entry'),
+    value: 'canvas-ai',
+    disabled: !canUseAI.value || session.mode.value !== 'edgeless' || !ready.value,
+  },
   // 画布导出包（P2-4）：快照 + 资产 + manifest；导出中置灰并换文案
   {
     content: exporting.value ? t('workbench.export.running') : t('workbench.export.entry'),
@@ -741,6 +761,35 @@ function onMore(data: { value?: string | number }) {
   else if (value === 'import-csv') importInputRef.value?.click()
   else if (value === 'database-ai') databaseAIOpen.value = true
   else if (value === 'export-package') void exportCanvasPackage()
+  else if (value === 'canvas-ai') canvasAIOpen.value = true
+}
+
+/** 画布 AI 对话框（P2-6） */
+const canvasAIOpen = ref(false)
+
+/**
+ * 画布 AI 的两个回调：读快照、应用计划。
+ *
+ * 放在视图里而不是对话框里，是为了让写入始终经过 session 持有的同一个 store，
+ * 走同一条脏标记与保存链路（对话框只负责问模型与预览）。
+ */
+function readCanvasSnapshotForAI() {
+  const handle = session.editor.value
+  if (!handle) return null
+  return readCanvasSnapshot(handle.store)
+}
+
+function applyCanvasPlanFromAI(plan: CanvasPlan, surfaceId: string) {
+  const handle = session.editor.value
+  if (!handle) return { frames: 0, moved: 0, failed: plan.ops.length }
+  return applyCanvasPlan(handle.store, plan, surfaceId)
+}
+
+async function onCanvasAIApplied(outcome: { frames: number; moved: number; failed: number }) {
+  MessagePlugin.success(t('workbench.canvasAi.done', { frames: outcome.frames, moves: outcome.moved }))
+  if (outcome.failed > 0) {
+    MessagePlugin.warning(t('workbench.canvasAi.skipped', { count: outcome.failed }))
+  }
 }
 
 /**

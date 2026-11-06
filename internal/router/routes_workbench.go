@@ -85,6 +85,8 @@ func RegisterWorkbenchRoutes(
 		group.POST("/ai/ask", g.Viewer(), aiHandler.Ask)
 		// 数据库 AI（P3-5）：自然语言 → 补丁，前端预览确认后再写入（§11.7）。
 		group.POST("/ai/database", g.Viewer(), aiHandler.Database)
+		// 画布 AI（P2-6）：自然语言 → 分组/平移补丁，同样先预览后写入。
+		group.POST("/ai/canvas", g.Viewer(), aiHandler.Canvas)
 	}
 	if templateHandler != nil && flags.Templates {
 		// 文档模板（§9.16）：个人资源，按 tenant_id + owner_id 隔离；

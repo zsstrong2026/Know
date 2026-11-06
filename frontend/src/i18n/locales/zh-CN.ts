@@ -9430,6 +9430,27 @@
       favoriteFailed: '更新收藏失败',
       more: '更多操作'
     },
+    canvasAi: {
+      entry: '用 AI 整理画布',
+      title: '用 AI 整理画布',
+      hint: '描述你想怎么整理，AI 只做「新建分组」和「平移元素」，不会删除任何内容。',
+      placeholder: '例如：按主题把便签分成三组，每组生成一个 Frame 并排好',
+      generate: '生成预览',
+      cancel: '取消',
+      apply: '应用',
+      context: '{elements} 个元素 · {frames} 个分组',
+      truncated: '元素较多，只取前 300 个作为参考',
+      preview: '将执行',
+      frameTag: '分组',
+      moveTag: '移动',
+      frameLine: '新建「{title}」，收纳 {count} 个元素',
+      moveLine: '把元素移到（{x}, {y}）',
+      untitled: '未命名分组',
+      empty: 'AI 认为这张画布暂时不需要整理',
+      skipped: '已忽略 {count} 条无法应用的指令',
+      done: '已生成 {frames} 个分组，移动 {moves} 个元素',
+      failed: '生成失败，请重试'
+    },
     export: {
       entry: '导出画布包',
       running: '正在导出…',
