@@ -14,6 +14,9 @@ import type { EditorSeedContext } from './blocksuite'
 type BsStore = any
 
 export const SPIKE_DB_ROWS = 100
+
+/** P3-7 性能基线使用的行数（与开发计划「1000 行数据库」一致） */
+export const PERF_DB_ROWS = 1000
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /** 本月 1 号本地 0 点：保证 100 行里前若干行落在当前月网格内，便于日历断言 */
@@ -52,7 +55,8 @@ export function formatLocalDate(timestamp: number): string {
  */
 export function seedDatabaseAndImage(
   { store }: EditorSeedContext,
-  imageAssetId: string
+  imageAssetId: string,
+  rowCount: number = SPIKE_DB_ROWS
 ): SpikeSeedResult {
   const root = store.root
   if (!root) throw new Error('[spike-seed] 缺少根 block')
@@ -74,7 +78,7 @@ export function seedDatabaseAndImage(
   //    注意 store.transact 不返回 fn 的结果，id 要收集到外层数组
   const rowIds: string[] = []
   store.transact(() => {
-    for (let i = 0; i < SPIKE_DB_ROWS; i += 1) {
+    for (let i = 0; i < rowCount; i += 1) {
       const rowId: string = store.addBlock('affine:paragraph', {}, databaseId)
       store.getModelById(rowId)?.text.insert(`Row ${String(i + 1).padStart(3, '0')}`, 0)
       rowIds.push(rowId)

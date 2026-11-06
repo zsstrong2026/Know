@@ -5,6 +5,7 @@
  * 抄两遍。视图只负责顶栏、归档与路由，内容生命周期全部交给这里。
  */
 import { ref, shallowRef, watch, type Ref } from 'vue'
+import i18n from '@/i18n'
 import { getWorkbenchContent, saveWorkbenchContent } from '@/api/workbench'
 import {
   createSaveQueue,
@@ -14,8 +15,20 @@ import {
 } from '@/workbench/save-queue'
 import { projectMarkdown } from './projection'
 import { noteStyleSeedFromPrefs } from './prefs'
+import {
+  removeObsoleteWorkbenchColumns,
+  seedWorkbenchDatabase,
+  type DatabaseSeedLabels,
+} from './database-seed'
+import { createCanvasAssetResolver, type CanvasAssetResolver } from './assets'
+import { touchWorkbenchAssets } from '@/api/workbench'
 import { useWorkbenchPrefs } from '@/workbench/use-workbench-prefs'
-import type { CanvasHandle, EditorKind, EditorMode } from './blocksuite'
+import type {
+  CanvasHandle,
+  EditorKind,
+  EditorMode,
+  EditorSeedContext,
+} from './blocksuite'
 import type { WorkbenchItem } from '@/types/workbench'
 
 /** 偏好 → BlockSuite 的编辑器级设置（§9.14.2）。 */
@@ -44,6 +57,8 @@ export interface EditorSession {
   editor: Ref<CanvasHandle | null>
   /** 最近一次成功保存后的快照版本，归档时作为 base_version */
   baseVersion: Ref<number>
+  /** 当前形态；编辑页顶栏切换需要读它做高亮（§10.14.5） */
+  mode: Ref<EditorMode>
   /** 首次挂载：拉快照 → 建队列 → 渲染 */
   mount(options?: MountOptions): Promise<void>
   /**
@@ -53,6 +68,11 @@ export interface EditorSession {
    * 由视图重载文档并提示，绝不覆盖用户内容。
    */
   mountFromTemplate(tpl: TemplateMountOptions): Promise<void>
+  /**
+   * 切换形态：只重建视图层，不动 Y.Doc、不产生版本（§10.14.5）。
+   * 返回是否真的发生了切换（同形态调用是空操作）。
+   */
+  setMode(next: EditorMode): boolean
   /** 丢弃本地改动，按服务端最新快照重建 */
   reload(): Promise<void>
   /** 冲突时“用我的版本覆盖” */
@@ -65,6 +85,10 @@ export interface EditorSession {
   markdown(): string
   /** 当前正文的非空白字符数；文档信息行用，不额外请求接口 */
   markdownCount(): number
+  /** 上传粘贴/拖拽的文件，返回 assetId（P2-3）；失败时抛错由调用方提示 */
+  uploadAsset(file: File): Promise<string>
+  /** 上报本次会话引用到的资产，刷新服务端 last_seen_at（P2-3） */
+  reportAssetRefs(): void
   destroy(): void
 }
 
@@ -88,6 +112,48 @@ function kindOf(item: WorkbenchItem | null): EditorKind {
   return (item?.kind ?? 'canvas') as EditorKind
 }
 
+/**
+ * 数据库条目的初始内容：3 列 + 3 视图的空骨架（P3-2）。
+ *
+ * 画布条目返回 undefined —— 空白画布就是正确的初始状态，不需要 seed。
+ * seed 只在「没有快照」时由 mountEditor 调用，因此恢复历史条目不会重复插入。
+ */
+function seedFor(item: WorkbenchItem | null, labels: DatabaseSeedLabels) {
+  if (kindOf(item) !== 'database') return undefined
+  // 数据库块自带标题，默认英文 “Untitled”；这里用条目名填充，避免与顶栏标题不一致。
+  return (ctx: EditorSeedContext) => {
+    seedWorkbenchDatabase(ctx, { ...labels, databaseTitle: item?.title ?? labels.databaseTitle })
+  }
+}
+
+/**
+ * 数据库列名的 i18n 文案。
+ *
+ * seed 在 store 建立后立即执行，此时 Vue 的 i18n 实例可用；
+ * 用 t() 而不是硬编码中文，六语言用户都能看到母语列名。
+ */
+function editorSeedLabels(): DatabaseSeedLabels {
+  return {
+    titleColumn: i18n.global.t('workbench.database.columns.title'),
+    statusColumn: i18n.global.t('workbench.database.columns.status'),
+    dateColumn: i18n.global.t('workbench.database.columns.date'),
+    ownerColumn: i18n.global.t('workbench.database.columns.owner'),
+    priorityColumn: i18n.global.t('workbench.database.columns.priority'),
+    relationColumn: i18n.global.t('workbench.database.columns.relation'),
+    databaseTitle: i18n.global.t('workbench.item.untitled'),
+    statusOptions: [
+      i18n.global.t('workbench.database.status.todo'),
+      i18n.global.t('workbench.database.status.doing'),
+      i18n.global.t('workbench.database.status.done'),
+    ],
+    viewNames: {
+      table: i18n.global.t('workbench.database.views.table'),
+      kanban: i18n.global.t('workbench.database.views.kanban'),
+      calendar: i18n.global.t('workbench.database.views.calendar'),
+    },
+  }
+}
+
 function defaultMode(item: WorkbenchItem | null): EditorMode {
   if (item?.current_mode === 'page' || item?.current_mode === 'edgeless') return item.current_mode
   // 与后端 DefaultModeForKind 一致：画布默认无限画布，数据库默认文档
@@ -101,7 +167,26 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
   // shallowRef：编辑器实例内部有大量不可序列化字段，深度代理只会拖慢渲染。
   const editor = shallowRef<CanvasHandle | null>(null)
   const baseVersion = ref(0)
+  // 当前形态：由挂载时确定，切换时更新；顶栏据此高亮。
+  const mode = ref<EditorMode>(options.mode?.value ?? defaultMode(item.value))
   let queue: SaveQueue | null = null
+  /**
+   * 画布资产桥（P2-3）。
+   *
+   * 每个会话一份：resolver 内部缓存已解析的 Blob，重挂载（reload/切模板）时
+   * 重新创建，避免把上一次会话的失效资产带进新视图。
+   */
+  let canvasAssets: CanvasAssetResolver | null = null
+  /** 本次会话真正解析到的 asset id，用于在卸载前批量上报引用。 */
+  const seenAssets = new Set<string>()
+
+  function ensureCanvasAssets(): CanvasAssetResolver {
+    if (canvasAssets) return canvasAssets
+    canvasAssets = createCanvasAssetResolver(itemId.value, {
+      onResolved: (assetId) => seenAssets.add(assetId),
+    })
+    return canvasAssets
+  }
 
   // 设置页改「滚轮缩放 / 代码行号 / 笔记样式」后立刻生效：
   // 前两项只改 setting signal，笔记样式只影响之后新建的笔记，都不重建视图。
@@ -141,6 +226,10 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
     ready.value = false
     queue?.dispose()
     queue = null
+    // 重挂载（刷新/切模板/恢复版本）换一份资产缓存：旧会话解析过的 Blob 可能与
+    // 服务端已删除的资产对应，复用会让破图一直显示。
+    canvasAssets = null
+    seenAssets.clear()
     // 动态 import：只有真正打开内容时才加载 BlockSuite，首屏不背这份体积。
     // 模块图与内容请求互不依赖，并行发起：整体节省一个串行往返。
     // 模块加载是这里最贵的一段（vendored 源码有上千个模块），不能排在请求后面。
@@ -156,7 +245,8 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
         : content.ydoc
           ? base64ToBytes(content.ydoc)
           : null
-    const mode = options.mode?.value ?? defaultMode(item.value)
+    const targetMode = options.mode?.value ?? defaultMode(item.value)
+    mode.value = targetMode
     const schemaVersion = schemaVersionOverride ?? content.editor_schema_version
 
     queue = createSaveQueue({
@@ -180,18 +270,30 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
       deferBlankCommit: mountOptions.deferBlankSave === true,
     })
 
+    const seedLabels = editorSeedLabels()
     editor.value = await mountEditor({
       element: host.value,
       itemId: itemId.value,
       kind: kindOf(item.value),
-      mode,
+      mode: targetMode,
       snapshot,
       // 滚轮缩放、代码行号由 BlockSuite 内部读取，只能走 EditorSettingProvider
       settings: runtimeSettingsFromPrefs(editorPrefs.value),
       // 新建笔记的初始样式；已有笔记不会被追溯改写
       noteStyle: noteStyleSeedFromPrefs(editorPrefs.value),
+      // 数据库条目首次打开：注入列与视图的空数据库骨架（P3-2）。
+      // 只在没有快照时执行，恢复历史条目不会重复插入。
+      seed: seedFor(item.value, seedLabels),
+      // 图片/附件资产（P2-3）：挂到 workspace.blobSync，刷新后由 resolver 重新拉取。
+      assets: ensureCanvasAssets(),
       onChange: () => queue?.markDirty(),
     })
+
+    // 老条目里可能残留按旧原型加的四列（描述 / 需求来源 / 价值达成 / 所属版本），
+    // 真实原型只有六列，这里清掉一次；幂等，写回后由 onChange 触发落盘。
+    if (kindOf(item.value) === 'database' && editor.value?.store) {
+      removeObsoleteWorkbenchColumns(editor.value.store)
+    }
 
     // 模板路径：快照来自内存 override，服务端仍是 version 0，而 BlockSuite 用快照
     // 建 store 不会触发 onChange。必须在这里显式落盘一次，否则用户一刷新内容就丢。
@@ -233,6 +335,19 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
     await mount()
   }
 
+  /**
+   * 切换形态（§10.14.5）。
+   *
+   * 只重建视图层：不 flush、不清 dirty、不改 saveState，也不产生版本行。
+   * 同形态调用直接返回 false，避免无意义地重建 DOM。
+   */
+  function setMode(next: EditorMode): boolean {
+    if (mode.value === next) return false
+    mode.value = next
+    editor.value?.setMode(next)
+    return true
+  }
+
   async function forceSave(): Promise<void> {
     await queue?.forceSave()
     syncBaseVersion()
@@ -263,11 +378,29 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
   }
 
   function destroy(): void {
+    reportAssetRefs()
     queue?.dispose()
     queue = null
     editor.value?.destroy()
     editor.value = null
     ready.value = false
+    canvasAssets = null
+  }
+
+  /**
+   * 上报本次会话解析到的资产，刷新服务端 last_seen_at（P2-3）。
+   *
+   * 服务端不解析 Y.Doc，只能靠客户端上报“这份文档还在用哪些文件”；
+   * 不报就会被 30 天保留期回收，届时打开文档会看到破图。
+   * 失败静默：它只是保留策略的输入，不影响保存与编辑。
+   */
+  function reportAssetRefs(): void {
+    if (seenAssets.size === 0) return
+    const ids = [...seenAssets]
+    seenAssets.clear()
+    void touchWorkbenchAssets(itemId.value, ids).catch(() => {
+      /* 引用上报失败不影响任何用户可见流程 */
+    })
   }
 
   return {
@@ -275,14 +408,20 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
     saveState,
     editor,
     baseVersion,
+    mode,
     mount,
     mountFromTemplate,
+    setMode,
     reload,
     forceSave,
     flush,
     canLeave,
     markdown,
     markdownCount,
+    /** 粘贴/拖拽文件：上传后返回 assetId，由调用方插入 block。 */
+    uploadAsset: (file: File) => ensureCanvasAssets().put(file),
+    /** 主动上报引用（保存成功后调用，避免只在关闭时上报）。 */
+    reportAssetRefs,
     destroy,
   }
 }

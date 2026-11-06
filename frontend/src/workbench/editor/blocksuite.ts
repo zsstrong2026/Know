@@ -23,14 +23,29 @@ import {
 } from '@blocksuite/affine/shared/services'
 import { BlockStdScope } from '@blocksuite/affine/std'
 import { insertEdgelessTextCommand } from '@blocksuite/affine-gfx-text'
+import { DefaultTool, EdgelessCRUDIdentifier } from '@blocksuite/affine/blocks/surface'
+import { initDatabaseBlock } from '@blocksuite/affine/blocks/database'
+import { FrameTool } from '@blocksuite/affine/blocks/frame'
+import { BrushTool } from '@blocksuite/affine/gfx/brush'
+import { ConnectorTool } from '@blocksuite/affine/gfx/connector'
+import { NoteTool } from '@blocksuite/affine/gfx/note'
+import { PanTool } from '@blocksuite/affine/gfx/pointer'
+import { ShapeTool } from '@blocksuite/affine/gfx/shape'
+import { TextTool } from '@blocksuite/affine/gfx/text'
+import {
+  ConnectorMode,
+  MindmapStyle,
+} from '@blocksuite/affine/model'
 import { TextSelection } from '@blocksuite/std'
 import { GfxControllerIdentifier } from '@blocksuite/std/gfx'
 import { Text } from '@blocksuite/store'
-import { TestWorkspace } from '@blocksuite/store/test'
 import { signal } from '@preact/signals-core'
 import * as Y from 'yjs'
 import { ParagraphViewExtension } from '@blocksuite/affine-block-paragraph/view'
 import { localizedParagraphPlaceholder, translateSlashMenuItem } from './slash-menu-locale'
+import { PenOnlyEraserTool } from './canvas-eraser'
+import { canvasHistoryQuickTools } from './canvas-history-tools'
+import { WorkbenchWorkspace } from './workbench-workspace'
 // 斜杠菜单挂在 body 上，必须用全局样式覆盖其浮层背景
 import './editor-popover.css'
 
@@ -123,6 +138,48 @@ export interface EditorStats {
   modeSwitches: number
 }
 
+/**
+ * 画布工具 id（§10.6.1）。
+ *
+ * 这是**本项目拟定的契约**，不是上游同名 API：上游没有统一的「工具名」入口，
+ * 每个工具是独立的 BaseTool 子类，由 `gfx.tool.setTool(ToolClass, options)` 激活。
+ * 因此这里把 id 映射到上游工具类，id 本身只用于 UI 高亮与持久化。
+ */
+export type CanvasToolId =
+  | 'select'
+  | 'hand'
+  | 'frame'
+  | 'connector'
+  | 'note'
+  | 'text'
+  | 'shape'
+  | 'pen'
+  | 'eraser'
+  | 'mindmap'
+  | 'database'
+
+/** 形状子类型，与上游 `ShapeName` 的常用三项对齐。 */
+export type CanvasShapeName = 'rect' | 'ellipse' | 'diamond'
+
+export interface CanvasToolOptions {
+  shape?: CanvasShapeName
+  /** 连接线样式；缺省曲线，与上游 DEFAULT_CONNECTOR_MODE 一致。 */
+  connector?: 'straight' | 'orthogonal' | 'curve'
+}
+
+/**
+ * 要插入的附件（P4-1）。
+ *
+ * `assetId` 必须是已经上传到服务端、并能在 blobSync 里解析到的 id；
+ * 本模块不负责上传，只负责把已有资产落成 attachment 块。
+ */
+export interface AttachmentInsertInput {
+  assetId: string
+  name: string
+  size: number
+  type: string
+}
+
 export interface CanvasHandle {
   destroy(): void
   getSnapshot(): Uint8Array
@@ -130,6 +187,30 @@ export interface CanvasHandle {
   setMode(mode: EditorMode): void
   getMode(): EditorMode
   stats(): EditorStats
+  /**
+   * 激活画布工具（§10.6.1）。
+   *
+   * 只做「选择工具」或「立即插入」，不写 Y.Doc 的元数据：
+   *   - 选择类（select / hand / frame / connector / note / text / shape / pen / eraser）
+   *     转调上游 `gfx.tool.setTool`，由上游负责光标与后续交互；
+   *   - mindmap / database 是插入动作：在视口中心立即创建，然后回到 select，
+   *     与上游工具栏的「点一下再落点」不同，避免工具条与上游拖拽控制器争抢指针。
+   *
+   * 返回是否成功（page 形态、只读、上游工具未注册时返回 false）。
+   */
+  setTool(tool: CanvasToolId, options?: CanvasToolOptions): boolean
+  /** 当前激活的工具 id；非以上工具（如演示模式）时返回 null。 */
+  getTool(): CanvasToolId | null
+  /**
+   * 订阅工具变化（工具条高亮用）。
+   *
+   * 上游把当前工具放在 `currentToolName$` 信号里，但 std 会随 setMode 重建，
+   * 因此订阅由本模块统一维护；返回取消订阅函数。
+   */
+  onToolChange(listener: (tool: CanvasToolId | null) => void): () => void
+  /** 撤销 / 重做内容变更；只读时是空操作。 */
+  undo(): void
+  redo(): void
   /**
    * 当前选区列表。
    *
@@ -150,10 +231,265 @@ export interface CanvasHandle {
    * 只影响之后新建的笔记；已有笔记不会被追溯修改，也不会写旧块。
    */
   updateNoteStyle(style: NoteStyleSeed): void
+  /**
+   * 插入附件块（P4-1「作为画布附件」路径）。
+   *
+   * 只接受已上传的资产 id：上传与失败重试由调用方负责，这里只落块。
+   * 无限画布按视口中心排一行；页面形态插到第一个 note 末尾。
+   * 返回成功插入的块数（只读或资产 id 为空时返回 0）。
+   */
+  insertAttachments(files: AttachmentInsertInput[]): number
   /** 供上层读取 block model / 做投影，不参与渲染 */
   store: BsStore
   doc: BsDoc
   workspace: any
+}
+
+/**
+ * 工具 id → 上游工具类。只收「点一下切换，由上游接管后续交互」的工具。
+ *
+ * mindmap / database 不在这里：它们是插入动作，见 `insertCanvasTool`。
+ */
+const TOOL_CLASSES: Record<
+  'select' | 'hand' | 'frame' | 'connector' | 'note' | 'text' | 'shape' | 'pen' | 'eraser',
+  any
+> = {
+  select: DefaultTool,
+  hand: PanTool,
+  frame: FrameTool,
+  connector: ConnectorTool,
+  note: NoteTool,
+  text: TextTool,
+  shape: ShapeTool,
+  pen: BrushTool,
+  // 不用上游 EraserTool：它会删 note/Frame/形状；见 canvas-eraser.ts。
+  eraser: PenOnlyEraserTool,
+}
+
+/** 上游 toolName → 本项目的工具 id（用于工具条高亮）。 */
+const TOOL_ID_BY_NAME: Record<string, CanvasToolId> = {
+  default: 'select',
+  pan: 'hand',
+  frame: 'frame',
+  connector: 'connector',
+  'affine:note': 'note',
+  text: 'text',
+  shape: 'shape',
+  brush: 'pen',
+  'pen-eraser': 'eraser',
+}
+
+/** 读出当前激活的工具 id；上游是独立工具类，这里按 toolName 反查。 */
+function readActiveTool(view: AttachedView): CanvasToolId | null {
+  const name = view.std?.get?.(GfxControllerIdentifier)?.tool?.currentToolName$?.peek?.()
+  if (typeof name !== 'string') return null
+  return TOOL_ID_BY_NAME[name] ?? null
+}
+
+/**
+ * 订阅当前 std 的工具变化。
+ *
+ * `currentToolName$` 是 @preact/signals 的 Signal：`effect` 会在值变化时回调，
+ * 返回的 dispose 必须先于 std 销毁执行，否则重建视图后会在已弃用的信号上继续订阅。
+ */
+function watchCanvasTool(
+  view: AttachedView,
+  listener: (tool: CanvasToolId | null) => void,
+): () => void {
+  const signalRef = view.std?.get?.(GfxControllerIdentifier)?.tool?.currentToolName$
+  if (!signalRef || typeof signalRef.subscribe !== 'function') return () => {}
+  try {
+    return signalRef.subscribe(() => listener(readActiveTool(view)))
+  } catch {
+    return () => {}
+  }
+}
+
+/**
+ * 激活一个画布工具（§10.6.1）。
+ *
+ * 只在 Edgeless 形态下生效：Page 形态没有 surface，也没有 gfx 工具控制器。
+ * 切换工具不写 Y.Doc，因此不会触发保存；插入类工具（mindmap / database）才落内容。
+ */
+function applyCanvasTool(
+  view: AttachedView,
+  store: BsStore,
+  mode: EditorMode,
+  tool: CanvasToolId,
+  options?: CanvasToolOptions,
+): boolean {
+  if (mode !== 'edgeless' || store.readonly) return false
+  const gfx = view.std?.get?.(GfxControllerIdentifier)
+  if (!gfx?.tool) return false
+
+  if (tool === 'mindmap') return insertMindmap(gfx)
+  if (tool === 'database') return insertDatabase(store, gfx)
+
+  const ToolClass = TOOL_CLASSES[tool]
+  if (!ToolClass) return false
+  try {
+    gfx.tool.setTool(ToolClass, toolActivateOptions(tool, options))
+    return true
+  } catch {
+    // 上游未注册该工具（例如瘦身 spec 裁掉了 brush）时静默失败，
+    // 由调用方把按钮置灰，不弹错。
+    return false
+  }
+}
+
+/** 组装各工具的 activate 选项；形状/连接线必须带必填字段，否则上游读 undefined 崩。 */
+function toolActivateOptions(tool: CanvasToolId, options?: CanvasToolOptions): any {
+  switch (tool) {
+    case 'shape':
+      // 上游 ShapeName 是 type-only 联合（enum + 'roundedRect'），不能当值导入；
+      // 三个常用值本身就是字符串字面量，直接透传。
+      return { shapeName: options?.shape ?? 'rect' }
+    case 'connector':
+      return { mode: CONNECTOR_MODES[options?.connector ?? 'curve'] }
+    case 'note':
+      return { childFlavour: 'affine:paragraph', childType: 'text', tip: '' }
+    case 'hand':
+      return { panning: false }
+    default:
+      return undefined
+  }
+}
+
+const CONNECTOR_MODES: Record<'straight' | 'orthogonal' | 'curve', number> = {
+  straight: ConnectorMode.Straight,
+  orthogonal: ConnectorMode.Orthogonal,
+  curve: ConnectorMode.Curve,
+}
+
+/**
+ * 在视口中心插入思维导图（根 + 3 个分支）。
+ *
+ * 上游工具栏走「拖拽落点」，工具条没有拖拽上下文，因此直接给坐标插入：
+ * 复用 `EdgelessCRUDIdentifier.addElement`，与上游 draggable 的落点逻辑同一条链路。
+ */
+function insertMindmap(gfx: any): boolean {
+  const crud = gfx.std.getOptional?.(EdgelessCRUDIdentifier)
+  if (!crud) return false
+  const { centerX, centerY } = gfx.viewport
+  const rootW = 145
+  const rootH = 50
+  const nodeW = 80
+  const nodeH = 35
+  const rootX = centerX - rootW / 2
+  const rootY = centerY - rootH / 2
+
+  const root = {
+    children: [0, 1, 2].map((i) => ({
+      children: [],
+      text: '',
+      xywh: `[${rootX + rootW + 300},${centerY - nodeH / 2 + (i - 1) * 50},${nodeW},${nodeH}]`,
+    })),
+    text: '',
+    xywh: `[${rootX},${rootY},${rootW},${rootH}]`,
+  }
+  try {
+    const id = crud.addElement('mindmap', { style: MindmapStyle.ONE, children: root })
+    if (!id) return false
+    gfx.tool.setTool(DefaultTool)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 在第一个 note 里插入一个空数据库块（表形态）。
+ *
+ * 复用上游 `initDatabaseBlock`：它建好默认视图与首行，避免手写 ViewBasicDataType
+ * 造成空态（与 P3-2 的 seed 是同一入口）。
+ *
+ * 数据库块是 note 内的 hub block，没有自己的 xywh，位置由 note 排版决定；
+ * 因此这里不尝试把它“移到视口中心”，否则只会写一个上游不读的属性。
+ */
+function insertDatabase(store: BsStore, gfx: any): boolean {
+  const noteId = findFirstNoteId(store)
+  if (!noteId) return false
+  const databaseId: string = store.addBlock('affine:database', {}, noteId)
+  if (!databaseId) return false
+  initDatabaseBlock(store, store.getModelById(databaseId), databaseId, 'table', true)
+  gfx.tool.setTool(DefaultTool)
+  return true
+}
+
+/** 找到根节点下第一个 note；Edgeless 的顶层 block 必须挂在 note 里。 */
+function findFirstNoteId(store: BsStore): string {
+  const children: any[] = store?.root?.children ?? []
+  const note = children.find((child) => child.flavour === 'affine:note')
+  return note?.id ?? ''
+}
+
+/** 附件卡片的默认尺寸（与上游 attachment cubeThick 一致，避免自造数字）。 */
+const ATTACHMENT_CARD_WIDTH = 170
+const ATTACHMENT_CARD_HEIGHT = 132
+/** 多个附件的横向间距 */
+const ATTACHMENT_CARD_GAP = 32
+
+/**
+ * 把已上传的资产落成 attachment 块（P4-1）。
+ *
+ * 与上游拖拽入口的区别只有「来源」：上游用 `blobSync.set(file)` 拿 sourceId，
+ * 这里直接用服务端返回的 assetId（它同时是 blobSync 的 key），因此刷新后
+ * 依然能通过 AssetResolver 重新解析出文件。
+ */
+function insertAttachmentBlocks(
+  store: BsStore,
+  mode: EditorMode,
+  view: AttachedView,
+  files: AttachmentInsertInput[],
+): number {
+  if (store.readonly) return 0
+  const valid = files.filter((file) => Boolean(file.assetId))
+  if (valid.length === 0) return 0
+
+  const buildProps = (file: AttachmentInsertInput) => ({
+    sourceId: file.assetId,
+    name: file.name,
+    size: file.size,
+    type: file.type || 'application/octet-stream',
+    embed: false,
+  })
+
+  if (mode === 'edgeless') {
+    const gfx = view.std?.get?.(GfxControllerIdentifier)
+    if (!gfx?.surface) return 0
+    const { centerX, centerY } = gfx.viewport
+    const totalWidth = valid.length * ATTACHMENT_CARD_WIDTH + (valid.length - 1) * ATTACHMENT_CARD_GAP
+    const startX = centerX - totalWidth / 2
+    const topY = centerY - ATTACHMENT_CARD_HEIGHT / 2
+    const blocks = valid.map((file, index) => ({
+      flavour: 'affine:attachment',
+      // 上游 xywh 是 "[x,y,w,h]" 字符串；这里按行排布，不做网格换行。
+      blockProps: {
+        ...buildProps(file),
+        style: 'cubeThick',
+        xywh: `[${startX + index * (ATTACHMENT_CARD_WIDTH + ATTACHMENT_CARD_GAP)},${topY},${ATTACHMENT_CARD_WIDTH},${ATTACHMENT_CARD_HEIGHT}]`,
+      },
+    }))
+    const ids: string[] = store.addBlocks(blocks, gfx.surface)
+    if (ids.length > 0) gfx.selection?.set?.({ elements: ids, editing: false })
+    return ids.length
+  }
+
+  // Page 形态：附件是流式块，追加到第一个 note 末尾即可。
+  const noteId = findFirstNoteId(store)
+  if (!noteId) return 0
+  let inserted = 0
+  store.transact(() => {
+    for (const file of valid) {
+      store.addBlock(
+        'affine:attachment',
+        { ...buildProps(file), style: 'horizontalThin' },
+        noteId,
+      )
+      inserted += 1
+    }
+  })
+  return inserted
 }
 
 /**
@@ -230,7 +566,14 @@ export function ensureBlockSuiteElements(): void {
   // 两种 mode 都提前 setup：切 mode 时元素已注册，避免运行时抛未定义元素
   specsByMode = {
     page: [...viewManager.get('page'), FontConfigExtension(CommunityCanvasTextFonts)],
-    edgeless: [...viewManager.get('edgeless'), FontConfigExtension(CommunityCanvasTextFonts)],
+    // 本地注册「只擦笔划」的橡皮：上游 EraserTool 会删 note/Frame/形状（§10.6.1）。
+    edgeless: [
+      ...viewManager.get('edgeless'),
+      FontConfigExtension(CommunityCanvasTextFonts),
+      PenOnlyEraserTool,
+      // 原生工具栏补撤销 / 重做：上游工具栏本身没有历史入口
+      ...canvasHistoryQuickTools,
+    ],
   }
   storeExtensions = storeManager.get('store')
 }
@@ -260,7 +603,7 @@ function createSafeIdGenerator(seed: string): () => string {
 }
 
 /**
- * 用 AssetResolver 造一个 BlobSource，挂到 TestWorkspace 的 blobSync.main。
+ * 用 AssetResolver 造一个 BlobSource，挂到 Workspace 的 blobSync.main。
  *
  * 上游图片渲染链是：ImageBlockComponent.connectedCallback → resourceController.setEngine(std.store.blobSync)
  *   → sourceId$ 触发 refreshData() → blobSync.get(sourceId) → URL.createObjectURL(blob)。
@@ -302,6 +645,8 @@ interface AttachedView {
   detach(): void
   /** 该视图作用域（BlockStdScope）上的选区读取入口 */
   selections(): unknown[]
+  /** 该视图作用域；工具切换、插入元素都要经过它 */
+  std: any
 }
 
 /**
@@ -457,7 +802,9 @@ function installEdgelessBlankClickText(std: any, element: HTMLElement): () => vo
     const target = event.target as HTMLElement | null
     if (
       target?.closest(
-        'affine-edgeless-toolbar, affine-edgeless-zoom-toolbar-widget, affine-note, ' +
+        // 工具栏的实际标签是 `edgeless-toolbar-widget`（上游 EDGELESS_TOOLBAR_WIDGET），
+        // 写成 affine- 前缀会匹配不到，点工具条时空白处也会落一个文本块。
+        'edgeless-toolbar-widget, affine-edgeless-zoom-toolbar-widget, affine-note, ' +
           'affine-edgeless-text, .inline-editor, button, input, textarea, [role="toolbar"]',
       )
     ) {
@@ -537,6 +884,7 @@ function attachView(params: {
       const list = (std as unknown as { selection?: { value?: unknown[] } }).selection?.value
       return Array.isArray(list) ? list : []
     },
+    std,
   }
 }
 
@@ -594,10 +942,10 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
     codeBlockLineNumbers: settings?.codeBlockLineNumbers ?? true,
   })
 
-  // 1. 内存 workspace（P0-2 不接持久化；TestWorkspace 是 vendored 代码里唯一的 Workspace 实现）
+  // 1. 内存 Workspace（真实持久化在服务端：保存的是 Y.Doc 快照）。
   //    id 生成器必须带会话级前缀：恢复快照后 Y.Doc 里已有 "0"/"1"… 的历史块，
   //    纯自增会与之冲突并抛 "Should not add existing block"。
-  const workspace = new TestWorkspace({
+  const workspace = new WorkbenchWorkspace({
     id: itemId,
     idGenerator: createSafeIdGenerator(`wb${Math.random().toString(36).slice(2, 8)}`),
     // 只有显式传入 assets 时才替换默认的 MemoryBlobSource
@@ -659,6 +1007,18 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
   const removeSlashFallback = installSlashMenuFallback(element)
   stats.viewMounts += 1
 
+  // 工具变化订阅：std 随 setMode 重建，这里保存一份「重新挂载」的入口，
+  // 每次重建视图后把订阅迁到新的 currentToolName$ 上。
+  const toolListeners = new Set<(tool: CanvasToolId | null) => void>()
+  let stopToolWatch: (() => void) | null = null
+  const bindToolWatch = () => {
+    stopToolWatch?.()
+    stopToolWatch = watchCanvasTool(view, (tool) => {
+      toolListeners.forEach((listener) => listener(tool))
+    })
+  }
+  bindToolWatch()
+
   return {
     getSnapshot: () => Y.encodeStateAsUpdate(doc.spaceDoc),
     store,
@@ -668,6 +1028,22 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
     getMode: () => currentMode,
     // 转调当前视图：切 mode 后 std 被重建，这里始终读最新的那一份。
     getSelections: () => view.selections(),
+    setTool: (tool, toolOptions) => applyCanvasTool(view, store, currentMode, tool, toolOptions),
+    getTool: () => readActiveTool(view),
+    onToolChange: (listener) => {
+      toolListeners.add(listener)
+      return () => {
+        toolListeners.delete(listener)
+      }
+    },
+    undo: () => {
+      if (currentMode !== 'edgeless' || store.readonly) return
+      store.undo()
+    },
+    redo: () => {
+      if (currentMode !== 'edgeless' || store.readonly) return
+      store.redo()
+    },
     updateSettings: (next: EditorRuntimeSettings) => {
       setting$.value = {
         ...setting$.value,
@@ -678,6 +1054,8 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
     updateNoteStyle: (next: NoteStyleSeed) => {
       noteStyle = next
     },
+    insertAttachments: (files: AttachmentInsertInput[]) =>
+      insertAttachmentBlocks(store, currentMode, view, files),
     /**
      * 换 root：复用同一 store/doc/workspace，只重建视图层。
      * 不调用 encodeStateAsUpdate / applyUpdate，因此未保存变更天然保留。
@@ -690,10 +1068,16 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
       stats.viewMounts += 1
       currentMode = next
       stats.modeSwitches += 1
+      // 换 std 后旧工具信号已随旧视图销毁；重新挂订阅并广播一次当前值。
+      bindToolWatch()
+      toolListeners.forEach((listener) => listener(readActiveTool(view)))
     },
     destroy: () => {
       subscriptions.forEach(sub => sub.unsubscribe())
       removeSlashFallback()
+      stopToolWatch?.()
+      stopToolWatch = null
+      toolListeners.clear()
       view.detach()
       stats.viewUnmounts += 1
       store.dispose()

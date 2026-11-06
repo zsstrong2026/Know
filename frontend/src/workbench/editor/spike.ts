@@ -20,6 +20,7 @@ import {
   type AutosaveHandle,
 } from './spike-autosave'
 import {
+  PERF_DB_ROWS,
   SPIKE_BASE_DAY,
   SPIKE_DB_ROWS,
   createSpikePngBlob,
@@ -29,6 +30,7 @@ import {
   type SpikeSeedResult,
 } from './spike-seed'
 import { seedRichDoc, type RichSeedResult } from './spike-rich-doc'
+import { runPerfBaseline, perfProgress } from './spike-perf'
 
 const ITEM_ID = 'spike-page'
 const IMAGE_ASSET_ID = 'spike:asset:png'
@@ -465,14 +467,18 @@ const RICH_IMAGE_ASSET_ID = 'spike:asset:rich'
  */
 async function richDocRoundTrip() {
   richSeedBox.value = null
+  const createStart = performance.now()
   const first = await mountInTempHost(RICH_ITEM_ID, 'page')
+  const createMs = Math.round(performance.now() - createStart)
   const before = blockInventory(first.handle.store)
   const snapshot = first.handle.getSnapshot()
   const seedRowIds = readRichSeed()?.rowIds ?? []
   first.handle.destroy()
   first.host.innerHTML = ''
 
+  const restoreStart = performance.now()
   const second = await mountInTempHost(RICH_ITEM_ID, 'page', snapshot)
+  const restoreMs = Math.round(performance.now() - restoreStart)
   const after = blockInventory(second.handle.store)
   const secondSnapshotBytes = second.handle.getSnapshot().byteLength
   const stats = second.handle.stats()
@@ -486,6 +492,8 @@ async function richDocRoundTrip() {
     seedRowIds,
     snapshotBytes: snapshot.byteLength,
     restoredSnapshotBytes: secondSnapshotBytes,
+    /** P3-7：20 元素文档的挂载与恢复耗时（毫秒） */
+    timings: { createMs, restoreMs },
     /** 恢复时必然有一次 applyUpdate：这是快照写回 Y.Doc 的正常路径 */
     restoreApplyUpdateCalls: stats.applyUpdateCalls,
     identical: JSON.stringify(before) === JSON.stringify(after),
@@ -652,7 +660,7 @@ async function testOversizeRejection(): Promise<{ rejected: boolean; error?: str
 // ---------------------------------------------------------------------------
 
 const spikeApi = {
-  constants: { AUTOSAVE_DELAY_MS, MAX_SNAPSHOT_BYTES, SPIKE_DB_ROWS, SPIKE_BASE_DAY },
+  constants: { AUTOSAVE_DELAY_MS, MAX_SNAPSHOT_BYTES, SPIKE_DB_ROWS, SPIKE_BASE_DAY, PERF_DB_ROWS },
   mount: (snapshotBase64?: string | null) =>
     mount(snapshotBase64 ? fromBase64(snapshotBase64) : null),
   destroy,
@@ -676,6 +684,9 @@ const spikeApi = {
   testOversizeRejection,
   richDocRoundTrip,
   rootSwitchCheck,
+  /** P3-7：性能基线 + 三视图回归（独立容器，不影响主编辑器） */
+  perfBaseline: (rows?: number) => runPerfBaseline(rows),
+  perfProgress,
   // 主编辑器的形态切换（路线 2）：同一 store/doc 换 root，不重放快照
   setMode: (mode: EditorMode) => requireHandle().setMode(mode),
   getMode: () => requireHandle().getMode(),
