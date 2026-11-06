@@ -24,11 +24,22 @@ import (
 // DocAssistantHandler 文档助手 API
 type DocAssistantHandler struct {
 	service interfaces.DocAssistantService
+	// archiveFiller 给全局文档列表补工作台归档状态（P2-5）；未注入时按未归档展示。
+	filler interfaces.DocArchiveStatusFiller
 }
 
 // NewDocAssistantHandler 创建文档助手 handler
 func NewDocAssistantHandler(service interfaces.DocAssistantService) *DocAssistantHandler {
 	return &DocAssistantHandler{service: service}
+}
+
+// WithDocArchiveFiller 注入归档状态填充器，返回自身便于链式装配。
+//
+// 用 Setter 而不是改构造签名：doc-assistant 的既有测试与路由只需 service，
+// 归档徽标是工作台侧能力，缺失时应降级而不是让整个 handler 构造失败。
+func (h *DocAssistantHandler) WithDocArchiveFiller(filler interfaces.DocArchiveStatusFiller) *DocAssistantHandler {
+	h.filler = filler
+	return h
 }
 
 // ---- 模板 ----
@@ -189,6 +200,51 @@ func (h *DocAssistantHandler) ListDocuments(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": docs})
+}
+
+// ListAllDocuments godoc
+// @Summary      全局章节文档列表
+// @Description  owner 的全部章节文档（默认每个任务只取最新版本），带分页与标题搜索
+// @Tags         文档助手
+// @Produce      json
+// @Param        latest_only query bool false "只取每个任务的最新版本，默认 true"
+// @Param        q query string false "按任务主题搜索"
+// @Param        cursor query string false "分页游标"
+// @Param        limit query int false "每页条数，默认 30，最大 100"
+// @Success      200  {object}  map[string]interface{} "文档摘要分页"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /doc-assistant/documents [get]
+func (h *DocAssistantHandler) ListAllDocuments(c *gin.Context) {
+	ctx := c.Request.Context()
+	// latest_only 默认 true：P2 的列表语义是「每个任务一份文档」，
+	// 显式传 latest_only=false 才展开全部历史版本。
+	latestOnly := true
+	if raw, ok := c.GetQuery("latest_only"); ok && raw != "" {
+		latestOnly = raw == "1" || strings.EqualFold(raw, "true")
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	page, err := h.service.ListAllDocuments(ctx, types.DocDocumentFilter{
+		Query:      strings.TrimSpace(c.Query("q")),
+		LatestOnly: latestOnly,
+		Cursor:     c.Query("cursor"),
+		Limit:      limit,
+	})
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	// 归档徽标失败只影响展示，列表仍要返回（与工作台条目列表同策略）。
+	if h.filler != nil && len(page.Documents) > 0 {
+		if fillErr := h.filler.FillDocArchiveStatus(ctx, page.Documents); fillErr != nil {
+			logger.Warnf(ctx, "[DocAssistant] failed to fill doc archive status: %v", fillErr)
+			for _, doc := range page.Documents {
+				doc.ArchiveStatus = "none"
+				doc.ArchivedVersion = 0
+			}
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": page})
 }
 
 // RegenerateChapter godoc

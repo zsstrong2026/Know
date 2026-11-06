@@ -33,9 +33,23 @@ type DocDocumentRepository interface {
 	Update(ctx context.Context, doc *types.DocDocument) error
 	FindByID(ctx context.Context, tenantID uint64, ownerID, id string) (*types.DocDocument, error)
 	ListByTask(ctx context.Context, tenantID uint64, ownerID, taskID string) ([]*types.DocDocument, error)
+	// ListDocumentsByOwner 跨任务的全局文档列表（P2-5），返回摘要与是否还有下一页。
+	// latest_only 由 filter 决定；标题取自任务的 theme。
+	ListDocumentsByOwner(
+		ctx context.Context, tenantID uint64, ownerID string, filter types.DocDocumentFilter,
+	) ([]*types.DocDocumentSummary, bool, error)
 	MaxVersion(ctx context.Context, tenantID uint64, taskID string) (int, error)
 	// Delete 物理删除（用于任务/文档删除）
 	Delete(ctx context.Context, tenantID uint64, ownerID, id string) error
+}
+
+// DocArchiveStatusFiller 给章节文档列表批量补归档状态（P2-5）。
+//
+// 由工作台服务实现（source_type='doc' 的映射在 workbench_archives），
+// 放在这里而不是让 doc_assistant 反向依赖 workbench 包：依赖方向仍是
+// workbench -> doc_assistant 的注入顺序，只在 handler 组装时用窄接口桥接。
+type DocArchiveStatusFiller interface {
+	FillDocArchiveStatus(ctx context.Context, docs []*types.DocDocumentSummary) error
 }
 
 // DocAssistantService 文档助手服务接口
@@ -60,6 +74,10 @@ type DocAssistantService interface {
 	GetDocument(ctx context.Context, docID string) (*types.DocDocument, error)
 	// ListDocuments 列出任务下全部版本（倒序）
 	ListDocuments(ctx context.Context, taskID string) ([]*types.DocDocument, error)
+	// ListAllDocuments 跨任务的全局文档列表（P2-5）；分页与搜索由 filter 决定
+	ListAllDocuments(
+		ctx context.Context, filter types.DocDocumentFilter,
+	) (*types.DocDocumentPage, error)
 	// RegenerateChapter 重新生成某章（v+1 仅替换该章）
 	RegenerateChapter(ctx context.Context, docID string, chapterNo int) (*types.DocDocument, error)
 	// UpdateChapterContent 编辑章节文字内容（v+1）

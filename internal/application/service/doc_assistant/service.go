@@ -320,6 +320,40 @@ func (s *DocAssistantService) ListDocuments(ctx context.Context, taskID string) 
 	return s.documentRepo.ListByTask(ctx, tenantID, ownerID, taskID)
 }
 
+// ListAllDocuments 全局文档列表（P2-5）。
+//
+// 只返回摘要（标题取任务主题、不含 chapters），并按 latest_only 决定是否只取
+// 每个任务的最新版本。归档状态由工作台服务在 handler 层补，避免 doc_assistant
+// 反向依赖 workbench 包。
+func (s *DocAssistantService) ListAllDocuments(
+	ctx context.Context, filter types.DocDocumentFilter,
+) (*types.DocDocumentPage, error) {
+	tenantID := types.MustTenantIDFromContext(ctx)
+	ownerID, _ := types.UserIDFromContext(ctx)
+	if filter.Limit <= 0 {
+		filter.Limit = types.DocDocumentsDefaultLimit
+	}
+	if filter.Limit > types.DocDocumentsMaxLimit {
+		filter.Limit = types.DocDocumentsMaxLimit
+	}
+	rows, hasMore, err := s.documentRepo.ListDocumentsByOwner(ctx, tenantID, ownerID, filter)
+	if err != nil {
+		if errors.Is(err, types.ErrWorkbenchInvalidCursor) {
+			return nil, fmt.Errorf("%w: invalid cursor", ErrInvalidTask)
+		}
+		return nil, err
+	}
+	page := &types.DocDocumentPage{Documents: rows}
+	if page.Documents == nil {
+		page.Documents = make([]*types.DocDocumentSummary, 0)
+	}
+	if hasMore && len(rows) > 0 {
+		last := rows[len(rows)-1]
+		page.NextCursor = repository.EncodeItemsCursor(last.CreatedAt, last.ID)
+	}
+	return page, nil
+}
+
 func (s *DocAssistantService) DeleteDocument(ctx context.Context, docID string) error {
 	tenantID := types.MustTenantIDFromContext(ctx)
 	ownerID, _ := types.UserIDFromContext(ctx)

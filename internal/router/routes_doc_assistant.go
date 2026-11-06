@@ -27,6 +27,9 @@ func RegisterDocAssistantRoutes(r *gin.RouterGroup, handler *handler.DocAssistan
 		group.DELETE("/tasks/:id", g.Viewer(), handler.DeleteTask)
 		group.GET("/tasks/:id/documents", g.Viewer(), handler.ListDocuments)
 
+		// 全局文档列表（P2-5）：owner 维度跨任务，latest_only 默认 true。
+		// 必须注册在 /documents/:id 之前，否则 "documents" 会被当成 id。
+		group.GET("/documents", g.Viewer(), handler.ListAllDocuments)
 		group.GET("/documents/:id", g.Viewer(), handler.GetDocument)
 		group.DELETE("/documents/:id", g.Viewer(), handler.DeleteDocument)
 		group.POST("/documents/:id/chapters/:no/regenerate", g.Viewer(), handler.RegenerateChapter)

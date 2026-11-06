@@ -33,6 +33,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/Tencent/WeKnora/internal/utils/docxfix"
 	"github.com/google/uuid"
 )
 
@@ -486,6 +487,13 @@ func (c *ArtifactCollector) readNewContent(
 		logger.Warnf(ctx, "[ArtifactCollector] read artifact failed: session=%s path=%s err=%v",
 			sessionID, entry.Path, err)
 		return nil, "", false
+	}
+	// 生成脚本可能把 DrawingML 边框写进 w:tcPr，Word 打开会报文件损坏。
+	// 入库前统一清洗，保证产物下载后可直接预览。
+	if fixed, repaired := docxfix.SanitizeArtifact(entry.Name, data); repaired > 0 {
+		logger.Infof(ctx, "[ArtifactCollector] repaired %d illegal docx table borders: session=%s path=%s",
+			repaired, sessionID, entry.Path)
+		data = fixed
 	}
 	hash := artifactContentHash(data)
 	if c.knownSameContent(ctx, known, entry.Path, hash) {

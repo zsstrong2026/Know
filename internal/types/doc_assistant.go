@@ -36,6 +36,10 @@ const (
 	DocTemplateMaxWordsLower  = 200
 	DocDefaultTopK            = 8
 	DocMaxTopK                = 20
+
+	// 全局文档列表分页上限（P2-5）
+	DocDocumentsDefaultLimit = 30
+	DocDocumentsMaxLimit     = 100
 )
 
 // NewDocAssistantID 生成文档助手实体 ID
@@ -153,6 +157,39 @@ type DocGenerationPayload struct {
 	TaskID   string `json:"task_id"`
 	TenantID uint64 `json:"tenant_id"`
 	OwnerID  string `json:"owner_id"`
+}
+
+// DocDocumentSummary 全局文档列表的一行（P2-5）。
+//
+// 标题取自 doc_generation_tasks.theme，不返回 chapters 正文；
+// archive_status / archived_version 按 source_type='doc' 批量填充，
+// 不读 doc_generation_tasks.archive_status（那是旧自动归档任务的字段）。
+//
+// doc_documents 没有 updated_at：编辑章节会新增一行版本，因此
+// 「最新版本的 created_at」就是这份文档的更新时间。
+type DocDocumentSummary struct {
+	ID              string    `json:"id"`
+	TaskID          string    `json:"task_id"`
+	Title           string    `json:"title"`
+	Version         int       `json:"version"`
+	Status          string    `json:"status"`
+	ArchiveStatus   string    `json:"archive_status,omitempty" gorm:"-"`
+	ArchivedVersion int       `json:"archived_version,omitempty" gorm:"-"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+// DocDocumentFilter 全局文档列表的查询条件（owner 由服务端从 ctx 注入）。
+type DocDocumentFilter struct {
+	Query      string
+	LatestOnly bool
+	Cursor     string
+	Limit      int
+}
+
+// DocDocumentPage cursor 分页响应（cursor 为 created_at|id 的 base64）。
+type DocDocumentPage struct {
+	Documents  []*DocDocumentSummary `json:"documents"`
+	NextCursor string                `json:"next_cursor"`
 }
 
 // DocTemplateChapterEnvelope 章节骨架解码辅助（供 JSON 反序列化）

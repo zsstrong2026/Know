@@ -79,6 +79,49 @@ type tenantMemberService struct {
 	audit     interfaces.AuditLogService     // optional; nil ⇒ no audit, business ops still succeed
 	userRepo  interfaces.UserRepository      // optional; used to clear stale home-tenant pointers
 	tokenRepo interfaces.AuthTokenRepository // optional; used to revoke sessions after removal
+	// lifecycle 是工作台成员生命周期钩子（30 天保留标记 + 站内通知）。
+	// 可选：nil 时成员操作照常成功，清理退化为由 CleanupRunner 兜底。
+	lifecycle MemberLifecycleHooks
+}
+
+// MemberLifecycleHooks 是工作台侧的成员生命周期钩子（§5.5）。
+//
+// 用窄接口而不是直接依赖 workbench.Service：成员包不应该 import 工作台包，
+// 否则两包互相引用。实现方只需这两个方法。
+type MemberLifecycleHooks interface {
+	OnMemberRemoved(ctx context.Context, tenantID uint64, userID, reason string) error
+	OnMemberAdded(ctx context.Context, tenantID uint64, userID string) error
+}
+
+// WithMemberLifecycle 注入成员生命周期钩子，返回自身便于链式装配。
+func (s *tenantMemberService) WithMemberLifecycle(hooks MemberLifecycleHooks) *tenantMemberService {
+	s.lifecycle = hooks
+	return s
+}
+
+// notifyMemberRemoved 调用移除钩子；失败只记日志，不影响成员操作结果。
+func (s *tenantMemberService) notifyMemberRemoved(ctx context.Context, userID string, tenantID uint64) {
+	if s.lifecycle == nil {
+		return
+	}
+	if err := s.lifecycle.OnMemberRemoved(
+		ctx, tenantID, userID, types.WorkbenchOrphanReasonRemoved); err != nil {
+		logger.Warnf(ctx,
+			"workbench lifecycle: OnMemberRemoved failed for user %s tenant %d: %v",
+			userID, tenantID, err)
+	}
+}
+
+// notifyMemberAdded 调用重新加入钩子；失败只记日志。
+func (s *tenantMemberService) notifyMemberAdded(ctx context.Context, userID string, tenantID uint64) {
+	if s.lifecycle == nil {
+		return
+	}
+	if err := s.lifecycle.OnMemberAdded(ctx, tenantID, userID); err != nil {
+		logger.Warnf(ctx,
+			"workbench lifecycle: OnMemberAdded failed for user %s tenant %d: %v",
+			userID, tenantID, err)
+	}
 }
 
 // NewTenantMemberService constructs the service. Wired up via the DI
@@ -106,6 +149,25 @@ func NewTenantMemberService(
 		audit:     audit,
 		userRepo:  userRepo,
 		tokenRepo: tokenRepo,
+	}
+}
+
+// NewTenantMemberServiceWithLifecycle 与 NewTenantMemberService 相同，但注入工作台
+// 成员生命周期钩子（§5.5）。独立成一个构造函数而不是改签名：
+// 既有测试与调用点不需要为了一个可选依赖全部改参数。
+func NewTenantMemberServiceWithLifecycle(
+	repo interfaces.TenantMemberRepository,
+	audit interfaces.AuditLogService,
+	userRepo interfaces.UserRepository,
+	tokenRepo interfaces.AuthTokenRepository,
+	hooks MemberLifecycleHooks,
+) interfaces.TenantMemberService {
+	return &tenantMemberService{
+		repo:      repo,
+		audit:     audit,
+		userRepo:  userRepo,
+		tokenRepo: tokenRepo,
+		lifecycle: hooks,
 	}
 }
 
@@ -201,6 +263,8 @@ func (s *tenantMemberService) AddMember(
 		TargetUserID: userID,
 		Outcome:      types.AuditOutcomeSuccess,
 	})
+	// 重新加入：解除 30 天保留标记并写恢复通知（§5.5）。
+	s.notifyMemberAdded(ctx, userID, tenantID)
 	return member, nil
 }
 
@@ -415,6 +479,7 @@ func (s *tenantMemberService) RemoveMember(ctx context.Context, userID string, t
 		}
 		s.emitRemovalAudit(ctx, tenantID, userID)
 		s.cleanupRemovedMemberState(ctx, userID, tenantID)
+		s.notifyMemberRemoved(ctx, userID, tenantID)
 		return nil
 	}
 	if err := s.repo.SoftDelete(ctx, userID, tenantID); err != nil {
@@ -422,6 +487,7 @@ func (s *tenantMemberService) RemoveMember(ctx context.Context, userID string, t
 	}
 	s.emitRemovalAudit(ctx, tenantID, userID)
 	s.cleanupRemovedMemberState(ctx, userID, tenantID)
+	s.notifyMemberRemoved(ctx, userID, tenantID)
 	return nil
 }
 
