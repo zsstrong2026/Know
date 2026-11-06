@@ -305,7 +305,7 @@ workbench:
 
 | 项 | 还差什么 | 前置条件 |
 | --- | --- | --- |
-| P4-2 标签 | `workbench_tags` 表 + 关联表 = **新增迁移**（PG 158 / SQLite 62），同步改 `expectedSQLiteMigrationVersion`；再补类型/服务/前端筛选 | **已决策：个人标签**（`tenant_id + owner_id`，Admin 不可读）。可开工 |
+| ~~P4-2 标签~~ | **已完成**（迁移 PG 158 / SQLite 62、6 个端点、`ItemTagDialog`、列表按标签筛选） | 口径：个人标签，Admin 不可读 |
 | ~~P4-2 拖拽排序~~ | **已完成**（`PUT /folders/:id/move` + `folder-drop.ts` + FolderTree 拖拽） | — |
 | P4-2 反向链接 | `workbench_item_links` 已建表但无写入方；保存后按「页内提及」解析并落库，再补 `GET /items/:id/backlinks` 与前端面板 | **已决策：页内提及**（正文里出现另一个条目标题即算引用）。无迁移，可开工 |
 | P4-3 端到端权限门禁 | 需要两个真实用户 + Admin + API Key 跑一遍全接口矩阵 | 需要能在容器里造第二个用户（本机 Docker 环境） |
