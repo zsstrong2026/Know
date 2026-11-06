@@ -64,6 +64,25 @@
 
         <!-- Active search results -->
         <template v-else>
+          <!-- 工作台条目与章节文档（P3-6）：命中标题与正文投影 -->
+          <ResultGroup
+            v-if="isGroupVisible('workbench') && workbenchHits.length"
+            :label="t('commandPalette.group.workbench')"
+          >
+            <ResultItem
+              v-for="(hit, i) in workbenchHits"
+              :key="'wb-' + hit.key"
+              :index="flatIndexFor('workbench', i)"
+              :selected="selectedIndex === flatIndexFor('workbench', i)"
+              :shortcut="shortcutFor(flatIndexFor('workbench', i))"
+              :icon-name="hit.kind === 'document' ? 'file' : 'artboard'"
+              :title="hit.title"
+              :subtitle="hit.kind === 'document' ? t('commandPalette.workbench.document') : t('commandPalette.workbench.item')"
+              @primary="openWorkbenchHit(hit)"
+              @hover="selectItemAt($event)"
+            />
+          </ResultGroup>
+
           <!-- Chunks (per file) -->
           <ResultGroup v-if="isGroupVisible('chunks') && fileGroups.length" :label="t('commandPalette.group.chunks')"
             :count="totalChunks">
@@ -175,6 +194,7 @@ import { useCommandPaletteStore } from '@/stores/commandPalette'
 import { useAuthStore } from '@/stores/auth'
 import { useDeploymentCapabilitiesStore } from '@/stores/deploymentCapabilities'
 import { useCmdkSearch, type CmdkFileGroup, type CmdkChunk, type CmdkMsgGroup } from './GlobalCommandPalette/useSearch'
+import { useCmdkWorkbench, type CmdkWorkbenchHit } from './GlobalCommandPalette/useWorkbenchSearch'
 import { highlightText } from './GlobalCommandPalette/useHighlight'
 import { useStartChat } from './GlobalCommandPalette/useStartChat'
 import { buildCommands, filterCommands } from './GlobalCommandPalette/commands'
@@ -195,6 +215,7 @@ const { startChat } = useStartChat()
 // Per-group display caps — keep the palette compact.
 const CHUNK_LIMIT = 5
 const MSG_LIMIT = 4
+const WORKBENCH_LIMIT = 5
 
 // Active KB scope: when the palette opens on a KB detail page, we default to
 // searching within that KB. The user can remove the chip to expand scope.
@@ -212,6 +233,10 @@ const {
   lockedKbIds: () => (activeKbScope.value ? [activeKbScope.value.id] : []),
   agentsEnabled: () => deploymentCapabilities.isSupported('agents'),
 })
+
+// 工作台结果（P3-6）：与知识/消息搜索各自防抖，互不阻塞。
+// 请求失败时该分组为空，不影响其他分组（接口未部署时也不会报错给用户）。
+const { hits: workbenchHits } = useCmdkWorkbench(query, { limit: WORKBENCH_LIMIT })
 
 const settingsVisible = ref(false)
 const inputRef = ref<HTMLInputElement | null>(null)
@@ -293,12 +318,13 @@ const groupOrder = computed<readonly string[]>(() => {
     // Scoped to one KB: only chunks make sense (messages disabled in useSearch).
     return ['chunks'] as const
   }
-  return ['chunks', 'messages', 'kbs', 'agents', 'sessions', 'commands'] as const
+  return ['workbench', 'chunks', 'messages', 'kbs', 'agents', 'sessions', 'commands'] as const
 })
 
 const groupSizes = computed<Record<string, number>>(() => ({
   recent: recentQueries.value.length,
   commands: query.value.trim() ? filteredCommands.value.length : allCommands.value.length,
+  workbench: workbenchHits.value.length,
   chunks: flatChunkItems.value.length,
   messages: flatMessageItems.value.length,
   kbs: kbMatches.value.length,
@@ -341,6 +367,10 @@ const flatItems = computed<FlatItem[]>(() => {
       const list = query.value.trim() ? filteredCommands.value : allCommands.value
       list.forEach((cmd) => {
         out.push({ key: `cmd:${cmd.id}`, group: g, run: () => cmd.run() })
+      })
+    } else if (g === 'workbench') {
+      workbenchHits.value.forEach((hit) => {
+        out.push({ key: hit.key, group: g, run: () => openWorkbenchHit(hit) })
       })
     } else if (g === 'chunks') {
       flatChunkItems.value.forEach((item) => {
@@ -462,6 +492,22 @@ const openSession = (sessionId: string) => {
   commandPaletteStore.pushRecent(query.value)
   commandPaletteStore.closePalette()
   router.push(`/platform/chat/${sessionId}`)
+}
+
+/**
+ * 打开工作台结果（P3-6）。
+ *
+ * 条目走 workbenchItem 编辑页，章节文档走文档详情页；
+ * 与工作台自己的列表跳转保持一致，不额外加 query 参数。
+ */
+const openWorkbenchHit = (hit: CmdkWorkbenchHit) => {
+  commandPaletteStore.pushRecent(query.value)
+  commandPaletteStore.closePalette()
+  if (hit.kind === 'document') {
+    router.push({ name: 'docAssistantDocumentDetail', params: { id: hit.id } })
+    return
+  }
+  router.push({ name: 'workbenchItem', params: { itemId: hit.id } })
 }
 
 const askAi = () => {
@@ -619,6 +665,7 @@ watch(open, (val) => {
     }
   } else {
     clearResults()
+    // 工作台分组的清空由它自己的 query 监听负责：query 置空即丢弃在途请求。
     query.value = ''
     settingsVisible.value = false
     activeKbScope.value = null

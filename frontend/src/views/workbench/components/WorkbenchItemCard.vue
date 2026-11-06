@@ -10,8 +10,8 @@
   >
     <div class="card-cover" :class="`cover-${item.kind}`">
       <span class="card-kind">
-        <t-icon :name="item.kind === 'database' ? 'table' : 'image'" size="11px" />
-        {{ item.kind === 'database' ? $t('workbench.nav.databases') : 'canvas' }}
+        <t-icon :name="kindIcon" size="11px" />
+        {{ kindLabel }}
       </span>
       <button
         class="card-star"
@@ -99,7 +99,20 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-const describe = computed(() => itemCaption(props.item))
+/** 角标：数据库是独立实体；文档与画布按当前查看模式区分，不当作两类条目 */
+const kindIcon = computed(() => {
+  if (props.item.kind === 'database') return 'table'
+  return (props.item.current_mode ?? 'edgeless') === 'page' ? 'file' : 'image'
+})
+
+const kindLabel = computed(() => {
+  if (props.item.kind === 'database') return t('workbench.item.database')
+  return t((props.item.current_mode ?? 'edgeless') === 'page'
+    ? 'workbench.item.document'
+    : 'workbench.item.canvas')
+})
+
+const describe = computed(() => itemCaption(props.item, t))
 const updatedLabel = computed(() => formatRelativeTime(props.item.updated_at))
 const menuOptions = computed(() => buildItemMenuOptions(props.item, props.trashed, t))
 

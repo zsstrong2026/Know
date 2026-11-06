@@ -1,5 +1,6 @@
 <template>
   <!-- 文件夹树：AFFiNE 风格的行内管理；行尾菜单承载新建文档、子文件夹、重命名与删除 -->
+
   <div class="folder-tree">
     <template v-for="row in displayRows" :key="row.key">
       <div
@@ -105,7 +106,8 @@
  * 不改变数据，因此切换视图不会丢失折叠记忆（组件内 ref 保留）。
  *
  * 交互参考 AFFiNE：新建/重命名走行内输入，文件夹行尾菜单负责
- * 「新建文档 / 画布 / 数据库、新建子文件夹、重命名、删除」。
+ * 「新建文档、新建子文件夹、重命名、删除」。画布只是文档的查看模式，
+ * 不再是独立的创建项。
  */
 import { computed, h, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -127,8 +129,8 @@ const emit = defineEmits<{
   'rename-folder': [payload: { id: string; name: string }]
   'delete-folder': [folder: WorkbenchFolder]
   'add-existing': [folder: WorkbenchFolder]
-  /** 文件夹只收纳文档/画布，数据库不参与文件夹分类 */
-  'create-item': [payload: { folderId: string; kind: 'document' | 'canvas' }]
+  /** 文件夹只收纳文档，数据库不参与文件夹分类 */
+  'create-item': [payload: { folderId: string }]
 }>()
 
 const { t } = useI18n()
@@ -221,11 +223,6 @@ const folderMenuOptions = computed(() => [
     content: t('workbench.new.document'),
     value: 'document',
     prefixIcon: () => h(TIcon, { name: 'file' }),
-  },
-  {
-    content: t('workbench.new.canvas'),
-    value: 'canvas',
-    prefixIcon: () => h(TIcon, { name: 'image' }),
   },
   {
     content: t('workbench.nav.addExistingDocs'),
@@ -348,11 +345,7 @@ function onFolderMenu(row: FolderRow, data: { value?: string | number }) {
   const action = String(data.value ?? '')
   switch (action) {
     case 'document':
-    case 'canvas':
-      emit('create-item', {
-        folderId: row.folder.id,
-        kind: action as 'document' | 'canvas',
-      })
+      emit('create-item', { folderId: row.folder.id })
       break
     case 'subfolder':
       startCreate(row.folder.id)

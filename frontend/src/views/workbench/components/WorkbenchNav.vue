@@ -21,13 +21,11 @@
     </div>
 
     <div class="wb-new-wrap">
-      <t-dropdown :options="createOptions" trigger="click" placement="bottom-left" @click="onCreate">
-        <button class="wb-new" type="button">
-          <t-icon name="add" size="15px" />
-          <span>{{ $t('workbench.new.label') }}</span>
-          <t-icon name="chevron-down" size="13px" class="wb-new-caret" />
-        </button>
-      </t-dropdown>
+      <!-- 新建不再区分文档/画布：画布只是文档的另一种查看模式，直接建文档 -->
+      <button class="wb-new" type="button" @click="createDocument">
+        <t-icon name="add" size="15px" />
+        <span>{{ $t('workbench.new.label') }}</span>
+      </button>
     </div>
 
     <div class="wb-nav-scroll">
@@ -150,15 +148,6 @@ const navEntries = computed(() =>
   ].filter((entry) => !entry.gate || store.features[entry.gate as keyof typeof store.features]),
 )
 
-const createOptions = computed(() => [
-  // 「新建文档」不是新的 item kind：它就是 page 形态的普通条目，
-  // 只是创建后带 ?template=1 走模板选择器（§9.16.2）。模板关闭时不出现。
-  // 文件夹不再出现在这里：它属于文件夹树自身的操作（新建子文件夹 / 头部 +）。
-  ...(store.features.templates ? [{ content: t('workbench.new.document'), value: 'document' }] : []),
-  { content: t('workbench.new.canvas'), value: 'canvas' },
-  { content: t('workbench.new.database'), value: 'database' },
-])
-
 /** 齿轮二级菜单：只有「编辑器」与「工作台 AI」两项（§9.14.1）。 */
 const settingsOptions = computed(() => [
   { content: t('workbench.settings.tab.editor'), value: 'editor' },
@@ -172,36 +161,24 @@ function onSettings(data: { value?: string | number }) {
 
 function isActive(match: string): boolean {
   const name = String(route.name ?? '')
+  // 事项是单例，落在条目编辑路由上，用 focus 区分「事项」与「最近」
+  const onThings = name === 'workbenchItem' && String(route.query.focus ?? '') === 'database'
   if (match === 'workbenchRecent') {
     // 条目编辑页也属于“最近”语境，高亮它避免侧栏失去选中态
-    return name === 'workbenchRecent' || name === 'workbenchItem'
+    return name === 'workbenchRecent' || (name === 'workbenchItem' && !onThings)
   }
+  if (match === 'workbenchDatabases') return onThings
   if (match === 'workbenchJournals') {
     return name === 'workbenchJournals' || name === 'workbenchJournalDay'
   }
   return name === match
 }
 
-async function onCreate(data: { value?: string | number }) {
-  const value = String(data.value ?? '')
-  if (value === 'document') {
-    await createDocument()
-    return
-  }
-  if (value !== 'canvas' && value !== 'database') return
-  try {
-    const item = await store.createItem(value, undefined, props.activeFolderId || null)
-    emit('created')
-    await router.push({ name: 'workbenchItem', params: { itemId: item.id } })
-  } catch {
-    MessagePlugin.error(t('workbench.editor.loadFailed'))
-  }
-}
-
 /**
- * 新建文档 → 模板选择器。
+ * 新建文档。
  *
- * 普通「新建画布」即使编辑器偏好里默认形态是 Page，也不带 ?template=1，不弹模板。
+ * 「文档」与「画布」只是同一份内容的两种查看模式，因此这里固定创建
+ * page 形态的条目，后续由编辑器里的形态切换在 page / edgeless 间切换。
  */
 async function createDocument() {
   try {
@@ -216,7 +193,7 @@ async function createDocument() {
     await router.push({
       name: 'workbenchItem',
       params: { itemId: item.id },
-      query: { template: '1' },
+      ...(store.features.templates ? { query: { template: '1' } } : {}),
     })
   } catch {
     MessagePlugin.error(t('workbench.editor.loadFailed'))
@@ -278,27 +255,22 @@ function onDeleteFolder(folder: { id: string; name: string; parent_id: string | 
 }
 
 /**
- * 从文件夹行直接新建条目。
+ * 从文件夹行直接新建文档。
  *
- * 文件夹只收纳文档/画布，因此这里不再提供数据库。
- * 「新建文档」固定 page 形态并可选走模板选择器；画布沿用编辑器偏好。
+ * 文件夹只收纳文档；画布是文档的查看模式，不再是独立的创建项。
  */
-async function onCreateItemInFolder(payload: {
-  folderId: string
-  kind: 'document' | 'canvas'
-}) {
+async function onCreateItemInFolder(payload: { folderId: string }) {
   try {
     const item = await store.createItem(
       'canvas',
-      payload.kind === 'document' ? t('workbench.editor.untitled') : undefined,
+      t('workbench.editor.untitled'),
       payload.folderId,
-      payload.kind === 'document' ? 'page' : undefined,
+      'page',
     )
-    const useTemplate = payload.kind === 'document' && store.features.templates
     await router.push({
       name: 'workbenchItem',
       params: { itemId: item.id },
-      ...(useTemplate ? { query: { template: '1' } } : {}),
+      ...(store.features.templates ? { query: { template: '1' } } : {}),
     })
   } catch {
     MessagePlugin.error(t('workbench.editor.loadFailed'))
@@ -434,12 +406,6 @@ async function toggleJournalPanel() {
 
 .wb-new :deep(.t-icon) {
   color: var(--td-brand-color);
-}
-
-/* 加号用品牌绿，下拉箭头仍保持弱化：:deep 与上一规则同权重且更靠后 */
-.wb-new :deep(.wb-new-caret) {
-  margin-left: auto;
-  color: var(--td-text-color-placeholder);
 }
 
 .wb-nav-scroll {

@@ -20,7 +20,8 @@
 
     <span class="row-icon" aria-hidden="true">
       <template v-if="item.icon">{{ item.icon }}</template>
-      <t-icon v-else :name="item.kind === 'database' ? 'table' : 'image'" size="15px" />
+      <!-- 文档与画布是同一条目的两种查看模式，仅图标随模式变化 -->
+      <t-icon v-else :name="rowIcon" size="15px" />
     </span>
 
     <div class="row-main">
@@ -105,7 +106,13 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-const caption = computed(() => itemCaption(props.item))
+/** 列表行图标：数据库是独立实体；文档/画布按当前查看模式切换，不区分条目类型 */
+const rowIcon = computed(() => {
+  if (props.item.kind === 'database') return 'table'
+  return (props.item.current_mode ?? 'edgeless') === 'page' ? 'file' : 'image'
+})
+
+const caption = computed(() => itemCaption(props.item, t))
 const updatedLabel = computed(() => formatRelativeTime(props.item.updated_at))
 /** 悬停提示用绝对时间，相对时间只负责扫读 */
 const absoluteTime = computed(() => {

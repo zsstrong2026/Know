@@ -1,19 +1,27 @@
 <template>
   <!-- 列表页：最近 / 数据库 / 收藏 / 回收站 / 文件夹 共用一个组件，靠 scope 区分 -->
   <section class="wb-page">
+    <!-- 事项是全局单例：不渲染列表，进入后直接打开唯一事项 -->
+    <div v-if="scope === 'database'" class="wb-loading">
+      <t-loading :loading="true" size="small" />
+    </div>
+
+    <template v-else>
     <header class="page-head">
       <div>
         <div class="page-title">{{ title }}</div>
         <div class="page-sub">{{ subtitle }}</div>
       </div>
       <span class="spacer" />
-      <t-button v-if="scope !== 'trash'" variant="outline" @click="create('database')">
-        <template #icon><t-icon name="table" /></template>
-        {{ $t('workbench.list.newDatabase') }}
+      <!-- 导入资料（P4-1）：列表页只有「加入工作知识库」一条路径 -->
+      <t-button v-if="scope !== 'trash'" variant="outline" @click="importOpen = true">
+        <template #icon><t-icon name="upload" /></template>
+        {{ $t('workbench.import.entry') }}
       </t-button>
-      <t-button v-if="scope !== 'trash'" theme="primary" @click="create('canvas')">
+      <!-- 新建只有一条路径：直接建文档（画布是文档的另一种查看模式） -->
+      <t-button v-if="scope !== 'trash'" theme="primary" @click="createDocument">
         <template #icon><t-icon name="add" /></template>
-        {{ $t('workbench.list.newCanvas') }}
+        {{ $t('workbench.list.newDocument') }}
       </t-button>
     </header>
 
@@ -66,8 +74,8 @@
         <t-button v-if="keyword" size="small" variant="outline" @click="clearSearch">
           {{ $t('workbench.list.clearSearch') }}
         </t-button>
-        <t-button v-else-if="scope !== 'trash'" size="small" theme="primary" @click="create('canvas')">
-          {{ $t('workbench.list.newCanvas') }}
+        <t-button v-else-if="scope !== 'trash'" size="small" theme="primary" @click="createDocument">
+          {{ $t('workbench.list.newDocument') }}
         </t-button>
       </div>
     </template>
@@ -132,6 +140,10 @@
       :dropped="batchDropped"
       @finished="onBatchFinished"
     />
+
+    <!-- 导入资料（P4-1）：列表页不需要 itemId，「作为附件」路径自动隐藏 -->
+    <ImportMaterialDialog v-model:visible="importOpen" />
+    </template>
   </section>
 </template>
 
@@ -150,6 +162,7 @@ import WorkbenchItemCard from './components/WorkbenchItemCard.vue'
 import WorkbenchItemRow from './components/WorkbenchItemRow.vue'
 import BatchArchiveBar from './components/BatchArchiveBar.vue'
 import BatchArchiveDialog from './components/BatchArchiveDialog.vue'
+import ImportMaterialDialog from './components/ImportMaterialDialog.vue'
 import { useWorkbenchStore } from '@/stores/workbench'
 import { canDeleteArchive } from '@/workbench/archive-status'
 import { batchOpFor, capBatchSelection, type BatchArchiveCandidate } from '@/workbench/batch-archive'
@@ -172,6 +185,8 @@ const store = useWorkbenchStore()
 
 const keyword = ref('')
 const viewMode = ref<'cards' | 'list'>('cards')
+/** 导入资料对话框（P4-1）；列表页只走「加入工作知识库」 */
+const importOpen = ref(false)
 
 /** 列表视图按更新日期分组；服务端已按 updated_at 降序，顺序原样保留 */
 const groupedItems = computed(() =>
@@ -287,6 +302,29 @@ async function reload() {
   }
 }
 
+/** 事项是全局单例：进入后直接打开唯一事项，不渲染列表 */
+async function openThings() {
+  try {
+    const item = await store.ensureThingsItem()
+    await router.replace({
+      name: 'workbenchItem',
+      params: { itemId: item.id },
+      query: { focus: 'database' },
+    })
+  } catch {
+    MessagePlugin.error(t('workbench.list.loadFailed'))
+  }
+}
+
+/** 统一入口：事项走单例跳转，其余 scope 走列表加载 */
+function load() {
+  if (props.scope === 'database') {
+    void openThings()
+    return
+  }
+  void reload()
+}
+
 function loadMore() {
   void store.loadMore(props.scope, query.value)
 }
@@ -299,15 +337,15 @@ function clearSearch() {
 watch(() => [props.scope, props.folderId], () => {
   // 切换筛选/文件夹时清空选择，防止“看不见的选中项”被一起归档（§9.8.1）。
   resetSelection()
-  void reload()
+  load()
 })
 
 function onItemsChanged() {
-  void reload()
+  load()
 }
 
 onMounted(() => {
-  void reload()
+  load()
   window.addEventListener('workbench:items-changed', onItemsChanged)
   window.addEventListener('keydown', onKeydown)
 })
@@ -389,10 +427,24 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
-async function create(kind: 'canvas' | 'database') {
+/**
+ * 新建文档。
+ *
+ * 不再区分文档/画布：统一建 page 形态，画布只是编辑器里的查看模式。
+ */
+async function createDocument() {
   try {
-    const item = await store.createItem(kind, undefined, props.folderId ?? null)
-    await router.push({ name: 'workbenchItem', params: { itemId: item.id } })
+    const item = await store.createItem(
+      'canvas',
+      t('workbench.editor.untitled'),
+      props.folderId ?? null,
+      'page',
+    )
+    await router.push({
+      name: 'workbenchItem',
+      params: { itemId: item.id },
+      ...(store.features.templates ? { query: { template: '1' } } : {}),
+    })
   } catch {
     MessagePlugin.error(t('workbench.editor.loadFailed'))
   }

@@ -7,6 +7,16 @@
         <div class="page-sub">{{ $t('workbench.docs.subtitle') }}</div>
       </div>
       <span class="spacer" />
+      <!-- 全局文档列表的标题搜索（P2-5）：走服务端 q 参数，不在前端过滤整页 -->
+      <t-input
+        v-model="query"
+        class="docs-search"
+        size="small"
+        clearable
+        :placeholder="$t('workbench.docs.searchPlaceholder')"
+        @change="reload"
+        @clear="reload"
+      />
       <t-button v-if="rows.length > 0" variant="text" @click="toggleSelectMode">
         {{ selectMode ? $t('workbench.batchArchive.exitSelect') : $t('workbench.batchArchive.selectMode') }}
       </t-button>
@@ -87,6 +97,11 @@
       </template>
     </t-table>
 
+    <!-- 游标分页：还有下一页时给一个显式入口，不做滚动自动加载（列表可能很长） -->
+    <div v-if="!loading && nextCursor" class="docs-more">
+      <t-button variant="text" size="small" @click="load(true)">{{ $t('workbench.docs.loadMore') }}</t-button>
+    </div>
+
     <BatchArchiveDialog
       v-model="batchDialogOpen"
       :selected="batchSelection"
@@ -98,11 +113,12 @@
 
 <script setup lang="ts">
 /**
- * 章节文档列表（P1：复用现有任务列表，不新增后端接口）。
+ * 章节文档列表（P2-5：全局文档列表）。
  *
- * 归档状态来自工作台归档（source_type='doc'），不读 doc_generation_tasks.archive_status：
- * 后者只用于旧自动归档任务，不驱动徽标（§9.9）。
- * 状态按可见行分批读取，一次最多 20 条，避免整页 N+1。
+ * 数据来自 `GET /doc-assistant/documents`（默认每个任务只取最新版本），
+ * 不再是「任务列表 + 逐行查版本」：因此每行都有可打开的 doc id。
+ * 归档状态同样来自工作台归档（source_type='doc'，source_id 是任务 id），
+ * 由服务端批量填充，不再逐行请求 archives/state（§9.9）。
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -111,7 +127,11 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import ArchiveBadge from './components/ArchiveBadge.vue'
 import BatchArchiveBar from './components/BatchArchiveBar.vue'
 import BatchArchiveDialog from './components/BatchArchiveDialog.vue'
-import { listDocTasks, type DocGenerationTask } from '@/api/doc-assistant'
+import {
+  listDocDocumentsGlobal,
+  type DocDocumentStatus,
+  type DocDocumentSummary,
+} from '@/api/doc-assistant'
 import { getArchiveState } from '@/api/workbench'
 import { archiveBadge } from '@/workbench/archive-status'
 import { batchOpFor, capBatchSelection, type BatchArchiveCandidate } from '@/workbench/batch-archive'
@@ -119,10 +139,12 @@ import { useWorkbenchStore } from '@/stores/workbench'
 import type { ArchiveStatus } from '@/types/workbench'
 
 interface DocRow {
+  /** 文档 id（最新版本），直接用于跳转详情 */
   id: string
+  /** 任务 id：归档 source_id 与批量选择键 */
   taskId: string
   theme: string
-  status: DocGenerationTask['status']
+  status: DocDocumentStatus
   updatedAt: string
   archiveStatus: ArchiveStatus
   archivedVersion: number
@@ -134,6 +156,10 @@ const store = useWorkbenchStore()
 
 const loading = ref(true)
 const rows = ref<DocRow[]>([])
+/** 标题搜索关键词：交给服务端 q，避免只过滤当前页 */
+const query = ref('')
+/** 下一页游标；空串表示没有更多 */
+const nextCursor = ref('')
 
 // ---- 批量归档（§9.8.1） ----
 const selectMode = ref(false)
@@ -155,7 +181,7 @@ const columns = computed(() => [
   { colKey: 'op', title: t('workbench.docs.columns.op'), width: 160, align: 'right' as const },
 ])
 
-function statusLabel(status: DocGenerationTask['status']): string {
+function statusLabel(status: DocRow['status']): string {
   return t(`workbench.docs.status.${status}`)
 }
 
@@ -172,65 +198,54 @@ function formatTime(value: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-/** 只对进入列表的前 20 行读归档状态，避免一次性打满请求。 */
-async function fillArchiveStatus(list: DocRow[]) {
-  const visible = list.slice(0, 20)
-  await Promise.all(
-    visible.map(async (row) => {
-      try {
-        const state = await getArchiveState('doc', row.taskId)
-        row.archiveStatus = state.status
-        row.archivedVersion = state.archived_version ?? 0
-      } catch {
-        // 没有映射时接口返回 2400；按“未归档”展示即可。
-        row.archiveStatus = 'none'
-        row.archivedVersion = 0
-      }
-    }),
-  )
+/** 把接口摘要转成表格行；归档状态已在响应里，不再额外请求。 */
+function toRow(doc: DocDocumentSummary): DocRow {
+  return {
+    id: doc.id,
+    taskId: doc.task_id,
+    theme: doc.title || t('workbench.docs.untitled'),
+    status: doc.status,
+    updatedAt: doc.created_at,
+    archiveStatus: (doc.archive_status ?? 'none') as ArchiveStatus,
+    archivedVersion: doc.archived_version ?? 0,
+  }
 }
 
-async function load() {
-  loading.value = true
+/** 拉一页；append=true 时接在现有行后面（「加载更多」）。 */
+async function load(append = false) {
+  if (!append) loading.value = true
   try {
-    const resp = await listDocTasks()
-    const tasks = resp.data ?? []
-    rows.value = tasks.map((task) => ({
-      id: task.id,
-      taskId: task.id,
-      theme: task.theme,
-      status: task.status,
-      updatedAt: task.finished_at ?? task.created_at,
-      archiveStatus: 'none' as ArchiveStatus,
-      archivedVersion: 0,
-    }))
-    await fillArchiveStatus(rows.value)
+    const resp = await listDocDocumentsGlobal({
+      q: query.value.trim() || undefined,
+      cursor: append ? nextCursor.value : undefined,
+      limit: 30,
+    })
+    const page = resp.data
+    const mapped = (page?.documents ?? []).map(toRow)
+    rows.value = append ? [...rows.value, ...mapped] : mapped
+    nextCursor.value = page?.next_cursor ?? ''
   } catch {
     MessagePlugin.error(t('workbench.docs.loadFailed'))
-    rows.value = []
+    if (!append) rows.value = []
+    nextCursor.value = ''
   } finally {
     loading.value = false
   }
 }
 
-/** 打开文档：先取任务下的最新版本，没有版本时留在列表提示。 */
-async function openDoc(row: DocRow) {
-  try {
-    const { listDocDocuments } = await import('@/api/doc-assistant')
-    const resp = await listDocDocuments(row.taskId)
-    const latest = resp.data?.[0]
-    if (!latest) {
-      MessagePlugin.warning(t('workbench.docs.noVersion'))
-      return
-    }
-    await router.push({
-      name: 'docAssistantDocumentDetail',
-      params: { id: latest.id },
-      query: { from: 'workbenchDocs' },
-    })
-  } catch {
-    MessagePlugin.error(t('workbench.docs.loadFailed'))
-  }
+/** 搜索条件变化时从头加载，并清掉选择（旧行已经不在列表里）。 */
+function reload() {
+  resetSelection()
+  void load()
+}
+
+/** 打开文档：摘要里已经带 doc id，直接跳详情。 */
+function openDoc(row: DocRow) {
+  void router.push({
+    name: 'docAssistantDocumentDetail',
+    params: { id: row.id },
+    query: { from: 'workbenchDocs' },
+  })
 }
 
 /** 归档动作：章节文档由服务端渲染 Markdown，前端只传引用。 */
@@ -324,10 +339,10 @@ function openBatchDialog() {
   batchDialogOpen.value = true
 }
 
-/** 批量结束后重拉一次归档状态（不逐行刷新）。 */
+/** 批量结束后重载首页：归档状态已由服务端重新计算，不必逐行刷新。 */
 async function onBatchFinished() {
   resetSelection()
-  await fillArchiveStatus(rows.value)
+  await load()
 }
 
 onMounted(() => {
@@ -372,6 +387,16 @@ onMounted(() => {
 
 .docs-table {
   margin-top: var(--app-space-4);
+}
+
+.docs-search {
+  width: 220px;
+}
+
+.docs-more {
+  display: flex;
+  justify-content: center;
+  padding: var(--app-space-3) 0;
 }
 
 .status-text {
