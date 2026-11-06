@@ -6,6 +6,7 @@ import {
   dateOnlyToTimestamp,
   diffDateOnly,
   formatLocalDate,
+  monthRange,
   parseDateOnly,
   shiftDateOnly,
   shiftMonthCursor,
@@ -65,4 +66,15 @@ test('shiftMonthCursor / currentMonthCursor', () => {
   assert.equal(shiftMonthCursor('2026-12', 1), '2027-01')
   assert.equal(shiftMonthCursor('2026-10', 0), '2026-10')
   assert.equal(currentMonthCursor(new Date(2026, 9, 30)), '2026-10')
+})
+
+test('monthRange：本月 1 日到下月 1 日（左闭右开）', () => {
+  const { start, end } = monthRange(new Date(2026, 9, 27))
+  assert.equal(timestampToDateOnly(start), '2026-10-01')
+  // 右边界是下月 1 日，用它做 before 条件可以包含本月最后一天
+  assert.equal(timestampToDateOnly(end), '2026-11-01')
+  const lastDay = new Date(2026, 9, 31, 23, 59).getTime()
+  assert.ok(lastDay < end)
+  // 跨年
+  assert.equal(timestampToDateOnly(monthRange(new Date(2026, 11, 5)).end), '2027-01-01')
 })

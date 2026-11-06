@@ -22,13 +22,14 @@ import {
 } from './database-csv'
 import type { CsvColumnLike } from './database-csv'
 import { EMPTY_DATABASE_STATE } from './database-state'
-import type { DatabaseToolbarState, DatabaseFilterState } from './database-state'
+import type { DatabaseActiveFilter, DatabaseToolbarState, DatabaseFilterState } from './database-state'
 import { WORKBENCH_DB_COLUMNS } from './database-seed'
 import type { CanvasHandle } from './blocksuite'
 import { applyDatabasePatch, buildDatabaseContext } from './database-ai'
 import type { DatabaseAIContext, DatabasePatchOutcome } from './database-ai'
 import type { ResolvedPatch } from '../ai/database-patch'
-import { timestampToDateOnly } from './database-dates'
+import { monthRange, timestampToDateOnly } from './database-dates'
+import { planCardProperties, planColumnWidths } from './database-view-defaults'
 
 // 类型与占位状态放在 database-state.ts：条目页首屏要用常量，不应因此引入编辑器包。
 export type { DatabaseToolbarState }
@@ -54,27 +55,36 @@ export interface DatabaseRowDetail {
 /**
  * 工具栏单个筛选下拉的取值。
  *
- * select 列用「选项 id 列表」做 isOneOf；文本列用关键字做 contains。
- * 两个字段都为空表示这一项不参与筛选。
+ * - select 列用「选项 id 列表」：`isOneOf`，`negate` 时改用 `isNotOneOf`
+ *   （原型「状态 不等于 · 已完成」）；
+ * - 文本列用关键字做 `contains`；
+ * - 日期列用 `month` 表示「在本月」，展开成 `after` + `before` 两条原生条件。
  */
 export interface DatabaseFilterInput {
   columnId: string
   optionIds?: string[]
   text?: string
+  /** select 列取反 */
+  negate?: boolean
+  /** 日期列「在本月」 */
+  month?: boolean
 }
 
 /** 等待上游渲染出 data-view 的最长帧数（约 3 秒，覆盖首次冷启动的模块加载）。 */
 const READY_RETRY_FRAMES = 180
 
 /**
- * 工具栏「＋ 筛选」支持的两个 select 列。
+ * 工具栏「＋ 筛选」提供的三个字段。
  *
- * 原型（AFFiNE-Know原型.html）的筛选行只展示「字段 + 取值」chip，
- * 所以筛选能力收敛为 select 列的单条件；文本/日期的复杂运算符不做。
+ * 与原型（AFFiNE-Know原型.html）的筛选行一致：状态、优先级两个 select 列各有
+ * 「等于 / 不等于」，截止日是日期列，只提供「在本月」。
+ * 上游 date 筛选只有 before / after，所以「在本月」落成两条原生条件的组合，
+ * 见 `setFilters`。
  */
 const FILTER_KEYS = [
-  { key: 'status', columnId: WORKBENCH_DB_COLUMNS.status },
-  { key: 'priority', columnId: WORKBENCH_DB_COLUMNS.priority },
+  { key: 'status', columnId: WORKBENCH_DB_COLUMNS.status, kind: 'select' },
+  { key: 'priority', columnId: WORKBENCH_DB_COLUMNS.priority, kind: 'select' },
+  { key: 'date', columnId: WORKBENCH_DB_COLUMNS.date, kind: 'date' },
 ] as const
 
 export class DatabaseToolbarController {
@@ -87,6 +97,8 @@ export class DatabaseToolbarController {
   private destroyed = false
   /** 视图名本地化表：构造时可能还没绑上 dataSource，绑定时补一次。 */
   private pendingViewNames: Record<string, string> | null = null
+  /** 视图默认值只归一一次，避免每次切视图都写一遍 Y.Doc。 */
+  private viewDefaultsApplied = false
 
   constructor(
     private readonly handle: CanvasHandle,
@@ -133,6 +145,8 @@ export class DatabaseToolbarController {
     this.disposers.push(
       effect(() => {
         this.state = this.derive()
+        // 视图数据可能在首帧才写好：views 为空时提前 return，下一次重算再试。
+        this.applyViewDefaults()
         this.listener?.()
       }),
     )
@@ -140,6 +154,42 @@ export class DatabaseToolbarController {
     this.listener?.()
     // 构造时 data-view 可能还没渲染，localizeViewNames 会先暂存，这里补执行一次。
     if (this.pendingViewNames) this.localizeViewNames(this.pendingViewNames)
+    // 视图默认值（列宽 / 看板卡片属性）跟着数据源一起归一到原型。
+    this.applyViewDefaults()
+  }
+
+  /**
+   * 把视图默认值对齐原型（列宽比例、看板卡片显示优先级与截止日）。
+   *
+   * 视图配置存在 Y.Doc 的视图数据里，改 `database-seed.ts` 只对新条目生效，
+   * 而事项是全局单例、只建一次，所以老条目需要这条一次性归一。
+   * 是否改由 `database-view-defaults.ts` 的纯函数判定：用户手动调整过就一律跳过。
+   */
+  private applyViewDefaults(): void {
+    if (this.viewDefaultsApplied) return
+    if (!this.dataSource || this.state.readonly) return
+    const viewIds: string[] = this.dataSource.viewManager.views$.value ?? []
+    // 视图还没建好时不置位，等信号更新后重试，否则这一次归一会永远错过。
+    if (!viewIds.length) return
+    this.viewDefaultsApplied = true
+    for (const viewId of viewIds) {
+      const data = this.dataSource.viewDataGet(viewId)
+      if (data?.mode === 'table') {
+        const next = planColumnWidths(Array.isArray(data.columns) ? data.columns : [])
+        if (next) {
+          this.dataSource.viewDataUpdate(viewId, (current: any) => ({ ...current, columns: next }))
+        }
+      } else if (data?.mode === 'kanban') {
+        const visible = data?.card?.visiblePropertyIds
+        const next = planCardProperties(Array.isArray(visible) ? visible.map(String) : [])
+        if (next) {
+          this.dataSource.viewDataUpdate(viewId, (current: any) => ({
+            ...current,
+            card: { ...current.card, visiblePropertyIds: next },
+          }))
+        }
+      }
+    }
   }
 
   /** 供 Vue 层订阅：state 每次重算后触发。 */
@@ -168,9 +218,14 @@ export class DatabaseToolbarController {
     const filters: DatabaseFilterState[] = []
     for (const item of FILTER_KEYS) {
       const column = columnMap.get(item.columnId)
-      const options = column ? optionsOf(column).map((option) => ({ id: option.id, value: option.value })) : []
-      if (column && options.length) {
-        filters.push({ key: item.key, columnId: item.columnId, label: column.name, options })
+      if (!column) continue
+      if (item.kind === 'date') {
+        filters.push({ key: item.key, columnId: item.columnId, label: column.name, type: 'date', options: [] })
+        continue
+      }
+      const options = optionsOf(column).map((option) => ({ id: option.id, value: option.value }))
+      if (options.length) {
+        filters.push({ key: item.key, columnId: item.columnId, label: column.name, type: 'select', options })
       }
     }
     const sortColumns = [WORKBENCH_DB_COLUMNS.date, WORKBENCH_DB_COLUMNS.priority]
@@ -181,12 +236,7 @@ export class DatabaseToolbarController {
     const conditions: any[] = Array.isArray(currentView?.filter?.conditions)
       ? currentView.filter.conditions
       : []
-    const activeFilters = conditions
-      .filter((condition) => condition?.type === 'filter' && Array.isArray(condition?.args?.[0]?.value))
-      .map((condition) => ({
-        columnId: String(condition.left?.name ?? ''),
-        optionIds: (condition.args[0].value as unknown[]).map(String),
-      }))
+    const activeFilters = readActiveFilters(conditions)
     const firstSort = currentView?.sort?.sortBy?.[0]
     const activeSort = firstSort?.ref?.name
       ? { columnId: String(firstSort.ref.name), desc: Boolean(firstSort.desc) }
@@ -239,12 +289,31 @@ export class DatabaseToolbarController {
     if (!this.ensureBound()) return
     const viewId = this.dataSource.viewManager.currentViewId$.value
     if (!viewId) return
+    const { start, end } = monthRange()
     const conditions = inputs.flatMap((input): any[] => {
+      if (input.month) {
+        // 「在本月」= after(本月 1 日 0 点 - 1ms) + before(下月 1 日 0 点)。
+        // 上游 after/before 都是严格比较，用 -1ms 让 1 日 0 点整的行也算在本月内。
+        return [
+          {
+            type: 'filter',
+            left: { type: 'ref', name: input.columnId },
+            function: 'after',
+            args: [{ type: 'literal', value: start - 1 }],
+          },
+          {
+            type: 'filter',
+            left: { type: 'ref', name: input.columnId },
+            function: 'before',
+            args: [{ type: 'literal', value: end }],
+          },
+        ]
+      }
       if (input.optionIds?.length) {
         return [{
           type: 'filter',
           left: { type: 'ref', name: input.columnId },
-          function: 'isOneOf',
+          function: input.negate ? 'isNotOneOf' : 'isOneOf',
           args: [{ type: 'literal', value: input.optionIds }],
         }]
       }
@@ -488,4 +557,44 @@ function findDatabaseId(store: any): string {
     }
   }
   return ''
+}
+
+/**
+ * 把视图数据里的筛选条件还原成工具条 chip 的状态。
+ *
+ * 只认工具条自己会写出的四种函数：select 的 `isOneOf` / `isNotOneOf`，
+ * 日期列的 `after` / `before`。日期列必须在同一列上同时存在 after 与 before，
+ * 才认作「在本月」——单独一条 after/before 是用户在上游筛选面板里加的自定义条件，
+ * 工具条表达不了，就不显示 chip（表格仍按上游条件过滤，不丢数据）。
+ */
+function readActiveFilters(conditions: any[]): DatabaseActiveFilter[] {
+  const result = new Map<string, DatabaseActiveFilter>()
+  const dateFunctions = new Map<string, Set<string>>()
+  for (const condition of conditions) {
+    if (condition?.type !== 'filter') continue
+    const columnId = String(condition?.left?.name ?? '')
+    if (!columnId) continue
+    const fn = String(condition?.function ?? '')
+    if (fn === 'isOneOf' || fn === 'isNotOneOf') {
+      const value = condition?.args?.[0]?.value
+      if (!Array.isArray(value)) continue
+      result.set(columnId, {
+        columnId,
+        optionIds: value.map(String),
+        negate: fn === 'isNotOneOf',
+      })
+      continue
+    }
+    if (fn === 'after' || fn === 'before') {
+      const set = dateFunctions.get(columnId) ?? new Set<string>()
+      set.add(fn)
+      dateFunctions.set(columnId, set)
+    }
+  }
+  for (const [columnId, fns] of dateFunctions) {
+    if (fns.has('after') && fns.has('before')) {
+      result.set(columnId, { columnId, optionIds: [], month: true })
+    }
+  }
+  return [...result.values()]
 }

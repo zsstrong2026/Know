@@ -84,6 +84,22 @@ export function currentMonthCursor(now: Date = new Date()): string {
   return formatLocalDate(now).slice(0, 7)
 }
 
+/**
+ * 当前本地月份的边界：[本月 1 日 0 点, 下月 1 日 0 点)。
+ *
+ * 「截止日 在本月」在上游没有现成筛选函数（date 只有 before / after），
+ * 因此拆成 `after(start - 1)` + `before(end)` 两条**原生**条件，
+ * 语义等价且仍写在同一份视图数据里，不引入第二套筛选状态。
+ */
+export function monthRange(now: Date = new Date()): { start: number; end: number } {
+  const year = now.getFullYear()
+  const month = now.getMonth()
+  return {
+    start: new Date(year, month, 1).getTime(),
+    end: new Date(year, month + 1, 1).getTime(),
+  }
+}
+
 function parseIso(iso: string): { year: number; month: number; day: number } | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
   if (!match) return null

@@ -8,7 +8,13 @@
   -->
   <Teleport v-if="mountTarget" :to="mountTarget">
     <div class="db-toolbar">
-      <!-- Calendar 视图有多个日期属性时，需要指定用哪一列驱动日历 -->
+      <!-- Calendar 视图的层级说明（原型：「行级 · 数据来自截止日 · 不读工作台 journal_date」） -->
+      <span v-if="isCalendarView" class="db-cal-hint">
+        {{ $t('workbench.database.toolbar.calendarHint', { column: calendarColumnName }) }}
+      </span>
+
+      <!-- Calendar 视图有多个日期属性时，需要指定用哪一列驱动日历；
+           只有一个时按原型显示「日期属性：截止日」的静态说明，不占一个下拉 -->
       <t-select
         v-if="showDateColumn"
         v-model="dateColumnValue"
@@ -18,8 +24,13 @@
         :aria-label="$t('workbench.database.toolbar.dateColumn')"
         @change="onDateColumnChange"
       />
+      <!-- 只有一个日期属性时不放下拉：按原型显示「日期属性 · 截止日」的静态说明 -->
+      <span v-else-if="isCalendarView && calendarColumnName" class="db-date-label">
+        <span class="dl-key">{{ $t('workbench.database.toolbar.dateColumn') }}</span>
+        {{ calendarColumnName }}
+      </span>
 
-      <!-- 已生效的筛选：字段 + 取值 + 删除 -->
+      <!-- 已生效的筛选：字段 + (等于/不等于 · 取值) + 删除 -->
       <span v-for="chip in chips" :key="chip.key" class="filter-chip">
         <span class="fc-key">{{ chip.label }}</span>
         <b>{{ chip.valueLabel }}</b>
@@ -28,15 +39,15 @@
         </button>
       </span>
 
-      <!-- ＋ 筛选：点开就是「字段 + 取值」的平铺菜单，选完立即变成 chip -->
+      <!-- ＋ 筛选：点开就是「字段 + 运算符 + 取值」的平铺菜单，选完立即变成 chip -->
       <div class="add-filter-wrap">
         <button class="add-filter" type="button" @click="toggleFilterPanel">
           <span class="plus">＋</span>{{ $t('workbench.database.toolbar.filter') }}
         </button>
-        <div v-if="panelOpen && filterMenu.length" class="add-filter-panel">
+        <div v-if="panelOpen && filterMenu.length" class="add-filter-panel is-scroll">
           <button
             v-for="item in filterMenu"
-            :key="`${item.key}:${item.optionId}`"
+            :key="item.key + ':' + item.token"
             type="button"
             @click="pickFilter(item)"
           >
@@ -123,6 +134,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch 
 import { useI18n } from 'vue-i18n'
 
 import type { DatabaseToolbarController } from '@/workbench/editor/database-session'
+import type { DatabaseFilterInput } from '@/workbench/editor/database-session'
 import type { DatabaseToolbarState } from '@/workbench/editor/database-state'
 
 const props = defineProps<{
@@ -178,7 +190,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocumentPointerDown, true)
 })
 
-/** 各筛选下拉当前选中的选项 id；清空后该条件不参与筛选。 */
+/** 各筛选下拉当前选中的值；key 见 `applyFilters` 的编码。清空后该条件不参与筛选。 */
 const selected = reactive<Record<string, string>>({})
 const searchText = ref('')
 const dateColumnValue = ref('')
@@ -196,10 +208,19 @@ watch(
   { immediate: true },
 )
 
-/** 日历视图且有多个日期属性时才需要选择器（§10.8.2 规则 1）。 */
+/** Calendar 视图且有多个日期属性时才需要选择器（§10.8.2 规则 1）。 */
 const showDateColumn = computed(
   () => state.value.currentViewMode === 'calendar' && state.value.dateColumns.length > 1,
 )
+
+const isCalendarView = computed(() => state.value.currentViewMode === 'calendar')
+
+/** 驱动日历的日期列名：优先当前绑定列，退到第一列。 */
+const calendarColumnName = computed(() => {
+  const columns = state.value.dateColumns
+  const bound = columns.find((column) => column.id === state.value.calendarDateColumnId)
+  return (bound ?? columns[0])?.name ?? ''
+})
 
 const dateColumnOptions = computed(() =>
   state.value.dateColumns.map((column) => ({ label: column.name, value: column.id })),
@@ -210,28 +231,60 @@ function onDateColumnChange(value: string | number | Array<string | number>) {
   if (columnId) props.controller?.setCalendarDateColumn(columnId)
 }
 
-/** 已生效的筛选 chip（字段名 + 取值文案）。 */
+/**
+ * 筛选 chip 的取值编码。
+ *
+ *   - `<optionId>|eq`  select 列等值（上游 isOneOf）
+ *   - `<optionId>|neq` select 列取反（上游 isNotOneOf，原型「状态 不等于 · 已完成」）
+ *   - `month`         日期列「在本月」（落成 after + before 两条原生条件）
+ */
+const MONTH_TOKEN = 'month'
+
+function operatorLabel(negate: boolean): string {
+  return t(negate ? 'workbench.database.toolbar.operatorNotEquals' : 'workbench.database.toolbar.operatorEquals')
+}
+
+/** 已生效的筛选 chip（字段名 + 「不等于 · 已完成」）。 */
 const chips = computed(() =>
   state.value.filters.flatMap((filter) => {
-    const option = filter.options.find((item) => item.id === selected[filter.key])
-    return option
-      ? [{ key: filter.key, label: filter.label, valueLabel: option.value }]
-      : []
+    const value = selected[filter.key]
+    if (!value) return []
+    if (value === MONTH_TOKEN) {
+      return [
+        { key: filter.key, label: filter.label, valueLabel: t('workbench.database.toolbar.thisMonth') },
+      ]
+    }
+    const [optionId, mode] = value.split('|')
+    const option = filter.options.find((item) => item.id === optionId)
+    if (!option) return []
+    return [
+      {
+        key: filter.key,
+        label: filter.label,
+        valueLabel: `${operatorLabel(mode === 'neq')} · ${option.value}`,
+      },
+    ]
   }),
 )
 
-/** 「＋ 筛选」菜单：所有「字段 + 取值」组合，已选中的不再列出。 */
+/**
+ * 「＋ 筛选」菜单：每个字段给出所有可表达的（运算符 + 取值）组合。
+ *
+ * select 列各列「等于 / 不等于」两档，日期列只有「在本月」。
+ * 已生效的那一条不再重复列出，和原型「选中即变 chip」的交互一致。
+ */
 const filterMenu = computed(() =>
-  state.value.filters.flatMap((filter) =>
-    filter.options
-      .filter((option) => selected[filter.key] !== option.id)
-      .map((option) => ({
-        key: filter.key,
-        label: filter.label,
-        valueLabel: option.value,
-        optionId: option.id,
-      })),
-  ),
+  state.value.filters.flatMap((filter) => {
+    const items = filter.type === 'date'
+      ? [{ token: MONTH_TOKEN, valueLabel: t('workbench.database.toolbar.thisMonth') }]
+      : filter.options.flatMap((option) => [
+          { token: `${option.id}|eq`, valueLabel: `${operatorLabel(false)} · ${option.value}` },
+          { token: `${option.id}|neq`, valueLabel: `${operatorLabel(true)} · ${option.value}` },
+        ])
+    return items
+      .filter((item) => selected[filter.key] !== item.token)
+      .map((item) => ({ key: filter.key, label: filter.label, token: item.token, valueLabel: item.valueLabel }))
+  }),
 )
 
 const sortOptions = computed(() =>
@@ -262,7 +315,11 @@ watch(
     for (const key of Object.keys(selected)) delete selected[key]
     for (const filter of state.value.filters) {
       const active = state.value.activeFilters.find((item) => item.columnId === filter.columnId)
-      if (active?.optionIds.length) selected[filter.key] = active.optionIds[0]
+      if (!active) continue
+      if (active.month) selected[filter.key] = MONTH_TOKEN
+      else if (active.optionIds.length) {
+        selected[filter.key] = `${active.optionIds[0]}|${active.negate ? 'neq' : 'eq'}`
+      }
     }
   },
   { immediate: true, deep: true },
@@ -281,14 +338,19 @@ watch(
 
 /** 把当前 chip 状态整体写回视图：每次变更都重建条件，避免残留已删掉的条件。 */
 function applyFilters() {
-  const inputs = state.value.filters
-    .filter((filter) => selected[filter.key])
-    .map((filter) => ({ columnId: filter.columnId, optionIds: [selected[filter.key]] }))
+  const inputs = state.value.filters.flatMap((filter): DatabaseFilterInput[] => {
+    const value = selected[filter.key]
+    if (!value) return []
+    if (value === MONTH_TOKEN) return [{ columnId: filter.columnId, month: true }]
+    const [optionId, mode] = value.split('|')
+    if (!optionId) return []
+    return [{ columnId: filter.columnId, optionIds: [optionId], negate: mode === 'neq' }]
+  })
   props.controller?.setFilters(inputs)
 }
 
-function pickFilter(item: { key: string; optionId: string }) {
-  selected[item.key] = item.optionId
+function pickFilter(item: { key: string; token: string }) {
+  selected[item.key] = item.token
   panelOpen.value = false
   applyFilters()
 }
@@ -457,6 +519,35 @@ function newRow() {
   background: var(--td-component-stroke);
 }
 
+/* Calendar 视图的层级说明：静态文字，不做成 chip，避免和筛选条件混淆 */
+.db-cal-hint,
+.db-date-label {
+  font-size: 11px;
+  color: var(--td-text-color-placeholder);
+  white-space: nowrap;
+}
+
+.db-date-label .dl-key {
+  margin-right: 4px;
+  color: var(--td-text-color-placeholder);
+}
+
+.db-date-label .dl-key::after {
+  content: ':';
+  margin-left: 1px;
+}
+
+.db-cal-hint::before {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--td-brand-color);
+  vertical-align: middle;
+}
+
 .spacer {
   flex: 1;
 }
@@ -551,6 +642,13 @@ function newRow() {
 .add-filter-panel.is-right {
   left: auto;
   right: 0;
+}
+
+/* 筛选菜单有「字段 × 运算符 × 取值」十几项，限高滚动，避免超出视口 */
+.add-filter-panel.is-scroll {
+  max-height: 260px;
+  min-width: 208px;
+  overflow-y: auto;
 }
 
 .add-filter-panel button:disabled {

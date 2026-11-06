@@ -23,7 +23,19 @@ export interface DatabaseFilterState {
   key: string
   columnId: string
   label: string
+  /** select 列给出可选值；date 列没有可选值，固定只提供「在本月」 */
+  type?: 'select' | 'date'
   options: Array<{ id: string; value: string }>
+}
+
+/** 已生效的一条筛选：select 列带选项与是否取反，date 列带「在本月」。 */
+export interface DatabaseActiveFilter {
+  columnId: string
+  optionIds: string[]
+  /** 原型「状态 不等于 · 已完成」：上游 `isNotOneOf` */
+  negate?: boolean
+  /** 原型「截止日 在本月」：上游没有月份函数，落成 after + before 两条条件 */
+  month?: boolean
 }
 
 export interface DatabaseToolbarState {
@@ -43,7 +55,7 @@ export interface DatabaseToolbarState {
   /** 排序下拉可选的列 */
   sortColumns: Array<{ id: string; label: string }>
   /** 当前视图上已生效的字段筛选（从视图数据回填，保证刷新后下拉仍显示选中值） */
-  activeFilters: Array<{ columnId: string; optionIds: string[] }>
+  activeFilters: DatabaseActiveFilter[]
   /** 当前视图的排序；未排序时为 null */
   activeSort: { columnId: string; desc: boolean } | null
 }

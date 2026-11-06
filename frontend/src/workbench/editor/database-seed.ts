@@ -11,18 +11,18 @@
 import { DatabaseBlockDataSource } from '@blocksuite/affine/blocks/database'
 
 import type { EditorSeedContext } from './blocksuite'
+import { WORKBENCH_DB_COLUMNS } from './database-columns'
+import { PROTOTYPE_CARD_PROPERTIES, PROTOTYPE_COLUMN_WIDTHS, SEED_COLUMN_WIDTH } from './database-view-defaults'
 
 type BsStore = any
 
-/** 数据库骨架的列定义；id 固定，便于其他模块按类型反查。 */
-export const WORKBENCH_DB_COLUMNS = {
-  title: 'wb-col-title',
-  status: 'wb-col-status',
-  date: 'wb-col-date',
-  owner: 'wb-col-owner',
-  priority: 'wb-col-priority',
-  relation: 'wb-col-relation',
-} as const
+/**
+ * 数据库骨架的列定义；id 固定，便于其他模块按类型反查。
+ *
+ * 定义搬到了 `database-columns.ts`（纯常量、可被单测引用），这里原样再导出，
+ * 保持既有 `import { WORKBENCH_DB_COLUMNS } from './database-seed'` 不受影响。
+ */
+export { WORKBENCH_DB_COLUMNS }
 
 export interface DatabaseSeedLabels {
   titleColumn: string
@@ -148,7 +148,11 @@ function createTableView(dataSource: any, name: string): string {
   const viewId: string = dataSource.viewManager.viewAdd('table')
   dataSource.viewDataUpdate(viewId, () => ({
     name,
-    columns: dataSource.properties$.value.map((id: string) => ({ id, width: 180 })),
+    // 列宽按原型比例一次性写好（事项宽、状态/优先级窄），六列一屏能看全。
+    columns: dataSource.properties$.value.map((id: string) => ({
+      id,
+      width: PROTOTYPE_COLUMN_WIDTHS[id] ?? SEED_COLUMN_WIDTH,
+    })),
   }))
   return viewId
 }
@@ -159,9 +163,10 @@ function createKanbanView(dataSource: any, name: string): string {
   dataSource.viewDataUpdate(viewId, (data: any) => ({
     ...data,
     name,
+    // 状态是分组列，卡片上不重复显示；按原型展示优先级 / 截止日 / 负责人。
     card: {
       ...data.card,
-      visiblePropertyIds: [WORKBENCH_DB_COLUMNS.status, WORKBENCH_DB_COLUMNS.owner],
+      visiblePropertyIds: [...PROTOTYPE_CARD_PROPERTIES],
     },
   }))
   return viewId
