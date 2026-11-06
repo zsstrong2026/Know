@@ -219,3 +219,38 @@ func (r *workbenchRepository) CountArchiveParts(
 		Count(&count).Error
 	return count, err
 }
+
+// ListLiveArchives 跨用户取 live 映射，供清理任务逐批对账（§5.6 第 3 条）。
+//
+// 不带 tenant/owner 条件：对账要覆盖所有用户；按 id 升序是为了让调用方
+// 能用“上批最后一条 id”作为锚点推进，而不是每轮都从头扫。
+func (r *workbenchRepository) ListLiveArchives(
+	ctx context.Context, limit int,
+) ([]*types.WorkbenchArchive, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows := make([]*types.WorkbenchArchive, 0, limit)
+	err := r.db.WithContext(ctx).
+		Table("workbench_archives").
+		Select(workbenchArchiveColumns).
+		Where("status IN ?", []string{types.WorkbenchArchiveActive, types.WorkbenchArchivePending}).
+		Order("id ASC").
+		Limit(limit).
+		Find(&rows).Error
+	return rows, err
+}
+
+// ActivatePending 把超时未完成的 pending 映射置为 active。
+//
+// 只在知识确实存在时由服务层调用，避免把指向空知识的映射标成可用。
+func (r *workbenchRepository) ActivatePending(ctx context.Context, id string) (int64, error) {
+	res := r.db.WithContext(ctx).
+		Table("workbench_archives").
+		Where("id = ? AND status = ?", id, types.WorkbenchArchivePending).
+		Updates(map[string]any{
+			"status":     types.WorkbenchArchiveActive,
+			"updated_at": time.Now().UTC(),
+		})
+	return res.RowsAffected, res.Error
+}

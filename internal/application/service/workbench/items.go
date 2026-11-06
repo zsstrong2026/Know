@@ -198,6 +198,9 @@ func (s *Service) DeleteItem(ctx context.Context, id string, purge bool) error {
 			}
 			return err
 		}
+		// 先取资产路径再 PurgeItem：PurgeItem 会连带删掉 asset 行，
+		// 之后查不到 storage_path，物理文件就永久孤儿了。
+		s.purgeItemAssets(ctx, tenantID, ownerID, id)
 		return mapItemError(s.repo.PurgeItem(ctx, tenantID, ownerID, id))
 	}
 
@@ -291,15 +294,18 @@ func (s *Service) fillArchiveStatus(
 			item.ArchivedVersion = 0
 			continue
 		}
-		item.ArchiveStatus = s.liveArchiveStatus(ctx, tenantID, rows, item)
+		item.ArchiveStatus = s.liveArchiveStatus(ctx, tenantID, rows, item.SnapshotVersion)
 		item.ArchivedVersion = minSourceVersion(rows)
 	}
 	return nil
 }
 
 // liveArchiveStatus 与 snapshotState 同口径，但入参已经是 live 映射。
+//
+// currentVersion 是源内容的当前版本：条目传 snapshot_version，章节文档传
+// doc_documents.version。传 0 表示没有可比对的当前版本，因此永远不会判 stale。
 func (s *Service) liveArchiveStatus(
-	ctx context.Context, tenantID uint64, rows []*types.WorkbenchArchive, item *types.WorkbenchItem,
+	ctx context.Context, tenantID uint64, rows []*types.WorkbenchArchive, currentVersion int,
 ) string {
 	anyPending := false
 	for _, row := range rows {
@@ -321,7 +327,7 @@ func (s *Service) liveArchiveStatus(
 	if anyPending {
 		return archiveStatusProcessing
 	}
-	if item != nil && minSourceVersion(rows) < item.SnapshotVersion {
+	if currentVersion > 0 && minSourceVersion(rows) < currentVersion {
 		return archiveStatusStale
 	}
 	return archiveStatusActive

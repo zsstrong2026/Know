@@ -128,7 +128,11 @@ func (s *Service) fillJournalArchiveStatus(
 			entry.ArchivedVersion = 0
 			continue
 		}
-		entry.ArchiveStatus = s.liveArchiveStatus(ctx, tenantID, rows, byID[entry.ID])
+		current := 0
+		if item := byID[entry.ID]; item != nil {
+			current = item.SnapshotVersion
+		}
+		entry.ArchiveStatus = s.liveArchiveStatus(ctx, tenantID, rows, current)
 		entry.ArchivedVersion = minSourceVersion(rows)
 	}
 	return nil

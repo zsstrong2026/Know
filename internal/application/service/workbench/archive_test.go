@@ -24,6 +24,23 @@ type memArchiveRepo struct {
 	rows    map[string]*types.WorkbenchArchive // 按 id 存
 	items   map[string]*types.WorkbenchItem    // 额外条目，供列表批量填充用例
 	order   int
+	// notices 记录归档失败通知，用于断言 archive_failed 只写一次。
+	notices []*types.WorkbenchNotice
+}
+
+// InsertNotice 复刻 dedupe_key 唯一索引：同 (user, dedupe) 只留一条。
+func (m *memArchiveRepo) InsertNotice(
+	_ context.Context, notice *types.WorkbenchNotice,
+) (bool, error) {
+	if notice.DedupeKey != "" {
+		for _, existing := range m.notices {
+			if existing.UserID == notice.UserID && existing.DedupeKey == notice.DedupeKey {
+				return false, nil
+			}
+		}
+	}
+	m.notices = append(m.notices, notice)
+	return true, nil
 }
 
 func newMemArchiveRepo() *memArchiveRepo {
@@ -565,6 +582,46 @@ func TestListItemsFillsArchiveStatus(t *testing.T) {
 func TestFillArchiveStatusSkipsEmptyList(t *testing.T) {
 	svc, _, _ := newArchiveService()
 	require.NoError(t, svc.fillArchiveStatus(newTestContext(), 1, "user-a", nil))
+}
+
+// 章节文档列表的归档填充（P2-5）：source_type='doc'，source_id 是任务 id，
+// 当前版本取 doc_documents.version；三种形态与条目列表同口径。
+func TestFillDocArchiveStatus(t *testing.T) {
+	svc, repo, knowledge := newArchiveService()
+	ctx := newTestContext()
+
+	docs := []*types.DocDocumentSummary{
+		{ID: "doc-a", TaskID: "task-a", Title: "A", Version: 2},
+		{ID: "doc-b", TaskID: "task-b", Title: "B", Version: 4},
+		{ID: "doc-c", TaskID: "task-c", Title: "C", Version: 3},
+	}
+
+	// b：归档停在 v2，落后当前 v4 → stale。
+	knowledge.docs["k-b"] = &types.Knowledge{
+		ID: "k-b", TenantID: 1, ParseStatus: types.ParseStatusCompleted,
+	}
+	repo.rows["row-b"] = &types.WorkbenchArchive{
+		ID: "row-b", TenantID: 1, OwnerID: "user-a", KBID: "kb-work", KnowledgeID: "k-b",
+		SourceType: types.WorkbenchSourceDoc, SourceID: "task-b",
+		SourceVersion: 2, PartNo: 1, PartCount: 1, Title: "B",
+		Status: types.WorkbenchArchiveActive,
+	}
+	// c：映射存在但知识已被删 → partial。
+	repo.rows["row-c"] = &types.WorkbenchArchive{
+		ID: "row-c", TenantID: 1, OwnerID: "user-a", KBID: "kb-work", KnowledgeID: "k-c",
+		SourceType: types.WorkbenchSourceDoc, SourceID: "task-c",
+		SourceVersion: 3, PartNo: 1, PartCount: 1, Title: "C",
+		Status: types.WorkbenchArchiveActive,
+	}
+
+	require.NoError(t, svc.FillDocArchiveStatus(ctx, docs))
+
+	assert.Equal(t, archiveStatusNone, docs[0].ArchiveStatus)
+	assert.Equal(t, 0, docs[0].ArchivedVersion)
+	assert.Equal(t, archiveStatusStale, docs[1].ArchiveStatus)
+	assert.Equal(t, 2, docs[1].ArchivedVersion)
+	assert.Equal(t, archiveStatusPartial, docs[2].ArchiveStatus)
+	assert.Equal(t, 3, docs[2].ArchivedVersion)
 }
 
 // 多 part 归档标题必须带 (n/m) 后缀，且 part_no 从 1 连续编号。

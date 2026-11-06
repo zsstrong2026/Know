@@ -2,7 +2,9 @@ package workbench
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/application/access"
@@ -16,13 +18,13 @@ import (
 // 归档计算态（§6.1）。只有 pending/active/deleted 落库，
 // 其余四种都由本文件的聚合逻辑实时算出，不新增数据库列。
 const (
-	archiveStatusNone           = "none"
-	archiveStatusProcessing     = "processing"
-	archiveStatusActive         = "active"
-	archiveStatusStale          = "stale"
-	archiveStatusPartial        = "partial"
-	archiveStatusSourceDeleted  = "source_deleted"
-	archiveStatusDeleted        = "deleted"
+	archiveStatusNone          = "none"
+	archiveStatusProcessing    = "processing"
+	archiveStatusActive        = "active"
+	archiveStatusStale         = "stale"
+	archiveStatusPartial       = "partial"
+	archiveStatusSourceDeleted = "source_deleted"
+	archiveStatusDeleted       = "deleted"
 )
 
 // GetArchiveState 计算某个 source 的归档状态。
@@ -307,10 +309,36 @@ func (s *Service) writeParts(
 		return nil, err
 	}
 	if len(failed) > 0 {
+		// 归档分片失败：写一条用户级通知，让用户在工作台顶部看到“归档未完成”，
+		// 而不是等到下次打开条目才发现。通知失败不影响既有错误返回。
+		s.notifyArchiveFailed(ctx, item, failed)
 		return nil, apperrors.NewInternalServerError("partial workbench archive failed").
 			WithDetails(map[string]any{"failed_part_nos": failed})
 	}
 	return s.snapshotState(ctx, tenantID, ownerID, types.WorkbenchSourceItem, item.ID, item, false)
+}
+
+// notifyArchiveFailed 写 archive_failed 通知（§5.7）。
+//
+// dedupe 用 itemID + 失败分片号 + 版本：同一版本反复重试同一分片只提醒一次，
+// 内容再变化（版本前进）才会再次提醒。payload 只放数量与定位信息，不含正文。
+func (s *Service) notifyArchiveFailed(
+	ctx context.Context, item *types.WorkbenchItem, failed []int,
+) {
+	if item == nil || len(failed) == 0 {
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"item_count":     1,
+		"failed_parts":   failed,
+		"item_id":        item.ID,
+		"source_version": item.SnapshotVersion,
+	})
+	dedupe := fmt.Sprintf("archive:%s:%d:%v", item.ID, item.SnapshotVersion, failed)
+	if err := s.insertNotice(ctx, item.OwnerID, item.TenantID,
+		types.WorkbenchNoticeArchive, dedupe, string(payload)); err != nil {
+		logger.Warnf(ctx, "workbench: failed to record archive_failed notice for %s: %v", item.ID, err)
+	}
 }
 
 // archiveChannel 是归档知识的采集渠道标识，便于在知识库里区分来源。
@@ -594,5 +622,3 @@ func (s *Service) MarkSourceDeleted(
 	}
 	return s.repo.MarkDeletedBySource(ctx, tenantID, ownerID, sourceType, sourceID)
 }
-
-

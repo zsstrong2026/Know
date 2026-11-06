@@ -55,6 +55,8 @@ type Service struct {
 	knowledge archiveKnowledgeService
 	// 章节文档计数（离开预览、bootstrap）；未注入时按 0 处理。
 	docTasks docTaskLister
+	// 资产文件存储；未注入时资产端点返回 503，其余端点不受影响。
+	assetStore AssetStore
 	// 发布门禁（§9.1）：只用于 bootstrap 下发，路由注册由 router 侧判定。
 	features types.WorkbenchFeatureToggles
 }

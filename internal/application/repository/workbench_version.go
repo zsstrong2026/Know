@@ -160,3 +160,31 @@ func (r *workbenchRepository) PruneVersions(
 		Delete(nil)
 	return res.RowsAffected, res.Error
 }
+
+// PruneExpiredVersions 跨用户执行版本保留（§5.6 第 4 条）。
+//
+// 保留规则：每个条目最近的 keep 个版本永不过期，之外的行只在 created_at
+// 早于 before 时删除。用相关子查询表达「不在最近 keep 个里」，
+// 避免为每个条目跑一次单独查询。
+func (r *workbenchRepository) PruneExpiredVersions(
+	ctx context.Context, before time.Time, keep, limit int,
+) (int64, error) {
+	if keep <= 0 {
+		return 0, nil
+	}
+	sub := r.db.WithContext(ctx).
+		Table("workbench_item_versions AS v2").
+		Select("v2.id").
+		Where("v2.item_id = v.item_id").
+		Order("v2.version DESC").
+		Limit(keep)
+	query := r.db.WithContext(ctx).
+		Table("workbench_item_versions AS v").
+		Where("v.created_at < ?", before).
+		Where("v.id NOT IN (?)", sub)
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	res := query.Delete(nil)
+	return res.RowsAffected, res.Error
+}
