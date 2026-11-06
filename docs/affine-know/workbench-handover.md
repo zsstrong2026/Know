@@ -456,6 +456,15 @@ node scripts/editor-spike-check.mjs --url=http://127.0.0.1:4173/editor-spike.htm
 - 构建会随机 OOM（BlockSuite + 六语言包在 rendering chunks 阶段超 Node 默认堆）。统一走 `scripts/build.mjs`（`--max-old-space-size=8192`），不要直接 `vite build`，也不要用 `NODE_OPTIONS=` 前缀（Windows 不认）。
 - `build` 只产 `index.html` / `embed.html`；`build:spike` 额外产 `editor-spike.html`。两者分两次构建是为了避免首页被 BlockSuite vendor（约 6.1MB）拖慢。
 - `vite.config.ts` 的 `blockSuiteRoot` 解析到 `../../third_party/blocksuite`，所以 Docker 构建上下文必须是**仓库根**（`frontend/Dockerfile` 顶部有说明）。
+- **后端热部署（GitHub 被墙时的替代路径，2026-11-06 实测）**：完整镜像构建会卡死在
+  Dockerfile.app 的 browserskill 阶段（要从 github.com 克隆）。替代做法：
+  1. `docker run --rm -v <repo>:/src -v weknora-gomod:/go/pkg/mod -v weknora-gocache:/root/.cache/go-build
+     -e PATH=/usr/local/go/bin:... golang:1.26-bookworm make build-prod`（容器内编译 linux/amd64，~5 分钟）；
+  2. `docker exec WeKnora-app cp /app/WeKnora /app/WeKnora.bak` 备份 → `docker cp` 新二进制 → `docker restart`；
+  3. **迁移文件也要手动 cp**：容器里 /app/migrations 是镜像快照，只 cp 二进制的话 AUTO_MIGRATE 会停在旧版本
+     （本次就踩了：db_version 停在 157，补 cp 000158 后重启才升到 158）。
+  代价：无 anydoc tag（内置 office 解析器未链接，走 docreader 服务兜底）；**容器重建会回到旧镜像**，
+  正式做法仍是等能访问 GitHub 时重建镜像。
 - 在 WorkBuddy 这类带 safe-delete 守卫的终端里，`npm run build` 会在 `prepare-out-dir` 阶段失败（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`，dist/assets 有 600+ 文件超过单次阈值）。绕法：先 `mv dist dist.bak`（别删，留着对照），再跑构建，确认 `dist/pdfjs/wasm`、`dist/tdesign-icons`、`dist/config.js` 都重新生成后删掉备份。dist 是纯构建产物，public/ 与 vite 插件会重新产出。
 
 ### 7.3 环境
