@@ -9430,6 +9430,13 @@
       favoriteFailed: '更新收藏失败',
       more: '更多操作'
     },
+    export: {
+      entry: '导出画布包',
+      running: '正在导出…',
+      done: '已导出 {blocks} 个块、{assets} 个资产',
+      missing: '{count} 个资产未能读取，已在清单标为缺失',
+      failed: '导出失败，请重试'
+    },
     modeSwitch: {
       label: '形态切换',
       page: '文档',

@@ -9429,6 +9429,13 @@
       favoriteFailed: '즐겨찾기를 갱신하지 못했습니다',
       more: '추가 작업'
     },
+    export: {
+      entry: '캔버스 패키지 내보내기',
+      running: '내보내는 중…',
+      done: '블록 {blocks}개, 에셋 {assets}개를 내보냈습니다',
+      missing: '에셋 {count}개를 읽지 못해 누락으로 표시했습니다',
+      failed: '내보내기에 실패했습니다. 다시 시도하세요'
+    },
     modeSwitch: {
       label: '보기 모드',
       page: '페이지',

@@ -277,6 +277,8 @@ const dbController = shallowRef<DatabaseToolbarController | null>(null)
 const dbState = shallowRef<DatabaseToolbarState>(EMPTY_DATABASE_STATE)
 /** CSV 导入的隐藏文件输入；菜单触发 click 后由 change 事件消费 */
 const importInputRef = ref<HTMLInputElement | null>(null)
+/** 画布导出包（P2-4）在飞：菜单项置灰，避免重复打包 */
+const exporting = ref(false)
 /** 数据库 AI 对话框（P3-5）：只在数据库条目 + AI 开关打开时可用 */
 const databaseAIOpen = ref(false)
 /** 导入资料对话框（P4-1） */
@@ -430,6 +432,12 @@ async function onCollectConfirm(picked: CollectedTodo[]) {
 const moreOptions = computed(() => [
   // 导入资料（P4-1）：加入工作知识库 / 作为本条目附件两条路径
   { content: t('workbench.import.entry'), value: 'import-material' },
+  // 画布导出包（P2-4）：快照 + 资产 + manifest；导出中置灰并换文案
+  {
+    content: exporting.value ? t('workbench.export.running') : t('workbench.export.entry'),
+    value: 'export-package',
+    disabled: exporting.value || !ready.value || Boolean(loadError.value),
+  },
   {
     content: t('workbench.templates.save.entry'),
     value: 'save-template',
@@ -732,6 +740,51 @@ function onMore(data: { value?: string | number }) {
   if (value === 'export-csv') exportDatabaseCsv()
   else if (value === 'import-csv') importInputRef.value?.click()
   else if (value === 'database-ai') databaseAIOpen.value = true
+  else if (value === 'export-package') void exportCanvasPackage()
+}
+
+/**
+ * 导出画布包（P2-4）。
+ *
+ * 包里是 `content.ydoc`（快照字节）+ `content.md`（投影正文）+ `assets/`（图片与附件）
+ * + `manifest.json`（条目、块数、资产清单、schema 版本）。
+ * 全程只读：不 flush、不产生版本，资产取不到只记 missing 不让整包失败。
+ */
+async function exportCanvasPackage() {
+  if (exporting.value) return
+  const handle = session.editor.value
+  const current = item.value
+  if (!handle || !current) return
+  exporting.value = true
+  try {
+    // 动态 import：导出逻辑与 jszip 不该进首屏 chunk
+    const { buildCanvasPackage, downloadBlob } = await import('@/workbench/export/export-canvas')
+    const result = await buildCanvasPackage(
+      {
+        id: current.id,
+        title: current.title || t('workbench.item.untitled'),
+        kind: current.kind,
+        mode: current.current_mode ?? session.mode.value,
+        snapshotVersion: baseVersion.value,
+      },
+      {
+        root: handle.store?.root,
+        snapshot: handle.getSnapshot(),
+        markdown: session.markdown(),
+        resolveAsset: (assetId: string) => session.resolveAsset(assetId),
+        schemaVersion: session.schemaVersion.value,
+      },
+    )
+    downloadBlob(result.blob, result.fileName)
+    MessagePlugin.success(t('workbench.export.done', { blocks: result.blocks, assets: result.assetCount }))
+    if (result.missingCount > 0) {
+      MessagePlugin.warning(t('workbench.export.missing', { count: result.missingCount }))
+    }
+  } catch {
+    MessagePlugin.error(t('workbench.export.failed'))
+  } finally {
+    exporting.value = false
+  }
 }
 
 /** 导入资料 → 作为附件：复用会话的资产上传（与粘贴/拖拽同一条链路）。 */

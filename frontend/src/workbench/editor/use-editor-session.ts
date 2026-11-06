@@ -59,6 +59,14 @@ export interface EditorSession {
   editor: Ref<CanvasHandle | null>
   /** 最近一次成功保存后的快照版本，归档时作为 base_version */
   baseVersion: Ref<number>
+  /** 当前 Y.Doc 的 editor schema 版本；导出包的 manifest 需要它 */
+  schemaVersion: Ref<number>
+  /**
+   * 按 asset id 取 Blob（P2-4 导出用）。
+   *
+   * 与编辑器渲染共用同一个 resolver 与同一份缓存：刚渲染过的图片不会为导出再下一次。
+   */
+  resolveAsset(assetId: string): Promise<Blob | null>
   /** 当前形态；编辑页顶栏切换需要读它做高亮（§10.14.5） */
   mode: Ref<EditorMode>
   /** 首次挂载：拉快照 → 建队列 → 渲染 */
@@ -171,6 +179,8 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
   // shallowRef：编辑器实例内部有大量不可序列化字段，深度代理只会拖慢渲染。
   const editor = shallowRef<CanvasHandle | null>(null)
   const baseVersion = ref(0)
+  /** 挂载时从快照里带出来的 schema 版本；导出包的 manifest 会写它。 */
+  const editorSchemaVersion = ref(0)
   // 当前形态：由挂载时确定，切换时更新；顶栏据此高亮。
   const mode = ref<EditorMode>(options.mode?.value ?? defaultMode(item.value))
   let queue: SaveQueue | null = null
@@ -252,6 +262,7 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
     const targetMode = options.mode?.value ?? defaultMode(item.value)
     mode.value = targetMode
     const schemaVersion = schemaVersionOverride ?? content.editor_schema_version
+    editorSchemaVersion.value = schemaVersion
 
     queue = createSaveQueue({
       itemId: itemId.value,
@@ -417,6 +428,7 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
     savedAt,
     editor,
     baseVersion,
+    schemaVersion: editorSchemaVersion,
     mode,
     mount,
     mountFromTemplate,
@@ -429,6 +441,8 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
     markdownCount,
     /** 粘贴/拖拽文件：上传后返回 assetId，由调用方插入 block。 */
     uploadAsset: (file: File) => ensureCanvasAssets().put(file),
+    /** 导出包按 asset id 取 Blob：与渲染共用 resolver 与缓存，不重复下载。 */
+    resolveAsset: async (assetId: string) => (await ensureCanvasAssets().resolve(assetId)) ?? null,
     /** 主动上报引用（保存成功后调用，避免只在关闭时上报）。 */
     reportAssetRefs,
     destroy,

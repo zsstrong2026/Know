@@ -717,6 +717,13 @@
       favoriteFailed: 'お気に入りの更新に失敗しました',
       more: 'その他の操作'
     },
+    export: {
+      entry: 'キャンバスを書き出す',
+      running: '書き出し中…',
+      done: '{blocks} 個のブロックと {assets} 個のアセットを書き出しました',
+      missing: '{count} 個のアセットを読み取れず、欠落として記録しました',
+      failed: '書き出しに失敗しました。もう一度お試しください'
+    },
     modeSwitch: {
       label: '表示モード',
       page: 'ページ',

@@ -717,6 +717,13 @@
       favoriteFailed: 'Failed to update favorite',
       more: 'More actions'
     },
+    export: {
+      entry: 'Export canvas package',
+      running: 'Exporting…',
+      done: 'Exported {blocks} blocks and {assets} assets',
+      missing: '{count} assets could not be read and are marked missing',
+      failed: 'Export failed, please try again'
+    },
     modeSwitch: {
       label: 'Editor mode',
       page: 'Page',
