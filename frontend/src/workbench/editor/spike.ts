@@ -561,6 +561,11 @@ async function rootSwitchCheck(cycles = 5) {
 
   handle.setMode('edgeless')
   await nextFrames()
+  // P2-8：视口参数（平移/缩放）也要跨往返保持，不能每次切回来都“自动适应内容”
+  const viewportOnEnter = handle.getViewport()
+  const viewportApplied = handle.setViewport({ zoom: 1.5, x: 320, y: 240 })
+  await nextFrames(1)
+  const viewportMoved = handle.getViewport()
   const edgelessInventory = blockInventory(handle.store)
   const domEdgeless = domInventory(host)
   const snapshotInEdgeless = handle.getSnapshot()
@@ -594,6 +599,10 @@ async function rootSwitchCheck(cycles = 5) {
       dupes: inventory.duplicateIds.length,
     })
   }
+  // 往返结束后再回到 edgeless，读一次视口：与离开前的值比对
+  handle.setMode('edgeless')
+  await nextFrames()
+  const viewportAfterRoundTrips = handle.getViewport()
   const statsAfter = handle.stats()
   const pageAfterBytes = handle.getSnapshot().byteLength
   // 切换前后 store / spaceDoc 必须是同一实例（否则就是「重建 doc」而不是双根切换）
@@ -614,6 +623,12 @@ async function rootSwitchCheck(cycles = 5) {
       pageBefore: snapshotBefore.byteLength,
       edgeless: snapshotInEdgeless.byteLength,
       pageAfter: pageAfterBytes,
+    },
+    viewport: {
+      onEnter: viewportOnEnter,
+      applied: viewportApplied,
+      moved: viewportMoved,
+      afterRoundTrips: viewportAfterRoundTrips,
     },
     applyUpdate: { before: statsBefore.applyUpdateCalls, after: statsAfter.applyUpdateCalls },
     viewMounts: { before: statsBefore.viewMounts, after: statsAfter.viewMounts },

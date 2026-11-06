@@ -428,6 +428,23 @@ async function main() {
     assert.equal(dual.identity.sameSpaceDoc, true, '切换后仍是同一个 Y.Doc 实例')
     assert.equal(dual.identity.sameRootId, true, '切换后 store.root id 未变')
 
+    // 9e. 视口平移/缩放跨往返保持（P2-8 的明确验收点）
+    // 之前只验证了「内容不丢」，没有验证「位置不跳」：每次切回 edgeless 若自动适应内容，
+    // 用户摆好的视野就白摆了。这里把 zoom 与中心点都钉住。
+    assert.ok(dual.viewport.applied, 'edgeless 下能设置视口')
+    assert.ok(dual.viewport.moved, '设置后能读回视口')
+    assert.equal(dual.viewport.moved.zoom, 1.5, `视口 zoom 应为 1.5，实际 ${dual.viewport.moved.zoom}`)
+    assert.ok(dual.viewport.afterRoundTrips, '往返后仍能读回视口')
+    assert.ok(
+      Math.abs(dual.viewport.afterRoundTrips.zoom - 1.5) < 0.001,
+      `往返后 zoom 应保持 1.5，实际 ${dual.viewport.afterRoundTrips.zoom}`
+    )
+    assert.ok(
+      Math.abs(dual.viewport.afterRoundTrips.x - 320) < 1 &&
+        Math.abs(dual.viewport.afterRoundTrips.y - 240) < 1,
+      `往返后中心点应保持 (320,240)，实际 (${dual.viewport.afterRoundTrips.x},${dual.viewport.afterRoundTrips.y})`
+    )
+
     // 9d. 连续切换不累积 block、快照字节稳定、无重复
     // 允许极小浮动（≤64 字节）：edgeless 首次渲染会写回 note 的几何/视口相关属性，
     // 属于一次性归一化，不是每次切换都增长。
@@ -456,6 +473,7 @@ async function main() {
         重复id: pageAfter.duplicateIds,
         DOM重复元素: dual.dom.pageAfter.duplicateBlockElements,
       },
+      视口: dual.viewport,
       快照字节: dual.bytes,
        同一实例: dual.identity,
        首次切换的props变化: dual.firstSwitchPropDiff,

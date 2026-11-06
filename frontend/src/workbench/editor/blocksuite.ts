@@ -180,6 +180,13 @@ export interface AttachmentInsertInput {
   type: string
 }
 
+/** 画布视口：zoom 与中心点（edgeless 坐标系）。 */
+export interface CanvasViewport {
+  zoom: number
+  x: number
+  y: number
+}
+
 export interface CanvasHandle {
   destroy(): void
   getSnapshot(): Uint8Array
@@ -201,6 +208,15 @@ export interface CanvasHandle {
   setTool(tool: CanvasToolId, options?: CanvasToolOptions): boolean
   /** 当前激活的工具 id；非以上工具（如演示模式）时返回 null。 */
   getTool(): CanvasToolId | null
+  /**
+   * 读 edgeless 视口（zoom + 中心点）。page 形态或视口未就绪时返回 null。
+   *
+   * 供 P2-8 的「切换形态后视口保持」断言使用；将来的「适应画布 / 100%」也走这里，
+   * 不要各自去 querySelector 找上游元素。
+   */
+  getViewport(): CanvasViewport | null
+  /** 设置 edgeless 视口；page 形态或无视口时返回 false。 */
+  setViewport(next: { zoom?: number; x?: number; y?: number }): boolean
   /**
    * 订阅工具变化（工具条高亮用）。
    *
@@ -284,6 +300,41 @@ function readActiveTool(view: AttachedView): CanvasToolId | null {
   const name = view.std?.get?.(GfxControllerIdentifier)?.tool?.currentToolName$?.peek?.()
   if (typeof name !== 'string') return null
   return TOOL_ID_BY_NAME[name] ?? null
+}
+
+/** 取 edgeless 的 viewport；page 形态没有视口概念。 */
+function canvasViewportOf(view: AttachedView, mode: EditorMode): any {
+  if (mode !== 'edgeless') return null
+  return view.std?.get?.(GfxControllerIdentifier)?.viewport ?? null
+}
+
+/** 读视口参数；上游字段非数值时返回 null，避免把 NaN 传出去。 */
+function readCanvasViewport(view: AttachedView, mode: EditorMode): CanvasViewport | null {
+  const viewport = canvasViewportOf(view, mode)
+  if (!viewport) return null
+  const zoom = Number(viewport.zoom)
+  const x = Number(viewport.centerX)
+  const y = Number(viewport.centerY)
+  if (![zoom, x, y].every((value) => Number.isFinite(value))) return null
+  return { zoom, x, y }
+}
+
+/** 写视口参数：只改传进来的项，未传的保持原值。 */
+function applyCanvasViewport(
+  view: AttachedView,
+  mode: EditorMode,
+  next: { zoom?: number; x?: number; y?: number },
+): boolean {
+  const viewport = canvasViewportOf(view, mode)
+  if (!viewport) return false
+  if (typeof next.x === 'number' && typeof next.y === 'number' && Number.isFinite(next.x) && Number.isFinite(next.y)) {
+    viewport.setCenter?.(next.x, next.y)
+  }
+  if (typeof next.zoom === 'number' && Number.isFinite(next.zoom)) {
+    // 上游的缩放范围是 0.1~4，越界会被内部断言直接抛错
+    viewport.setZoom?.(Math.min(4, Math.max(0.1, next.zoom)))
+  }
+  return true
 }
 
 /**
@@ -1003,6 +1054,8 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
 
   // 3. 渲染：render() 只创建 EditorHost，插入 DOM 后 connectedCallback 才真正 mount
   let currentMode: EditorMode = mode
+  /** 上次离开 edgeless 时的视口；切回来时据此恢复（P2-8）。 */
+  let savedEdgelessViewport: CanvasViewport | null = null
   let view: AttachedView = attachView({ store, mode, element, specs, setting$ })
   const removeSlashFallback = installSlashMenuFallback(element)
   stats.viewMounts += 1
@@ -1030,6 +1083,8 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
     getSelections: () => view.selections(),
     setTool: (tool, toolOptions) => applyCanvasTool(view, store, currentMode, tool, toolOptions),
     getTool: () => readActiveTool(view),
+    getViewport: () => readCanvasViewport(view, currentMode),
+    setViewport: (next) => applyCanvasViewport(view, currentMode, next),
     onToolChange: (listener) => {
       toolListeners.add(listener)
       return () => {
@@ -1062,12 +1117,29 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
      */
     setMode: (next: EditorMode) => {
       if (next === currentMode) return
+      // 离开 edgeless 前记住视口：上游每重建一次视图都会按内容重新「适应」，
+      // 不记住的话用户摆好的缩放与平移在 page↔edgeless 往返后就丢了（P2-8）。
+      if (currentMode === 'edgeless') {
+        const leaving = readCanvasViewport(view, 'edgeless')
+        if (leaving) savedEdgelessViewport = leaving
+      }
       view.detach()
       stats.viewUnmounts += 1
       view = attachView({ store, mode: next, element, specs, setting$ })
       stats.viewMounts += 1
       currentMode = next
       stats.modeSwitches += 1
+      // 回到 edgeless 时恢复上次的视口。新视图在首帧会先做一次「适应内容」，
+      // 所以必须等两帧之后再覆盖，否则会被那次自适应顶掉。
+      if (next === 'edgeless' && savedEdgelessViewport) {
+        const target = savedEdgelessViewport
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (currentMode !== 'edgeless') return
+            applyCanvasViewport(view, 'edgeless', target)
+          })
+        })
+      }
       // 换 std 后旧工具信号已随旧视图销毁；重新挂订阅并广播一次当前值。
       bindToolWatch()
       toolListeners.forEach((listener) => listener(readActiveTool(view)))
