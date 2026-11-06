@@ -159,7 +159,7 @@ git status --short               # 预期有大量未提交改动，见 §2.3
 | P2 | P2-5 文档全局列表 | ✅ `WorkbenchDocs.vue` + `doc_document_global.go` |
 | P2 | P2-8 双形态 | ✅ 内容/版本/视口都已验证（视口保持本次修复并补断言） |
 | P2 | P2-4 画布导出 ZIP/PNG | ✅ ZIP 完成（`workbench/export/`）；**PNG 明确不支持** |
-| P2 | P2-6 画布 AI / Agent patch | ❌ 未实现（`page-actions.ts` 只有 page 动作，无 edgeless 聚类/生成 Frame） |
+| P2 | P2-6 画布 AI / Agent patch | ✅ `POST /ai/canvas` + `CanvasAIDialog`（只做分组与平移，不删不改样式） |
 | P3 | P3-1 数据库工具条 | ✅ `DatabaseToolbar.vue` + `database-session.ts` |
 | P3 | P3-2 独立数据库视图 | ✅ 全屏/返回不重载，`?focus=database` |
 | P3 | P3-3 Calendar 月视图 + 拖拽 | ✅ `database-calendar.ts` |
@@ -169,7 +169,7 @@ git status --short               # 预期有大量未提交改动，见 §2.3
 | P3 | P3-7 性能与回归 | ✅ 1000 行/20 元素基线达标，见 `p0-spike-report.md` §8 |
 | P4 | P4-1 导入 PDF/DOCX/MD | ✅ `ImportMaterialDialog.vue` + `import-material.ts`（KB / 附件两条路径） |
 | P4 | P4-2 组织增强 | ❌ 拖拽排序、标签、反向链接均未做（`workbench_item_links` 表已建，Type 注释明确"P1–P3 只读不写"） |
-| P4 | P4-3 权限/i18n/无障碍/性能 | ❌ 未做（当前 `check-i18n` 失败，见 §7.4） |
+| P4 | P4-3 权限/i18n/无障碍/性能 | ⚠️ i18n ✅、仓储层隔离用例 ✅；端到端多用户门禁、无障碍抽查、chunk 回归待做 |
 | P4 | P4-4 备份恢复与升级演练 | ❌ 未做 |
 | P4 | P4-5 发布文档与法务核对 | ❌ 未做 |
 
@@ -297,6 +297,24 @@ workbench:
 
 - 做什么：补视口平移/缩放保持的断言（P0 报告 §4.1 已把此项挂到 P2-8）。
 - 验收：page ↔ edgeless 往返 N 次后，视口参数与 block 数稳定，`applyUpdate` 不增加。
+
+
+### 5.1 P4 剩余项的执行前提（2026-11-06 盘点）
+
+这几项不是"再写点代码"就能收的，先把前提列清楚，避免下一个人空转：
+
+| 项 | 还差什么 | 前置条件 |
+| --- | --- | --- |
+| P4-2 标签 | `workbench_tags` 表 + 关联表 = **新增迁移**（PG 158 / SQLite 62），要同步改 `expectedSQLiteMigrationVersion`；再补类型/服务/前端筛选 | 需要先确认标签是"个人标签"还是"workspace 共享标签"，这决定隔离字段 |
+| P4-2 拖拽排序 | 后端 `PATCH /folders/:id`（sort_order + parent_id）+ 前端拖拽；`sort_order` 字段已存在 | 无阻塞，可直接开工 |
+| P4-2 反向链接 | `workbench_item_links` 已建表但无写入方；需先从投影/编辑器引用里解析出链接关系再落库 | 无阻塞，但要先定"哪些引用算反向链接"（页内提及 / 数据库关联列） |
+| P4-3 端到端权限门禁 | 需要两个真实用户 + Admin + API Key 跑一遍全接口矩阵 | 需要能在容器里造第二个用户（本机 Docker 环境） |
+| P4-3 无障碍/性能 | 键盘可达与焦点顺序要人工走查；chunk 体积要对比基线 | 人工 + 一次正式构建 |
+| P4-4 备份恢复演练 | 四类备份（库/资产/Y.Doc/归档映射）+ BlockSuite 升级矩阵 | 需要有可清空的演练库；`scripts/` 下目前没有任何 backup/restore 脚本 |
+| P4-5 发布法务 | MPL/商标核对、无 EE 代码声明、发布清单签字 | 需要人决策与签字，AI 只能出清单 |
+
+**已经做完的 P4-3 部分**（本次）：六语言 key 对齐（`check-i18n` exit 0）、仓储层所有者隔离用例
+（`workbench_isolation_sqlite_test.go`：条目/版本/资产/归档/文件夹，含跨租户）。
 
 ### R7 P4-2 组织增强
 
