@@ -17,7 +17,7 @@
 
 - `git status --short` 有 **106 项**未提交（56 个已跟踪文件改动 +5072/−373 行，另有一批新增文件）。
 - 这些改动就是 P2/P3 的最新增量（数据库工具条、数据库 AI、导入、资产、清理器、构建脚本等），**没提交就等于没交付**。先按 §6.1 分组提交，再开工。
-- 当前校验状态见 §7.4：工作台单测与类型检查全绿，但 `check-i18n` 有 2 个多余 key，`handler` / `repository` 各有个别失败需先甄别是否既有基线。
+- 当前校验状态见 §6.6：工作台单测、类型检查、i18n 全绿；`handler` / `repository` 各有个别失败已甄别为 **Windows 环境相关的既有失败**（见 §5 R3），跑测试时忽略，不要顺手改。
 
 **绝对不要**：
 
@@ -240,18 +240,26 @@ workbench:
 - 按 §2.3 分组提交，建议顺序：① 编辑器与数据库能力（`workbench/editor/*`、`components/Database*.vue`、`editor-popover.css`）② 导入与收集（`import-material*`、`CollectDialog.vue`）③ AI 数据库（`workbench/ai/database-patch*`、`ai_database*`、`handler/workbench_ai.go`）④ 资产与清理（`workbench/asset*`、`cleanup.go`、`lifecycle.go`）⑤ 列表/导航/搜索（views、`useWorkbenchSearch.ts`、i18n）⑥ 构建与部署脚本（`scripts/build.mjs`、`package.json`、`vite.config.ts`）⑦ docx 边框工具（单独成组）
 - 验收：`git status` 只剩本次新工作；每组提交各自能通过 §7.4 的相关检查。
 
-### R2 修 i18n 失败（10 分钟）
+### R2 修 i18n 失败（2026-11-06 已完成）
 
-- 现象：`npm run check-i18n` 报 `zh-CN: extra workbench.database.toolbar.clear`、`zh-CN: extra workbench.database.toolbar.noMatch`（`zh-CN.ts` 约 9499–9501 行）。
-- 处理：这两个 key 已无引用，从 `zh-CN.ts` 删除（其他语言本就没有）。
-- 验收：`npm run check-i18n` exit 0。
+- 现象：`npm run check-i18n` 报 `zh-CN: extra workbench.database.toolbar.clear`、`zh-CN: extra workbench.database.toolbar.noMatch`。
+- 处理：这两个 key 已无引用，已从 `zh-CN.ts` 删除（其他语言本就没有）。
+- 验收：`npm run check-i18n` **exit 0**（15/15）。
 
-### R3 甄别基线失败
+### R3 基线失败甄别（2026-11-06 已完成，结论：既有 + 环境相关）
 
-- `go test ./internal/handler/` 失败 3 项：`TestDataSourceScheduleAPIRejectsInvalidCron`、`TestBatchDownloadKnowledgeProducesCompleteZIP`、`TestBatchDownloadKnowledgeFailureDoesNotReturnPartialZIP`。
-- `go test ./internal/application/repository/` 失败 1 项：`TestSandboxAllocationOnTheMigratedSQLiteSchema`。
-- 这 4 项都不在工作台代码路径上，疑似既有基线失败。处理：在**未含本次工作台改动**的干净提交上复跑确认；确认既有后记入文档并在后续任务中忽略，不要顺手改。
-- 验收：给出"是否既有"的结论与命令输出。
+4 项失败**全部复现于工作台改动之前的干净提交 `63bbfdf03`**（用 `git worktree` 独立检出复跑，同一套环境变量），与工作台代码无关。根因都是 Windows 测试环境，不是逻辑缺陷：
+
+| 用例 | 现象 | 根因 |
+| --- | --- | --- |
+| `TestDataSourceScheduleAPIRejectsInvalidCron` | 三个子测试的断言全过，只在 `TempDir RemoveAll cleanup` 报 `unlinkat … schedule.db: The process cannot access the file` | SQLite 文件句柄在 `t.TempDir()` 清理时仍打开；Windows 下 unlink 打开中的文件会 EBUSY。用例漏了关闭 `*sql.DB` |
+| `TestSandboxAllocationOnTheMigratedSQLiteSchema` | 迁移 0→61 成功、配沙箱断言全过，同样在 cleanup 报 `migrated.db` EBUSY | 同上：`gorm.Open` 之后从未 `db.DB().Close()` |
+| `TestBatchDownloadKnowledgeProducesCompleteZIP` | `require.Empty(os.ReadDir(os.TempDir()))` 断言失败，列表是整个系统 TEMP（Chrome/Edge/各类 `.tmp`） | 断言把「系统临时目录」当成本用例的私有目录；开发者机器上 TEMP 永远不空 |
+| `TestBatchDownloadKnowledgeFailureDoesNotReturnPartialZIP` | 同上 | 用例用 `t.Setenv("TMPDIR", t.TempDir())` 想改临时目录，但 **Windows 上 `os.TempDir()` 读的是 `TMP`/`TEMP`**，`TMPDIR` 无效 |
+
+**结论**：后续任务一律忽略这 4 项，**不要在跑测试时顺手改**。哪天要修，改法很小：
+1. `sandbox_allocation_test.go`、`schedule` 相关用例：`gorm.Open` 后加 `t.Cleanup` 里 `sqlDB.Close()`（注意要先于 TempDir 清理注册）。
+2. `knowledge_download_test.go`：把 `os.ReadDir(os.TempDir())` 换成只看本用例创建的临时文件（或同时 `t.Setenv("TMP", …)` 与 `t.Setenv("TEMP", …)`）。
 
 ### R4 P2-4 画布导出（ZIP / PNG）
 
@@ -380,8 +388,8 @@ node scripts/editor-spike-check.mjs --url=http://127.0.0.1:4173/editor-spike.htm
 | `npm run check-i18n` | ❌ 2 个 zh-CN 多余 key（见 R2） |
 | `go test ./internal/application/service/workbench/` | ✅ ok 1.329s |
 | `go test ./internal/router/ ./internal/types/ ./internal/config/` | ✅ ok |
-| `go test ./internal/handler/` | ❌ 3 项失败，疑既有（见 R3） |
-| `go test ./internal/application/repository/` | ❌ 1 项失败，疑既有（见 R3） |
+| `go test ./internal/handler/` | ❌ 3 项失败：Windows 环境相关，已甄别为既有（见 R3，可忽略） |
+| `go test ./internal/application/repository/` | ❌ 1 项失败：同上，SQLite 句柄未关导致 TempDir 清理失败 |
 
 ---
 
