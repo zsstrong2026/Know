@@ -88,6 +88,7 @@
         v-if="archiveStatus"
         :status="archiveStatus"
         :archived-version="archivedVersion ?? 0"
+        :busy="archiveBusy ?? false"
         @action="onArchiveAction"
       />
 
@@ -167,6 +168,8 @@ const props = defineProps<{
   /** 归档状态：事项表的改动同步到工作知识库 */
   archiveStatus?: ArchiveStatus
   archivedVersion?: number
+  /** 归档请求在飞（手动或自动同步），按钮显示「同步中」 */
+  archiveBusy?: boolean
 }>()
 
 const emit = defineEmits<{

@@ -9597,6 +9597,7 @@
         recreate: '重新归档',
         progress: '查看进度'
       },
+      syncing: '同步中…',
       deleting: '正在删除归档…',
       deleteTitle: '删除归档',
       deleteBody: '删除后工作知识库中的快照会一并移除，源内容保留。',

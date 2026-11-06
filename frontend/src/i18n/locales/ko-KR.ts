@@ -9596,6 +9596,7 @@
         recreate: '다시 아카이브',
         progress: '진행 보기'
       },
+      syncing: '동기화 중…',
       deleting: '아카이브를 삭제하는 중…',
       deleteTitle: '아카이브 삭제',
       deleteBody: '지식베이스의 스냅샷이 함께 삭제됩니다. 원본 내용은 유지됩니다.',

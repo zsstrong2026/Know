@@ -9597,6 +9597,7 @@
         recreate: '重新歸檔',
         progress: '查看進度'
       },
+      syncing: '同步中…',
       deleting: '正在刪除歸檔…',
       deleteTitle: '刪除歸檔',
       deleteBody: '刪除後工作知識庫中的快照會一併移除，來源內容保留。',

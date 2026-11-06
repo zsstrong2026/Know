@@ -884,6 +884,7 @@
         recreate: '再アーカイブ',
         progress: '進捗を見る'
       },
+      syncing: '同期中…',
       deleting: 'アーカイブを削除しています…',
       deleteTitle: 'アーカイブを削除',
       deleteBody: 'ナレッジベース内のスナップショットが削除されます。ソース内容は残ります。',

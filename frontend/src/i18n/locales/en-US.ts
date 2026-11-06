@@ -884,6 +884,7 @@
         recreate: 'Archive again',
         progress: 'View progress'
       },
+      syncing: 'Syncing…',
       deleting: 'Deleting archive…',
       deleteTitle: 'Delete archive',
       deleteBody: 'The snapshot in your knowledge base is removed. The source content stays.',

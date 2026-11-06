@@ -104,6 +104,7 @@
       :saved-at-label="savedAtLabel"
       :archive-status="archiveStatus"
       :archived-version="archivedVersion"
+      :archive-busy="archiving"
       @action="onToolbarAction"
       @archive="onArchiveAction"
     />
@@ -263,6 +264,8 @@ const title = ref('')
 const loadError = ref<'' | 'notFound' | 'failed'>('')
 const archiveStatus = ref<ArchiveStatus>('none')
 const archivedVersion = ref(0)
+/** 归档请求在飞：自动同步与手动点击共用一把锁，避免同一份正文提交两次。 */
+const archiving = ref(false)
 
 const hostRef = ref<HTMLElement | null>(null)
 const versionDialog = ref<{ open: () => void; setRestoring: (version: number) => void } | null>(null)
@@ -785,9 +788,12 @@ async function onImportFileChange(event: Event) {
  * 与服务端口径一致（归档行的 source_version < 条目的 snapshot_version 即 stale），
  * 本地先切徽标可以让「事项 → 知识库」的关系一眼可见：改完这片表格，
  * 徽标就从「已归档」变成「归档已过期」，点一下就是重新同步。
+ * 事项还会在此基础上排一次自动同步（见 scheduleAutoSync）。
  */
 watch(saveState, (state) => {
-  if (state === 'saved' && archiveStatus.value === 'active') archiveStatus.value = 'stale'
+  if (state !== 'saved') return
+  if (archiveStatus.value === 'active') archiveStatus.value = 'stale'
+  scheduleAutoSync()
 })
 
 async function refreshArchiveState() {
@@ -813,13 +819,25 @@ async function refreshArchiveState() {
  * 不使用服务端已存的 text_content，避免把上一次自动保存的旧正文归档进去。
  */
 async function onArchiveAction(action: ArchiveBadgeAction) {
+  await submitArchive(action)
+}
+
+/**
+ * 提交归档 / 更新归档。
+ *
+ * @param options.silent 自动同步用：成功不弹提示（徽标从「过期」回到「已归档」就是反馈），
+ *                       失败仍然提示，不能让用户以为已经同步成功了。
+ */
+async function submitArchive(action: ArchiveBadgeAction, options: { silent?: boolean } = {}) {
   if (action === 'none' || action === 'progress') return
+  if (archiving.value) return
   // 事项的归档正文就是当前表格的投影（Markdown 表格，§6.3「数据库按当前视图生成」）。
   const markdown = session.markdown()
   if (!markdown.trim()) {
-    MessagePlugin.warning(t('workbench.archive.status.none'))
+    if (!options.silent) MessagePlugin.warning(t('workbench.archive.status.none'))
     return
   }
+  archiving.value = true
   try {
     const payload = {
       source_type: 'item' as const,
@@ -833,16 +851,51 @@ async function onArchiveAction(action: ArchiveBadgeAction) {
       await refreshArchive(payload)
     }
     await refreshArchiveState()
-    MessagePlugin.success(
-      t(action === 'update' || action === 'retry' ? 'workbench.archive.action.update' : 'workbench.archive.action.create'),
-    )
+    if (!options.silent) {
+      MessagePlugin.success(
+        t(action === 'update' || action === 'retry' ? 'workbench.archive.action.update' : 'workbench.archive.action.create'),
+      )
+    }
   } catch (error) {
     if (workbenchErrorCode(error) === WORKBENCH_ERROR.archiveStale) {
       MessagePlugin.warning(t('workbench.archive.status.stale'))
       return
     }
     MessagePlugin.error(t('workbench.editor.saveError'))
+  } finally {
+    archiving.value = false
   }
+}
+
+/**
+ * 自动同步（仅事项）。
+ *
+ * 事项是一张会被反复微调的表，手动点「更新归档」在真实使用里必然忘记，
+ * 于是「知识库里那份」很快就不是最新的。这里在**每次落盘之后**排一个
+ * `AUTO_SYNC_DELAY_MS` 的静默定时器：
+ *   - 期间又有新保存 → 重置计时，只在真正停下来之后同步一次；
+ *   - 只有「已经同步过」的表才自动跟随（status 从 active 被本地切成 stale），
+ *     首次归档仍是显式动作 —— 不替用户决定往知识库写东西。
+ * 不按每次保存立即同步，是因为一次 refresh 会触发解析 + 切分 + 重建索引。
+ */
+const AUTO_SYNC_DELAY_MS = 30_000
+let autoSyncTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleAutoSync() {
+  if (!isDatabase.value) return
+  if (autoSyncTimer) clearTimeout(autoSyncTimer)
+  autoSyncTimer = setTimeout(() => {
+    autoSyncTimer = null
+    void runAutoSync()
+  }, AUTO_SYNC_DELAY_MS)
+}
+
+async function runAutoSync() {
+  // 定时器等的这段时间里可能又开始编辑了：只有「已保存 + 确实过期」才同步，
+  // 否则会把半截内容写进知识库。
+  if (saveState.value !== 'saved') return
+  if (archiveStatus.value !== 'stale') return
+  await submitArchive('update', { silent: true })
 }
 
 function goBack() {
@@ -1080,6 +1133,12 @@ function teardownDatabaseTools() {
 }
 
 onBeforeUnmount(() => {
+  // 待触发的自动同步直接丢弃：离开页面时 flush 与归档提交会互相抢 base_version，
+  // 一旦 409 就变成「离开时报错」。下次进来徽标仍是「归档已过期」，手动点一下即可。
+  if (autoSyncTimer) {
+    clearTimeout(autoSyncTimer)
+    autoSyncTimer = null
+  }
   teardownDatabaseTools()
   void session.flush()
   session.destroy()

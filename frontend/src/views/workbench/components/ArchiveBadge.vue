@@ -14,9 +14,11 @@
     v-if="badge.action !== 'none' && !readonly"
     class="chip-action"
     type="button"
+    :disabled="busy"
+    :aria-busy="busy"
     @click.stop="emit('action', badge.action)"
   >
-    {{ $t(`workbench.archive.action.${badge.action}`) }}
+    {{ busy ? $t('workbench.archive.syncing') : $t(`workbench.archive.action.${badge.action}`) }}
   </button>
 </template>
 
@@ -38,8 +40,10 @@ const props = withDefaults(
     archivedVersion?: number
     /** 只读场景（例如回收站）不显示操作按钮 */
     readonly?: boolean
+    /** 归档请求在飞：按钮置灰并显示「同步中」，防止重复提交 */
+    busy?: boolean
   }>(),
-  { archivedVersion: 0, readonly: false },
+  { archivedVersion: 0, readonly: false, busy: false },
 )
 
 const emit = defineEmits<{ action: [action: ArchiveBadgeAction] }>()
@@ -128,6 +132,13 @@ const ariaLabel = computed(() => {
 
   &:hover {
     color: var(--td-text-color-primary);
+  }
+
+  /* 同步中：置灰并去掉下划线，避免看起来还能再点一次 */
+  &:disabled {
+    color: var(--td-text-color-disabled);
+    text-decoration: none;
+    cursor: default;
   }
 }
 </style>
