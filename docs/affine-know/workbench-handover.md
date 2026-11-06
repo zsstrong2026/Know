@@ -306,7 +306,7 @@ workbench:
 | 项 | 还差什么 | 前置条件 |
 | --- | --- | --- |
 | P4-2 标签 | `workbench_tags` 表 + 关联表 = **新增迁移**（PG 158 / SQLite 62），要同步改 `expectedSQLiteMigrationVersion`；再补类型/服务/前端筛选 | 需要先确认标签是"个人标签"还是"workspace 共享标签"，这决定隔离字段 |
-| P4-2 拖拽排序 | 后端 `PATCH /folders/:id`（sort_order + parent_id）+ 前端拖拽；`sort_order` 字段已存在 | 无阻塞，可直接开工 |
+| ~~P4-2 拖拽排序~~ | **已完成**（`PUT /folders/:id/move` + `folder-drop.ts` + FolderTree 拖拽） | — |
 | P4-2 反向链接 | `workbench_item_links` 已建表但无写入方；需先从投影/编辑器引用里解析出链接关系再落库 | 无阻塞，但要先定"哪些引用算反向链接"（页内提及 / 数据库关联列） |
 | P4-3 端到端权限门禁 | 需要两个真实用户 + Admin + API Key 跑一遍全接口矩阵 | 需要能在容器里造第二个用户（本机 Docker 环境） |
 | P4-3 无障碍/性能 | 键盘可达与焦点顺序要人工走查；chunk 体积要对比基线 | 人工 + 一次正式构建 |
