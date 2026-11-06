@@ -314,8 +314,11 @@ func (c *Client) parseResponse(raw []byte, opts *api.Options) (*types.ChatRespon
 		result.ToolCalls = calls
 	}
 	if result.FinishReason == "stop" || result.FinishReason == "tool_calls" {
-		if rest, dsmlCalls := extractDSMLToolCalls(result.Content, opts); len(dsmlCalls) > 0 {
-			result.Content = rest
+		// A leak is stripped even when no call is recovered (tool calls
+		// disabled): protocol markup must never be persisted as the answer.
+		rest, dsmlCalls := extractDSMLToolCalls(result.Content, opts)
+		result.Content = rest
+		if len(dsmlCalls) > 0 {
 			// A gateway may echo a native call in content. Native calls are
 			// authoritative; recovering the echo would execute it twice.
 			if len(result.ToolCalls) == 0 {

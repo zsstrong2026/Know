@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -21,20 +22,36 @@ import (
 //	</｜DSML｜invoke>
 //	</｜DSML｜function_calls>
 //
+// The encoding drifts between builds and gateways: the bar may be doubled
+// (<｜｜DSML｜｜) and the outer tag shortened to "calls". Both are accepted.
+//
 // Left alone, the round reaches the agent as a plain answer and the turn ends
 // with the markup shown to the user. dsmlFilter holds that markup back from
-// the stream and recovers the calls from it.
-
-// dsmlMarkers are the openings of a DSML tag, with the full-width bar the
-// model emits and the ASCII bar some gateways normalise it to.
-var dsmlMarkers = []string{"<｜DSML｜", "<|DSML|"}
+// the stream and recovers the calls from it. When the request disables tool
+// calls (tool_choice="none") the markup is stripped instead of recovered: it
+// is still protocol noise, but executing it would violate the request.
 
 // dsmlIndexBase keeps recovered calls clear of the vendor's own indices.
 const dsmlIndexBase = 1 << 20
 
-const dsmlBar = `\s*[｜|]\s*`
+const (
+	// dsmlBar matches a bar separator. The model emits the full-width bar
+	// (U+FF5C), some gateways normalise it to ASCII '|', and later builds
+	// repeat it ("<｜｜DSML｜｜"), so one or more of either is accepted.
+	dsmlBar = `\s*[｜|]+\s*`
+	// dsmlEnvelope names the outer tag. DeepSeek V3.2 emits "function_calls";
+	// later builds shorten it to "calls" (also seen as "tool_calls").
+	dsmlEnvelope = `\w*calls`
+)
 
 var (
+	// dsmlMarkerRe finds the first opening of any DSML tag.
+	dsmlMarkerRe = regexp.MustCompile(`<` + dsmlBar + `DSML` + dsmlBar)
+	// dsmlPartialRe matches a trailing fragment that may still grow into a
+	// marker ("<", "<｜", "<｜D", …) so it can be held across chunk borders.
+	dsmlPartialRe = regexp.MustCompile(
+		`^<[｜|\s]*(?:D(?:S(?:M(?:L[｜|\s]*)?)?)?)?$`)
+
 	dsmlInvokeRe = regexp.MustCompile(
 		`(?s)<` + dsmlBar + `DSML` + dsmlBar + `invoke\s+name\s*=\s*"([^"]+)"\s*>(.*?)</` +
 			dsmlBar + `DSML` + dsmlBar + `invoke\s*>`)
@@ -42,8 +59,8 @@ var (
 		`(?s)<` + dsmlBar + `DSML` + dsmlBar + `parameter\s+name\s*=\s*"([^"]+)"` +
 			`(?:\s+string\s*=\s*"(true|false)")?\s*>(.*?)</` + dsmlBar + `DSML` + dsmlBar + `parameter\s*>`)
 	dsmlBlockRe = regexp.MustCompile(
-		`(?s)^<` + dsmlBar + `DSML` + dsmlBar + `function_calls\s*>(.*?)</` + dsmlBar + `DSML` + dsmlBar +
-			`function_calls\s*>\s*$`)
+		`(?s)^<` + dsmlBar + `DSML` + dsmlBar + dsmlEnvelope + `\s*>(.*?)</` + dsmlBar + `DSML` + dsmlBar +
+			dsmlEnvelope + `\s*>\s*$`)
 )
 
 // dsmlFilter is fed the streamed content. Everything before the first DSML
@@ -55,9 +72,17 @@ type dsmlFilter struct {
 	capturing bool
 }
 
+// dsmlToolChoiceNone reports whether the request forbids tool calls. Markup
+// still has to be stripped in that case; it just must not be recovered.
+func dsmlToolChoiceNone(opts *api.Options) bool {
+	return opts != nil && opts.ToolChoice == "none"
+}
+
 // Feed returns the part of chunk that is safe to show now.
 func (f *dsmlFilter) Feed(chunk string) string {
-	if f.options == nil || len(f.options.Tools) == 0 || f.options.ToolChoice == "none" {
+	// Without tools there is nothing to recover, so only tool_choice="none"
+	// (the final-answer phase) still needs the markup held back for stripping.
+	if f.options == nil || (len(f.options.Tools) == 0 && !dsmlToolChoiceNone(f.options)) {
 		return chunk
 	}
 	if chunk == "" {
@@ -91,25 +116,64 @@ func (f *dsmlFilter) Flush(recoverCalls bool) (string, []types.LLMToolCall) {
 	f.prefix.Reset()
 	f.held.Reset()
 	f.capturing = false
-	if held == "" || !recoverCalls {
+	if held == "" {
+		return "", nil
+	}
+	// Parse the whole retained tail: the quoted-example check needs the text
+	// that was already streamed, but only the held part is returned.
+	rest, calls := extractDSMLToolCalls(prefix+held, f.options)
+	if len(calls) > 0 && !recoverCalls {
+		// The turn ends for another reason, so nothing can be executed here.
+		// Keep the text visible rather than dropping it silently.
 		return held, nil
 	}
-	// Include already-streamed text when checking whether the marker belongs
-	// to a quoted example, but never emit that prefix a second time.
-	rest, calls := extractDSMLToolCalls(prefix+held, f.options)
 	return rest[len(prefix):], calls
 }
 
 // extractDSMLToolCalls recovers a complete trailing protocol block, optionally
 // preceded by a plain-text preamble. Ambiguous examples, undeclared tools and
 // malformed calls stay intact: a partial parse must not silently change a call.
+// With tool calls disabled the block is only stripped, never recovered.
 func extractDSMLToolCalls(content string, opts *api.Options) (string, []types.LLMToolCall) {
-	if opts == nil || len(opts.Tools) == 0 || opts.ToolChoice == "none" {
+	if opts == nil {
 		return content, nil
 	}
+	if dsmlToolChoiceNone(opts) {
+		return stripDSMLBlock(content), nil
+	}
+	if len(opts.Tools) == 0 {
+		return content, nil
+	}
+	rest, calls, ok := parseDSMLToolCalls(content, opts, true)
+	if !ok {
+		return content, nil
+	}
+	if opts.ParallelToolCalls != nil && !*opts.ParallelToolCalls && len(calls) > 1 {
+		return content, nil
+	}
+	return rest, calls
+}
+
+// stripDSMLBlock removes a complete trailing protocol block and keeps the text
+// before it. Tool names are not validated here: when tool calls are disabled,
+// any well-formed block is protocol noise rather than an answer.
+func stripDSMLBlock(content string) string {
+	rest, calls, ok := parseDSMLToolCalls(content, nil, false)
+	if !ok || len(calls) == 0 {
+		return content
+	}
+	return rest
+}
+
+// parseDSMLToolCalls parses a complete trailing protocol block. When
+// requireDeclared is true every invoke must target a declared and permitted
+// tool; otherwise only the structure is checked.
+func parseDSMLToolCalls(
+	content string, opts *api.Options, requireDeclared bool,
+) (string, []types.LLMToolCall, bool) {
 	start := indexDSML(content)
 	if start < 0 {
-		return content, nil
+		return content, nil, false
 	}
 	prefix := content[:start]
 	// Only recover a block starting on its own line. Code spans/fences in the
@@ -118,21 +182,23 @@ func extractDSMLToolCalls(content string, opts *api.Options) (string, []types.LL
 	if strings.TrimSpace(prefix[lineStart:]) != "" ||
 		strings.HasPrefix(prefix[lineStart:], "    ") || strings.HasPrefix(prefix[lineStart:], "\t") ||
 		strings.Contains(prefix, "`") || strings.Contains(prefix, "~~~") {
-		return content, nil
+		return content, nil, false
 	}
 	block := dsmlBlockRe.FindStringSubmatch(content[start:])
 	if len(block) == 0 {
-		return content, nil
+		return content, nil, false
 	}
-	allowed := make(map[string]bool, len(opts.Tools))
-	for _, tool := range opts.Tools {
-		if tool.Type != "" && tool.Type != "function" {
-			continue
-		}
-		name := tool.Function.Name
-		if opts.ToolChoice == "" || opts.ToolChoice == "auto" || opts.ToolChoice == "required" ||
-			opts.ToolChoice == name {
-			allowed[name] = true
+	allowed := map[string]bool{}
+	if requireDeclared {
+		for _, tool := range opts.Tools {
+			if tool.Type != "" && tool.Type != "function" {
+				continue
+			}
+			name := tool.Function.Name
+			if opts.ToolChoice == "" || opts.ToolChoice == "auto" || opts.ToolChoice == "required" ||
+				opts.ToolChoice == name {
+				allowed[name] = true
+			}
 		}
 	}
 	inner := block[1]
@@ -141,8 +207,8 @@ func extractDSMLToolCalls(content string, opts *api.Options) (string, []types.LL
 	consumed := 0
 	for _, m := range matches {
 		name, body := inner[m[2]:m[3]], inner[m[4]:m[5]]
-		if strings.TrimSpace(inner[consumed:m[0]]) != "" || !allowed[name] {
-			return content, nil
+		if strings.TrimSpace(inner[consumed:m[0]]) != "" || (requireDeclared && !allowed[name]) {
+			return content, nil, false
 		}
 		consumed = m[1]
 		args := map[string]any{}
@@ -150,10 +216,10 @@ func extractDSMLToolCalls(content string, opts *api.Options) (string, []types.LL
 		for _, p := range dsmlParamRe.FindAllStringSubmatchIndex(body, -1) {
 			key := body[p[2]:p[3]]
 			if strings.TrimSpace(body[paramEnd:p[0]]) != "" {
-				return content, nil
+				return content, nil, false
 			}
 			if _, duplicate := args[key]; duplicate {
-				return content, nil
+				return content, nil, false
 			}
 			paramEnd = p[1]
 			isString := ""
@@ -162,16 +228,16 @@ func extractDSMLToolCalls(content string, opts *api.Options) (string, []types.LL
 			}
 			value, ok := dsmlParamValue(body[p[6]:p[7]], isString)
 			if !ok {
-				return content, nil
+				return content, nil, false
 			}
 			args[key] = value
 		}
 		if strings.TrimSpace(body[paramEnd:]) != "" {
-			return content, nil
+			return content, nil, false
 		}
 		raw, err := json.Marshal(args)
 		if err != nil {
-			return content, nil
+			return content, nil, false
 		}
 		calls = append(calls, types.LLMToolCall{
 			ID:       "call_dsml_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:24],
@@ -179,11 +245,10 @@ func extractDSMLToolCalls(content string, opts *api.Options) (string, []types.LL
 			Function: types.FunctionCall{Name: name, Arguments: string(raw)},
 		})
 	}
-	if len(calls) == 0 || strings.TrimSpace(inner[consumed:]) != "" ||
-		(opts.ParallelToolCalls != nil && !*opts.ParallelToolCalls && len(calls) > 1) {
-		return content, nil
+	if len(calls) == 0 || strings.TrimSpace(inner[consumed:]) != "" {
+		return content, nil, false
 	}
-	return prefix, calls
+	return prefix, calls, true
 }
 
 // dsmlParamValue keeps JSON numbers verbatim instead of rounding them through
@@ -212,13 +277,13 @@ func dsmlToolCallDeltas(calls []types.LLMToolCall, base int) []api.ToolCallDelta
 }
 
 func indexDSML(s string) int {
-	best := -1
-	for _, m := range dsmlMarkers {
-		if i := strings.Index(s, m); i >= 0 && (best < 0 || i < best) {
-			best = i
-		}
+	if !strings.Contains(s, "DSML") {
+		return -1
 	}
-	return best
+	if loc := dsmlMarkerRe.FindStringIndex(s); loc != nil {
+		return loc[0]
+	}
+	return -1
 }
 
 // partialMarkerStart reports where a trailing prefix of a DSML marker begins,
@@ -228,11 +293,22 @@ func partialMarkerStart(s string) int {
 	if i < 0 {
 		return -1
 	}
-	tail := s[i:]
-	for _, m := range dsmlMarkers {
-		if len(tail) < len(m) && strings.HasPrefix(m, tail) {
-			return i
-		}
+	if !dsmlPartialRe.MatchString(trimPartialRune(s[i:])) {
+		return -1
 	}
-	return -1
+	return i
+}
+
+// trimPartialRune drops a trailing incomplete UTF-8 sequence: a chunk can split
+// the multi-byte bar, and the regex would then see an invalid byte instead of
+// the rune it belongs to.
+func trimPartialRune(s string) string {
+	for len(s) > 0 {
+		r, size := utf8.DecodeLastRuneInString(s)
+		if r != utf8.RuneError || size > 1 {
+			break
+		}
+		s = s[:len(s)-1]
+	}
+	return s
 }

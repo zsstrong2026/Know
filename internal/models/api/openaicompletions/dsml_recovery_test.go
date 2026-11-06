@@ -37,6 +37,7 @@ func TestChatDSMLRecovery(t *testing.T) {
 		content       string
 		opts          *api.Options
 		wantContent   string
+		wantStripped  bool
 		wantArguments []string
 		native        []types.LLMToolCall
 		nativeTiming  string
@@ -98,7 +99,13 @@ func TestChatDSMLRecovery(t *testing.T) {
 		{name: "trailing_explanation", content: block + "\nThis is an example.", opts: opts},
 		{name: "no_tools", content: block},
 		{name: "empty_tools", content: block, opts: &api.Options{}},
-		{name: "tools_disabled", content: block, opts: &api.Options{Tools: tools, ToolChoice: "none"}},
+		{name: "tools_disabled", content: block, opts: &api.Options{Tools: tools, ToolChoice: "none"},
+			wantStripped: true},
+		{name: "tools_disabled_preamble", content: "先查一下。\n" + block,
+			opts:         &api.Options{Tools: tools, ToolChoice: "none"},
+			wantStripped: true, wantContent: "先查一下。\n"},
+		{name: "tools_disabled_without_tools", content: block,
+			opts: &api.Options{ToolChoice: "none"}, wantStripped: true},
 		{name: "unknown_tool", content: strings.ReplaceAll(block, "search_knowledge", "other_tool"), opts: opts},
 		{name: "different_named_tool", content: block, opts: &api.Options{Tools: tools, ToolChoice: "other_tool"}},
 		{
@@ -219,7 +226,7 @@ func TestChatDSMLRecovery(t *testing.T) {
 					response = *got
 				}
 				wantContent := tc.wantContent
-				if len(tc.wantArguments) == 0 {
+				if len(tc.wantArguments) == 0 && !tc.wantStripped {
 					wantContent = tc.content
 				}
 				assert.Equal(t, wantContent, response.Content)
