@@ -114,11 +114,22 @@ node scripts/editor-spike-check.mjs   # 9 组断言，全部通过
 2. `edgeless` 下的视口平移/缩放保持（本次只验证数据层与结构层，属 P2-8 范围）。
 3. Lite 形态（非 Docker 的 SQLite 直跑）未实际起服务验证，仅在容器内跑了 SQLite 内联 DDL 用例。
 
-**P1 前必须处理的技术债**（不阻塞，但要在 P1-2/P1-5 落地时消化）：
+**P1 前必须处理的技术债**（已在 2026-11-03 全部消化，见 §4.1）：
 
-- `npm run build` 现在跑两次 vite build，spike 入口会把 tdesign/markdown/mermaid 再产出一份，`dist` 多约 7–8 MiB。建议 release 用环境变量开关（如 `BUILD_SPIKE=1` 才跑第二步）。
-- `vendor-blocksuite` 从 3.9 MiB 增至 6.1 MiB（gzip 1.69 MiB）：移除 `onlyExplicitManualChunks` 后恢复默认吸收语义的必然结果，首页不受影响。
-- `blocksuite.ts` 目前用 `TestWorkspace`（上游唯一的 Workspace 实现），P1 需换成真实 Workspace + 后端持久化。
+- ~~`npm run build` 现在跑两次 vite build，spike 入口会把 tdesign/markdown/mermaid 再产出一份，`dist` 多约 7–8 MiB。建议 release 用环境变量开关（如 `BUILD_SPIKE=1` 才跑第二步）。~~
+- `vendor-blocksuite` 从 3.9 MiB 增至 6.1 MiB（gzip 1.69 MiB）：移除 `onlyExplicitManualChunks` 后恢复默认吸收语义的必然结果，首页不受影响。（保留：属体积事实，不是待办）
+- ~~`blocksuite.ts` 目前用 `TestWorkspace`（上游唯一的 Workspace 实现），P1 需换成真实 Workspace + 后端持久化。~~
+
+### 4.1 技术债消化记录（2026-11-03）
+
+| 技术债 | 处理方式 | 验证 |
+| --- | --- | --- |
+| 双次 vite build 多出 7–8 MiB | `package.json` 的 `build` / `build-only` 改为只跑 `vite build`；需要 spike 产物时显式 `npm run build:spike`（`vite build && vite build --mode spike`） | `npm run build` → `dist` 只有 `index.html` / `embed.html`，626 文件 39.36 MiB；`npx vite build --mode spike` 单独产出 `editor-spike.html` 与 `editorSpike` chunk，未重复产出 tdesign/markdown/mermaid |
+| `TestWorkspace` 生产使用 | 新增 `frontend/src/workbench/editor/workbench-workspace.ts`：`WorkbenchWorkspace` + `WorkbenchDoc` + `WorkbenchMeta` 自实现 `Workspace` 契约，去掉对 `@blocksuite/store/test` 的依赖。语义差异：block 树直接挂在条目自己的 Y.Doc 上（不再嵌 `rootDoc.spaces` subdoc），因此 `spaceDoc === rootDoc`，快照边界等于条目边界 | `npm run type-check` exit 0；`npm run build` exit 0；`node scripts/editor-spike-check.mjs` 9 组断言全通过（含 100 行数据库增删改、三视图、Calendar 拖拽、图片资产、2 秒保存、刷新恢复、8MB 边界、20 元素、双根切换 6 次 `applyUpdate=0`、运行期无未捕获错误） |
+| 人工确认项 2：edgeless 视口平移/缩放保持 | 未单独做自动化测量（属 P2-8 范围）；本次 spike 第 9 组已确认双根切换期间 block 数与快照字节稳定（7583 B × 4 轮不变、dupe=0），说明切换不重置文档状态 | 待 P2-8 补视口断言 |
+| 人工确认项 3：Lite 非 Docker 实跑 | 仍未执行，宿主机缺 duckdb 静态库所需的 MSVC UCRT 符号（既有环境限制），需在 Docker 或 Linux 环境补 | 未验证 |
+
+**顺带修复**：`frontend/scripts/editor-spike-check.mjs` 在 Windows 上清理浏览器 user-data-dir 时偶发 `EPERM`，原实现让「断言已全部通过」的结论被覆盖成失败；现改为告警不中断。
 
 ---
 
@@ -158,3 +169,47 @@ node scripts/editor-spike-check.mjs   # 9 组断言，全部通过
 | P0 Owner（后端） | Go | 18 项中 8 项后端证据均来自 `go test` 真实输出 |
 | P0 Owner（前端） | Go | 10 项前端证据来自 CDP 断言 + 构建产物统计 |
 | 技术负责人 | Go | 2026-10-29 已确认 D1（BlockSuite pin v0.27.4）；§4 三项人工确认项转入 P1 跟踪，不阻塞 P1 起始 |
+
+---
+
+## 8. P3-7 性能基线（2026-11-05 复跑）
+
+P3-7 的退出证据是「1000 行/20 元素基线达标；三视图回归全绿」。基线测量与三视图回归已并入
+同一套 CDP 断言脚本，不再依赖手工 Performance 面板。
+
+**复现命令**：
+
+```bash
+cd frontend
+npm run type-check                 # exit 0
+npm run build:spike                # 产出 dist/editor-spike.html + editorSpike chunk
+npx vite preview --port 4173       # 另开终端
+node scripts/editor-spike-check.mjs --url=http://127.0.0.1:4173/editor-spike.html
+```
+
+测量实现：`frontend/src/workbench/editor/spike-perf.ts`（暴露 `window.__spike.perfBaseline(rows)`），
+阈值判定：`frontend/scripts/editor-spike-check.mjs` 第 10 组断言。
+
+**本机实测（Windows 11 / Edge 无头 / 单次运行，单位 ms）**：
+
+| 场景 | 实测 | 守卫线 | 说明 |
+| --- | --- | --- | --- |
+| 新建 1000 行 → 可操作 | 3,482 | ≤ 8,000 | 含 mount 796 + data-view 连接 + 1000 行首渲染 |
+| 快照编码（424,577 B） | 15.6 | ≤ 1,500 | `Y.encodeStateAsUpdate`，对应保存链路 CPU 部分 |
+| 恢复 1000 行 → 可操作 | 3,712 | ≤ 10,000 | 快照写回 991 + 渲染 2,721 |
+| 切到 Table（1000 行） | 541.9 | ≤ 3,000 | 点真实视图按钮 |
+| 切到 Kanban（1000 行） | 2,911 | ≤ 8,000 | 需为每行建卡片并分组，天然最慢 |
+| 切到 Calendar（1000 行） | 282.4 | ≤ 3,000 | 35 个日格 |
+| 单元格编辑（5 次中位数） | 49.5 | ≤ 150 | 预热 150.3；样本 49.5 / 49.7 / 49.4 / 50.0 / 49.3 |
+| 滚到列表末尾 | 47.3 | ≤ 3,000 | 未开虚拟滚动，1000 行全在 DOM |
+| 新增一行 | 92 | ≤ 1,000 | |
+| 删除一行 | 103 | ≤ 1,000 | |
+
+**20 元素基线**：第 8 组额外断言挂载与恢复各 ≤ 3,000ms（本机实测均在数百毫秒内）。
+
+**结论**：三视图在 1000 行下容器均渲染、行数恒为 1000、切换过程无异常；全部断言通过。
+两处客观事实（不作为失败判据，供后续优化参考）：
+
+1. `enable_table_virtual_scroll` 默认为 `false`，1000 行全部进 DOM，滚动 47ms 属可接受但仍有优化空间。
+2. 无头环境下单次编辑延迟抖动大（同一构建实测 60–400ms），故改用「预热 + 5 次取中位数」；
+   本轮中位数为 49.5ms，样本间波动 < 1ms。
