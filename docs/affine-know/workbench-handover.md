@@ -157,7 +157,7 @@ git status --short               # 预期有大量未提交改动，见 §2.3
 | P2 | P2-2 文本投影与归档 | ✅ `projection.ts` |
 | P2 | P2-3 资产与 blobSync | ✅ `assets.ts` + 后端 asset 服务 + 30 天孤儿缓冲 |
 | P2 | P2-5 文档全局列表 | ✅ `WorkbenchDocs.vue` + `doc_document_global.go` |
-| P2 | P2-8 双形态 | ⚠️ 数据层已验证（切换不产生版本、不丢内容）；**edgeless 视口平移/缩放保持未验证** |
+| P2 | P2-8 双形态 | ✅ 内容/版本/视口都已验证（视口保持本次修复并补断言） |
 | P2 | P2-4 画布导出 ZIP/PNG | ✅ ZIP 完成（`workbench/export/`）；**PNG 明确不支持** |
 | P2 | P2-6 画布 AI / Agent patch | ❌ 未实现（`page-actions.ts` 只有 page 动作，无 edgeless 聚类/生成 Frame） |
 | P3 | P3-1 数据库工具条 | ✅ `DatabaseToolbar.vue` + `database-session.ts` |
@@ -280,7 +280,20 @@ workbench:
 - 参考：`ai/apply-write-plan.ts`、`ai/database-patch.ts` 的"补丁 + 预览 + 一次性写入"模式，可直接复用同一套契约。
 - 验收：写入前有预览；可 undo；409 时不做静默覆盖；不挂工具、不越权检索。
 
-### R6 P2-8 edgeless 视口保持验证
+### R6 P2-8 edgeless 视口保持验证（2026-11-06 已完成）
+
+补断言时直接暴露了真问题：**每次切回 edgeless，上游会按内容重新「适应」，用户摆好的缩放与平移被冲掉**
+（实测设成 zoom=1.5，往返一圈回来变成 0.49）。修法与验收：
+
+- `CanvasHandle.getViewport / setViewport`：走 `std → GfxController → viewport`，不摸 DOM；
+  将来做「适应画布 / 100%」直接复用。
+- `setMode` 离开 edgeless 时记住视口，切回来等两帧再覆盖（新视图首帧的自适应会顶掉立即写入）。
+- `scripts/editor-spike-check.mjs` 新增 9e：zoom 与中心点在 5 次往返后保持一致（<0.001 / <1px）。
+- 已知限制：视口只在本会话内保持，刷新后仍按内容自适应（要持久化得写进视图数据，见 §4.2 元数据边界）。
+
+`__原 R6 描述（保留）__`
+
+
 
 - 做什么：补视口平移/缩放保持的断言（P0 报告 §4.1 已把此项挂到 P2-8）。
 - 验收：page ↔ edgeless 往返 N 次后，视口参数与 block 数稳定，`applyUpdate` 不增加。
@@ -392,11 +405,16 @@ node scripts/editor-spike-check.mjs --url=http://127.0.0.1:4173/editor-spike.htm
 | --- | --- |
 | `npm run type-check` | ✅ exit 0 |
 | `npx tsx --test "src/workbench/**/*.test.ts"` | ✅ 192 pass / 0 fail |
-| `npm run check-i18n` | ❌ 2 个 zh-CN 多余 key（见 R2） |
+| `npm run check-i18n` | ✅ exit 0（R2 已修） |
 | `go test ./internal/application/service/workbench/` | ✅ ok 1.329s |
 | `go test ./internal/router/ ./internal/types/ ./internal/config/` | ✅ ok |
 | `go test ./internal/handler/` | ❌ 3 项失败：Windows 环境相关，已甄别为既有（见 R3，可忽略） |
 | `go test ./internal/application/repository/` | ❌ 1 项失败：同上，SQLite 句柄未关导致 TempDir 清理失败 |
+
+**编辑器自动断言**（`scripts/editor-spike-check.mjs`，headless Edge，2026-11-06 实测）：
+1–9 段全过（含 9e 视口保持）；第 10 段「1000 行 ≤8s」本次 10.2–10.4s 未达标（连续两次）。
+该路径不经过 `setMode`，与 P2-8 改动无关，怀疑本机负载/回归漂移，**未改阈值**，留待复核。
+
 
 ---
 
