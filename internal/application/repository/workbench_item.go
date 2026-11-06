@@ -230,6 +230,14 @@ func (r *workbenchRepository) ListItems(
 		like := "%" + escapeLike(filter.Query) + "%"
 		db = db.Where("(title LIKE ? ESCAPE '\\' OR text_content LIKE ? ESCAPE '\\')", like, like)
 	}
+	// 按标签过滤（P4-2）：用 EXISTS 而不是 JOIN，避免一个条目多个标签时出现重复行。
+	if filter.TagID != "" {
+		db = db.Where(`EXISTS (
+			SELECT 1 FROM workbench_item_tags AS tag_link
+			WHERE tag_link.item_id = workbench_items.id
+			  AND tag_link.tenant_id = ? AND tag_link.owner_id = ? AND tag_link.tag_id = ?
+		)`, tenantID, ownerID, filter.TagID)
+	}
 	// Journal 只返回钉了日期的画布条目：日期只挂 workbench_items，
 	// 章节文档不参与 Journals（§3.2 第 3 条）。
 	if filter.Journal != nil && *filter.Journal {

@@ -89,6 +89,17 @@ export interface WorkbenchItem {
   archived_version?: number
 }
 
+/** 个人标签（P4-2）：tenant_id + owner_id 隔离，同 workspace 的其他人不可见。 */
+export interface WorkbenchTag {
+  id: string
+  name: string
+  /** 白名单色名：gray / blue / green / yellow / red / purple */
+  color: string
+  item_count: number
+  created_at: string
+  updated_at: string
+}
+
 export interface WorkbenchItemPage {
   items: WorkbenchItem[]
   next_cursor: string

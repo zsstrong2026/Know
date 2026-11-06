@@ -187,6 +187,9 @@
       :agent-id="aiPrefs.defaultAgentId"
     />
 
+    <!-- 标签（P4-2）：勾选即生效，标签只对本人可见 -->
+    <ItemTagDialog v-model:visible="tagsOpen" :item-id="itemId" />
+
     <!-- 画布 AI（P2-6）：自然语言 → 分组/平移补丁，预览确认后一次性写入 -->
     <CanvasAIDialog
       v-if="canUseAI && !isDatabase"
@@ -235,6 +238,7 @@ import DatabaseToolbar from './components/DatabaseToolbar.vue'
 import DatabaseRowDrawer from './components/DatabaseRowDrawer.vue'
 import DatabaseAIDialog from './components/DatabaseAIDialog.vue'
 import CanvasAIDialog from './components/CanvasAIDialog.vue'
+import ItemTagDialog from './components/ItemTagDialog.vue'
 import ImportMaterialDialog from './components/ImportMaterialDialog.vue'
 import CollectDialog from './components/CollectDialog.vue'
 import {
@@ -446,6 +450,8 @@ async function onCollectConfirm(picked: CollectedTodo[]) {
 const moreOptions = computed(() => [
   // 导入资料（P4-1）：加入工作知识库 / 作为本条目附件两条路径
   { content: t('workbench.import.entry'), value: 'import-material' },
+  // 标签（P4-2）：canvas 与事项共用同一个对话框
+  { content: t('workbench.tags.title'), value: 'tags' },
   // 画布 AI（P2-6）：只在无限画布形态出现——Page 形态没有 surface 可整理
   {
     content: t('workbench.canvasAi.entry'),
@@ -472,6 +478,7 @@ const moreOptions = computed(() => [
  * 用 AI 生成列/行。归档与版本历史属于条目级元数据，事项不提供（见模板注释）。
  */
 const dbMenuActions = computed<Array<{ value: string; label: string; disabled?: boolean }>>(() => [
+  { value: 'tags', label: t('workbench.tags.title') },
   { value: 'import-material', label: t('workbench.import.entry') },
   { value: 'export-csv', label: t('workbench.database.toolbar.exportCsv') },
   { value: 'import-csv', label: t('workbench.database.toolbar.importCsv') },
@@ -762,10 +769,13 @@ function onMore(data: { value?: string | number }) {
   else if (value === 'database-ai') databaseAIOpen.value = true
   else if (value === 'export-package') void exportCanvasPackage()
   else if (value === 'canvas-ai') canvasAIOpen.value = true
+  else if (value === 'tags') tagsOpen.value = true
 }
 
 /** 画布 AI 对话框（P2-6） */
 const canvasAIOpen = ref(false)
+/** 标签对话框（P4-2） */
+const tagsOpen = ref(false)
 
 /**
  * 画布 AI 的两个回调：读快照、应用计划。

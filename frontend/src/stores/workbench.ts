@@ -45,9 +45,9 @@ import type {
 /** scope → 列表查询条件。trash 用 trashed，folder 用 folder_id，其余各有默认。 */
 export function scopeToParams(
   scope: WorkbenchScope,
-  options: { folderId?: string; q?: string } = {},
+  options: { folderId?: string; q?: string; tagId?: string } = {},
 ): ListWorkbenchItemsParams {
-  const base: ListWorkbenchItemsParams = { q: options.q }
+  const base: ListWorkbenchItemsParams = { q: options.q, tag_id: options.tagId }
   switch (scope) {
     case 'database':
       return { ...base, kind: 'database' }
@@ -138,7 +138,10 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
     return bootstrap.value
   }
 
-  async function fetchItems(scope: WorkbenchScope, options: { folderId?: string; q?: string } = {}) {
+  async function fetchItems(
+    scope: WorkbenchScope,
+    options: { folderId?: string; q?: string; tagId?: string } = {},
+  ) {
     loading.value = true
     try {
       const page = await listWorkbenchItems(scopeToParams(scope, options))
@@ -150,7 +153,10 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
   }
 
   /** 加载下一页并追加；没有 next_cursor 时是空操作。 */
-  async function loadMore(scope: WorkbenchScope, options: { folderId?: string; q?: string } = {}) {
+  async function loadMore(
+    scope: WorkbenchScope,
+    options: { folderId?: string; q?: string; tagId?: string } = {},
+  ) {
     if (!nextCursor.value || loadingMore.value) return
     loadingMore.value = true
     try {

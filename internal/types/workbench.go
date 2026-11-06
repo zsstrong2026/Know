@@ -655,6 +655,8 @@ type WorkbenchItemFilter struct {
 	FolderID *string
 	Favorite *bool
 	Journal  *bool // 非 nil 且为 true 时只返回 journal_date IS NOT NULL 的条目
+	// TagID 非空时只返回打了该标签的条目（P4-2）。
+	TagID   string
 	Trashed  bool
 	Query    string
 	Cursor   string

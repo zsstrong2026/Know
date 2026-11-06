@@ -718,6 +718,21 @@
       favoriteFailed: 'お気に入りの更新に失敗しました',
       more: 'その他の操作'
     },
+    tags: {
+      title: 'タグ',
+      hint: 'チェックするとすぐ反映されます。タグは自分のみ表示され、同僚（管理者を含む）には見えません。',
+      placeholder: '新しいタグ（Enter で確定）',
+      create: '作成',
+      done: '完了',
+      loading: '読み込み中…',
+      empty: 'タグがありません。まず作成してください',
+      failed: '操作に失敗しました。もう一度お試しください',
+      itemCount: '{count} 件',
+      deleteTitle: 'タグを削除',
+      deleteBody: '「{name}」を削除すると、すべてのアイテムから外れます。アイテム自体は影響を受けません。',
+      deleteConfirm: '削除',
+      filterPlaceholder: 'タグで絞り込む',
+    },
     canvasAi: {
       entry: 'AI でキャンバスを整理',
       title: 'AI でキャンバスを整理',

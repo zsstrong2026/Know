@@ -718,6 +718,21 @@
       favoriteFailed: 'Failed to update favorite',
       more: 'More actions'
     },
+    tags: {
+      title: 'Tags',
+      hint: 'Changes apply immediately. Tags are private to you — teammates (including admins) cannot see them.',
+      placeholder: 'New tag, press Enter to confirm',
+      create: 'Create',
+      done: 'Done',
+      loading: 'Loading…',
+      empty: 'No tags yet — create one first',
+      failed: 'Action failed, please try again',
+      itemCount: '{count} items',
+      deleteTitle: 'Delete tag',
+      deleteBody: 'Deleting "{name}" removes it from every item; the items themselves are untouched.',
+      deleteConfirm: 'Delete',
+      filterPlaceholder: 'Filter by tag',
+    },
     canvasAi: {
       entry: 'Tidy canvas with AI',
       title: 'Tidy canvas with AI',

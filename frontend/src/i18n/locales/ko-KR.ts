@@ -9430,6 +9430,21 @@
       favoriteFailed: '즐겨찾기를 갱신하지 못했습니다',
       more: '추가 작업'
     },
+    tags: {
+      title: '태그',
+      hint: '선택하면 바로 적용됩니다. 태그는 본인만 볼 수 있으며 동료(관리자 포함)에게는 보이지 않습니다.',
+      placeholder: '새 태그, Enter로 확인',
+      create: '만들기',
+      done: '완료',
+      loading: '불러오는 중…',
+      empty: '태그가 없습니다. 먼저 만들어 주세요',
+      failed: '작업에 실패했습니다. 다시 시도하세요',
+      itemCount: '항목 {count}개',
+      deleteTitle: '태그 삭제',
+      deleteBody: '「{name}」을(를) 삭제하면 모든 항목에서 제거됩니다. 항목 자체는 영향받지 않습니다.',
+      deleteConfirm: '삭제',
+      filterPlaceholder: '태그로 필터',
+    },
     canvasAi: {
       entry: 'AI로 캔버스 정리',
       title: 'AI로 캔버스 정리',

@@ -12,6 +12,17 @@
         <div class="page-title">{{ title }}</div>
         <div class="page-sub">{{ subtitle }}</div>
       </div>
+      <!-- 按标签筛选（P4-2）：只在有标签时出现，空用户不占位置 -->
+      <t-select
+        v-if="tags.length > 0 && scope !== 'trash'"
+        v-model="tagId"
+        class="list-tag-filter"
+        size="small"
+        clearable
+        :placeholder="$t('workbench.tags.filterPlaceholder')"
+        :options="tagOptions"
+        @change="reload"
+      />
       <span class="spacer" />
       <!-- 导入资料（P4-1）：列表页只有「加入工作知识库」一条路径 -->
       <t-button v-if="scope !== 'trash'" variant="outline" @click="importOpen = true">
@@ -163,6 +174,8 @@ import WorkbenchItemRow from './components/WorkbenchItemRow.vue'
 import BatchArchiveBar from './components/BatchArchiveBar.vue'
 import BatchArchiveDialog from './components/BatchArchiveDialog.vue'
 import ImportMaterialDialog from './components/ImportMaterialDialog.vue'
+import { listWorkbenchTags } from '@/api/workbench'
+import type { WorkbenchTag } from '@/types/workbench'
 import { useWorkbenchStore } from '@/stores/workbench'
 import { canDeleteArchive } from '@/workbench/archive-status'
 import { batchOpFor, capBatchSelection, type BatchArchiveCandidate } from '@/workbench/batch-archive'
@@ -289,9 +302,24 @@ const emptyHint = computed(() => {
   return t('workbench.list.emptyHint')
 })
 
+/** 标签筛选（P4-2）：选项来自当前用户的个人标签 */
+const tags = ref<WorkbenchTag[]>([])
+const tagId = ref('')
+const tagOptions = computed(() => tags.value.map((tag) => ({ label: tag.name, value: tag.id })))
+
+async function loadTags() {
+  try {
+    tags.value = await listWorkbenchTags()
+  } catch {
+    // 标签加载失败不影响列表本身：当作没有标签即可
+    tags.value = []
+  }
+}
+
 const query = computed(() => ({
   folderId: props.scope === 'folder' ? props.folderId : undefined,
   q: keyword.value.trim() || undefined,
+  tagId: tagId.value || undefined,
 }))
 
 async function reload() {
@@ -345,6 +373,7 @@ function onItemsChanged() {
 }
 
 onMounted(() => {
+  void loadTags()
   load()
   window.addEventListener('workbench:items-changed', onItemsChanged)
   window.addEventListener('keydown', onKeydown)

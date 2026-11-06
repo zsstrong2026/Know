@@ -9431,6 +9431,21 @@
       favoriteFailed: '更新收藏失败',
       more: '更多操作'
     },
+    tags: {
+      title: '标签',
+      hint: '勾选即生效。标签只对你自己可见，同事（含管理员）看不到。',
+      placeholder: '新建标签，回车确认',
+      create: '新建',
+      done: '完成',
+      loading: '正在加载…',
+      empty: '还没有标签，先新建一个',
+      failed: '操作失败，请重试',
+      itemCount: '{count} 个条目',
+      deleteTitle: '删除标签',
+      deleteBody: '删除「{name}」后，它会从所有条目上移除；条目本身不受影响。',
+      deleteConfirm: '删除',
+      filterPlaceholder: '按标签筛选',
+    },
     canvasAi: {
       entry: '用 AI 整理画布',
       title: '用 AI 整理画布',

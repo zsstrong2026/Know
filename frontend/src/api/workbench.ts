@@ -16,6 +16,7 @@ import type {
   WorkbenchAsset,
   WorkbenchBootstrap,
   WorkbenchFolder,
+  WorkbenchTag,
   WorkbenchItem,
   WorkbenchItemContent,
   WorkbenchItemKind,
@@ -45,6 +46,8 @@ export interface ListWorkbenchItemsParams {
   favorite?: boolean
   trashed?: boolean
   q?: string
+  /** 按标签过滤（P4-2） */
+  tag_id?: string
   cursor?: string
   limit?: number
 }
@@ -56,6 +59,7 @@ export function listWorkbenchItems(params: ListWorkbenchItemsParams = {}): Promi
   if (params.favorite) query.set('favorite', '1')
   if (params.trashed) query.set('trashed', '1')
   if (params.q) query.set('q', params.q)
+  if (params.tag_id) query.set('tag_id', params.tag_id)
   if (params.cursor) query.set('cursor', params.cursor)
   query.set('limit', String(params.limit ?? 30))
   return get<{ success: boolean; data: WorkbenchItemPage }>(`${BASE}/items?${query.toString()}`)
@@ -229,6 +233,43 @@ export function moveWorkbenchFolder(
     `${BASE}/folders/${encodeURIComponent(id)}/move`,
     { parent_id: payload.parent_id, position: payload.position ?? -1 },
   ).then((r) => r.data)
+}
+
+// ---- 个人标签（P4-2） ----
+
+export function listWorkbenchTags(): Promise<WorkbenchTag[]> {
+  return get<{ success: boolean; data: { tags: WorkbenchTag[] } }>(`${BASE}/tags`).then((r) => r.data.tags)
+}
+
+export function createWorkbenchTag(payload: { name: string; color?: string }): Promise<WorkbenchTag> {
+  return post<{ success: boolean; data: WorkbenchTag }>(`${BASE}/tags`, payload).then((r) => r.data)
+}
+
+export function updateWorkbenchTag(
+  id: string,
+  payload: { name?: string; color?: string },
+): Promise<WorkbenchTag> {
+  return put<{ success: boolean; data: WorkbenchTag }>(`${BASE}/tags/${encodeURIComponent(id)}`, payload)
+    .then((r) => r.data)
+}
+
+export function deleteWorkbenchTag(id: string): Promise<void> {
+  return del<{ success: boolean }>(`${BASE}/tags/${encodeURIComponent(id)}`).then(() => undefined)
+}
+
+/** 某条目上的标签。 */
+export function listWorkbenchItemTags(itemId: string): Promise<WorkbenchTag[]> {
+  return get<{ success: boolean; data: { tags: WorkbenchTag[] } }>(
+    `${BASE}/items/${encodeURIComponent(itemId)}/tags`,
+  ).then((r) => r.data.tags)
+}
+
+/** 覆盖式设置条目标签；传空数组即清空。 */
+export function setWorkbenchItemTags(itemId: string, tagIds: string[]): Promise<WorkbenchTag[]> {
+  return put<{ success: boolean; data: { tags: WorkbenchTag[] } }>(
+    `${BASE}/items/${encodeURIComponent(itemId)}/tags`,
+    { tag_ids: tagIds },
+  ).then((r) => r.data.tags)
 }
 
 export function deleteWorkbenchFolder(id: string): Promise<void> {

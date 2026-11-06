@@ -9431,6 +9431,21 @@
       favoriteFailed: '更新收藏失敗',
       more: '更多操作'
     },
+    tags: {
+      title: '標籤',
+      hint: '勾選即生效。標籤只對你自己可見，同事（含管理員）看不到。',
+      placeholder: '新增標籤，按 Enter 確認',
+      create: '新增',
+      done: '完成',
+      loading: '正在載入…',
+      empty: '還沒有標籤，先新增一個',
+      failed: '操作失敗，請重試',
+      itemCount: '{count} 個項目',
+      deleteTitle: '刪除標籤',
+      deleteBody: '刪除「{name}」後，它會從所有項目上移除；項目本身不受影響。',
+      deleteConfirm: '刪除',
+      filterPlaceholder: '依標籤篩選',
+    },
     canvasAi: {
       entry: '用 AI 整理畫布',
       title: '用 AI 整理畫布',

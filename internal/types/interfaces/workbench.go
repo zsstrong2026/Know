@@ -153,6 +153,27 @@ type WorkbenchRepository interface {
 	WorkbenchTemplateRepository
 	WorkbenchOrphanRepository
 	WorkbenchAssetRepository
+	WorkbenchTagRepository
+}
+
+// WorkbenchTagRepository 个人标签仓储（P4-2）。
+//
+// 全部方法按 tenant_id + owner_id 过滤，与条目一致：越权即"不存在"。
+type WorkbenchTagRepository interface {
+	CreateTag(ctx context.Context, tenantID uint64, ownerID string, tag *types.WorkbenchTag) error
+	// ListTags 按名称排序返回该用户的全部标签，并带上条目数。
+	ListTags(ctx context.Context, tenantID uint64, ownerID string) ([]*types.WorkbenchTag, error)
+	GetTag(ctx context.Context, tenantID uint64, ownerID, id string) (*types.WorkbenchTag, error)
+	// UpdateTag 只允许改 name / color（白名单在仓储层再兜一次）。
+	UpdateTag(
+		ctx context.Context, tenantID uint64, ownerID, id string, fields map[string]any,
+	) (*types.WorkbenchTag, error)
+	// DeleteTag 软删标签并清掉它的关联行；条目本身不受影响。
+	DeleteTag(ctx context.Context, tenantID uint64, ownerID, id string) error
+	// ListTagsByItem 返回某个条目上的标签，按名称排序。
+	ListTagsByItem(ctx context.Context, tenantID uint64, ownerID, itemID string) ([]*types.WorkbenchTag, error)
+	// ReplaceItemTags 覆盖式设置条目标签（事务内先删后插）。
+	ReplaceItemTags(ctx context.Context, tenantID uint64, ownerID, itemID string, tagIDs []string) error
 }
 
 // WorkbenchAssetRepository 条目资产元数据仓储（§12.1）。

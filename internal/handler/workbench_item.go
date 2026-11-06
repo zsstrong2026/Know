@@ -52,6 +52,8 @@ func (h *WorkbenchItemHandler) ListItems(c *gin.Context) {
 	if folderID := c.Query("folder_id"); folderID != "" {
 		filter.FolderID = &folderID
 	}
+	// 按标签过滤（P4-2）：空串表示不筛
+	filter.TagID = strings.TrimSpace(c.Query("tag_id"))
 	if raw, ok := c.GetQuery("favorite"); ok && raw != "" {
 		favorite := raw == "1" || strings.EqualFold(raw, "true")
 		filter.Favorite = &favorite

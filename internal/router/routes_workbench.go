@@ -54,6 +54,14 @@ func RegisterWorkbenchRoutes(
 		group.GET("/items/:id/content", g.Viewer(), itemHandler.GetContent)
 		group.PUT("/items/:id/content", g.Viewer(), itemHandler.SaveContent)
 
+		// 标签（P4-2）：个人资源，与条目同一套隔离；覆盖式设置条目标签
+		group.GET("/tags", g.Viewer(), itemHandler.ListTags)
+		group.POST("/tags", g.Viewer(), itemHandler.CreateTag)
+		group.PUT("/tags/:id", g.Viewer(), itemHandler.UpdateTag)
+		group.DELETE("/tags/:id", g.Viewer(), itemHandler.DeleteTag)
+		group.GET("/items/:id/tags", g.Viewer(), itemHandler.ListItemTags)
+		group.PUT("/items/:id/tags", g.Viewer(), itemHandler.SetItemTags)
+
 		group.GET("/items/:id/versions", g.Viewer(), itemHandler.ListVersions)
 		group.POST("/items/:id/versions/:version/restore", g.Viewer(), itemHandler.RestoreVersion)
 	}
