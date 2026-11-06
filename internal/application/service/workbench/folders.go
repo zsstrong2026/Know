@@ -115,6 +115,110 @@ func (s *Service) UpdateFolder(
 	return updated, nil
 }
 
+// MoveFolder 把文件夹移动到新的父级与位置（P4-2 拖拽排序 / 跨层移动）。
+//
+// position 是「目标父级下、排除自己之后」的插入下标，越界会被夹到 [0, n]。
+// 顺序用从 0 开始的连续整数整层重写：拖一次就把这一层归一化，
+// 不会像「只改一个值」那样越拖越乱、也不会出现两条相同 sort_order。
+func (s *Service) MoveFolder(
+	ctx context.Context, id string, parentID *string, position int,
+) (*types.WorkbenchFolder, error) {
+	tenantID, ownerID, err := callerScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	current, err := s.repo.GetFolder(ctx, tenantID, ownerID, id)
+	if err != nil {
+		return nil, mapFolderError(err)
+	}
+
+	target := normalizeFolderParent(parentID)
+	if target != nil {
+		if *target == id {
+			return nil, apperrors.NewBadRequestError("folder cannot be its own parent")
+		}
+		if err := s.requireFolderDepth(ctx, tenantID, ownerID, target); err != nil {
+			return nil, err
+		}
+		if err := s.requireNotDescendant(ctx, tenantID, ownerID, id, *target); err != nil {
+			return nil, err
+		}
+	}
+
+	// 1) 先改父级：后面的重排必须发生在新的层级里
+	if !sameFolderParent(current.ParentID, target) {
+		var value any
+		if target != nil {
+			value = *target
+		}
+		if _, err := s.repo.UpdateFolder(ctx, tenantID, ownerID, id, map[string]any{"parent_id": value}); err != nil {
+			return nil, mapFolderError(err)
+		}
+	}
+
+	// 2) 重排目标层级：ListFolders 已按层级与 sort_order 稳定输出
+	folders, err := s.repo.ListFolders(ctx, tenantID, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	siblings := make([]string, 0, len(folders))
+	for _, folder := range folders {
+		if sameFolderParent(folder.ParentID, target) {
+			siblings = append(siblings, folder.ID)
+		}
+	}
+	if err := s.repo.ReorderFolders(ctx, tenantID, ownerID, target, planFolderOrder(siblings, id, position)); err != nil {
+		return nil, err
+	}
+	return s.repo.GetFolder(ctx, tenantID, ownerID, id)
+}
+
+// normalizeFolderParent 把空串与 nil 统一成「根层级」，避免上层传 "" 时写出空外键。
+func normalizeFolderParent(parentID *string) *string {
+	if parentID == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*parentID)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+// sameFolderParent 比较两个父级引用，nil 与 nil 视为相同。
+func sameFolderParent(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+// planFolderOrder 生成插入后的完整顺序（纯函数，便于单测）。
+//
+// 先把 moving 从既有顺序里摘掉，再夹下标，最后插入：
+//   - position < 0 表示「追加到末尾」，供「只移动层级、不关心顺序」的调用方使用；
+//   - 否则夹到 [0, len(rest)]，越界即贴边。
+// 这样「拖到自己原位」「拖到列表末尾」「跨层拖进空层」都是安全的。
+func planFolderOrder(siblings []string, moving string, position int) []string {
+	rest := make([]string, 0, len(siblings)+1)
+	for _, id := range siblings {
+		if id != moving {
+			rest = append(rest, id)
+		}
+	}
+	if position < 0 {
+		position = len(rest)
+	}
+	if position > len(rest) {
+		position = len(rest)
+	}
+	out := make([]string, 0, len(rest)+1)
+	out = append(out, rest[:position]...)
+	out = append(out, moving)
+	out = append(out, rest[position:]...)
+	return out
+}
+
 // DeleteFolder 删除文件夹：子文件夹与条目上移到父级，不级联删除。
 func (s *Service) DeleteFolder(ctx context.Context, id string) error {
 	tenantID, ownerID, err := callerScope(ctx)

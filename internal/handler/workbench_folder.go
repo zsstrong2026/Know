@@ -62,6 +62,24 @@ func (h *WorkbenchFolderHandler) UpdateFolder(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": folder})
 }
 
+// MoveFolder PUT /api/v1/workbench/folders/:id/move
+//
+// 拖拽排序与跨层移动共用这一个入口：parent_id 决定层级，position 决定层内位置。
+// 只改 parent_id 与 sort_order，不动名字，也不搬条目。
+func (h *WorkbenchFolderHandler) MoveFolder(c *gin.Context) {
+	var req types.WorkbenchFolderMoveRequest
+	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
+		c.Error(apperrors.NewValidationError("Invalid request data").WithDetails(err.Error()))
+		return
+	}
+	folder, err := h.service.MoveFolder(c.Request.Context(), c.Param("id"), req.ParentID, req.Position)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": folder})
+}
+
 // DeleteFolder DELETE /api/v1/workbench/folders/:id
 func (h *WorkbenchFolderHandler) DeleteFolder(c *gin.Context) {
 	if err := h.service.DeleteFolder(c.Request.Context(), c.Param("id")); err != nil {

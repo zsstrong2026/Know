@@ -9321,6 +9321,7 @@
       folderDeleted: '폴더가 삭제되었습니다',
       folderCreateFailed: '폴더를 만들지 못했습니다',
       folderRenameFailed: '폴더 이름을 변경하지 못했습니다',
+      folderMoveFailed: '폴더를 이동하지 못했습니다. 다시 시도하세요',
       folderDeleteFailed: '폴더를 삭제하지 못했습니다',
       addExistingDocs: '기존 문서 추가'
     },

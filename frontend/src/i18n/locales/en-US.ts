@@ -609,6 +609,7 @@
       folderDeleted: 'Folder deleted',
       folderCreateFailed: 'Could not create the folder',
       folderRenameFailed: 'Could not rename the folder',
+      folderMoveFailed: 'Failed to move the folder, please try again',
       folderDeleteFailed: 'Could not delete the folder',
       addExistingDocs: 'Add existing documents'
     },

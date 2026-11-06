@@ -9322,6 +9322,7 @@
       folderDeleted: '文件夹已删除',
       folderCreateFailed: '新建文件夹失败',
       folderRenameFailed: '文件夹重命名失败',
+      folderMoveFailed: '移动文件夹失败，请重试',
       folderDeleteFailed: '删除文件夹失败',
       addExistingDocs: '添加已有文档'
     },

@@ -482,6 +482,15 @@ type WorkbenchFolder struct {
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
+// WorkbenchFolderMoveRequest 拖拽后的目标位置（P4-2）。
+//
+// parent_id 为空或 null 都表示根层级；position 是「目标父级下排除自己后」的插入下标，
+// 越界由服务端夹到 [0, n]，前端不必自己算边界。
+type WorkbenchFolderMoveRequest struct {
+	ParentID *string `json:"parent_id"`
+	Position int     `json:"position"`
+}
+
 // WorkbenchFolderRequest 新建/更新文件夹请求。
 type WorkbenchFolderRequest struct {
 	Name     string  `json:"name"`

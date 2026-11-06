@@ -8,13 +8,23 @@
         class="ft-row"
         :class="{
           'is-active': row.folder.id === activeId,
+          'is-dragging': draggingId === row.folder.id,
+          'drop-before': dropTarget?.id === row.folder.id && dropTarget.zone === 'before',
+          'drop-after': dropTarget?.id === row.folder.id && dropTarget.zone === 'after',
+          'drop-inside': dropTarget?.id === row.folder.id && dropTarget.zone === 'inside',
         }"
         :style="{ paddingLeft: `${row.depth * 12 + 8}px` }"
         role="button"
         tabindex="0"
-        @click="emit('select', row.folder.id)"
+        :draggable="renamingId !== row.folder.id"
+        @click="onRowClick(row)"
         @keydown.enter.self="emit('select', row.folder.id)"
         @keydown.space.prevent.self="toggle(row.folder.id)"
+        @dragstart="onDragStart(row, $event)"
+        @dragover="onDragOver(row, $event)"
+        @dragleave="onDragLeave(row, $event)"
+        @drop="onDrop(row, $event)"
+        @dragend="resetDrag"
       >
         <button
           v-if="row.hasChildren"
@@ -113,6 +123,7 @@ import { computed, h, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon as TIcon } from 'tdesign-vue-next'
 import type { WorkbenchFolder } from '@/types/workbench'
+import { isSelfOrDescendant, resolveFolderDrop, type FolderDropZone } from '@/workbench/folder-drop'
 
 const props = withDefaults(
   defineProps<{
@@ -131,9 +142,84 @@ const emit = defineEmits<{
   'add-existing': [folder: WorkbenchFolder]
   /** 文件夹只收纳文档，数据库不参与文件夹分类 */
   'create-item': [payload: { folderId: string }]
+  /** 拖拽排序 / 跨层移动：position 已按「排除自己之后」的口径算好 */
+  'move-folder': [payload: { id: string; parentId: string | null; position: number }]
 }>()
 
 const { t } = useI18n()
+
+// ---- 拖拽排序 / 跨层移动（P4-2） ----
+// 落点分区：行的上 28% / 下 28% 是「排到前/后」，中间是「放进这个文件夹」。
+const draggingId = ref('')
+const dropTarget = ref<{ id: string; zone: FolderDropZone } | null>(null)
+/** 拖拽刚结束时浏览器可能补一个 click，用一次性开关挡掉，避免误导航 */
+let suppressClick = false
+
+function onDragStart(row: { folder: WorkbenchFolder }, event: DragEvent) {
+  // 重命名过程中不允许拖：输入框的选区拖拽会和这里抢事件
+  if (renamingId.value === row.folder.id) {
+    event.preventDefault()
+    return
+  }
+  draggingId.value = row.folder.id
+  dropTarget.value = null
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    // 部分浏览器只有 setData 之后才会真正开始拖拽
+    event.dataTransfer.setData('text/plain', row.folder.id)
+  }
+}
+
+function onDragOver(row: { folder: WorkbenchFolder }, event: DragEvent) {
+  if (!draggingId.value || draggingId.value === row.folder.id) return
+  // 拖到自己的子孙上不接受：否则会成环，服务端也会拒绝
+  if (isSelfOrDescendant(props.folders, draggingId.value, row.folder.id)) {
+    dropTarget.value = null
+    return
+  }
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const ratio = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5
+  const zone: FolderDropZone = ratio < 0.28 ? 'before' : ratio > 0.72 ? 'after' : 'inside'
+  dropTarget.value = { id: row.folder.id, zone }
+}
+
+function onDragLeave(row: { folder: WorkbenchFolder }, event: DragEvent) {
+  // 移到行内子元素也会触发 dragleave；真的离开这一行才清提示
+  const next = event.relatedTarget as Node | null
+  if (next && (event.currentTarget as HTMLElement).contains(next)) return
+  if (dropTarget.value?.id === row.folder.id) dropTarget.value = null
+}
+
+function onDrop(row: { folder: WorkbenchFolder }, event: DragEvent) {
+  event.preventDefault()
+  const zone = dropTarget.value?.id === row.folder.id ? dropTarget.value.zone : null
+  const id = draggingId.value
+  resetDrag()
+  if (!id || !zone) return
+  const plan = resolveFolderDrop(props.folders, id, row.folder.id, zone)
+  if (!plan) return
+  emit('move-folder', { id, parentId: plan.parentId, position: plan.position })
+}
+
+function resetDrag() {
+  const wasDragging = Boolean(draggingId.value)
+  draggingId.value = ''
+  dropTarget.value = null
+  if (wasDragging) {
+    suppressClick = true
+    window.setTimeout(() => {
+      suppressClick = false
+    }, 0)
+  }
+}
+
+/** 行点击：拖拽刚结束时忽略一次，其余照常选中 */
+function onRowClick(row: { folder: WorkbenchFolder }) {
+  if (suppressClick) return
+  emit('select', row.folder.id)
+}
 
 const collapsed = ref(new Set<string>())
 /** undefined=未在新建；null=根级新建；string=在某文件夹下新建 */
@@ -378,6 +464,22 @@ defineExpose({ startCreate })
   align-items: center;
   gap: 6px;
   height: 29px;
+  /* 拖拽中的三种落点提示：上下是排序线，整行底色是「放进去」 */
+  &.is-dragging {
+    opacity: 0.45;
+  }
+
+  &.drop-before {
+    box-shadow: inset 0 2px 0 var(--td-brand-color);
+  }
+
+  &.drop-after {
+    box-shadow: inset 0 -2px 0 var(--td-brand-color);
+  }
+
+  &.drop-inside {
+    background: var(--td-brand-color-light);
+  }
   padding-right: var(--app-space-2);
   border-radius: var(--app-radius-pill);
   font-size: var(--app-text-sm);

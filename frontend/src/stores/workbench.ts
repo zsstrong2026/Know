@@ -17,6 +17,7 @@ import {
   getJournalsMonth,
   getWorkbenchBootstrap,
   listWorkbenchFolders,
+  moveWorkbenchFolder,
   listWorkbenchItems,
   listWorkbenchNotices,
   markAllWorkbenchNoticesRead,
@@ -377,9 +378,16 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
     return folder
   }
 
-  async function moveFolder(id: string, parentId: string | null) {
-    const folder = await updateWorkbenchFolder(id, { parent_id: parentId })
-    folders.value = folders.value.map((row) => (row.id === folder.id ? folder : row))
+  /**
+   * 移动文件夹（P4-2）：换父级 + 指定层内位置。
+   *
+   * position < 0 表示追加到末尾（老调用方只关心层级时用这个）。
+   * 服务端会整层重写 sort_order，所以本地直接回源一次文件夹列表，
+   * 比在客户端自己算新顺序更不容易和真实顺序漂移。
+   */
+  async function moveFolder(id: string, parentId: string | null, position = -1) {
+    const folder = await moveWorkbenchFolder(id, { parent_id: parentId, position })
+    folders.value = await listWorkbenchFolders()
     return folder
   }
 

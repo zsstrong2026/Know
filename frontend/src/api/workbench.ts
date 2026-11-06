@@ -214,6 +214,23 @@ export function updateWorkbenchFolder(
   ).then((r) => r.data)
 }
 
+/**
+ * 拖拽排序 / 跨层移动（P4-2）。
+ *
+ * position 是「目标父级下、排除自己之后」的插入下标；传 -1 表示追加到该层末尾。
+ * 服务端会按新的顺序把整层 sort_order 重写成 0..n-1（幂等归一），
+ * 因此这里不需要先读一次当前顺序。
+ */
+export function moveWorkbenchFolder(
+  id: string,
+  payload: { parent_id: string | null; position?: number },
+): Promise<WorkbenchFolder> {
+  return put<{ success: boolean; data: WorkbenchFolder }>(
+    `${BASE}/folders/${encodeURIComponent(id)}/move`,
+    { parent_id: payload.parent_id, position: payload.position ?? -1 },
+  ).then((r) => r.data)
+}
+
 export function deleteWorkbenchFolder(id: string): Promise<void> {
   return del<{ success: boolean }>(`${BASE}/folders/${encodeURIComponent(id)}`).then(() => undefined)
 }

@@ -9321,6 +9321,7 @@
       folderDeleted: 'Папка удалена',
       folderCreateFailed: 'Не удалось создать папку',
       folderRenameFailed: 'Не удалось переименовать папку',
+      folderMoveFailed: 'Не удалось переместить папку, попробуйте ещё раз',
       folderDeleteFailed: 'Не удалось удалить папку',
       addExistingDocs: 'Добавить существующие документы'
     },

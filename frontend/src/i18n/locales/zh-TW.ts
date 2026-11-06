@@ -9322,6 +9322,7 @@
       folderDeleted: '資料夾已刪除',
       folderCreateFailed: '新增資料夾失敗',
       folderRenameFailed: '重新命名資料夾失敗',
+      folderMoveFailed: '移動資料夾失敗，請重試',
       folderDeleteFailed: '刪除資料夾失敗',
       addExistingDocs: '新增既有文件'
     },

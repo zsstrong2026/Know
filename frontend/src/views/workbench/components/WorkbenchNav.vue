@@ -69,6 +69,7 @@
         @select="openFolder"
         @create-folder="onCreateFolder"
         @rename-folder="onRenameFolder"
+        @move-folder="onMoveFolder"
         @delete-folder="onDeleteFolder"
         @add-existing="onAddExistingDocs"
         @create-item="onCreateItemInFolder"
@@ -212,6 +213,20 @@ async function onCreateFolder(payload: { name: string; parentId: string | null }
     await router.push({ name: 'workbenchFolder', params: { folderId: folder.id } })
   } catch {
     MessagePlugin.error(t('workbench.nav.folderCreateFailed'))
+  }
+}
+
+/**
+ * 拖拽排序 / 跨层移动（P4-2）。
+ *
+ * 落点由 FolderTree 用纯函数算好（含「不能拖进自己子孙」的拦截），
+ * 这里只负责调接口；成功后 store 会回源一次文件夹列表，顺序以服务端为准。
+ */
+async function onMoveFolder(payload: { id: string; parentId: string | null; position: number }) {
+  try {
+    await store.moveFolder(payload.id, payload.parentId, payload.position)
+  } catch {
+    MessagePlugin.error(t('workbench.nav.folderMoveFailed'))
   }
 }
 

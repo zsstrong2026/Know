@@ -609,6 +609,7 @@
       folderDeleted: 'フォルダーを削除しました',
       folderCreateFailed: 'フォルダーの作成に失敗しました',
       folderRenameFailed: 'フォルダー名の変更に失敗しました',
+      folderMoveFailed: 'フォルダーの移動に失敗しました。もう一度お試しください',
       folderDeleteFailed: 'フォルダーの削除に失敗しました',
       addExistingDocs: '既存のドキュメントを追加'
     },

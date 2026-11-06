@@ -135,6 +135,11 @@ type WorkbenchFolderRepository interface {
 	MoveItemsToFolder(
 		ctx context.Context, tenantID uint64, ownerID, folderID string, newParentID *string,
 	) error
+	// ReorderFolders 按给定顺序重写同一父级下文件夹的 sort_order（从 0 连续）。
+	// parentID 为 nil 表示根层级；不在该父级下的 id 会被忽略。
+	ReorderFolders(
+		ctx context.Context, tenantID uint64, ownerID string, parentID *string, orderedIDs []string,
+	) error
 	CountFolders(ctx context.Context, tenantID uint64, ownerID string) (int64, error)
 }
 

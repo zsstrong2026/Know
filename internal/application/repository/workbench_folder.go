@@ -11,8 +11,9 @@ import (
 // workbenchFolderMutableFields 是 UpdateFolder 的白名单。
 // 只允许改名与改父级；tenant_id/owner_id 永远不可改。
 var workbenchFolderMutableFields = map[string]bool{
-	"name":      true,
-	"parent_id": true,
+	"name":       true,
+	"parent_id":  true,
+	"sort_order": true,
 }
 
 // CreateFolder 插入文件夹。
@@ -78,6 +79,50 @@ func (r *workbenchRepository) UpdateFolder(
 		return nil, gorm.ErrRecordNotFound
 	}
 	return r.GetFolder(ctx, tenantID, ownerID, id)
+}
+
+// ReorderFolders 按给定顺序重写同一父级下文件夹的 sort_order。
+//
+// 只接受「父级的完整子集合」：服务层先算出顺序再整体写回，因此不会出现
+// 两个文件夹共用同一 sort_order 的中间态。空列表是合法的空操作。
+//
+// parentID 为 nil 表示根层级；用 IS NULL 而不是 = ''，与 ListFolders 的口径一致。
+func (r *workbenchRepository) ReorderFolders(
+	ctx context.Context, tenantID uint64, ownerID string, parentID *string, orderedIDs []string,
+) error {
+	if len(orderedIDs) == 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		query := tx.Table("workbench_folders").
+			Where("tenant_id = ? AND owner_id = ? AND deleted_at IS NULL", tenantID, ownerID)
+		if parentID == nil || *parentID == "" {
+			query = query.Where("parent_id IS NULL")
+		} else {
+			query = query.Where("parent_id = ?", *parentID)
+		}
+		var existing []string
+		if err := query.Pluck("id", &existing).Error; err != nil {
+			return err
+		}
+		allowed := make(map[string]bool, len(existing))
+		for _, id := range existing {
+			allowed[id] = true
+		}
+		for index, id := range orderedIDs {
+			// 不属于该父级的 id 直接跳过：宁可少写一条，也不要把别人的文件夹挪走
+			if !allowed[id] {
+				continue
+			}
+			if err := tx.Table("workbench_folders").
+				Where("id = ? AND tenant_id = ? AND owner_id = ?", id, tenantID, ownerID).
+				UpdateColumns(map[string]any{"sort_order": index, "updated_at": now}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // DeleteFolder 软删文件夹。子文件夹与条目的上移由调用方（服务层）在同一事务之前完成，

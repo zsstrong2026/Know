@@ -61,6 +61,8 @@ func RegisterWorkbenchRoutes(
 		group.GET("/folders", g.Viewer(), folderHandler.ListFolders)
 		group.POST("/folders", g.Viewer(), folderHandler.CreateFolder)
 		group.PUT("/folders/:id", g.Viewer(), folderHandler.UpdateFolder)
+		// 拖拽排序 / 跨层移动（P4-2）：只改 parent_id 与层内顺序
+		group.PUT("/folders/:id/move", g.Viewer(), folderHandler.MoveFolder)
 		group.DELETE("/folders/:id", g.Viewer(), folderHandler.DeleteFolder)
 	}
 	if archiveHandler != nil {
