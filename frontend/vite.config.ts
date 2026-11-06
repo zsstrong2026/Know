@@ -182,9 +182,10 @@ function pdfJsWasmAssets(): Plugin {
 }
 
 export default defineConfig(({ command, mode }) => {
-  // 生产构建分两次：默认构建只产出首页/embed（与接入 BlockSuite 之前完全一致），
-  // `--mode spike` 再单独构建编辑器入口（见 package.json 的 build 脚本）。
+  // 生产构建默认只产出首页/embed；编辑器 spike 入口用 `--mode spike` 单独构建。
   // 两条 graph 分开后，首页不可能引用编辑器 chunk，也不会出现跨 entry 的循环 chunk。
+  // 需要同时产出 spike 页时用 `npm run build:spike`；默认构建不再多出
+  // 约 7–8 MiB 的重复 vendor 产物。
   const isSpikeBuild = command === 'build' && mode === 'spike'
   const entries = {
     main: resolve(__dirname, 'index.html'),

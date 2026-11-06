@@ -1,10 +1,11 @@
-// P0-3 编辑器 spike 的自动化断言脚本。
+// P0-3 编辑器 spike 的自动化断言脚本（P3-7 追加 1000 行性能基线与三视图回归）。
 //
 // 依赖：Node 22+ 内置 WebSocket（无需 ws / playwright）+ 本机 Edge/Chrome 的 CDP。
 // 用法：
 //   npm run dev                                     # 另开终端，起 vite（5173）
 //   node scripts/editor-spike-check.mjs [--url=http://127.0.0.1:5173/editor-spike.html]
 //
+// 检查顺序：1–7 基础编辑器/资产/保存 → 8 20 元素 → 9 双根切换 → 10 1000 行性能与三视图。
 // 脚本自己拉起无头浏览器（--remote-debugging-port=0），跑完自动关闭。
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
@@ -382,8 +383,18 @@ async function main() {
       快照字节: rich.snapshotBytes,
       恢复后快照字节: rich.restoredSnapshotBytes,
       恢复时applyUpdate次数: rich.restoreApplyUpdateCalls,
+      挂载与恢复耗时毫秒: rich.timings,
       清单完全一致: rich.identical,
     })
+    // P3-7：20 元素基线（本机实测参考 100–500ms，这里留足噪声余量）
+    assert.ok(
+      rich.timings.createMs <= 3000,
+      `20 元素文档挂载应 ≤3000ms，实际 ${rich.timings.createMs}ms`
+    )
+    assert.ok(
+      rich.timings.restoreMs <= 3000,
+      `20 元素文档恢复应 ≤3000ms，实际 ${rich.timings.restoreMs}ms`
+    )
 
     // ---------------- 9. 双根切换（同一 store，不重放快照） ----------------
     const dual = await page.evaluate('window.__spike.rootSwitchCheck(5)')
@@ -456,13 +467,76 @@ async function main() {
     )
     record('运行期未捕获错误', fatalErrors.length ? fatalErrors : '（无）')
 
+    // ---------------- 10. P3-7：1000 行性能基线 + 三视图回归 ----------------
+    const perf = await page.evaluate('window.__spike.perfBaseline()')
+
+    // 10a. 数据量与结构：1000 行、三视图、恢复后不重复
+    assert.equal(perf.rows, 1000, `数据库应有 1000 行，实际 ${perf.rows}`)
+    assert.equal(perf.restore.rows, 1000, '快照恢复后仍是 1000 行')
+    assert.deepEqual(perf.restore.duplicateIds, [], '恢复后 DOM 无重复 block')
+    assert.equal(perf.restore.blocks, perf.create.blocks, '恢复后 block 总数不变')
+    assert.ok(perf.create.domRows > 0, '新建后表格有行渲染')
+    assert.equal(perf.scroll.domRows > 0, true, '滚动后表格仍有行')
+
+    // 10b. 三视图回归：每次切换都存在容器、行数恒定
+    assert.equal(perf.views.length, 3, '三视图各切换一次')
+    for (const run of perf.views) {
+      assert.equal(run.rows, 1000, `${run.mode} 视图行数恒为 1000，实际 ${run.rows}`)
+      assert.ok(run.containers > 0, `${run.mode} 视图容器存在，实际 ${run.containers}`)
+    }
+    const viewModes = perf.views.map(run => run.mode).join(',')
+    assert.equal(viewModes, 'table,kanban,calendar', '三视图顺序完整')
+
+    // 10c. 性能基线阈值
+    // 说明：这些是「防数量级退化」的守卫线，不是微基准。每项实测值会随 record 打印，
+    // 作为下次回归的对照基线；实现方案 §14.7 的 ≤100ms 指真实键入延迟，
+    // 这里用 cellValueChange 合成，已含 2 帧渲染等待，因此放宽到 150ms。
+    assert.equal(perf.edit.applied, true, '单元格写入已生效')
+    assert.ok(perf.edit.latencyMs <= 150, `单元格编辑延迟应 ≤150ms，实际 ${perf.edit.latencyMs}ms`)
+    // 首次编辑（含切回表格后的整表重排）只做上限守卫，实测值作为基线记录
+    assert.ok(perf.edit.coldMs <= 1500, `首次编辑延迟应 ≤1500ms，实际 ${perf.edit.coldMs}ms`)
+    assert.ok(
+      perf.snapshot.encodeMs <= 1500,
+      `1000 行快照编码应 ≤1500ms，实际 ${perf.snapshot.encodeMs}ms`
+    )
+    assert.ok(perf.create.tableReadyMs <= 8000, `新建 1000 行可操作应 ≤8s，实际 ${perf.create.tableReadyMs}ms`)
+    assert.ok(
+      perf.restore.tableReadyMs <= 10000,
+      `1000 行恢复可操作应 ≤10s，实际 ${perf.restore.tableReadyMs}ms`
+    )
+    for (const run of perf.views) {
+      // kanban 需要为 1000 行建卡片分组，天然比表格/日历慢，单独放宽
+      const limit = run.mode === 'kanban' ? 8000 : 3000
+      assert.ok(run.switchMs <= limit, `${run.mode} 切换应 ≤${limit}ms，实际 ${run.switchMs}ms`)
+    }
+    assert.ok(perf.scroll.ms <= 3000, `1000 行滚动应 ≤3000ms，实际 ${perf.scroll.ms}ms`)
+    assert.ok(perf.scroll.scrolled, '1000 行表格可以滚动到末尾')
+    assert.ok(perf.rowOps.addMs <= 1000, `新增行应 ≤1000ms，实际 ${perf.rowOps.addMs}ms`)
+    assert.ok(perf.rowOps.deleteMs <= 1000, `删除行应 ≤1000ms，实际 ${perf.rowOps.deleteMs}ms`)
+    assert.equal(perf.rowOps.rows, 1000, '增删行结束后回到 1000 行')
+    record('10. P3-7 1000 行性能基线 + 三视图回归', perf)
+
+    // spike 页不连后端，偶发的取数失败（NetworkError）属环境噪声，不计入回归判据
+    const finalErrors = runtimeErrors.filter(
+      text =>
+        text &&
+        !/ResizeObserver|favicon|Failed to load resource|NetworkError/i.test(text)
+    )
+    assert.deepEqual(finalErrors, [], '性能基线阶段无未捕获错误')
+
     console.log('\n全部断言通过')
     return findings
   } finally {
     connection?.close()
     child.kill()
     await sleep(300)
-    rmSync(userDataDir, { recursive: true, force: true })
+    // Windows 上刚退出的浏览器可能仍占用 user-data-dir：清理失败只告警，
+    // 不能把「断言已全部通过」的结论覆盖成失败。
+    try {
+      rmSync(userDataDir, { recursive: true, force: true })
+    } catch (error) {
+      console.warn(`临时目录清理失败（可忽略）：${userDataDir}：${error.code ?? error.message}`)
+    }
   }
 }
 
