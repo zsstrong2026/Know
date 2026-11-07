@@ -307,7 +307,7 @@ workbench:
 | --- | --- | --- |
 | ~~P4-2 标签~~ | **已完成**（迁移 PG 158 / SQLite 62、6 个端点、`ItemTagDialog`、列表按标签筛选） | 口径：个人标签，Admin 不可读 |
 | ~~P4-2 拖拽排序~~ | **已完成**（`PUT /folders/:id/move` + `folder-drop.ts` + FolderTree 拖拽） | — |
-| P4-2 反向链接 | `workbench_item_links` 已建表但无写入方；保存后按「页内提及」解析并落库，再补 `GET /items/:id/backlinks` 与前端面板 | **已决策：页内提及**（正文里出现另一个条目标题即算引用）。无迁移，可开工 |
+| ~~P4-2 反向链接~~ | **已完成**（`SaveContent` 后按页内提及重算、`GET /items/:id/backlinks`、`BacklinksDialog`） | 口径：正文 LIKE 标题；单字标题不参与；无迁移 |
 | P4-3 端到端权限门禁 | 需要两个真实用户 + Admin + API Key 跑一遍全接口矩阵 | 需要能在容器里造第二个用户（本机 Docker 环境） |
 | P4-3 无障碍/性能 | 键盘可达与焦点顺序要人工走查；chunk 体积要对比基线 | 人工 + 一次正式构建 |
 | P4-4 备份恢复演练 | 四类备份（库/资产/Y.Doc/归档映射）+ BlockSuite 升级矩阵 | 需要有可清空的演练库；`scripts/` 下目前没有任何 backup/restore 脚本 |
