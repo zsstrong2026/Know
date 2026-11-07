@@ -154,6 +154,7 @@ type WorkbenchRepository interface {
 	WorkbenchOrphanRepository
 	WorkbenchAssetRepository
 	WorkbenchTagRepository
+	WorkbenchLinkRepository
 }
 
 // WorkbenchTagRepository 个人标签仓储（P4-2）。
@@ -174,6 +175,26 @@ type WorkbenchTagRepository interface {
 	ListTagsByItem(ctx context.Context, tenantID uint64, ownerID, itemID string) ([]*types.WorkbenchTag, error)
 	// ReplaceItemTags 覆盖式设置条目标签（事务内先删后插）。
 	ReplaceItemTags(ctx context.Context, tenantID uint64, ownerID, itemID string, tagIDs []string) error
+}
+
+// WorkbenchLinkRepository 反向链接仓储（P4-2「页内提及」）。
+//
+// workbench_item_links 从 000136 就存在，这里才是它的第一个写入方。
+// 全部方法按 tenant_id + owner_id 过滤，越权即空。
+type WorkbenchLinkRepository interface {
+	// ListItemIDsMentioning 在用户自己的条目里找「标题出现在 text 里」的条目。
+	// 单字标题不参与（误报太多）；上限由调用方控制。
+	ListItemIDsMentioning(
+		ctx context.Context, tenantID uint64, ownerID, sourceItemID, text string, limit int,
+	) ([]string, error)
+	// ReplaceItemLinks 覆盖式重写 source 条目的 item 引用（事务内先删后插）。
+	ReplaceItemLinks(
+		ctx context.Context, tenantID uint64, ownerID, sourceItemID string, targets []types.WorkbenchLinkTarget,
+	) error
+	// ListBacklinks 谁引用了 targetItem：返回引用方条目摘要，按更新时间倒序。
+	ListBacklinks(
+		ctx context.Context, tenantID uint64, ownerID, targetItemID string, limit int,
+	) ([]*types.WorkbenchBacklink, error)
 }
 
 // WorkbenchAssetRepository 条目资产元数据仓储（§12.1）。

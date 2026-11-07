@@ -718,6 +718,13 @@
       favoriteFailed: 'Failed to update favorite',
       more: 'More actions'
     },
+    backlinks: {
+      title: 'Backlinks',
+      hint: 'These items mention this item title in their body. Single-character titles are excluded.',
+      empty: 'No items reference it yet',
+      done: 'Done',
+      failed: 'Failed to load, please try again'
+    },
     tags: {
       title: 'Tags',
       hint: 'Changes apply immediately. Tags are private to you — teammates (including admins) cannot see them.',

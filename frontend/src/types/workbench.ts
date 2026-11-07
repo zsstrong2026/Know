@@ -100,6 +100,15 @@ export interface WorkbenchTag {
   updated_at: string
 }
 
+/** 反向链接（P4-2「页内提及」）：谁在正文里提到过本条目。 */
+export interface WorkbenchBacklink {
+  /** 引用方条目 id，点击可跳转 */
+  id: string
+  title: string
+  kind: string
+  updated_at: string
+}
+
 export interface WorkbenchItemPage {
   items: WorkbenchItem[]
   next_cursor: string

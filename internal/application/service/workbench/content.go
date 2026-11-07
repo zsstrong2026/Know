@@ -61,6 +61,10 @@ func (s *Service) SaveContent(
 		return nil, mapSaveError(err, version, updatedAt)
 	}
 
+	// 反向链接（P2-4 的 §P4-2「页内提及」）：保存成功后重算，失败只记日志。
+	// 放在事务外、返回前：它不能影响保存结果，但也不值得为它起 goroutine。
+	s.syncItemLinks(ctx, tenantID, ownerID, itemID, req.TextContent)
+
 	checkpointed := req.Force
 	if !req.Force {
 		checkpointed = s.shouldCheckpoint(ctx, tenantID, ownerID, itemID, version, req.Checkpoint)

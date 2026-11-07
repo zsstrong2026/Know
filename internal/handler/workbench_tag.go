@@ -65,6 +65,18 @@ func (h *WorkbenchItemHandler) DeleteTag(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+// GetBacklinks GET /api/v1/workbench/items/:id/backlinks
+//
+// 反向链接（P4-2「页内提及」）：列出正文里出现过本条目标题的其它条目。
+func (h *WorkbenchItemHandler) GetBacklinks(c *gin.Context) {
+	links, err := h.service.ListBacklinks(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"backlinks": links}})
+}
+
 // ListItemTags GET /api/v1/workbench/items/:id/tags
 func (h *WorkbenchItemHandler) ListItemTags(c *gin.Context) {
 	tags, err := h.service.ListItemTags(c.Request.Context(), c.Param("id"))

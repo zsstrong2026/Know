@@ -17,6 +17,7 @@ import type {
   WorkbenchBootstrap,
   WorkbenchFolder,
   WorkbenchTag,
+  WorkbenchBacklink,
   WorkbenchItem,
   WorkbenchItemContent,
   WorkbenchItemKind,
@@ -270,6 +271,13 @@ export function setWorkbenchItemTags(itemId: string, tagIds: string[]): Promise<
     `${BASE}/items/${encodeURIComponent(itemId)}/tags`,
     { tag_ids: tagIds },
   ).then((r) => r.data.tags)
+}
+
+/** 反向链接（P4-2）：正文里出现过本条目标题的其它条目。 */
+export function getWorkbenchBacklinks(itemId: string): Promise<WorkbenchBacklink[]> {
+  return get<{ success: boolean; data: { backlinks: WorkbenchBacklink[] } }>(
+    `${BASE}/items/${encodeURIComponent(itemId)}/backlinks`,
+  ).then((r) => r.data.backlinks)
 }
 
 export function deleteWorkbenchFolder(id: string): Promise<void> {

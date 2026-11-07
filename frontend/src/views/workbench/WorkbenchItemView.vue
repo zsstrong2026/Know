@@ -190,6 +190,9 @@
     <!-- 标签（P4-2）：勾选即生效，标签只对本人可见 -->
     <ItemTagDialog v-model:visible="tagsOpen" :item-id="itemId" />
 
+    <!-- 反向链接（P4-2）：页内提及 -->
+    <BacklinksDialog v-model:visible="backlinksOpen" :item-id="itemId" />
+
     <!-- 画布 AI（P2-6）：自然语言 → 分组/平移补丁，预览确认后一次性写入 -->
     <CanvasAIDialog
       v-if="canUseAI && !isDatabase"
@@ -239,6 +242,7 @@ import DatabaseRowDrawer from './components/DatabaseRowDrawer.vue'
 import DatabaseAIDialog from './components/DatabaseAIDialog.vue'
 import CanvasAIDialog from './components/CanvasAIDialog.vue'
 import ItemTagDialog from './components/ItemTagDialog.vue'
+import BacklinksDialog from './components/BacklinksDialog.vue'
 import ImportMaterialDialog from './components/ImportMaterialDialog.vue'
 import CollectDialog from './components/CollectDialog.vue'
 import {
@@ -452,6 +456,8 @@ const moreOptions = computed(() => [
   { content: t('workbench.import.entry'), value: 'import-material' },
   // 标签（P4-2）：canvas 与事项共用同一个对话框
   { content: t('workbench.tags.title'), value: 'tags' },
+  // 反向链接（P4-2）：谁在正文里提到过本条目
+  { content: t('workbench.backlinks.title'), value: 'backlinks' },
   // 画布 AI（P2-6）：只在无限画布形态出现——Page 形态没有 surface 可整理
   {
     content: t('workbench.canvasAi.entry'),
@@ -479,6 +485,7 @@ const moreOptions = computed(() => [
  */
 const dbMenuActions = computed<Array<{ value: string; label: string; disabled?: boolean }>>(() => [
   { value: 'tags', label: t('workbench.tags.title') },
+  { value: 'backlinks', label: t('workbench.backlinks.title') },
   { value: 'import-material', label: t('workbench.import.entry') },
   { value: 'export-csv', label: t('workbench.database.toolbar.exportCsv') },
   { value: 'import-csv', label: t('workbench.database.toolbar.importCsv') },
@@ -770,12 +777,15 @@ function onMore(data: { value?: string | number }) {
   else if (value === 'export-package') void exportCanvasPackage()
   else if (value === 'canvas-ai') canvasAIOpen.value = true
   else if (value === 'tags') tagsOpen.value = true
+  else if (value === 'backlinks') backlinksOpen.value = true
 }
 
 /** 画布 AI 对话框（P2-6） */
 const canvasAIOpen = ref(false)
 /** 标签对话框（P4-2） */
 const tagsOpen = ref(false)
+/** 反向链接对话框（P4-2） */
+const backlinksOpen = ref(false)
 
 /**
  * 画布 AI 的两个回调：读快照、应用计划。

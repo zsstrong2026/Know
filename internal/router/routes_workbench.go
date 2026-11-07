@@ -60,6 +60,8 @@ func RegisterWorkbenchRoutes(
 		group.PUT("/tags/:id", g.Viewer(), itemHandler.UpdateTag)
 		group.DELETE("/tags/:id", g.Viewer(), itemHandler.DeleteTag)
 		group.GET("/items/:id/tags", g.Viewer(), itemHandler.ListItemTags)
+		// 反向链接（P4-2）：谁在正文里提到过本条目
+		group.GET("/items/:id/backlinks", g.Viewer(), itemHandler.GetBacklinks)
 		group.PUT("/items/:id/tags", g.Viewer(), itemHandler.SetItemTags)
 
 		group.GET("/items/:id/versions", g.Viewer(), itemHandler.ListVersions)
