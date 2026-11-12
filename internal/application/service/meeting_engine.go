@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -110,7 +111,8 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 	e.clearInterrupt(ctx, roomID)
 
 	current := triggerMessageID
-	converged := false // 裁判判定本轮讨论是否已收敛（由 runDiscussion 返回）
+	lastTrigger := triggerMessageID // 本轮实际消费到的最后一条触发消息（用户插话/议题推进都会前移）
+	stopTurn := false               // 讨论是否已收束（由 runDiscussion 返回）
 	for {
 		if e.isInterrupted(ctx, roomID) {
 			// 用户已打断：清除标记并停止继续消化排队输入
@@ -125,14 +127,21 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 		e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnStarted, Data: map[string]interface{}{
 			"room_id": roomID, "trigger_message_id": current,
 		}})
-		converged = e.runDiscussion(ctx, room, in.trigger, in.speakers, in.agents, in.participants)
+		stopTurn, lastTrigger = e.runDiscussion(ctx, room, in.trigger, in.speakers, in.agents, in.participants)
 		e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnEnded, Data: map[string]interface{}{
 			"room_id": roomID, "trigger_message_id": current,
 		}})
 
-		// 裁判判定已收敛：本轮讨论结束，等待用户在前端「下一步」弹框中选择
-		// （生成方案 / 继续讨论本议题 / 追加新议题 / 结束会议），不再自动开题。
-		if converged {
+		// 讨论已收束（全部议题完成 / 整场共识 / 智能体在等用户回答）：结束本轮；
+		// 但若用户恰好在收束瞬间插话（消息已落库、自己触发的 RunTurn 因锁被占用而直接返回），
+		// 这里补拾一次，避免这条发言被吞掉。
+		if stopTurn {
+			if recent, rerr := e.messageRepo.ListByRoom(ctx, roomID, "", 50); rerr == nil {
+				if next := extractQueuedTrigger(recent, lastTrigger); next != nil {
+					current = next.ID
+					continue
+				}
+			}
 			break
 		}
 
@@ -145,30 +154,29 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 
 		// 护栏：检测互呛（同一对智能体连续多来回且无用户/主持人插入）→ 主持人收敛 → 广播 guard.triggered。
 		// 放在 TurnEnded 之后，保证 TurnStarted/TurnEnded 始终配对；触发后结束本轮并等待用户指示（不再消化排队输入）。
-		if recentForGuard, gerr := e.messageRepo.ListByRoom(ctx, roomID, "", e.guardWindowSize(room)); gerr == nil {
-			if hit, pair := detectBickering(recentForGuard, e.guardMaxExchange(room)); hit {
-				nameA := e.agentDisplayName(ctx, roomID, pair[0])
-				nameB := e.agentDisplayName(ctx, roomID, pair[1])
-				content := e.generateGuardMessage(ctx, room, nameA, nameB, recentForGuard)
-				if hostMsg, herr := e.appendHostMessage(ctx, roomID, content); herr == nil {
-					e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventGuardTriggered, Data: map[string]interface{}{
-						"agents": []string{pair[0], pair[1]}, "message": hostMsg,
-					}})
-				} else {
-					logger.Warnf(ctx, "meeting guard host message failed, room=%s err=%v", roomID, herr)
+		// 自由抢麦模式下主持人不介入讨论过程，故跳过护栏（子轮仍有硬上限兜底）。
+		if hostInDiscussion(room) {
+			if recentForGuard, gerr := e.messageRepo.ListByRoom(ctx, roomID, "", e.guardWindowSize(room)); gerr == nil {
+				if hit, pair := detectBickering(recentForGuard, e.guardMaxExchange(room)); hit {
+					nameA := e.agentDisplayName(ctx, roomID, pair[0])
+					nameB := e.agentDisplayName(ctx, roomID, pair[1])
+					content := e.generateGuardMessage(ctx, room, nameA, nameB, recentForGuard)
+					if hostMsg, herr := e.appendHostMessage(ctx, roomID, content); herr == nil {
+						e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventGuardTriggered, Data: map[string]interface{}{
+							"agents": []string{pair[0], pair[1]}, "message": hostMsg,
+						}})
+					} else {
+						logger.Warnf(ctx, "meeting guard host message failed, room=%s err=%v", roomID, herr)
+					}
+					break // 护栏触发即结束当前讨论轮，等待用户指示
 				}
-				break // 护栏触发即结束当前讨论轮，等待用户指示
+			} else if gerr != nil {
+				logger.Warnf(ctx, "meeting guard window query failed, room=%s err=%v", roomID, gerr)
 			}
-		} else if gerr != nil {
-			logger.Warnf(ctx, "meeting guard window query failed, room=%s err=%v", roomID, gerr)
 		}
 
-		// 拾取排队输入：本轮触发消息之后的最后一条用户消息
-		recent, err := e.messageRepo.ListByRoom(ctx, roomID, "", 50)
-		if err != nil {
-			return err
-		}
-		next := extractQueuedTrigger(recent, current)
+		// 拾取排队输入：从"本轮最后消费的触发消息"之后继续找，避免重复回应已处理过的用户消息
+		next := e.queuedUserMessageAfter(ctx, roomID, lastTrigger)
 		if next == nil {
 			break // 没有新输入，结束
 		}
@@ -389,118 +397,264 @@ func planReplyRound(created []*types.MeetingMessage, participants []*types.Meeti
 }
 
 // runDiscussion 执行一轮完整讨论：首轮由 selectSpeakers 决定的发言者回应触发消息，
-// 之后按"提及链"展开子轮，直至自然终止（无提及）/达到护栏上限/用户打断/裁判判定收敛。
-// 返回 true 表示裁判判定讨论已收敛（调用方据此终止本轮且不再消化排队输入）。
+// 之后按"@提及接力 + 未发言者补位"自由接话；用户可随时插话，智能体可 @用户 提问后暂停。
+// 返回 (stop, lastTriggerID)：stop=true 表示讨论已收束（不再消费排队输入）；
+// lastTriggerID 为最后消费的触发消息 ID，供调用方避免重复处理同一条用户消息。
 func (e *meetingEngine) runDiscussion(
 	ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage,
 	speakers, allAgents []*types.CustomAgent, participants []*types.MeetingParticipant,
-) bool {
+) (bool, string) {
 	agentsByID := make(map[string]*types.CustomAgent, len(allAgents))
 	for _, a := range allAgents {
 		agentsByID[a.ID] = a
 	}
-	tasks := make([]meetingSpeaker, 0, len(speakers))
-	for _, a := range speakers {
-		tasks = append(tasks, meetingSpeaker{agent: a, replyTo: trigger})
+	currentTrigger := trigger
+	tasks := replyTasks(speakers, trigger)
+	// 非议程沿用护栏阈值作为子轮上限；议程模式按"每议题上限 + 单轮总上限"控制，
+	// 允许一个讨论轮自然推进完多个议题，而不是每题都等用户点「下一步」。
+	maxRounds := e.guardMaxExchange(room)
+	if room.AgendaEnabled {
+		maxRounds = meetingMaxTotalSubRounds
 	}
-	maxRounds := e.guardMaxExchange(room)         // 子轮硬上限：防 LLM 无限互相回应
-	everyN := room.HostEveryNRounds               // 主持人介入间隔：0 表示不介入
-	consensusOn := room.ConsensusDetectionEnabled // 裁判 + 共识检测开关
-	completed := 0                                // 已完成的子轮数（用于每 N 轮介入节流）
-	for round := 0; round < maxRounds && len(tasks) > 0; round++ {
+	everyN := room.HostEveryNRounds // 主持人介入间隔：0 表示不介入
+	if !hostInDiscussion(room) {
+		everyN = 0 // 自由抢麦：主持人不在讨论过程中介入（不做阶段总结）
+	}
+
+	completed := 0                  // 全局子轮数（介入节流与裁判上下文用）
+	agendaRounds := 0               // 当前议题内的子轮数（进入下一议题后重置）
+	spoken := make(map[string]bool) // 当前议题内已发过言的智能体（补位用）
+
+	for round := 0; round < maxRounds; round++ {
+		if len(tasks) == 0 {
+			return false, currentTrigger.ID
+		}
 		created := e.runSpeakerTasks(ctx, room, tasks, participants)
 		completed++
+		agendaRounds++
+		for _, m := range created {
+			spoken[m.SenderID] = true
+		}
 		if e.isInterrupted(ctx, room.ID) {
-			return false // 打断收尾统一由 RunTurn 处理
+			return false, currentTrigger.ID // 打断收尾统一由 RunTurn 处理
 		}
-		// 裁判 + 共识检测：每子轮结束交由独立裁判判定收敛/相关度/目标覆盖度。
-		// 启用议程时以"当前子议题覆盖"为收敛依据，收敛后推进议程；否则沿用整场收敛。
-		// 注意：即使本轮没有任何 @ 提及（tasks 将在下面变为空），也要判定一次，
-		// 否则启用议程时最后一个子轮永远无法被标记覆盖。
-		if (consensusOn || room.AgendaEnabled) && e.detectAndPublishConsensus(ctx, room, completed) {
-			return true
+
+		// 用户中途插话：立即切换到用户的新发言，被 @ 者优先回应（不必等整轮结束）
+		if queued := e.queuedUserMessageAfter(ctx, room.ID, currentTrigger.ID); queued != nil {
+			currentTrigger = queued
+			agendaRounds = 0
+			spoken = make(map[string]bool)
+			tasks = replyTasks(e.selectSpeakers(ctx, room, queued, allAgents), queued)
+			continue
 		}
+
+		// 智能体向用户提问（@用户）：暂停自动讨论，把发言权交还用户
+		if askMsg := asksUserMessage(created); askMsg != nil {
+			e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventAwaitingUser, Data: map[string]interface{}{
+				"room_id": room.ID, "message": askMsg,
+			}})
+			return true, currentTrigger.ID
+		}
+
+		// 下一子轮：优先按 @ 提及接力
 		tasks = planReplyRound(created, participants, agentsByID)
-		if len(tasks) == 0 {
-			return false // 无后续回应，讨论自然终止
+		// 没人被点名：若本议题还没形成交锋，按参会顺序请一位尚未发言的人接话（最多补到 3 个子轮）
+		if len(tasks) == 0 && room.AgendaEnabled && agendaRounds < 3 {
+			if next := pickUnspokenAgent(allAgents, spoken); next != nil {
+				replyTo := lastMessage(created)
+				if replyTo == nil {
+					replyTo = currentTrigger
+				}
+				tasks = replyTasks([]*types.CustomAgent{next}, replyTo)
+			}
 		}
-		// 每 N 轮介入：仅当讨论仍会继续时插入「阶段总结 + 重定向」，防止跑偏
+
+		// 结构性边界判定：议程模式在讨论自然停下或每两个子轮时判定一次；
+		// 非议程模式仍按共识检测开关每轮判定，保持既有行为。
+		shouldJudge := room.AgendaEnabled && (len(tasks) == 0 || agendaRounds%2 == 0)
+		if !room.AgendaEnabled {
+			shouldJudge = room.ConsensusDetectionEnabled
+		}
+		if shouldJudge {
+			next, stop := e.evaluateDiscussion(ctx, room, completed)
+			if stop {
+				return true, currentTrigger.ID
+			}
+			if next != nil {
+				// 当前议题收束且还有后续议题：主持人一句话过渡，自动继续讨论
+				currentTrigger = next
+				agendaRounds = 0
+				spoken = make(map[string]bool)
+				tasks = replyTasks(e.selectSpeakers(ctx, room, next, allAgents), next)
+				continue
+			}
+		}
+
+		if len(tasks) == 0 {
+			return false, currentTrigger.ID // 讨论自然终止
+		}
+		// 每 N 轮介入：仅当讨论仍会继续时插入「阶段总结 + 重定向」
 		if shouldHostIntervene(everyN, completed) {
 			e.publishHostIntervention(ctx, room, completed)
 		}
 	}
-	return false
+	return false, currentTrigger.ID
 }
 
-// detectAndPublishConsensus 每子轮结束调独立裁判判定状态。
-// 收敛（或议程项目标已覆盖）时落共识/小结消息并广播，返回 true 表示本轮讨论应终止。
-// 判定为漂移时由主持人生成一次重定向提示，但不终止讨论。
-func (e *meetingEngine) detectAndPublishConsensus(ctx context.Context, room *types.MeetingRoom, completed int) bool {
-	// 判定范围：启用议程时只看本议题记录（结构性治理的核心），否则看全房间最近消息
-	var recent []*types.MeetingMessage
-	var item *types.MeetingAgendaItem
-	var items []*types.MeetingAgendaItem
-	var err error
-	if room.AgendaEnabled && e.agendaRepo != nil {
-		items, item = e.ensureActiveAgenda(ctx, room)
-		if item != nil {
-			recent, err = e.messageRepo.ListByAgendaItem(ctx, room.ID, item.ID, meetingAgendaContextMax*2)
-		} else {
-			recent, err = e.messageRepo.ListRecent(ctx, room.ID, e.contextMax)
+// evaluateDiscussion 由独立裁判判定当前议题/整场是否可收束，并按结果决定下一步：
+//   - stop=true：讨论收束（全部议题完成或整场达成共识），调用方结束本轮；
+//   - next!=nil：当前议题完成且还有后续议题，返回主持人的开题消息，调用方据此继续讨论；
+//   - (nil,false)：尚未收束，继续讨论。
+func (e *meetingEngine) evaluateDiscussion(ctx context.Context, room *types.MeetingRoom, completed int) (*types.MeetingMessage, bool) {
+	// 未启用议程：沿用"整场收敛"判定
+	if !room.AgendaEnabled || e.agendaRepo == nil {
+		recent, err := e.messageRepo.ListByRoom(ctx, room.ID, "", e.contextMax)
+		if err != nil {
+			logger.Warnf(ctx, "meeting referee list messages failed, room=%s err=%v", room.ID, err)
+			return nil, false
 		}
-	} else {
-		recent, err = e.messageRepo.ListByRoom(ctx, room.ID, "", e.contextMax)
+		verdict := e.judgeConsensus(ctx, room, nil, recent, completed)
+		if !verdict.Converged {
+			return nil, false
+		}
+		msg, err := e.appendConsensusMessage(ctx, room.ID, consensusMessageContent(room, verdict))
+		if err != nil {
+			logger.Warnf(ctx, "meeting consensus message failed, room=%s err=%v", room.ID, err)
+			return nil, false
+		}
+		e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventConsensusCreated, Data: map[string]interface{}{
+			"room_id": room.ID, "message": msg,
+			"reason": verdict.Reason, "completed_rounds": completed, "all_done": true,
+		}})
+		return nil, true
 	}
+
+	items, item := e.ensureActiveAgenda(ctx, room)
+	if item == nil {
+		return nil, true // 没有活跃议题（全部已完成）
+	}
+	recent, err := e.messageRepo.ListByAgendaItem(ctx, room.ID, item.ID, meetingAgendaContextMax*2)
 	if err != nil {
 		logger.Warnf(ctx, "meeting referee list messages failed, room=%s err=%v", room.ID, err)
-		return false
+		return nil, false
 	}
 	verdict := e.judgeConsensus(ctx, room, item, recent, completed)
 
-	// 漂移：只做一次重定向，不终止讨论（避免误判打断有效分歧）。
-	// 房间最后一条已是主持人消息时不再重复提醒，防止每轮都刷同一条纠偏。
-	if verdict.Drift && !verdict.Converged && !e.lastRoomMessageIsHost(ctx, room.ID) {
-		itemID := ""
-		if item != nil {
-			itemID = item.ID
-		}
-		e.publishHostNote(ctx, room.ID, itemID, e.generateRedirection(ctx, room, item, recent))
+	// 跑题：只提醒一句，不打断有效分歧（房间最后一条已是主持人消息时不重复刷屏）
+	if verdict.Drift && !verdict.Converged && hostInDiscussion(room) && !e.lastRoomMessageIsHost(ctx, room.ID) {
+		e.publishHostNote(ctx, room.ID, item.ID, e.generateRedirection(ctx, room, item, recent))
 	}
 
-	// 收敛判定：有子议题时以"目标覆盖"为准，否则看整体是否收敛
+	// 收敛判定：有子议题目标时以"目标覆盖"为准，否则看整体是否收敛
 	settled := verdict.Converged
-	if item != nil && item.Goal != "" {
+	if item.Goal != "" {
 		settled = verdict.GoalCovered || verdict.Converged
 	}
 	if !settled {
-		return false
+		return nil, false
 	}
 
-	// 有子议题：落议题小结并把该议题标记为已完成（不自动开下一题）
-	if item != nil {
-		remaining := pendingAgenda(items, item.ID)
-		if msg, merr := e.appendConsensusMessage(ctx, room.ID, agendaRecap(item, remaining, verdict)); merr == nil {
-			e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventConsensusCreated, Data: map[string]interface{}{
-				"room_id": room.ID, "message": msg, "agenda_item_id": item.ID,
-				"reason": verdict.Reason, "completed_rounds": completed,
-			}})
+	// 落一条简短的议题小结（归属当前议题，后续议题仍可读到）
+	remaining := pendingAgenda(items, item.ID)
+	if msg, merr := e.appendConsensusMessageForItem(ctx, room.ID, item.ID, agendaRecap(item, remaining, verdict)); merr == nil {
+		e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventConsensusCreated, Data: map[string]interface{}{
+			"room_id": room.ID, "message": msg, "agenda_item_id": item.ID,
+			"reason": verdict.Reason, "completed_rounds": completed, "all_done": len(remaining) == 0,
+		}})
+	}
+	e.advanceAgenda(ctx, room, item, firstNonEmpty(verdict.Consensus, verdict.Reason))
+	e.publishAgendaUpdate(ctx, room.ID)
+
+	if len(remaining) == 0 {
+		// 全部议题完成：收束本轮，后续动作由用户在「下一步」中决定
+		e.appendHostMessage(ctx, room.ID, "【会议收束】所有议题已讨论完毕。你可以生成方案，也可以继续追问或补充议题。")
+		return nil, true
+	}
+
+	// 自动进入下一议题：激活并落一条简短开题消息，讨论无缝继续
+	nextItem := remaining[0]
+	nextItem.Status = types.MeetingAgendaActive
+	if uerr := e.agendaRepo.Update(ctx, nextItem); uerr != nil {
+		logger.Warnf(ctx, "meeting agenda activate failed, room=%s item=%s err=%v", room.ID, nextItem.ID, uerr)
+		return nil, true
+	}
+	e.publishAgendaUpdate(ctx, room.ID)
+	msg, merr := e.appendHostMessageForItem(ctx, room.ID, nextItem.ID, agendaOpenContent(nextItem, items))
+	if merr != nil {
+		logger.Warnf(ctx, "meeting agenda open next failed, room=%s item=%s err=%v", room.ID, nextItem.ID, merr)
+		return nil, true
+	}
+	return msg, false
+}
+
+// replyTasks 为一组智能体构造"回应同一条消息"的发言任务
+func replyTasks(agents []*types.CustomAgent, replyTo *types.MeetingMessage) []meetingSpeaker {
+	if replyTo == nil {
+		return nil
+	}
+	out := make([]meetingSpeaker, 0, len(agents))
+	for _, a := range agents {
+		out = append(out, meetingSpeaker{agent: a, replyTo: replyTo})
+	}
+	return out
+}
+
+// lastMessage 取本轮最后一条成功落库的消息（补位接话的回应目标）
+func lastMessage(msgs []*types.MeetingMessage) *types.MeetingMessage {
+	if len(msgs) == 0 {
+		return nil
+	}
+	return msgs[len(msgs)-1]
+}
+
+// pickUnspokenAgent 按参会顺序取第一位本议题内尚未发言的智能体；全部发过则返回 nil
+func pickUnspokenAgent(agents []*types.CustomAgent, spoken map[string]bool) *types.CustomAgent {
+	for _, a := range agents {
+		if !spoken[a.ID] {
+			return a
 		}
-		e.advanceAgenda(ctx, room, item, firstNonEmpty(verdict.Consensus, verdict.Reason))
-		e.publishAgendaUpdate(ctx, room.ID)
-		// 返回 true：本议题讨论轮结束，后续动作由用户在「下一步」弹框中决定
-		return true
 	}
+	return nil
+}
 
-	msg, err := e.appendConsensusMessage(ctx, room.ID, consensusMessageContent(room, verdict))
+// queuedUserMessageAfter 查询触发消息之后是否有新的用户消息（用户中途插话）。
+// 先在最近窗口中找；触发消息已滚出窗口时，退化为按创建时间比较最后一条用户消息。
+func (e *meetingEngine) queuedUserMessageAfter(ctx context.Context, roomID, afterID string) *types.MeetingMessage {
+	recent, err := e.messageRepo.ListByRoom(ctx, roomID, "", 50)
 	if err != nil {
-		logger.Warnf(ctx, "meeting consensus message failed, room=%s err=%v", room.ID, err)
-		return false
+		return nil
 	}
-	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventConsensusCreated, Data: map[string]interface{}{
-		"room_id": room.ID, "message": msg,
-		"reason": verdict.Reason, "completed_rounds": completed,
-	}})
-	return true
+	if msg := extractQueuedTrigger(recent, afterID); msg != nil {
+		return msg
+	}
+	after, err := e.messageRepo.GetByID(ctx, afterID)
+	if err != nil || after == nil {
+		return nil
+	}
+	for i := len(recent) - 1; i >= 0; i-- {
+		m := recent[i]
+		if m.SenderKind != types.MeetingSenderUser {
+			continue // 跳过智能体/主持人消息，找最近一条用户消息
+		}
+		if m.ID == afterID {
+			return nil
+		}
+		if !m.CreatedAt.IsZero() && !after.CreatedAt.IsZero() && m.CreatedAt.After(after.CreatedAt) {
+			return m
+		}
+		return nil
+	}
+	return nil
+}
+
+// asksUserMessage 找出本轮中向用户提问（@用户）的智能体消息；无则返回 nil
+func asksUserMessage(msgs []*types.MeetingMessage) *types.MeetingMessage {
+	for _, m := range msgs {
+		if m.SenderKind == types.MeetingSenderAgent && strings.Contains(m.Content, meetingAwaitUserToken) {
+			return m
+		}
+	}
+	return nil
 }
 
 // pendingAgenda 返回除当前项外仍未覆盖的议程项
@@ -649,6 +803,12 @@ func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoo
 		AdmissionState:    admissionState,
 		AdmissionNote:     admissionNote,
 	}
+	// 发言里 @用户 表示在向用户提问：打上 payload 标记，前端据此提示"待你回应"，引擎暂停自动讨论
+	if strings.Contains(answer, meetingAwaitUserToken) {
+		if b, merr := json.Marshal(map[string]bool{"asks_user": true}); merr == nil {
+			msg.Payload = b
+		}
+	}
 	if err := e.messageRepo.Create(ctx, msg); err != nil {
 		return nil, err
 	}
@@ -780,8 +940,15 @@ func (e *meetingEngine) appendHostMessageForItem(ctx context.Context, roomID, ag
 
 // appendConsensusMessage 落库 sender_kind=host 且 is_consensus=true 的共识消息并广播 message.created
 func (e *meetingEngine) appendConsensusMessage(ctx context.Context, roomID, content string) (*types.MeetingMessage, error) {
+	return e.appendConsensusMessageForItem(ctx, roomID, "", content)
+}
+
+// appendConsensusMessageForItem 同 appendConsensusMessage，但把共识/议题小结归属到指定议程项，
+// 使后续议题按议题取上下文时能看到前面议题的结论。
+func (e *meetingEngine) appendConsensusMessageForItem(ctx context.Context, roomID, agendaItemID, content string) (*types.MeetingMessage, error) {
 	msg := &types.MeetingMessage{
-		MeetingRoomID: roomID, SenderKind: types.MeetingSenderHost, Content: content, IsConsensus: true,
+		MeetingRoomID: roomID, SenderKind: types.MeetingSenderHost,
+		AgendaItemID: agendaItemID, Content: content, IsConsensus: true,
 	}
 	if err := e.messageRepo.Create(ctx, msg); err != nil {
 		return nil, err
@@ -908,13 +1075,20 @@ func (e *meetingEngine) cloneAgentForMeeting(agent *types.CustomAgent, room *typ
 	return &clone
 }
 
-// meetingFocusSystemPrompt 会议聚焦系统约束：围绕当前议题作答、对他人回应从简、无增量弃权。
+// meetingFocusSystemPrompt 会议发言协议：像圆桌讨论一样短句接话，而不是写报告。
 // 通过 QARequest.RunNote 注入（追加到系统提示词尾部），不替换平台 base 提示词。
-const meetingFocusSystemPrompt = "【会议聚焦要求】你正在参加一场多人会议，请严格遵守：\n" +
-	"1. 所有发言必须围绕【当前子议题】展开；有子议题时不得讨论其他子议题或主题外内容；\n" +
-	"2. 核心观点不超过 3 条，直接给出结论与理由，不做发散；\n" +
-	"3. 回应其他参会人时最多 2 条、每条不超过 30 字，并直接 @对方姓名；\n" +
-	"4. 若相较已有讨论没有新增观点（无信息增量），仅回复 PASS，不要输出其他内容。"
+const meetingFocusSystemPrompt = "【会议发言要求】你正在参加一场多人圆桌会议，请像现场发言一样交流，不要写成报告：\n" +
+	"1. 每次只说 1-3 句话、不超过 120 字；先给判断，再给一条核心理由；\n" +
+	"2. 禁止使用标题、编号列表、表格、代码块；不要复述背景，也不要重复别人刚说过的内容；\n" +
+	"3. 直接回应上一位发言者或用户；想让某位参会人接话，就在句末用 @对方姓名；\n" +
+	"4. 需要用户拍板或补充信息时，在句末用 @用户 提一个具体问题，然后停下等用户回答；\n" +
+	"5. 所有发言围绕【当前子议题】；若相较已有讨论没有新增观点，仅回复 PASS。"
+
+// meetingAwaitUserToken 智能体向用户提问的显式标记（提示词协议约定）
+const meetingAwaitUserToken = "@用户"
+
+// meetingMaxTotalSubRounds 单次讨论轮的总子轮上限（跨议题累计），防止一次异步任务失控
+const meetingMaxTotalSubRounds = 18
 
 // unionKnowledgeBaseIDs 双层并集：智能体 KB ∪ 会议级 KB
 // all 模式返回 nil（AgentQA 回退为智能体全部 KB，天然包含会议级 KB）
@@ -950,6 +1124,13 @@ func filterAgentParticipants(ps []*types.MeetingParticipant) []*types.MeetingPar
 		}
 	}
 	return out
+}
+
+// hostInDiscussion 讨论过程中主持人是否需要介入（阶段总结 / 互呛打断 / 偏离重定向）。
+// 自由抢麦的语义是智能体自行争抢发言、不需要主持人调度，故一律不介入；
+// 其余路由模式仍按房间配置生效（是否每 N 轮介入由 HostEveryNRounds 单独控制）。
+func hostInDiscussion(room *types.MeetingRoom) bool {
+	return room.RoutingMode != types.MeetingRoutingFree
 }
 
 // selectSpeakers 按房间配置的路由模式选择发言人
@@ -1038,11 +1219,10 @@ func buildMeetingQuery(room *types.MeetingRoom, triggerContent string, contextMs
 		}
 	}
 	b.WriteString("\n【当前议题】" + triggerContent)
-	// 聚焦软约束：针对主题作答、回应从简、无增量弃权，抑制相互讨论中的发散
-	b.WriteString("\n请以你的身份与职责，严格围绕【会议主题】作答，不要引入与主题无关的内容：")
-	b.WriteString("\n- 核心观点不超过 3 条，直接给出结论与理由，不做发散；")
-	b.WriteString("\n- 若需赞同或反驳其他参会人，最多 2 条、每条不超过 30 字，并在该句中直接用 @对方姓名 提及；")
-	b.WriteString("\n- 若相较上述讨论记录没有新增观点（无信息增量），请仅回复 PASS，不要输出任何其他内容。")
+	b.WriteString("\n请像在会议桌前发言一样，直接回应【当前议题】：")
+	b.WriteString("\n- 最多 3 句话、不超过 120 字，先表态再给理由；不要用标题、列表或代码块，也不要复述背景；")
+	b.WriteString("\n- 要请某位参会人接话，在句末 @对方姓名；需要用户拍板或补充，在句末 @用户 提一个问题；")
+	b.WriteString("\n- 若相较上述讨论记录没有新增观点，请仅回复 PASS，不要输出其他任何内容。")
 	return b.String()
 }
 

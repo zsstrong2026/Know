@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCreatePayload, buildMessagePayload, streamUrl, isModelHomogeneous, artifactDownloadUrl, type CreateMeetingInput } from './index';
+import {
+  buildCreatePayload, buildMessagePayload, streamUrl, isModelHomogeneous, isOpeningAnalyzing,
+  artifactDownloadUrl, type CreateMeetingInput,
+} from './index';
 
 test('buildCreatePayload 组装创建会议请求体', () => {
   const p = buildCreatePayload({
@@ -67,6 +70,19 @@ test('buildMessagePayload 支持 adjust_flow', () => {
   const adjust = buildMessagePayload('先聊性能', [], true);
   assert.equal(adjust.adjust_flow, true); // 调整流程模式
   assert.deepEqual(adjust.mentioned_agent_ids, []);
+});
+
+test('isOpeningAnalyzing 判定主持人是否仍在分析议题', () => {
+  const user = { sender_kind: 'user' as const, payload: null };
+  const opening = { sender_kind: 'host' as const, payload: { stage: 'opening' } };
+  const system = { sender_kind: 'system' as const, payload: null };
+
+  assert.equal(isOpeningAnalyzing('active', []), false); // 已确认的房间不再等待开场
+  assert.equal(isOpeningAnalyzing('awaiting_confirmation', []), true); // 刚进房、开场未回流
+  assert.equal(isOpeningAnalyzing('awaiting_confirmation', [opening]), false); // 开场已回流
+  assert.equal(isOpeningAnalyzing('awaiting_confirmation', [opening, user]), true); // 调整流程后等重出
+  assert.equal(isOpeningAnalyzing('awaiting_confirmation', [system]), false); // 开场失败兜底不再等待
+  assert.equal(isOpeningAnalyzing(undefined, []), false); // 房间未加载
 });
 
 test('streamUrl 指向会议室 SSE 端点', () => {

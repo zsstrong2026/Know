@@ -12,28 +12,25 @@
         <div class="page-title">{{ title }}</div>
         <div class="page-sub">{{ subtitle }}</div>
       </div>
-      <!-- 按标签筛选（P4-2）：只在有标签时出现，空用户不占位置 -->
-      <t-select
-        v-if="tags.length > 0 && scope !== 'trash'"
-        v-model="tagId"
-        class="list-tag-filter"
-        size="small"
-        clearable
-        :placeholder="$t('workbench.tags.filterPlaceholder')"
-        :options="tagOptions"
-        @change="reload"
-      />
       <span class="spacer" />
       <!-- 导入资料（P4-1）：列表页只有「加入工作知识库」一条路径 -->
       <t-button v-if="scope !== 'trash'" variant="outline" @click="importOpen = true">
         <template #icon><t-icon name="upload" /></template>
         {{ $t('workbench.import.entry') }}
       </t-button>
-      <!-- 新建只有一条路径：直接建文档（画布是文档的另一种查看模式） -->
-      <t-button v-if="scope !== 'trash'" theme="primary" @click="createDocument">
-        <template #icon><t-icon name="add" /></template>
-        {{ $t('workbench.list.newDocument') }}
-      </t-button>
+      <!-- 新建四选（B5）：文档 / 画布 / 数据库 / 文件夹 -->
+      <CreateMenu
+        v-if="scope !== 'trash'"
+        class="create-menu-host"
+        :folder-id="scope === 'folder' ? folderId ?? null : null"
+        @created="onCreated"
+        @create-folder="requestCreateFolder"
+      >
+        <t-button theme="primary">
+          <template #icon><t-icon name="add" /></template>
+          {{ $t('workbench.new.label') }}
+        </t-button>
+      </CreateMenu>
     </header>
 
     <div class="list-toolbar">
@@ -46,6 +43,24 @@
       >
         <template #prefix-icon><t-icon name="search" /></template>
       </t-input>
+      <!-- 按标签筛选（P4-2）：紧跟搜索框，与搜索/排序同高；没标签时不占位置 -->
+      <t-select
+        v-if="tags.length > 0 && scope !== 'trash'"
+        v-model="tagId"
+        class="list-tag-filter"
+        clearable
+        :placeholder="$t('workbench.tags.filterPlaceholder')"
+        :options="tagOptions"
+        @change="reload"
+      />
+      <!-- 排序（B5）：切换排序必须重置分页，cursor 与排序键绑定 -->
+      <t-select
+        v-model="sort"
+        class="list-sort"
+        :aria-label="$t('workbench.list.sortLabel')"
+        :options="sortOptions"
+        @change="reload"
+      />
       <span class="spacer" />
       <span class="toolbar-meta">{{ $t('workbench.list.total', { count: store.items.length }) }}</span>
       <!-- 批量归档入口只在列表页；编辑器与 Journals 不做多选（§9.8.1） -->
@@ -85,9 +100,15 @@
         <t-button v-if="keyword" size="small" variant="outline" @click="clearSearch">
           {{ $t('workbench.list.clearSearch') }}
         </t-button>
-        <t-button v-else-if="scope !== 'trash'" size="small" theme="primary" @click="createDocument">
-          {{ $t('workbench.list.newDocument') }}
-        </t-button>
+        <!-- 空态与顶部共用同一套新建菜单（§9.16.2） -->
+        <CreateMenu
+          v-else-if="scope !== 'trash'"
+          :folder-id="scope === 'folder' ? folderId ?? null : null"
+          @created="onCreated"
+          @create-folder="requestCreateFolder"
+        >
+          <t-button size="small" theme="primary">{{ $t('workbench.new.label') }}</t-button>
+        </CreateMenu>
       </div>
     </template>
 
@@ -174,8 +195,9 @@ import WorkbenchItemRow from './components/WorkbenchItemRow.vue'
 import BatchArchiveBar from './components/BatchArchiveBar.vue'
 import BatchArchiveDialog from './components/BatchArchiveDialog.vue'
 import ImportMaterialDialog from './components/ImportMaterialDialog.vue'
+import CreateMenu from './components/CreateMenu.vue'
 import { listWorkbenchTags } from '@/api/workbench'
-import type { WorkbenchTag } from '@/types/workbench'
+import type { WorkbenchItemSort, WorkbenchTag } from '@/types/workbench'
 import { useWorkbenchStore } from '@/stores/workbench'
 import { canDeleteArchive } from '@/workbench/archive-status'
 import { batchOpFor, capBatchSelection, type BatchArchiveCandidate } from '@/workbench/batch-archive'
@@ -198,17 +220,32 @@ const store = useWorkbenchStore()
 
 const keyword = ref('')
 const viewMode = ref<'cards' | 'list'>('cards')
+/** 列表排序（B5）：默认最近更新；切换后由 reload 重置分页 */
+const sort = ref<WorkbenchItemSort>('updated')
+const sortOptions = computed(() => [
+  { label: t('workbench.list.sortRecent'), value: 'updated' },
+  { label: t('workbench.list.sortCreated'), value: 'created' },
+  { label: t('workbench.list.sortTitle'), value: 'title' },
+])
 /** 导入资料对话框（P4-1）；列表页只走「加入工作知识库」 */
 const importOpen = ref(false)
 
-/** 列表视图按更新日期分组；服务端已按 updated_at 降序，顺序原样保留 */
-const groupedItems = computed(() =>
-  groupItemsByDay(store.items).map((group) => ({
+/**
+ * 列表视图分组：只在「最近更新」排序下按天分组。
+ *
+ * 创建时间/名称排序时条目不再按 updated_at 连续，分组会碎成很多单条，
+ * 因此退化为一个无标题分组，保持行渲染逻辑不变（B5）。
+ */
+const groupedItems = computed(() => {
+  if (sort.value !== 'updated') {
+    return [{ day: Number.NaN, items: store.items, label: '' }]
+  }
+  return groupItemsByDay(store.items).map((group) => ({
     day: group.day,
     items: group.items,
     label: group.day === todayStart() ? t('workbench.list.groupToday') : formatDayLabel(group.day),
-  })),
-)
+  }))
+})
 
 /** 日期小标题：跟随界面语言；时间非法时留空，该组不显示标题 */
 function formatDayLabel(day: number): string {
@@ -316,10 +353,12 @@ async function loadTags() {
   }
 }
 
+/** 列表排序（B5）：默认最近更新；切换后由 reload 重置分页 */
 const query = computed(() => ({
   folderId: props.scope === 'folder' ? props.folderId : undefined,
   q: keyword.value.trim() || undefined,
   tagId: tagId.value || undefined,
+  sort: sort.value,
 }))
 
 async function reload() {
@@ -457,26 +496,19 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 /**
- * 新建文档。
- *
- * 不再区分文档/画布：统一建 page 形态，画布只是编辑器里的查看模式。
+ * 新建完成（CreateMenu 内部已跳转）：只刷新一次列表与计数。
  */
-async function createDocument() {
-  try {
-    const item = await store.createItem(
-      'canvas',
-      t('workbench.editor.untitled'),
-      props.folderId ?? null,
-      'page',
-    )
-    await router.push({
-      name: 'workbenchItem',
-      params: { itemId: item.id },
-      ...(store.features.templates ? { query: { template: '1' } } : {}),
-    })
-  } catch {
-    MessagePlugin.error(t('workbench.editor.loadFailed'))
-  }
+function onCreated() {
+  void reload()
+  void store.fetchBootstrap()
+}
+
+/**
+ * 菜单里的「新建文件夹」：交给侧栏文件夹树的行内输入，
+ * 列表页不再重复实现一套输入框（§9.5）。
+ */
+function requestCreateFolder() {
+  window.dispatchEvent(new CustomEvent('workbench:create-folder'))
 }
 
 function open(item: WorkbenchItem) {
@@ -653,8 +685,33 @@ async function onArchive(item: WorkbenchItem, action: ArchiveBadgeAction) {
   margin-bottom: var(--app-space-4);
 }
 
+/**
+ * 工具条控件统一高度。
+ *
+ * 搜索框是默认尺寸（32px），两个下拉原先用 size="small"（24px），
+ * 并排时高矮不齐、文字基线也错位；现在下拉都用默认尺寸，
+ * 这里再钉一次高度兜住不同主题下的差异。
+ */
+.list-toolbar :deep(.t-select__wrap),
+.list-toolbar :deep(.t-input) {
+  height: 32px;
+}
+
 .list-search {
   width: 260px;
+  flex: none;
+}
+
+/* 标签筛选：紧跟搜索框，宽度按「筛选标签」占位文案留余量 */
+.list-tag-filter {
+  width: 168px;
+  flex: none;
+}
+
+/* 排序下拉：与搜索框同高，宽度按最长文案留余量，避免中/俄文被截断 */
+.list-sort {
+  width: 132px;
+  flex: none;
 }
 
 .toolbar-meta {

@@ -13,8 +13,9 @@ import (
 const workbenchTemplateSummaryColumns = `id, name, description, size_bytes, editor_schema_version,
 	source_item_id, created_at, updated_at`
 
-// workbenchTemplateMutableFields 是 UpdateTemplate 的白名单；ydoc 永不更新
+// workbenchTemplateMutableFields 是 UpdateTemplate 的白名单；ydoc 不在其中
 // （模板是 copy-on-use 的快照，改模板不追溯已创建文档）。
+// 正文只能走 UpdateTemplateContent，避免元数据更新误改正文。
 var workbenchTemplateMutableFields = map[string]bool{
 	"name":        true,
 	"description": true,
@@ -130,6 +131,29 @@ func (r *workbenchRepository) UpdateTemplate(
 		Table("workbench_templates").
 		Where("id = ? AND tenant_id = ? AND owner_id = ?", id, tenantID, ownerID).
 		Updates(updates)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, nil
+	}
+	return r.GetTemplate(ctx, tenantID, ownerID, id)
+}
+
+// UpdateTemplateContent 只替换正文快照相关列；名称/描述/来源条目保持原值。
+func (r *workbenchRepository) UpdateTemplateContent(
+	ctx context.Context, tenantID uint64, ownerID, id string,
+	ydoc []byte, sizeBytes, schemaVersion int,
+) (*types.WorkbenchTemplate, error) {
+	result := r.db.WithContext(ctx).
+		Table("workbench_templates").
+		Where("id = ? AND tenant_id = ? AND owner_id = ?", id, tenantID, ownerID).
+		Updates(map[string]any{
+			"ydoc":                  ydoc,
+			"size_bytes":            sizeBytes,
+			"editor_schema_version": schemaVersion,
+			"updated_at":            time.Now().UTC(),
+		})
 	if result.Error != nil {
 		return nil, result.Error
 	}

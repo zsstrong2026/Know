@@ -142,7 +142,7 @@ test('写入补丁：新建列后按列名写行，且只在一个事务里执�
     allowOverwrite: false,
   })
   assert.equal(transacts, 1, '整包必须在同一个事务里')
-  assert.deepEqual(outcome, { columns: 1, rows: 1, cells: 1 })
+  assert.deepEqual(outcome, { columns: 1, rows: 1, cells: 1, rowIds: ['r-new-1'] })
   assert.equal(state.addedRows.length, 1)
   const newColumn = state.columns.at(-1)!
   assert.equal(newColumn.type, 'select')
@@ -175,7 +175,7 @@ test('覆盖保护：未勾选允许覆盖时跳过非空单元格', () => {
     ],
   }
   const skipped = applyDatabasePatch({ store, dataSource, model, patch, allowOverwrite: false })
-  assert.deepEqual(skipped, { columns: 0, rows: 0, cells: 0 })
+  assert.deepEqual(skipped, { columns: 0, rows: 0, cells: 0, rowIds: [] })
   assert.equal(values.size, 0)
 
   const applied = applyDatabasePatch({ store, dataSource, model, patch, allowOverwrite: true })
@@ -209,4 +209,37 @@ test('日期与数字按类型转换，富文本走 fromJson', () => {
   assert.equal(values.get('r-new-1:c-date'), new Date(2026, 9, 30).getTime())
   assert.equal(values.get('r-new-1:c-num'), 3.5)
   assert.deepEqual(values.get('r-new-1:c-owner'), { text: '张三' })
+})
+
+test('来源列：AI 建行写「AI 识别」，列缺失时静默跳过', () => {
+  const { dataSource, values } = fakeDataSource([
+    { id: 'c-title', type: 'title', name: '事项' },
+    { id: 'wb-col-origin', type: 'select', name: '来源' },
+  ])
+  dataSource.propertyDataSet('wb-col-origin', {
+    options: [
+      { id: 'wb-src-manual', value: '手动录入' },
+      { id: 'wb-src-ai', value: 'AI 识别' },
+      { id: 'wb-src-archive', value: '文档归档' },
+    ],
+  })
+  const store = { transact: (fn: () => void) => fn(), getModelById: () => null }
+  const patch: ResolvedPatch = {
+    errors: [],
+    overwriteCount: 0,
+    ops: [{ kind: 'add_row', title: 'AI 新行', cells: [] }],
+  }
+  applyDatabasePatch({ store, dataSource, model, patch, allowOverwrite: false })
+  assert.equal(values.get('r-new-1:wb-col-origin'), 'wb-src-ai')
+
+  // 来源列没有 options（老条目未补列）时不写入，也不抛错
+  const plain = fakeDataSource([{ id: 'c-title', type: 'title', name: '事项' }])
+  applyDatabasePatch({
+    store,
+    dataSource: plain.dataSource,
+    model,
+    patch,
+    allowOverwrite: false,
+  })
+  assert.equal(plain.values.size, 0)
 })

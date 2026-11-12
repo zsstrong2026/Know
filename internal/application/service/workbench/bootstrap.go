@@ -64,8 +64,9 @@ func (s *Service) Bootstrap(ctx context.Context) (*types.WorkbenchBootstrap, err
 				Keyword: kb.IndexingStrategy.KeywordEnabled,
 			},
 		},
-		// 建议语义索引 = 工作库还没有可用的向量检索能力，前端据此提示“开启语义检索”。
-		NeedsSemanticIndex: !kb.IndexingStrategy.VectorEnabled || kb.EmbeddingModelID == "",
+		// 建议语义索引 = 工作库还没有可用的向量检索能力，且空间里有可用的 embedding 模型。
+		// 没有模型时为 false：前端应引导“先去配置模型”而不是显示重建按钮（§7.3）。
+		NeedsSemanticIndex: s.NeedsSemanticIndex(ctx, kb),
 		Counts: types.WorkbenchBootstrapCounts{
 			Items:         items,
 			Folders:       folders,

@@ -117,8 +117,33 @@ type DocGenerationTask struct {
 	Status           string     `json:"status" gorm:"type:varchar(32);default:'pending'"`
 	Progress         JSON       `json:"progress" gorm:"type:jsonb"`
 	Error            string     `json:"error" gorm:"type:text"`
-	CreatedAt        time.Time  `json:"created_at"`
-	FinishedAt       *time.Time `json:"finished_at"`
+	// 自动归档（§6.9）：output_kb_id 是目标工作知识库；auto_archive 为 true 时
+	// 生成成功后自动入队一次归档。archive_status 只记录自动归档的结果，
+	// 展示口径仍以 workbench_archives 的实时计算态为准（§7.4）。
+	OutputKBID    string     `json:"output_kb_id" gorm:"column:output_kb_id;type:varchar(36)"`
+	AutoArchive   bool       `json:"auto_archive" gorm:"column:auto_archive;not null;default:false"`
+	ArchiveStatus string     `json:"archive_status" gorm:"column:archive_status;type:varchar(16);not null;default:''"`
+	ArchiveError  string     `json:"archive_error" gorm:"column:archive_error;type:text"`
+	CreatedAt     time.Time  `json:"created_at"`
+	FinishedAt    *time.Time `json:"finished_at"`
+}
+
+// 自动归档状态（doc_generation_tasks.archive_status）。
+// '' 表示未请求或未开始；skipped 表示源已有映射（含 deleted）时按“不重建”跳过。
+const (
+	DocArchiveStatusNone     = ""
+	DocArchiveStatusPending  = "pending"
+	DocArchiveStatusArchived = "archived"
+	DocArchiveStatusFailed   = "failed"
+	DocArchiveStatusDeleted  = "deleted"
+	DocArchiveStatusSkipped  = "skipped"
+)
+
+// DocArchivePayload 自动归档任务的异步 payload（worker 无请求上下文）。
+type DocArchivePayload struct {
+	TaskID   string `json:"task_id"`
+	TenantID uint64 `json:"tenant_id"`
+	OwnerID  string `json:"owner_id"`
 }
 
 // DocReference 章节参考资料（按来源知识归并）

@@ -308,10 +308,10 @@ workbench:
 | ~~P4-2 标签~~ | **已完成**（迁移 PG 158 / SQLite 62、6 个端点、`ItemTagDialog`、列表按标签筛选） | 口径：个人标签，Admin 不可读 |
 | ~~P4-2 拖拽排序~~ | **已完成**（`PUT /folders/:id/move` + `folder-drop.ts` + FolderTree 拖拽） | — |
 | ~~P4-2 反向链接~~ | **已完成**（`SaveContent` 后按页内提及重算、`GET /items/:id/backlinks`、`BacklinksDialog`） | 口径：正文 LIKE 标题；单字标题不参与；无迁移 |
-| P4-3 端到端权限门禁 | 需要两个真实用户 + Admin + API Key 跑一遍全接口矩阵 | 需要能在容器里造第二个用户（本机 Docker 环境） |
+| ~~P4-3 端到端权限门禁~~ | **已完成**（`permissions_test.go` 服务层矩阵 + 仓储隔离用例 + 路由门禁用例；文档 `permissions-matrix.md`） | 手工五项仍需真实账号走查 |
 | P4-3 无障碍/性能 | 键盘可达与焦点顺序要人工走查；chunk 体积要对比基线 | 人工 + 一次正式构建 |
-| P4-4 备份恢复演练 | 四类备份（库/资产/Y.Doc/归档映射）+ BlockSuite 升级矩阵 | 需要有可清空的演练库；`scripts/` 下目前没有任何 backup/restore 脚本 |
-| P4-5 发布法务 | MPL/商标核对、无 EE 代码声明、发布清单签字 | 需要人决策与签字，AI 只能出清单 |
+| ~~P4-4 备份恢复演练~~ | **脚本与文档已完成**（`scripts/workbench-backup.sh`、`backup-drill.md`）；**尚未在真实环境跑过一遍并签字** | 需要可清空的演练库 |
+| ~~P4-5 发布法务~~ | **清单与许可条目已完成**（`release-checklist.md`、`THIRD_PARTY_NOTICES.md` 补 BlockSuite/MIT、`licenses/blocksuite-*.txt`）；**签字仍需人做** | 需要人决策与签字，AI 只能出清单 |
 
 **已经做完的 P4-3 部分**（本次）：六语言 key 对齐（`check-i18n` exit 0）、仓储层所有者隔离用例
 （`workbench_isolation_sqlite_test.go`：条目/版本/资产/归档/文件夹，含跨租户）。
@@ -331,11 +331,14 @@ workbench:
 
 ### R9 P4-4 备份恢复与升级演练
 
-- 四类备份恢复（库、资产、Y.Doc、归档映射）；BlockSuite 升级矩阵（当前 pin v0.27.4，见 `third_party/blocksuite/UPSTREAM.md`）。
+- **已完成的部分**：`scripts/workbench-backup.sh`（backup / restore / verify 三个子命令，四类备份 + 校验和 + 脱敏配置）、`scripts/workbench-backup-drill.sh`（隔离演练：独立库 + 独立卷 + 行数比对 + 资产文件校验，不停服）、`docs/affine-know/backup-drill.md`（四类备份口径、恢复顺序、11 项只读检查、五个必测场景、记录模板、BlockSuite 升级矩阵）。
+- **2026-11-07 已实测跑通**：88 条目 / 109 版本 / 3140 resources / 33059 chunks 全量恢复，行数与资产一致，迁移版本 158；记录见 `backup-drill.md` §6。
+- **剩余**：在「干净机器」上再演练一次（当前是同一台机器的独立库）；BlockSuite 升级矩阵待下次升级时执行。
 
 ### R10 P4-5 发布文档与法务核对
 
-- MPL/商标核对、无 EE 代码、发布清单签字。
+- **已完成的部分**：`docs/affine-know/release-checklist.md`（许可/商标 8 项、开关降级 5 项、数据运维 5 项、工程门禁、文档更新、签字表）；`THIRD_PARTY_NOTICES.md` 补 BlockSuite/MIT 条目并**更正实现方案中「MPL-2.0」的错误表述**；`licenses/blocksuite-LICENSE.txt` 与 `licenses/blocksuite-LICENSE-MIT.txt` 随包分发；`scripts/check-license-bundle.sh` 已把这两个文件纳入必检。
+- **剩余**：法务签字；README/CHANGELOG 的对外表述。
 
 ---
 
@@ -417,17 +420,22 @@ npx vite preview --port 4173        # 另开终端
 node scripts/editor-spike-check.mjs --url=http://127.0.0.1:4173/editor-spike.html
 ```
 
-### 6.6 当前校验状态（2026-11-06 实测，交接基线）
+### 6.6 当前校验状态（2026-11-07 实测，B5/B7 收口后）
 
 | 检查 | 结果 |
 | --- | --- |
+| `go build ./internal/...` | ✅ exit 0 |
 | `npm run type-check` | ✅ exit 0 |
-| `npx tsx --test "src/workbench/**/*.test.ts"` | ✅ 192 pass / 0 fail |
-| `npm run check-i18n` | ✅ exit 0（R2 已修） |
-| `go test ./internal/application/service/workbench/` | ✅ ok 1.329s |
+| `npx tsx --test "src/workbench/**/*.test.ts"` | ✅ 213 pass / 0 fail |
+| `npm run check-i18n` | ✅ 15/15 |
+| `go test ./internal/application/service/workbench/` | ✅ ok（含 `TestPermissionMatrix_*`） |
 | `go test ./internal/router/ ./internal/types/ ./internal/config/` | ✅ ok |
-| `go test ./internal/handler/` | ❌ 3 项失败：Windows 环境相关，已甄别为既有（见 R3，可忽略） |
-| `go test ./internal/application/repository/` | ❌ 1 项失败：同上，SQLite 句柄未关导致 TempDir 清理失败 |
+| `go test ./internal/application/repository/ -run Workbench` | ✅ ok（含三种排序与 cursor 失效用例） |
+| `go test ./internal/handler/ -run Workbench` | ✅ ok |
+| `go test ./internal/application/repository/`（全量） | ❌ 仅 `TestSandboxAllocationOnTheMigratedSQLiteSchema`，见 R3，可忽略 |
+| `go test ./internal/handler/`（全量） | ❌ 3 项，见 R3，可忽略 |
+
+**备份恢复演练**（2026-11-07，详见 [backup-drill.md](backup-drill.md) §6）：88 条目 / 109 版本 / 3140 resources / 33059 chunks 全量恢复到独立演练库，行数与资产文件校验全部一致；迁移版本 prod=drill=158。演练中发现并修掉四个 Windows/Git-Bash 相关脚本缺陷（pg_dump 路径改写、卷挂载点改写、大文件 stdin 截断、缺 `--clean` 噪音）。
 
 **编辑器自动断言**（`scripts/editor-spike-check.mjs`，headless Edge，2026-11-06 实测）：
 1–9 段全过（含 9e 视口保持）；第 10 段「1000 行 ≤8s」本次 10.2–10.4s 未达标（连续两次）。
@@ -466,6 +474,11 @@ node scripts/editor-spike-check.mjs --url=http://127.0.0.1:4173/editor-spike.htm
   代价：无 anydoc tag（内置 office 解析器未链接，走 docreader 服务兜底）；**容器重建会回到旧镜像**，
   正式做法仍是等能访问 GitHub 时重建镜像。
 - 在 WorkBuddy 这类带 safe-delete 守卫的终端里，`npm run build` 会在 `prepare-out-dir` 阶段失败（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`，dist/assets 有 600+ 文件超过单次阈值）。绕法：先 `mv dist dist.bak`（别删，留着对照），再跑构建，确认 `dist/pdfjs/wasm`、`dist/tdesign-icons`、`dist/config.js` 都重新生成后删掉备份。dist 是纯构建产物，public/ 与 vite 插件会重新产出。
+- **`scripts/workbench-backup.sh` 必须用 Git-Bash/WSL 跑，且有三个 Windows 专有陷阱**（已在脚本内处理，改动时别退回去）：
+  1. Git-Bash 会把 `docker exec ... /tmp/x` 改写成 `C:/Users/.../Temp/x` → 脚本顶部 `export MSYS_NO_PATHCONV=1` + `MSYS2_ARG_CONV_EXCL='*'`；
+  2. `pg_dump -Fc -f <容器内路径>` 同样被改写 → 改用 `pg_dump ... > 宿主文件`；
+  3. **大文件不能走 stdin 管道**（896MB 资产包会被截断成 `tar: invalid magic`）→ 解包时把备份目录挂进容器再 `tar xzf /backup/assets.tar.gz`。
+  另：从 PowerShell 调 `bash 脚本` 会走到 WSL 的 `/bin/bash`，必须用 `& "C:\Program Files\Git\bin\bash.exe" -c "bash ..."`。
 
 ### 7.3 环境
 
@@ -481,6 +494,7 @@ node scripts/editor-spike-check.mjs --url=http://127.0.0.1:4173/editor-spike.htm
 | --- | --- | --- | --- |
 | 数据库归档正文 | §6.3「Table → CSV 代码块 + 标题」 | `projection.ts` 输出 Markdown 表格 | 投影是唯一正文来源（画布/数据库同一套），Markdown 表格检索可读性更好；已确认维持现状 |
 | 事项页顶栏 | §10.7.2「全屏时仍显示保存状态、冲突提示、归档按钮」 | 事项不渲染条目级顶栏，这三项收进视图工具条右侧 | 事项是全局单例聚合视图，标题/重命名/版本历史对它没有语义；保存状态、时间、归档徽章、冲突弹窗都保留了能力 |
+| BlockSuite 许可 | §10.1「BlockSuite 采用 MPL-2.0」 | **MIT**（v0.27.4 的 72/74 个包；仅两个不参与构建的文档包是 MPL-2.0） | 实测该 tag 的包声明；`THIRD_PARTY_NOTICES.md` 已按 MIT 记录并注明更正 |
 
 ---
 

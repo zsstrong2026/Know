@@ -1,27 +1,20 @@
 /**
- * 从文档正文抽取待办事项（「收集事项」的规则路径，不依赖 AI）。
+ * 从文档正文抽取事项（规则路径，不依赖 AI）。
  *
  * `projection.ts` 输出 Markdown 时把 todo 统一写成 `- [ ] `，读不到勾选状态，
  * 因此这里直接遍历 store 里的 `affine:list` 块，取 `props.type` 与 `props.checked`。
  * 遍历从 root 递归下去即可覆盖 Page 正文与画布便签（便签挂在 surface 下）。
+ *
+ * 规则路径只提供「标题 + 是否已完成」；负责人/截止日等字段由 AI 路径补，
+ * 两条路径最终都编译成同一个 `ItemCandidate`。
  */
-import { WORKBENCH_DB_COLUMNS } from './database-seed'
-import type { ResolvedCell, ResolvedOp, ResolvedPatch } from '../ai/database-patch'
+import type { ItemCandidate } from '../ai/item-candidates'
 
 type BsStore = any
 
 export interface CollectedTodo {
   title: string
   done: boolean
-}
-
-export interface CollectStatusValues {
-  /** 状态列在库里真实的列名（建库时按当时语言写入，不能硬编码） */
-  columnName: string
-  /** 「待开始」选项的真实 value（随建库语言变化） */
-  todo: string
-  /** 「已完成」选项的真实 value */
-  done: string
 }
 
 /** 抽取文档里所有非空待办，按出现顺序返回。 */
@@ -51,29 +44,15 @@ export function collectTodos(store: BsStore): CollectedTodo[] {
   }
 }
 
-/**
- * 离线构造写入补丁。
- *
- * 不走 `resolvePatch`：列 id 与选项值都由调用方在事项页按真实列配置解析好，
- * 无需再做列名查找；这里只负责把待办映射成 `add_row`。
- */
-export function buildCollectPatch(
+/** 待办 → 事项候选；已完成的待办直接带上「已完成」状态。 */
+export function todosToCandidates(
   todos: CollectedTodo[],
-  status: CollectStatusValues,
-): ResolvedPatch {
-  const ops: ResolvedOp[] = []
-  for (const todo of todos) {
-    const title = todo.title.trim()
-    if (!title) continue
-    const cells: ResolvedCell[] = [
-      {
-        columnId: WORKBENCH_DB_COLUMNS.status,
-        columnName: status.columnName,
-        type: 'select',
-        value: todo.done ? status.done : status.todo,
-      },
-    ]
-    ops.push({ kind: 'add_row', title, cells })
-  }
-  return { ops, overwriteCount: 0, errors: [] }
+  status: { todo: string; done: string },
+): ItemCandidate[] {
+  return todos
+    .filter((todo) => todo.title.trim())
+    .map((todo) => ({
+      title: todo.title,
+      status: todo.done ? status.done : status.todo,
+    }))
 }

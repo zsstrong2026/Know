@@ -23,13 +23,23 @@ import {
 import type { CsvColumnLike } from './database-csv'
 import { EMPTY_DATABASE_STATE } from './database-state'
 import type { DatabaseActiveFilter, DatabaseToolbarState, DatabaseFilterState } from './database-state'
-import { WORKBENCH_DB_COLUMNS } from './database-seed'
+import { WORKBENCH_DB_COLUMNS, WORKBENCH_SOURCE_OPTIONS } from './database-seed'
 import type { CanvasHandle } from './blocksuite'
 import { applyDatabasePatch, buildDatabaseContext } from './database-ai'
 import type { DatabaseAIContext, DatabasePatchOutcome } from './database-ai'
 import type { ResolvedPatch } from '../ai/database-patch'
+import { buildExistingFingerprints, type ItemWriteSchema } from '../ai/item-candidates'
 import { monthRange, timestampToDateOnly } from './database-dates'
-import { planCardProperties, planColumnWidths } from './database-view-defaults'
+import {
+  PROTOTYPE_CARD_PROPERTIES,
+  defaultColumnWidth,
+  planCardProperties,
+  planColumnWidths,
+  planKanbanUngroupVisible,
+  planKanbanHideEmpty,
+  planMissingViews,
+  planTableGrouping,
+} from './database-view-defaults'
 
 // 类型与占位状态放在 database-state.ts：条目页首屏要用常量，不应因此引入编辑器包。
 export type { DatabaseToolbarState }
@@ -73,6 +83,9 @@ export interface DatabaseFilterInput {
 /** 等待上游渲染出 data-view 的最长帧数（约 3 秒，覆盖首次冷启动的模块加载）。 */
 const READY_RETRY_FRAMES = 180
 
+/** 表格列宽随实测容器宽度变化重算的最小差值（px）。 */
+const TABLE_WIDTH_EPSILON = 4
+
 /**
  * 工具栏「＋ 筛选」提供的三个字段。
  *
@@ -93,12 +106,25 @@ export class DatabaseToolbarController {
   private dataSource: any = null
   private readonly dbModel: any
   private listener: (() => void) | null = null
+  /** 新建行被当前视图的筛选条件隐藏时的回调（由 Vue 层接上提示）。 */
+  onNewRowHidden: (() => void) | null = null
   private retryFrames = 0
   private destroyed = false
   /** 视图名本地化表：构造时可能还没绑上 dataSource，绑定时补一次。 */
   private pendingViewNames: Record<string, string> | null = null
   /** 视图默认值只归一一次，避免每次切视图都写一遍 Y.Doc。 */
   private viewDefaultsApplied = false
+  /** 上一次按实测宽度归一表格列宽时的容器宽度；变化超过阈值才重算。 */
+  private appliedTableWidth = 0
+  /** 固定三视图的补齐只尝试一次：上游缺可分组列时创建会失败，不能每帧重试。 */
+  private viewsEnsured = false
+  /**
+   * 监听页面宽度变化，用于重新铺满表格列宽。
+   *
+   * 信号只在数据变化时触发，DOM 布局展开（侧栏收起、窗口变宽）不会重跑 effect，
+   * 所以列宽会永久停在首帧量到的窄宽度上。这里用 ResizeObserver 补上这个触发源。
+   */
+  private resizeObserver: ResizeObserver | null = null
 
   constructor(
     private readonly handle: CanvasHandle,
@@ -156,6 +182,21 @@ export class DatabaseToolbarController {
     if (this.pendingViewNames) this.localizeViewNames(this.pendingViewNames)
     // 视图默认值（列宽 / 看板卡片属性）跟着数据源一起归一到原型。
     this.applyViewDefaults()
+    // 新建行补默认来源：包装一次 rowAdd，覆盖上游所有建行入口。
+    this.patchRowAdd()
+    // 布局展开不会触发信号，单独监听宿主宽度变化来重算列宽。
+    this.observeTableWidth()
+  }
+
+  /** 监听宿主元素宽度变化，变化时按新宽度重新铺满表格列宽。 */
+  private observeTableWidth(): void {
+    if (typeof ResizeObserver === 'undefined' || this.resizeObserver) return
+    this.resizeObserver = new ResizeObserver(() => {
+      if (this.destroyed || !this.dataSource) return
+      const viewIds: string[] = this.dataSource.viewManager.views$.value ?? []
+      if (viewIds.length) this.applyTableColumnWidths(viewIds)
+    })
+    this.resizeObserver.observe(this.host)
   }
 
   /**
@@ -166,18 +207,25 @@ export class DatabaseToolbarController {
    * 是否改由 `database-view-defaults.ts` 的纯函数判定：用户手动调整过就一律跳过。
    */
   private applyViewDefaults(): void {
-    if (this.viewDefaultsApplied) return
     if (!this.dataSource || this.state.readonly) return
-    const viewIds: string[] = this.dataSource.viewManager.views$.value ?? []
+    const initialViewIds: string[] = this.dataSource.viewManager.views$.value ?? []
     // 视图还没建好时不置位，等信号更新后重试，否则这一次归一会永远错过。
-    if (!viewIds.length) return
-    this.viewDefaultsApplied = true
+    // 注意必须先判空再补视图：views 未加载时误判成「三个都缺」会凭空造出重复视图。
+    if (!initialViewIds.length) return
+    // 先补固定三视图：老条目缺日历时，后面的循环才有得归一。
+    this.ensureRequiredViews()
+    const viewIds: string[] = this.dataSource.viewManager.views$.value ?? initialViewIds
+    // 列宽必须跟着容器实测宽度走，不能只算一次：首帧布局未展开时量到的宽度
+    // 会把六列全压到最小宽度，之后容器变宽也不会再变。
+    this.applyTableColumnWidths(viewIds)
+    if (this.viewDefaultsApplied) return
     for (const viewId of viewIds) {
       const data = this.dataSource.viewDataGet(viewId)
       if (data?.mode === 'table') {
-        const next = planColumnWidths(Array.isArray(data.columns) ? data.columns : [])
-        if (next) {
-          this.dataSource.viewDataUpdate(viewId, (current: any) => ({ ...current, columns: next }))
+        // 表格必须是一整张连续表：清掉从看板带过来的分组配置。
+        const groupBy = planTableGrouping(data?.groupBy)
+        if (groupBy) {
+          this.dataSource.viewDataUpdate(viewId, (current: any) => ({ ...current, groupBy }))
         }
       } else if (data?.mode === 'kanban') {
         const visible = data?.card?.visiblePropertyIds
@@ -188,13 +236,137 @@ export class DatabaseToolbarController {
             card: { ...current.card, visiblePropertyIds: next },
           }))
         }
+        // 老条目的看板可能仍是 hideEmpty=true：把三个状态列点亮，避免「只有三种状态」的错觉。
+        const hideEmpty = planKanbanHideEmpty(data?.groupBy)
+        if (hideEmpty !== null) {
+          this.dataSource.viewDataUpdate(viewId, (current: any) => ({
+            ...current,
+            groupBy: { ...current.groupBy, hideEmpty },
+          }))
+        }
+        // 撤销上一版写入的「未分组」永久隐藏：改为 CSS 只隐藏空的未分组列，
+        // 否则没有状态的行会从看板消失。
+        const groupProperties = planKanbanUngroupVisible(
+          Array.isArray(data?.groupProperties) ? data.groupProperties : [],
+        )
+        if (groupProperties) {
+          this.dataSource.viewDataUpdate(viewId, (current: any) => ({
+            ...current,
+            groupProperties,
+          }))
+        }
       }
+    }
+    // 分组 / 卡片属性这类默认值只需写一次；列宽不在此守卫内，由上方单独重算。
+    this.viewDefaultsApplied = true
+  }
+
+  /**
+   * 按表格实测宽度重新归一六主列列宽。
+   *
+   * 为什么不能沿用一次性守卫：首帧时容器可能只量到几百像素（甚至量到 0），
+   * 按那个宽度算出的列宽会把六列一起压到最小宽度（72px）；布局展开到 930px 后
+   * 若不再重算，表格就永久定格在「左侧一小片、右侧一大片空白」。
+   * 这里以「实测宽度变化 ≥ 4px」为触发条件，容器变宽/变窄都会重新铺满。
+   */
+  private applyTableColumnWidths(viewIds: string[]): void {
+    const availableWidth = this.tableViewWidth()
+    if (availableWidth <= 0) return
+    if (Math.abs(availableWidth - this.appliedTableWidth) < TABLE_WIDTH_EPSILON) return
+    this.appliedTableWidth = availableWidth
+    for (const viewId of viewIds) {
+      const data = this.dataSource.viewDataGet(viewId)
+      if (data?.mode !== 'table') continue
+      const next = planColumnWidths(Array.isArray(data.columns) ? data.columns : [], availableWidth)
+      if (next) {
+        this.dataSource.viewDataUpdate(viewId, (current: any) => ({ ...current, columns: next }))
+      }
+    }
+  }
+
+  /**
+   * 补齐固定三视图（表格 / 看板 / 日历）。
+   *
+   * 产品口径：事项的三种视图「一直保留、不可增删」。而 `database-seed.ts` 只对
+   * **新建**条目生效，老条目可能只有一两种视图；同时 UI 上的新建入口（「+」、
+   * 菜单里的 Create / Duplicate / Delete）已按同一口径移除，不在这里自愈补齐，
+   * 用户就永远补不回缺的那种视图。
+   */
+  private ensureRequiredViews(): void {
+    if (this.viewsEnsured) return
+    const manager = this.dataSource?.viewManager
+    if (!manager) return
+    // 只尝试一次：结构异常（如看板缺可分组列）时上游会抛错，不能每帧重试。
+    this.viewsEnsured = true
+    const viewIds: string[] = manager.views$.value ?? []
+    const modes = viewIds
+      .map((id) => this.dataSource.viewDataGet(id)?.mode)
+      .filter((mode): mode is string => Boolean(mode))
+    const missing = planMissingViews(modes)
+    if (!missing) return
+    // viewAdd 会把当前视图切到新视图，先记下用户原本停在哪一个。
+    const previous: string | undefined = manager.currentViewId$.value
+    for (const mode of missing) {
+      try {
+        const viewId: string = manager.viewAdd(mode)
+        this.fillSeededView(viewId, mode)
+      } catch {
+        // 上游建不出该视图（如没有任何可分组列）时跳过，不影响其余视图。
+      }
+    }
+    if (previous) manager.setCurrentView(previous)
+    // 新视图名是上游英文默认名，按需换成当前语言（用户改过名的视图不受影响）。
+    if (this.pendingViewNames) this.localizeViewNames(this.pendingViewNames)
+  }
+
+  /**
+   * 给补建的视图写入与 `database-seed.ts` 一致的初始数据。
+   *
+   * 不做这一步会停在空态：table 的 `columns` 默认为空（不渲染表头），
+   * calendar 缺 `date.startColumnId` 会提示「请选择日期属性」。
+   */
+  private fillSeededView(viewId: string, mode: string): void {
+    const columns: string[] = this.dataSource.properties$.value ?? []
+    if (mode === 'table') {
+      this.dataSource.viewDataUpdate(viewId, (current: any) => ({
+        ...current,
+        columns: columns.map((id) => ({ id, width: defaultColumnWidth(id) })),
+      }))
+    } else if (mode === 'kanban') {
+      this.dataSource.viewDataUpdate(viewId, (current: any) => ({
+        ...current,
+        card: { ...current.card, visiblePropertyIds: [...PROTOTYPE_CARD_PROPERTIES] },
+        groupBy: current.groupBy ? { ...current.groupBy, hideEmpty: false } : current.groupBy,
+      }))
+    } else if (mode === 'calendar') {
+      this.dataSource.viewDataUpdate(viewId, (current: any) => ({
+        ...current,
+        date: { ...current.date, startColumnId: WORKBENCH_DB_COLUMNS.date },
+        card: { ...current.card, visiblePropertyIds: [WORKBENCH_DB_COLUMNS.status] },
+      }))
     }
   }
 
   /** 供 Vue 层订阅：state 每次重算后触发。 */
   onUpdate(listener: () => void): void {
     this.listener = listener
+  }
+
+  /**
+   * 表格可视宽度（px）。
+   *
+   * 取上游表格外层的实际渲染宽度；首帧还没布局时返回 0，
+   * 调用方据此退化成「只用原型基准列宽」，不会写出 0 宽的视图数据。
+   */
+  private tableViewWidth(): number {
+    // 优先取表格容器（含横向滚动区的实际宽度）；看板等非表格视图没有该元素，
+    // 退化成数据库块自身宽度，避免宽度永远量到 0 而反复重试。
+    const container = this.host.querySelector?.('.affine-database-table-container') as
+      | HTMLElement
+      | null
+    const fallback = this.host.querySelector?.('affine-database') as HTMLElement | null
+    const width = (container ?? fallback)?.getBoundingClientRect().width ?? 0
+    return Number.isFinite(width) ? Math.floor(width) : 0
   }
 
   /**
@@ -381,10 +553,170 @@ export class DatabaseToolbarController {
     view.setStartDateColumn(columnId)
   }
 
-  /** 新建行：上游工具行已提供同名按钮，这里仅给 CSV 导入后的提示使用。 */
+  /**
+   * 新建行并进入标题编辑态。
+   *
+   * 只 `rowAdd` 的话，新行落在表格末尾、视口外，光标也不在单元格里，
+   * 用户会以为「点了没反应」。这里补三步：滚动到新行 → 选中标题单元格 →
+   * 进入编辑态（复用上游 table 视图的 selectionController，不自己维护选区）。
+   */
   newRow(): string {
     if (!this.ensureBound()) return ''
-    return this.dataSource.rowAdd('end')
+    const rowId: string = this.dataSource.rowAdd('end')
+    this.applyDefaultStatus(rowId)
+    if (this.state.currentViewMode === 'table') {
+      this.focusRowTitle(rowId)
+    } else {
+      // 看板 / 日历没有等价的单元格内编辑，新增后在右侧抽屉里改，
+      // 与上游自己的「+」「New row」行为保持一致。
+      this.openRow(rowId)
+    }
+    this.notifyIfRowHidden(rowId)
+    return rowId
+  }
+
+  /**
+   * 新行不满足当前视图的筛选条件时，通知界面给一句提示。
+   *
+   * 行确实建好了，但被 `filter` 过滤掉的表格里一行都不多，看起来像「点了没反应」。
+   * 判定用视图的 `rows$`（已应用筛选/排序），而不是 `dataSource.rows$`（全部行）。
+   */
+  private notifyIfRowHidden(rowId: string): void {
+    if (!rowId) return
+    const ui: any = this.rendererLogic()?.currentView$?.value
+    const view: any = ui?.view ?? ui
+    if (!view?.rows$ || !this.onNewRowHidden) return
+    // 等一帧：rowAdd 之后视图的过滤结果要下一轮重算才包含新行。
+    requestAnimationFrame(() => {
+      const rows: any[] = view.rows$?.value ?? []
+      const visible = rows.some((row: any) => row?.rowId === rowId)
+      if (!visible) this.onNewRowHidden?.()
+    })
+  }
+
+  /**
+   * 新行补默认状态「待开始」。
+   *
+   * 状态是看板的分组列：没有状态的行会落进上游的「未分组」桶，
+   * 而该桶在工作台看板里是隐藏的，行会直接从看板上消失。
+   * 选项被用户删掉时跳过，不凭空造一个状态。
+   */
+  private applyDefaultStatus(rowId: string): void {
+    if (!rowId) return
+    const data = this.dataSource.propertyDataGet(WORKBENCH_DB_COLUMNS.status) as
+      | { options?: Array<{ id: string }> }
+      | undefined
+    const options = Array.isArray(data?.options) ? data.options : []
+    if (!options.some((option) => option.id === 'wb-opt-todo')) return
+    this.dataSource.cellValueChange(rowId, WORKBENCH_DB_COLUMNS.status, 'wb-opt-todo')
+  }
+
+  /**
+   * 包装 `rowAdd`，让任何新建行都先补上来源「手动录入」。
+   *
+   * 上游建行入口很多（表格底部按钮、Enter、分组头尾、看板、日历、移动端），
+   * 最终都会调 dataSource.rowAdd，逐个改不可维护，所以只在这里包一层。
+   * AI 与归档同步的写入在各自路径里显式改成 `wb-src-ai` / `wb-src-archive`，
+   * 这里只负责「没有特别声明的建行 = 手动录入」。
+   */
+  private patchRowAdd(): void {
+    const dataSource = this.dataSource
+    if (!dataSource || dataSource.__wbRowAddPatched) return
+    const original = dataSource.rowAdd.bind(dataSource)
+    dataSource.rowAdd = (...args: any[]) => {
+      const rowId = original(...args)
+      this.applyDefaultSource(dataSource, rowId)
+      return rowId
+    }
+    dataSource.__wbRowAddPatched = true
+  }
+
+  /** 新建行补默认来源；选项被删掉时跳过，规则同 applyDefaultStatus。 */
+  private applyDefaultSource(dataSource: any, rowId: string): void {
+    if (!rowId) return
+    const data = dataSource.propertyDataGet(WORKBENCH_DB_COLUMNS.source) as
+      | { options?: Array<{ id: string }> }
+      | undefined
+    const options = Array.isArray(data?.options) ? data.options : []
+    if (!options.some((option) => option.id === WORKBENCH_SOURCE_OPTIONS.manual)) return
+    dataSource.cellValueChange(rowId, WORKBENCH_DB_COLUMNS.source, WORKBENCH_SOURCE_OPTIONS.manual)
+  }
+
+  /**
+   * 聚焦某一行的标题单元格并进入编辑。
+   *
+   * 上游只在表格视图暴露这个能力（看板/日历的选区结构不同），
+   * 非表格视图或拿不到选区控制器时静默跳过 —— 行已经建好，不影响数据正确性。
+   */
+  private focusRowTitle(rowId: string): void {
+    if (!rowId || this.state.currentViewMode !== 'table') return
+    const logic = this.rendererLogic()
+    // 上游 `currentView$` 给的是表格的 UI 逻辑对象（TableViewUILogic），
+    // 真正的视图实例（含 properties$）挂在它的 `.view` 上。
+    const viewLogic: any = logic?.currentView$?.value
+    const view: any = viewLogic?.view ?? viewLogic
+    const selection = viewLogic?.selectionController ?? view?.selectionController
+    if (!selection) return
+    const properties: any[] = view?.properties$?.value ?? []
+    const titleIndex = Math.max(
+      0,
+      properties.findIndex((property) => property?.type$?.value === 'title'),
+    )
+
+    let attempts = 0
+    let applied = false
+    const step = () => {
+      attempts += 1
+      // 必须用**视图**的行顺序（已排序/筛选）：表格按 view.rows$ 渲染，
+      // 而 dataSource.rows$ 是原始顺序。视图带排序时两者不一致，
+      // 用错索引会把光标定位到另一行，表现为「新建行看不到光标和实时输入内容」。
+      const viewRows: any[] = view?.rows$?.value ?? []
+      const rowIndex = viewRows.findIndex((row: any) => row?.rowId === rowId)
+      if (rowIndex >= 0 && !applied) {
+        applied = true
+        selection.selection = {
+          selectionType: 'area',
+          rowsSelection: { start: rowIndex, end: rowIndex },
+          columnsSelection: { start: titleIndex, end: titleIndex },
+          focus: { rowIndex, columnIndex: titleIndex },
+          isEditing: true,
+        }
+        // 刷新由 TableViewUILogic.ui$ 驱动（SingleView 上没有 ui$）。
+        viewLogic?.ui$?.value?.requestUpdate?.()
+      }
+      // 编辑器要等上游把 isEditing 渲染成富文本之后才存在，
+      // 且必须按 rowId 定位到**这一行**：切换编辑态时上一行可能下一帧才退出，
+      // 全局取第一个 `[data-editing]` 会拿到别的行，焦点和输入就落错了地方。
+      requestAnimationFrame(() => {
+        const containers = Array.from(
+          this.host.querySelectorAll('dv-table-view-cell-container[data-editing="true"]'),
+        ) as HTMLElement[]
+        const container = containers.find(
+          (element) => element.getAttribute('data-row-id') === rowId,
+        )
+        const editor = container?.querySelector(
+          '[contenteditable="true"]',
+        ) as HTMLElement | null
+        if (editor) {
+          // focus 同时会把行滚进视口，长表格里新建在末尾也能看到光标。
+          if (document.activeElement !== editor) editor.focus()
+          // 兜底：焦点在编辑器里但没有选区时，把光标放到内容末尾 ——
+          // 没有任何 range 的 contenteditable 不显示光标、也收不到输入。
+          const selectionState = window.getSelection()
+          if (selectionState && selectionState.rangeCount === 0) {
+            const range = document.createRange()
+            range.selectNodeContents(editor)
+            range.collapse(false)
+            selectionState.removeAllRanges()
+            selectionState.addRange(range)
+          }
+          return
+        }
+        // 行还没渲染 / 编辑态还没挂上：再等几帧（约 200ms），避免一次扑空。
+        if (attempts < 12) step()
+      })
+    }
+    requestAnimationFrame(step)
   }
 
   /** 打开行详情：走上游 openDetailPanel（行详情里的字段编辑器全部复用上游）。 */
@@ -485,6 +817,8 @@ export class DatabaseToolbarController {
       for (const [columnId, value] of Object.entries(row.cells)) {
         this.setCell(rowId, columnId, value)
       }
+      // CSV 没给状态时补「待开始」，否则该行会落进看板的「未分组」桶（已隐藏）而不可见。
+      if (row.cells[WORKBENCH_DB_COLUMNS.status] == null) this.applyDefaultStatus(rowId)
       for (const [name, value] of Object.entries(row.extra)) {
         const columnId = createdIds.get(name)
         if (columnId) this.setCell(rowId, columnId, value)
@@ -535,8 +869,86 @@ export class DatabaseToolbarController {
     })
   }
 
+  /**
+   * 事项表的写入配置：列 id / 列名 / 关键选项文案。
+   *
+   * 选项文案必须从真实列数据里反查：建库语言不同，「待开始」「文档归档」的文案也不同，
+   * 硬编码会把中文写进英文界面用户的事项表。
+   */
+  itemWriteSchema(sourceDocTitle?: string): ItemWriteSchema | null {
+    if (!this.ensureBound()) return null
+    const columns = columnsFromModel(this.dbModel, this.dataSource)
+    const byId = new Map(columns.map((column) => [column.id, column]))
+    const status = byId.get(WORKBENCH_DB_COLUMNS.status)
+    if (!status) return null
+    const optionValue = (columnId: string, optionId: string): string => {
+      const column = byId.get(columnId)
+      if (!column) return ''
+      return optionsOf(column).find((option) => option.id === optionId)?.value ?? ''
+    }
+    return {
+      statusColumnId: status.id,
+      statusColumnName: status.name,
+      statusTodo: optionValue(WORKBENCH_DB_COLUMNS.status, 'wb-opt-todo'),
+      statusDone: optionValue(WORKBENCH_DB_COLUMNS.status, 'wb-opt-done'),
+      priorityColumnId: WORKBENCH_DB_COLUMNS.priority,
+      priorityColumnName: byId.get(WORKBENCH_DB_COLUMNS.priority)?.name,
+      ownerColumnId: WORKBENCH_DB_COLUMNS.owner,
+      ownerColumnName: byId.get(WORKBENCH_DB_COLUMNS.owner)?.name,
+      dateColumnId: WORKBENCH_DB_COLUMNS.date,
+      dateColumnName: byId.get(WORKBENCH_DB_COLUMNS.date)?.name,
+      relationColumnId: WORKBENCH_DB_COLUMNS.relation,
+      relationColumnName: byId.get(WORKBENCH_DB_COLUMNS.relation)?.name,
+      sourceColumnId: WORKBENCH_DB_COLUMNS.source,
+      sourceColumnName: byId.get(WORKBENCH_DB_COLUMNS.source)?.name,
+      sourceDocColumnId: WORKBENCH_DB_COLUMNS.sourceDoc,
+      sourceDocColumnName: byId.get(WORKBENCH_DB_COLUMNS.sourceDoc)?.name,
+      sourceDocTitle,
+    }
+  }
+
+  /** 来源列某个取值的文案（manual / ai / archive）；列或选项缺失时返回空串。 */
+  sourceLabel(kind: keyof typeof WORKBENCH_SOURCE_OPTIONS): string {
+    if (!this.ensureBound()) return ''
+    const columns = columnsFromModel(this.dbModel, this.dataSource)
+    const column = columns.find((item) => item.id === WORKBENCH_DB_COLUMNS.source)
+    if (!column) return ''
+    return optionsOf(column).find((option) => option.id === WORKBENCH_SOURCE_OPTIONS[kind])?.value ?? ''
+  }
+
+  /** 现有行的「标题 + 截止日」指纹，供抽取结果去重；取不到时返回空集合。 */
+  existingFingerprints(): Set<string> {
+    if (!this.ensureBound()) return new Set()
+    const columns = columnsFromModel(this.dbModel, this.dataSource)
+    const rows = rowsFromDataSource(this.dataSource, columns).map((row) => ({
+      title: row.title,
+      cells: Object.fromEntries(
+        Object.entries(row.cells).map(([id, value]) => [
+          id,
+          // 日期列的真实值是毫秒时间戳，指纹只比较日期部分。
+          id === WORKBENCH_DB_COLUMNS.date ? timestampToDateOnly(value) : String(value ?? ''),
+        ]),
+      ),
+    }))
+    return buildExistingFingerprints(rows, WORKBENCH_DB_COLUMNS.date)
+  }
+
+  /** 删除若干行；用于「撤销本次自动同步」。返回实际删除数量。 */
+  deleteRows(rowIds: string[]): number {
+    if (!this.ensureBound() || this.state.readonly) return 0
+    const existing = new Set((this.dataSource.rows$.value as string[]) ?? [])
+    const targets = rowIds.filter((id) => existing.has(id))
+    if (!targets.length) return 0
+    this.handle.store.transact(() => {
+      this.dataSource.rowDelete(targets)
+    })
+    return targets.length
+  }
+
   destroy(): void {
     this.destroyed = true
+    this.resizeObserver?.disconnect()
+    this.resizeObserver = null
     this.disposers.forEach((dispose) => dispose())
     this.disposers.length = 0
     this.listener = null

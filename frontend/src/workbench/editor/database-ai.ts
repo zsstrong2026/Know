@@ -12,6 +12,7 @@ import type { AIColumn, AIRow, AIColumnType, ResolvedPatch } from '../ai/databas
 import { AI_CONTEXT_ROW_LIMIT } from '../ai/database-patch'
 import { columnsFromModel, rowsFromDataSource, type CsvColumnLike } from './database-csv'
 import { dateOnlyToTimestamp, parseDateOnly, timestampToDateOnly } from './database-dates'
+import { WORKBENCH_DB_COLUMNS, WORKBENCH_SOURCE_OPTIONS } from './database-columns'
 
 /** 新建选项时循环使用的颜色；与 seed 里的标签色一致。 */
 const OPTION_COLORS = [
@@ -33,6 +34,8 @@ export interface DatabasePatchOutcome {
   columns: number
   rows: number
   cells: number
+  /** 本次新建的行 id，顺序与写入顺序一致；用于「撤销本次同步」 */
+  rowIds: string[]
 }
 
 /**
@@ -109,7 +112,7 @@ export function applyDatabasePatch(options: {
   allowOverwrite: boolean
 }): DatabasePatchOutcome {
   const { store, dataSource, model, patch, allowOverwrite } = options
-  const outcome: DatabasePatchOutcome = { columns: 0, rows: 0, cells: 0 }
+  const outcome: DatabasePatchOutcome = { columns: 0, rows: 0, cells: 0, rowIds: [] }
   // 新建列后要能按列名引用：维护「列名 → id」的本地映射。
   const columnIds = new Map<string, string>()
   for (const column of columnsFromModel(model, dataSource)) {
@@ -133,6 +136,9 @@ export function applyDatabasePatch(options: {
       if (op.kind === 'add_row') {
         const rowId: string = dataSource.rowAdd('end')
         if (!rowId) throw new Error('[workbench-db-ai] rowAdd failed')
+        // 来源默认按「手动录入」补过（会话层包装了 rowAdd）；AI 建行显式改回 AI 来源。
+        // 必须放在 cells 循环之前：归档补丁自带来源单元格，后写即可覆盖这里。
+        markAiSource(dataSource, rowId)
         // 标题列是 spacial property：值就是行块自身的 Y.Text。
         const rowModel = store.getModelById(rowId)
         if (rowModel?.text && op.title) {
@@ -146,6 +152,7 @@ export function applyDatabasePatch(options: {
           }
         }
         outcome.rows += 1
+        outcome.rowIds.push(rowId)
         continue
       }
 
@@ -168,6 +175,16 @@ export function applyDatabasePatch(options: {
   })
 
   return outcome
+}
+
+/** AI 建行补「AI 识别」来源；列或选项不存在时跳过（老条目可能没补这一列）。 */
+function markAiSource(dataSource: any, rowId: string): void {
+  const data = dataSource.propertyDataGet(WORKBENCH_DB_COLUMNS.source) as
+    | { options?: Array<{ id: string }> }
+    | undefined
+  const options = Array.isArray(data?.options) ? data.options : []
+  if (!options.some((option) => option.id === WORKBENCH_SOURCE_OPTIONS.ai)) return
+  dataSource.cellValueChange(rowId, WORKBENCH_DB_COLUMNS.source, WORKBENCH_SOURCE_OPTIONS.ai)
 }
 
 /** 把字符串值按列类型转换成上游期望的原始值并写入；未能转换时返回 false。 */

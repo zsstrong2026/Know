@@ -1,5 +1,5 @@
 <template>
-  <!-- 模板管理：列出「我的模板」，支持重命名/改描述与删除（§9.16） -->
+  <!-- 模板管理：列出「我的模板」，支持编辑正文/重命名/删除（§9.16） -->
   <section class="tpl-page">
     <header class="page-head">
       <div>
@@ -68,6 +68,9 @@
       <template #updatedAt="{ row }">{{ formatTime(row.updated_at) }}</template>
       <template #op="{ row }">
         <div class="row-actions">
+          <t-button variant="text" size="small" @click="openContent(row)">
+            {{ t('workbench.templates.manage.editContent') }}
+          </t-button>
           <t-button variant="text" size="small" @click="openEdit(row)">
             {{ t('workbench.templates.manage.edit') }}
           </t-button>
@@ -78,7 +81,7 @@
       </template>
     </t-table>
 
-    <!-- 编辑：只改名称与描述，模板正文不可编辑 -->
+    <!-- 编辑元数据：只改名称与描述；正文在独立的模板编辑器里改 -->
     <t-dialog
       v-model:visible="editOpen"
       :header="t('workbench.templates.manage.editTitle')"
@@ -111,6 +114,15 @@
         </label>
       </div>
     </t-dialog>
+
+    <!-- 编辑正文：全屏浮层，内部挂一份 BlockSuite，保存即整体覆盖模板快照 -->
+    <TemplateContentEditor
+      v-if="contentTarget"
+      :template-id="contentTarget.id"
+      :template-name="contentTarget.name"
+      @close="contentTarget = null"
+      @saved="onContentSaved"
+    />
   </section>
 </template>
 
@@ -118,12 +130,15 @@
 /**
  * 模板管理页。
  *
- * 后端只提供列表/改名/删除，因此这里只做元数据维护：
- * 模板正文来自「另存为模板」时的文档快照，不在此处编辑。
+ * 两类编辑分开入口：
+ *   - 「编辑」只改名称/描述，走 PATCH /templates/:id；正文不在这个弹窗里改；
+ *   - 「编辑内容」打开全屏模板编辑器，保存时整体覆盖模板快照；
+ *     已用该模板创建的文档不受影响（copy-on-use）。
  */
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
+import TemplateContentEditor from './components/TemplateContentEditor.vue'
 import {
   deleteWorkbenchTemplate,
   listWorkbenchTemplates,
@@ -148,13 +163,15 @@ const saving = ref(false)
 const editingId = ref('')
 const editName = ref('')
 const editDescription = ref('')
+/** 正在编辑正文的模板；非空时渲染全屏模板编辑器 */
+const contentTarget = ref<WorkbenchTemplateSummary | null>(null)
 
 const columns = computed(() => [
   { colKey: 'name', title: t('workbench.templates.manage.columns.name'), ellipsis: true },
   { colKey: 'description', title: t('workbench.templates.manage.columns.description'), ellipsis: true },
   { colKey: 'size', title: t('workbench.templates.manage.columns.size'), width: 100 },
   { colKey: 'updatedAt', title: t('workbench.templates.manage.columns.updatedAt'), width: 160 },
-  { colKey: 'op', title: t('workbench.templates.manage.columns.op'), width: 140, align: 'right' as const },
+  { colKey: 'op', title: t('workbench.templates.manage.columns.op'), width: 220, align: 'right' as const },
 ])
 
 /** 搜索只按名称与描述过滤，与服务端列表口径一致（不分页）。 */
@@ -192,6 +209,16 @@ function openEdit(row: WorkbenchTemplateSummary) {
   editName.value = row.name
   editDescription.value = row.description ?? ''
   editOpen.value = true
+}
+
+/** 打开模板正文编辑器；关闭/保存后由子组件回传。 */
+function openContent(row: WorkbenchTemplateSummary) {
+  contentTarget.value = row
+}
+
+/** 保存正文成功后只更新列表里的元数据（名称/大小/更新时间），不重拉整个列表。 */
+function onContentSaved(updated: WorkbenchTemplateSummary) {
+  rows.value = rows.value.map((row) => (row.id === updated.id ? updated : row))
 }
 
 async function submitEdit() {

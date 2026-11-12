@@ -213,7 +213,7 @@ func TestWorkbenchListItemsPagination(t *testing.T) {
 		if !hasMore {
 			break
 		}
-		cursor = EncodeItemsCursor(items[len(items)-1].UpdatedAt, items[len(items)-1].ID)
+		cursor = EncodeWorkbenchItemsCursor(items[len(items)-1], types.WorkbenchSortUpdated)
 	}
 	assert.Len(t, seen, total)
 }
@@ -225,6 +225,113 @@ func TestWorkbenchListItemsRejectsInvalidCursor(t *testing.T) {
 	_, _, err := repo.ListItems(t.Context(), 1, "user-a", types.WorkbenchItemFilter{Cursor: "not-base64!!"})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, types.ErrWorkbenchInvalidCursor))
+}
+
+// 排序（B5）：三种排序的 ORDER BY 与 cursor 必须成对生效。
+func TestWorkbenchListItemsSort(t *testing.T) {
+	db := setupWorkbenchTestDB(t)
+	repo := &workbenchRepository{db: db}
+	ctx := t.Context()
+
+	// 造三条数据，让三种排序给出三种不同结果：
+	//   title 升序 → Alpha / Beta / Gamma
+	//   created 降序 → Gamma / Alpha / Beta
+	//   updated 降序 → Beta / Alpha / Gamma
+	base := time.Now().UTC().Truncate(time.Second)
+	fixtures := []struct {
+		title     string
+		createdAt time.Time
+		updatedAt time.Time
+	}{
+		{"Beta", base, base.Add(3 * time.Second)},
+		{"Alpha", base.Add(time.Second), base.Add(2 * time.Second)},
+		{"Gamma", base.Add(2 * time.Second), base.Add(time.Second)},
+	}
+	for _, f := range fixtures {
+		item := newTestItem(t, db, 1, "user-a")
+		require.NoError(t, db.Table("workbench_items").Where("id = ?", item.ID).
+			Updates(map[string]any{
+				"title": f.title, "created_at": f.createdAt, "updated_at": f.updatedAt,
+			}).Error)
+	}
+
+	titles := func(filter types.WorkbenchItemFilter) []string {
+		items, _, err := repo.ListItems(ctx, 1, "user-a", filter)
+		require.NoError(t, err)
+		out := make([]string, 0, len(items))
+		for _, it := range items {
+			out = append(out, it.Title)
+		}
+		return out
+	}
+
+	assert.Equal(t, []string{"Alpha", "Beta", "Gamma"}, titles(types.WorkbenchItemFilter{
+		Sort: types.WorkbenchSortTitle,
+	}))
+	assert.Equal(t, []string{"Gamma", "Alpha", "Beta"}, titles(types.WorkbenchItemFilter{
+		Sort: types.WorkbenchSortCreated,
+	}))
+	assert.Equal(t, []string{"Beta", "Alpha", "Gamma"}, titles(types.WorkbenchItemFilter{
+		Sort: types.WorkbenchSortUpdated,
+	}))
+	// 未知排序值退回「最近更新」，不报错。
+	assert.Equal(t, []string{"Beta", "Alpha", "Gamma"}, titles(types.WorkbenchItemFilter{
+		Sort: "unknown",
+	}))
+
+	// 用 updated 分页拿到的 cursor 拿去按 title 翻页必须报非法，而不是串页。
+	first, hasMore, err := repo.ListItems(ctx, 1, "user-a", types.WorkbenchItemFilter{
+		Sort: types.WorkbenchSortUpdated, Limit: 1,
+	})
+	require.NoError(t, err)
+	require.True(t, hasMore)
+	cursor := EncodeWorkbenchItemsCursor(first[0], types.WorkbenchSortUpdated)
+	_, _, err = repo.ListItems(ctx, 1, "user-a", types.WorkbenchItemFilter{
+		Sort: types.WorkbenchSortTitle, Cursor: cursor,
+	})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, types.ErrWorkbenchInvalidCursor))
+
+	// 同一排序下 cursor 可正常续页：title 排序第二页应跳过 Alpha。
+	page1, _, err := repo.ListItems(ctx, 1, "user-a", types.WorkbenchItemFilter{
+		Sort: types.WorkbenchSortTitle, Limit: 1,
+	})
+	require.NoError(t, err)
+	page2, _, err := repo.ListItems(ctx, 1, "user-a", types.WorkbenchItemFilter{
+		Sort:   types.WorkbenchSortTitle,
+		Limit:  1,
+		Cursor: EncodeWorkbenchItemsCursor(page1[0], types.WorkbenchSortTitle),
+	})
+	require.NoError(t, err)
+	require.Len(t, page2, 1)
+	assert.Equal(t, "Beta", page2[0].Title)
+}
+
+// 「最近」不得出现事项：kind=database 是全局单例视图，用 ExcludeKind 挡掉。
+func TestWorkbenchListItemsExcludeKind(t *testing.T) {
+	db := setupWorkbenchTestDB(t)
+	repo := &workbenchRepository{db: db}
+	ctx := t.Context()
+
+	canvasItem := newTestItem(t, db, 1, "user-a")
+	require.NoError(t, db.Table("workbench_items").Where("id = ?", canvasItem.ID).
+		Update("title", "画布条目").Error)
+	things := newTestItem(t, db, 1, "user-a")
+	require.NoError(t, db.Table("workbench_items").Where("id = ?", things.ID).
+		Updates(map[string]any{"title": "事项", "kind": types.WorkbenchKindDatabase}).Error)
+
+	// 不排除时两条都在（显式按 kind 查事项仍能查到）。
+	all, _, err := repo.ListItems(ctx, 1, "user-a", types.WorkbenchItemFilter{})
+	require.NoError(t, err)
+	assert.Len(t, all, 2)
+
+	// 排除 database 后只剩画布条目。
+	remaining, _, err := repo.ListItems(ctx, 1, "user-a", types.WorkbenchItemFilter{
+		ExcludeKind: types.WorkbenchKindDatabase,
+	})
+	require.NoError(t, err)
+	require.Len(t, remaining, 1)
+	assert.Equal(t, canvasItem.ID, remaining[0].ID)
 }
 
 // 版本历史：插入去重、列表按版本倒序、恢复用「当前+1」。

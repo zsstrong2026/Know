@@ -28,6 +28,9 @@ temp/
 logs/
 *.pid
 
+# 工作台备份产物（含数据库 dump 与资产包，体积大且含用户内容）
+/backups/
+
 WeKnora
 WeKnora-lite
 WeKnora-lite.exe

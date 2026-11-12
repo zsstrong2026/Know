@@ -73,6 +73,21 @@ func (s *stubWorkbenchRepo) ListVersions(
 	return out, nil
 }
 
+// ListItemIDsMentioning / ReplaceItemLinks 是保存后重算反向链接的派生写入。
+// 这里给内存仓储补上空实现：反向链接不是保存链路的断言对象，
+// 缺方法会让「保存」相关用例在内嵌 nil 接口上 panic。
+func (s *stubWorkbenchRepo) ListItemIDsMentioning(
+	_ context.Context, _ uint64, _, _, _ string, _ int,
+) ([]string, error) {
+	return nil, nil
+}
+
+func (s *stubWorkbenchRepo) ReplaceItemLinks(
+	_ context.Context, _ uint64, _, _ string, _ []types.WorkbenchLinkTarget,
+) error {
+	return nil
+}
+
 func newTestContext() context.Context {
 	return types.WithCaller(context.Background(), types.Caller{
 		TenantID: 1,

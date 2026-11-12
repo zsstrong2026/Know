@@ -13,6 +13,7 @@ export const WORKBENCH_ERROR = {
   payloadTooLarge: 2402,
   archiveBusy: 2404,
   archiveStale: 2405,
+  noEmbeddingModel: 2406,
   noModel: 2408,
   schemaUnsupported: 2409,
   streamBroken: 2410,

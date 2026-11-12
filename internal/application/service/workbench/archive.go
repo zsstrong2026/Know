@@ -31,6 +31,7 @@ const (
 //
 // sourceType='item' 时同时校验条目归属；条目不存在 → 2400。
 // 条目已进回收站 → source_deleted（快照仍保留，这是 §6.7 的核心约定）。
+// sourceType='doc' 时按章节文档任务解析当前版本（§6.2）。
 func (s *Service) GetArchiveState(
 	ctx context.Context, sourceType, sourceID string,
 ) (*types.WorkbenchArchiveState, error) {
@@ -38,29 +39,41 @@ func (s *Service) GetArchiveState(
 	if err != nil {
 		return nil, err
 	}
-	if sourceType != types.WorkbenchSourceItem {
-		// doc 的归档由 doc-assistant 侧驱动，P1-4 只做 item。
-		return nil, apperrors.NewBadRequestError("only item archives are supported")
+	switch sourceType {
+	case types.WorkbenchSourceItem:
+		return s.itemArchiveState(ctx, tenantID, ownerID, sourceID)
+	case types.WorkbenchSourceDoc:
+		return s.docArchiveState(ctx, tenantID, ownerID, sourceID)
+	default:
+		return nil, apperrors.NewBadRequestError("unsupported archive source type")
 	}
+}
+
+// itemArchiveState 是 sourceType='item' 的状态计算。
+func (s *Service) itemArchiveState(
+	ctx context.Context, tenantID uint64, ownerID, sourceID string,
+) (*types.WorkbenchArchiveState, error) {
 	item, err := s.repo.GetItemMeta(ctx, tenantID, ownerID, sourceID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// 条目在回收站：如果还有 live 映射，说明快照保留着。
 			if trashed, tErr := s.repo.GetTrashedItem(ctx, tenantID, ownerID, sourceID); tErr == nil && trashed != nil {
-				return s.snapshotState(ctx, tenantID, ownerID, sourceType, sourceID, nil, true)
+				return s.snapshotState(ctx, tenantID, ownerID, types.WorkbenchSourceItem, sourceID, nil, true)
 			}
 			return nil, notFound("workbench item not found")
 		}
 		return nil, err
 	}
-	return s.snapshotState(ctx, tenantID, ownerID, sourceType, sourceID, item, false)
+	version := item.SnapshotVersion
+	return s.snapshotState(ctx, tenantID, ownerID, types.WorkbenchSourceItem, sourceID, &version, false)
 }
 
-// snapshotState 用条目当前 version 与 live 映射算出状态。
+// snapshotState 用来源当前版本与 live 映射算出状态。
+// currentVersion 为 nil 表示无法比对版本（例如文档已被删除），此时不会判 stale。
 func (s *Service) snapshotState(
 	ctx context.Context,
 	tenantID uint64, ownerID, sourceType, sourceID string,
-	item *types.WorkbenchItem, sourceDeleted bool,
+	currentVersion *int, sourceDeleted bool,
 ) (*types.WorkbenchArchiveState, error) {
 	rows, err := s.repo.ListLiveBySource(ctx, tenantID, ownerID, sourceType, sourceID)
 	if err != nil {
@@ -71,8 +84,8 @@ func (s *Service) snapshotState(
 		SourceID:   sourceID,
 		Parts:      make([]*types.WorkbenchArchivePart, 0, len(rows)),
 	}
-	if item != nil {
-		version := item.SnapshotVersion
+	if currentVersion != nil {
+		version := *currentVersion
 		state.CurrentVersion = &version
 	}
 	if len(rows) == 0 {
@@ -144,7 +157,7 @@ func (s *Service) snapshotState(
 		state.Status = archiveStatusProcessing
 		return state, nil
 	}
-	if item != nil && minVersion < item.SnapshotVersion {
+	if currentVersion != nil && minVersion < *currentVersion {
 		state.Status = archiveStatusStale
 		state.StaleReason = "source_newer"
 		return state, nil
@@ -232,8 +245,15 @@ func (s *Service) archive(
 	if req == nil {
 		return nil, apperrors.NewBadRequestError("request body is required")
 	}
+	// 章节文档：正文由服务端渲染，前端只传 source_type/source_id（§6.2）。
+	if req.SourceType == types.WorkbenchSourceDoc {
+		if req.SourceID == "" {
+			return nil, apperrors.NewBadRequestError("source_id is required")
+		}
+		return s.archiveDoc(ctx, tenantID, ownerID, req.SourceID, force || req.Force)
+	}
 	if req.SourceType != types.WorkbenchSourceItem {
-		return nil, apperrors.NewBadRequestError("only item archives are supported")
+		return nil, apperrors.NewBadRequestError("unsupported archive source type")
 	}
 	// 画布/数据库的导出文本由前端生成，服务端只校验并存储。
 	if req.Markdown == "" {
@@ -257,16 +277,36 @@ func (s *Service) archive(
 	if err != nil {
 		return nil, err
 	}
+	src := &archiveSource{
+		TenantID:      item.TenantID,
+		OwnerID:       item.OwnerID,
+		SourceType:    types.WorkbenchSourceItem,
+		SourceID:      item.ID,
+		Title:         item.Title,
+		SourceVersion: item.SnapshotVersion,
+	}
 	// body 里的 force 与 refresh 端点等价：两者都表示“即使没变也重写”。
-	return s.writeParts(ctx, tenantID, ownerID, item, parts, force || req.Force)
+	return s.writeParts(ctx, src, parts, force || req.Force)
+}
+
+// archiveSource 是一次归档的确定快照：谁的内容、什么版本、叫什么。
+//
+// 条目与章节文档共用同一套写入算法（§6.4），差别只在来源标识与标题：
+// item 用 workbench_items.snapshot_version，doc 用 doc_documents.version。
+type archiveSource struct {
+	TenantID      uint64
+	OwnerID       string
+	SourceType    string
+	SourceID      string
+	Title         string
+	SourceVersion int
 }
 
 // writeParts 逐 part 写入映射与知识；单 part 失败不影响其他 part（§6.6），
 // 但会把失败的分片号一起带出去，用户可重试，已成功的 part 不会重复建。
 func (s *Service) writeParts(
 	ctx context.Context,
-	tenantID uint64, ownerID string,
-	item *types.WorkbenchItem,
+	src *archiveSource,
 	parts []archivePart,
 	force bool,
 ) (*types.WorkbenchArchiveState, error) {
@@ -274,7 +314,7 @@ func (s *Service) writeParts(
 		return nil, apperrors.NewServiceUnavailableError(
 			"workbench archive writer is not configured")
 	}
-	kb, err := s.kbService.EnsureWorkKnowledgeBase(ctx, tenantID, ownerID)
+	kb, err := s.kbService.EnsureWorkKnowledgeBase(ctx, src.TenantID, src.OwnerID)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +323,7 @@ func (s *Service) writeParts(
 	if !access.CanSeeKB(ctx, kb) {
 		return nil, apperrors.NewForbiddenError("work bench knowledge base is not writable")
 	}
-	if ctx, err = access.WithKBTaskWrite(ctx, kb, tenantID); err != nil {
+	if ctx, err = access.WithKBTaskWrite(ctx, kb, src.TenantID); err != nil {
 		return nil, apperrors.NewForbiddenError("work bench knowledge base is not writable")
 	}
 
@@ -292,52 +332,68 @@ func (s *Service) writeParts(
 	failed := make([]int, 0)
 	for _, part := range parts {
 		retain[part.No] = struct{}{}
-		if err := s.archivePart(ctx, kb, item, part, total, force); err != nil {
+		if err := s.archivePart(ctx, kb, src, part, total, force); err != nil {
 			// 并发冲突说明另一请求正在处理整组归档，继续写只会制造更多 pending；
 			// 立即中止并原样返回 2404，让前端提示「正在归档，稍后重试」。
 			if appErr, ok := apperrors.IsAppError(err); ok &&
 				appErr.Code == apperrors.ErrWorkbenchArchiveBusy {
 				return nil, appErr
 			}
-			logger.Warnf(ctx, "workbench: archive part %d of item %s failed: %v", part.No, item.ID, err)
+			logger.Warnf(ctx, "workbench: archive part %d of %s %s failed: %v",
+				part.No, src.SourceType, src.SourceID, err)
 			failed = append(failed, part.No)
 		}
 	}
 	// 新集合里不再存在的旧 part：标 deleted 并删掉对应知识（用户明确刷新，
 	// 旧内容已不存在，保留只会产生重复搜索结果，§6.6）。
-	if err := s.pruneStaleParts(ctx, tenantID, ownerID, item.ID, retain); err != nil {
+	if err := s.pruneStaleParts(ctx, src, retain); err != nil {
 		return nil, err
 	}
 	if len(failed) > 0 {
 		// 归档分片失败：写一条用户级通知，让用户在工作台顶部看到“归档未完成”，
 		// 而不是等到下次打开条目才发现。通知失败不影响既有错误返回。
-		s.notifyArchiveFailed(ctx, item, failed)
+		s.NotifyArchiveFailed(ctx, src, failed)
 		return nil, apperrors.NewInternalServerError("partial workbench archive failed").
 			WithDetails(map[string]any{"failed_part_nos": failed})
 	}
-	return s.snapshotState(ctx, tenantID, ownerID, types.WorkbenchSourceItem, item.ID, item, false)
+	version := src.SourceVersion
+	return s.snapshotState(ctx, src.TenantID, src.OwnerID, src.SourceType, src.SourceID, &version, false)
 }
 
-// notifyArchiveFailed 写 archive_failed 通知（§5.7）。
+// NotifyArchiveFailed 写 archive_failed 通知（§5.7）。
 //
-// dedupe 用 itemID + 失败分片号 + 版本：同一版本反复重试同一分片只提醒一次，
+// dedupe 用来源 id + 失败分片号 + 版本：同一版本反复重试同一分片只提醒一次，
 // 内容再变化（版本前进）才会再次提醒。payload 只放数量与定位信息，不含正文。
-func (s *Service) notifyArchiveFailed(
-	ctx context.Context, item *types.WorkbenchItem, failed []int,
+func (s *Service) NotifyArchiveFailed(
+	ctx context.Context, src *archiveSource, failed []int,
 ) {
-	if item == nil || len(failed) == 0 {
+	if src == nil || len(failed) == 0 {
 		return
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"item_count":     1,
 		"failed_parts":   failed,
-		"item_id":        item.ID,
-		"source_version": item.SnapshotVersion,
+		"source_type":    src.SourceType,
+		"source_id":      src.SourceID,
+		"source_version": src.SourceVersion,
 	})
-	dedupe := fmt.Sprintf("archive:%s:%d:%v", item.ID, item.SnapshotVersion, failed)
-	if err := s.insertNotice(ctx, item.OwnerID, item.TenantID,
+	// 章节文档的通知要能直达文档：payload 带上 task id，前端据此跳转。
+	if src.SourceType == types.WorkbenchSourceDoc {
+		payload, _ = json.Marshal(map[string]any{
+			"item_count":     1,
+			"failed_parts":   failed,
+			"source_type":    src.SourceType,
+			"source_id":      src.SourceID,
+			"source_version": src.SourceVersion,
+			"task_id":        src.SourceID,
+		})
+	}
+	dedupe := fmt.Sprintf("archive:%s:%s:%d:%v",
+		src.SourceType, src.SourceID, src.SourceVersion, failed)
+	if err := s.insertNotice(ctx, src.OwnerID, src.TenantID,
 		types.WorkbenchNoticeArchive, dedupe, string(payload)); err != nil {
-		logger.Warnf(ctx, "workbench: failed to record archive_failed notice for %s: %v", item.ID, err)
+		logger.Warnf(ctx, "workbench: failed to record archive_failed notice for %s: %v",
+			src.SourceID, err)
 	}
 }
 
@@ -351,13 +407,13 @@ const archiveChannel = "workbench"
 func (s *Service) archivePart(
 	ctx context.Context,
 	kb *types.KnowledgeBase,
-	item *types.WorkbenchItem,
+	src *archiveSource,
 	part archivePart,
 	partCount int,
 	force bool,
 ) error {
-	tenantID, ownerID := item.TenantID, item.OwnerID
-	sourceVersion := item.SnapshotVersion
+	tenantID, ownerID := src.TenantID, src.OwnerID
+	sourceVersion := src.SourceVersion
 	payload := &types.ManualKnowledgePayload{
 		Title:   part.Title,
 		Content: part.Markdown,
@@ -365,12 +421,12 @@ func (s *Service) archivePart(
 	}
 
 	row, err := s.repo.GetLiveByPart(
-		ctx, tenantID, ownerID, types.WorkbenchSourceItem, item.ID, part.No)
+		ctx, tenantID, ownerID, src.SourceType, src.SourceID, part.No)
 	if err != nil {
 		return err
 	}
 	if row == nil {
-		return s.createArchivePart(ctx, kb, item, part, partCount, payload)
+		return s.createArchivePart(ctx, kb, src, part, partCount, payload)
 	}
 	// pending 行说明另一个请求正在为同一 part 建知识：此时既不能更新也不能
 	// 重建（知识 id 已绑定但可能还没落库），直接让调用方稍后重试。
@@ -407,7 +463,7 @@ func (s *Service) archivePart(
 func (s *Service) createArchivePart(
 	ctx context.Context,
 	kb *types.KnowledgeBase,
-	item *types.WorkbenchItem,
+	src *archiveSource,
 	part archivePart,
 	partCount int,
 	payload *types.ManualKnowledgePayload,
@@ -415,13 +471,13 @@ func (s *Service) createArchivePart(
 	now := time.Now().UTC()
 	pending := &types.WorkbenchArchive{
 		ID:            uuid.NewString(),
-		TenantID:      item.TenantID,
-		OwnerID:       item.OwnerID,
+		TenantID:      src.TenantID,
+		OwnerID:       src.OwnerID,
 		KBID:          kb.ID,
 		KnowledgeID:   uuid.NewString(),
-		SourceType:    types.WorkbenchSourceItem,
-		SourceID:      item.ID,
-		SourceVersion: item.SnapshotVersion,
+		SourceType:    src.SourceType,
+		SourceID:      src.SourceID,
+		SourceVersion: src.SourceVersion,
 		PartNo:        part.No,
 		PartCount:     partCount,
 		Title:         part.Title,
@@ -441,22 +497,22 @@ func (s *Service) createArchivePart(
 		ctx, kb.ID, pending.KnowledgeID, payload, archiveChannel); err != nil {
 		// 知识没建成：把 pending 行标 deleted，避免留下指向空知识的映射。
 		if _, markErr := s.repo.MarkDeletedBySourcePart(
-			ctx, item.TenantID, item.OwnerID, types.WorkbenchSourceItem, item.ID, part.No); markErr != nil {
+			ctx, src.TenantID, src.OwnerID, src.SourceType, src.SourceID, part.No); markErr != nil {
 			logger.Warnf(ctx, "workbench: failed to roll back pending archive part %d: %v", part.No, markErr)
 		}
 		return err
 	}
-	return s.repo.ActivatePart(ctx, created.ID, pending.KnowledgeID, item.SnapshotVersion, part.Title)
+	return s.repo.ActivatePart(ctx, created.ID, pending.KnowledgeID, src.SourceVersion, part.Title)
 }
 
 // pruneStaleParts 把新集合里已不存在的旧 part 标 deleted 并删除对应知识。
 func (s *Service) pruneStaleParts(
 	ctx context.Context,
-	tenantID uint64, ownerID, sourceID string,
+	src *archiveSource,
 	retain map[int]struct{},
 ) error {
 	rows, err := s.repo.ListLiveBySource(
-		ctx, tenantID, ownerID, types.WorkbenchSourceItem, sourceID)
+		ctx, src.TenantID, src.OwnerID, src.SourceType, src.SourceID)
 	if err != nil {
 		return err
 	}
@@ -467,7 +523,7 @@ func (s *Service) pruneStaleParts(
 		// 先标映射再删知识：即使删知识失败，state 也不会把它算成 live，
 		// 对账任务同样会收敛，不会出现“映射 active 但知识已删”的长期不一致。
 		if _, err := s.repo.MarkDeletedBySourcePart(
-			ctx, tenantID, ownerID, types.WorkbenchSourceItem, sourceID, row.PartNo); err != nil {
+			ctx, src.TenantID, src.OwnerID, src.SourceType, src.SourceID, row.PartNo); err != nil {
 			return err
 		}
 		if err := s.knowledge.DeleteKnowledge(ctx, row.KnowledgeID); err != nil {
@@ -511,8 +567,9 @@ func (s *Service) DeleteArchive(
 	if req == nil {
 		return nil, apperrors.NewBadRequestError("request body is required")
 	}
-	if req.SourceType != types.WorkbenchSourceItem {
-		return nil, apperrors.NewBadRequestError("only item archives are supported")
+	if req.SourceType != types.WorkbenchSourceItem &&
+		req.SourceType != types.WorkbenchSourceDoc {
+		return nil, apperrors.NewBadRequestError("unsupported archive source type")
 	}
 	empty := func(status string) *types.WorkbenchArchiveState {
 		return &types.WorkbenchArchiveState{
@@ -614,8 +671,8 @@ func (s *Service) MarkSourceDeleted(
 	if err != nil {
 		return 0, err
 	}
-	if sourceType != types.WorkbenchSourceItem {
-		return 0, apperrors.NewBadRequestError("only item archives are supported")
+	if sourceType != types.WorkbenchSourceItem && sourceType != types.WorkbenchSourceDoc {
+		return 0, apperrors.NewBadRequestError("unsupported archive source type")
 	}
 	if sourceID == "" {
 		return 0, apperrors.NewBadRequestError("source id is required")

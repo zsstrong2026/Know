@@ -806,6 +806,11 @@ func (s *knowledgeBaseService) rejectEmbeddingModelChange(
 	if kb.EmbeddingModelID == "" {
 		return nil
 	}
+	// 工作知识库允许换模型：它的用途就是后续「启用语义检索」时绑定模型并重建，
+	// 已经归档的内容会随重建一起重算，不存在“已有文件就不能换”的问题（§5.4）。
+	if kb.IsWorkKB() {
+		return nil
+	}
 	_, total, err := s.kgRepo.ListPagedKnowledgeByKnowledgeBaseID(ctx, kb.TenantID, kb.ID,
 		&types.Pagination{Page: 1, PageSize: 1}, types.KnowledgeListFilter{})
 	if err != nil {

@@ -11,6 +11,8 @@ export const calendarViewStyles = css`
     --calendar-entry-slot-height: calc(
       var(--calendar-entry-height) + var(--calendar-entry-gap)
     );
+    /* 日期格子的固定内容高度：6+20+4(head)+5*22+4*3(条目间距)+6 = 158，留 2px 余量。 */
+    --calendar-day-height: 160px;
     --calendar-grid-border-color: color-mix(
       in srgb,
       var(--affine-border-color) 58%,
@@ -157,7 +159,14 @@ export const calendarViewStyles = css`
 
   .calendar-day {
     position: relative;
-    min-height: 112px;
+    /* 固定高度：日期行 + 5 条事项 + 上下内边距；超出的条目折叠成「+N」，
+       格子不再随事项数量撑高。跨天条占用的行额外补高，避免与单日条目重叠。 */
+    height: calc(
+      var(--calendar-day-height) +
+        var(--calendar-segment-slots, 0) * var(--calendar-entry-slot-height)
+    );
+    overflow: hidden;
+    box-sizing: border-box;
     border-right: 1px solid var(--calendar-grid-border-color);
     border-bottom: 1px solid var(--calendar-grid-border-color);
     padding: 6px;
@@ -204,7 +213,7 @@ export const calendarViewStyles = css`
     color: var(--affine-text-secondary-color);
     font-size: 12px;
     line-height: 18px;
-    margin-bottom: 4px;
+    margin-bottom: 0;
     user-select: none;
     -webkit-user-select: none;
   }
@@ -458,6 +467,98 @@ export const calendarViewStyles = css`
     padding-top: calc(
       var(--calendar-segment-slots, 0) * var(--calendar-entry-slot-height)
     );
+    overflow: hidden;
+  }
+
+  /* 日期行：左侧日期，右侧「+N」折叠计数（单日超过 5 条时出现）。 */
+  .calendar-day-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 4px;
+  }
+
+  .calendar-day-count {
+    flex-shrink: 0;
+    margin-left: auto;
+    height: 18px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 9px;
+    background: color-mix(
+      in srgb,
+      var(--affine-primary-color) 12%,
+      transparent
+    );
+    color: var(--affine-primary-color);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 18px;
+    cursor: pointer;
+  }
+
+  .calendar-day-count:hover {
+    background: color-mix(
+      in srgb,
+      var(--affine-primary-color) 20%,
+      transparent
+    );
+  }
+
+  /* 「全部事项」弹窗：遮罩 + 居中等宽卡片。 */
+  .calendar-day-overflow-mask {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.28);
+  }
+
+  .calendar-day-overflow {
+    display: flex;
+    flex-direction: column;
+    width: min(420px, calc(100vw - 48px));
+    max-height: min(520px, 70vh);
+    border-radius: 10px;
+    background: var(--affine-background-primary-color);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+    overflow: hidden;
+  }
+
+  .calendar-day-overflow-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--calendar-grid-border-color);
+    color: var(--affine-text-primary-color);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .calendar-day-overflow-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    overflow-y: auto;
+  }
+
+  .calendar-day-overflow-item {
+    text-align: left;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--affine-text-primary-color);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .calendar-day-overflow-item:hover {
+    background: var(--calendar-entry-hover-bg);
   }
 
   .calendar-new-row {
@@ -465,9 +566,13 @@ export const calendarViewStyles = css`
     align-items: center;
     justify-content: center;
     gap: 4px;
-    width: 100%;
+    /* 固定在格子底部：格子高度固定后不再挤占第 5 条事项的位置。 */
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    bottom: 4px;
     height: 24px;
-    margin-top: 3px;
+    margin-top: 0;
     border: 0;
     border-radius: 5px;
     background: transparent;

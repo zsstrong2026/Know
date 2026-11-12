@@ -302,6 +302,13 @@ type WorkbenchTemplateRepository interface {
 		ctx context.Context, tenantID uint64, ownerID, id string, fields map[string]any,
 	) (*types.WorkbenchTemplate, error)
 
+	// UpdateTemplateContent 只替换模板正文快照（ydoc / size_bytes / schema / updated_at）；
+	// 名称与描述不动，已用该模板创建的文档不受影响。
+	UpdateTemplateContent(
+		ctx context.Context, tenantID uint64, ownerID, id string,
+		ydoc []byte, sizeBytes, schemaVersion int,
+	) (*types.WorkbenchTemplate, error)
+
 	// DeleteTemplate 硬删；已用该模板创建的文档不受影响。
 	DeleteTemplate(ctx context.Context, tenantID uint64, ownerID, id string) (int64, error)
 

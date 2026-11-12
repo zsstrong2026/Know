@@ -297,7 +297,7 @@ func TestEnsureActiveAgendaDisabled(t *testing.T) {
 	assert.Nil(t, active)
 }
 
-// TestAdvanceAgendaWritesSummary 推进议程时写入小结并标记完成、激活下一项
+// TestAdvanceAgendaWritesSummary 推进议程时写入小结并标记完成；不再自动激活下一项（由用户决策后续动作）
 func TestAdvanceAgendaWritesSummary(t *testing.T) {
 	repo := &fakeAgendaRepo{items: []*types.MeetingAgendaItem{
 		{ID: "i0", Seq: 0, Status: types.MeetingAgendaActive},
@@ -307,10 +307,11 @@ func TestAdvanceAgendaWritesSummary(t *testing.T) {
 	room := &types.MeetingRoom{ID: "r1", AgendaEnabled: true}
 
 	hasNext := e.advanceAgenda(context.Background(), room, repo.items[0], "区间 10-20 万")
-	assert.True(t, hasNext)
+	assert.True(t, hasNext, "本议题已结束，返回值恒为 true")
 	assert.Equal(t, types.MeetingAgendaDone, repo.items[0].Status)
 	assert.Equal(t, "区间 10-20 万", repo.items[0].Summary)
-	assert.Equal(t, types.MeetingAgendaActive, repo.items[1].Status, "下一项应被激活")
+	assert.Equal(t, types.MeetingAgendaPending, repo.items[1].Status,
+		"不再自动激活下一项：后续由用户在前端「下一步」中决定")
 }
 
 // fakeAgendaMessageRepo 为开题测试提供"按议题查消息"的最小实现
@@ -338,7 +339,7 @@ func TestOpenNextAgendaCreatesTrigger(t *testing.T) {
 
 	msg := e.openNextAgenda(context.Background(), room)
 	require.NotNil(t, msg)
-	assert.Contains(t, msg.Content, "【议题开题】2/2「兼容性」")
+	assert.Contains(t, msg.Content, "【议题 2/2】兼容性")
 	assert.Contains(t, msg.Content, "列出不兼容项")
 }
 

@@ -10,6 +10,7 @@ import (
 	"unsafe"
 
 	"github.com/Tencent/WeKnora/internal/application/service"
+	workbenchservice "github.com/Tencent/WeKnora/internal/application/service/workbench"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/middleware/asynqdl"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -236,7 +237,9 @@ type SyncTaskParams struct {
 	TemporaryDocument    interfaces.TemporaryDocumentService
 	MemoryService        interfaces.MemoryService
 	DocAssistantService  interfaces.DocAssistantService
-	PMTaskService        interfaces.PMTaskService
+	// WorkbenchService 只用于注册章节文档自动归档 worker（§6.9）。
+	WorkbenchService *workbenchservice.Service
+	PMTaskService    interfaces.PMTaskService
 }
 
 // RegisterSyncHandlers registers all task handlers on the SyncTaskExecutor.
@@ -269,6 +272,9 @@ func RegisterSyncHandlers(params SyncTaskParams) {
 	params.Executor.RegisterHandler(types.TypeWikiFinalize, params.WikiIngest.Handle)
 	params.Executor.RegisterHandler(types.TypeMemoryExtract, params.MemoryService.Handle)
 	params.Executor.RegisterHandler(types.TypeDocumentGenerate, params.DocAssistantService.ProcessGeneration)
+	if params.WorkbenchService != nil {
+		params.Executor.RegisterHandler(types.TypeWorkbenchArchiveDoc, params.WorkbenchService.ProcessDocArchive)
+	}
 	params.Executor.RegisterHandler(types.TypePMPRDGenerate, params.PMTaskService.ProcessTask)
 	params.Executor.RegisterHandler(types.TypePMPrototypeGenerate, params.PMTaskService.ProcessTask)
 	params.Executor.RegisterHandler(types.TypePMMaterialGenerate, params.PMTaskService.ProcessTask)

@@ -147,18 +147,19 @@ const session = useEditorSession({
 })
 const { ready, baseVersion, saveState } = session
 
-/** 保存状态文案与条目页保持同一套（§9.7 草稿可见）。 */
+/** 保存状态文案与条目页保持同一套（§9.7）：草稿暂存不等于归档。 */
 const saveLabel = computed(() => {
   switch (saveState.value) {
     case 'pending':
-      return t('workbench.editor.savePending')
+      return t('workbench.editor.saveDraftPending')
     case 'saving':
-      return t('workbench.editor.saveSaving')
+      return t('workbench.editor.saveDraftSaving')
     case 'error':
+      return t('workbench.editor.saveDraftError')
     case 'conflict':
-      return t('workbench.editor.saveError')
+      return t('workbench.editor.saveDraftConflict')
     default:
-      return t('workbench.editor.saveSaved')
+      return t('workbench.editor.saveDraftSaved')
   }
 })
 
@@ -367,10 +368,10 @@ async function onArchiveAction(action: ArchiveBadgeAction) {
 
 function openConflictDialog() {
   const dialog = DialogPlugin({
-    header: t('workbench.editor.saveError'),
-    body: t('workbench.editor.saveError'),
-    confirmBtn: t('workbench.editor.saveSaved'),
-    cancelBtn: t('workbench.editor.loadFailed'),
+    header: t('workbench.editor.saveDraftConflict'),
+    body: t('workbench.editor.conflictBody'),
+    confirmBtn: t('workbench.editor.conflictOverwrite'),
+    cancelBtn: t('workbench.editor.conflictReload'),
     onConfirm: async () => {
       await session.forceSave()
       dialog.hide()

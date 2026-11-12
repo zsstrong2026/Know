@@ -193,6 +193,22 @@ export function buildMessagePayload(content: string, mentionAgentIds: string[] =
   return { content, mentioned_agent_ids: mentionAgentIds, adjust_flow: adjustFlow };
 }
 
+// 判断主持人是否仍在分析议题（开场消息尚未回流）。
+// 仅待确认态成立：无任何消息（刚进房）、或末条是用户消息（刚提交调整意见/澄清回答）时视为分析中；
+// 末条是主持人开场或系统兜底消息则不再是分析中（避免 SSE 断流时永远等待）。
+export function isOpeningAnalyzing(
+  status: MeetingStatus | undefined,
+  messages: Array<Pick<MeetingMessage, 'sender_kind' | 'payload'>>,
+): boolean {
+  if (status !== 'awaiting_confirmation') return false;
+  const last = messages[messages.length - 1];
+  if (!last) return true;
+  if (last.sender_kind === 'system') return false;
+  const stage = (last.payload as { stage?: string } | null | undefined)?.stage;
+  if (stage === 'opening') return false;
+  return last.sender_kind === 'user';
+}
+
 // 会议室 SSE 订阅地址（相对路径，实际请求时拼接 API base）
 export function streamUrl(roomId: string): string {
   return `/api/v1/meetings/${roomId}/stream`;

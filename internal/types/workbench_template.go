@@ -102,6 +102,26 @@ func (r *CreateWorkbenchTemplateRequest) Validate() error {
 	return validateTemplateDescription(r.Description)
 }
 
+// UpdateWorkbenchTemplateContentRequest 只替换模板正文快照；名称与描述走 UpdateTemplate。
+//
+// 与「创建模板」不同：创建时服务端从已落盘条目复制字节，不接受客户端上传；
+// 而「编辑模板内容」是用户在模板管理页直接改模板，只能由客户端提交快照。
+type UpdateWorkbenchTemplateContentRequest struct {
+	YDoc                string `json:"ydoc"`
+	EditorSchemaVersion int    `json:"editor_schema_version"`
+}
+
+// Validate 只校验 schema 与空快照；base64 解码与体积复核在服务层做。
+func (r *UpdateWorkbenchTemplateContentRequest) Validate() error {
+	if r == nil || strings.TrimSpace(r.YDoc) == "" {
+		return ErrWorkbenchTemplateEmpty
+	}
+	if r.EditorSchemaVersion < 1 || r.EditorSchemaVersion > SupportedEditorSchemaVersion {
+		return fmt.Errorf("%w: %d", ErrWorkbenchInvalidEditorSchemaVersion, r.EditorSchemaVersion)
+	}
+	return nil
+}
+
 // UpdateWorkbenchTemplateRequest 只允许改名称与描述。
 type UpdateWorkbenchTemplateRequest struct {
 	Name        *string `json:"name"`

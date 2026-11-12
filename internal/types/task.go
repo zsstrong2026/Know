@@ -73,7 +73,8 @@ var queueDefinitions = []QueueDefinition{
 		TypeKnowledgePostProcess,
 	}},
 	{Name: QueueSummary, Pool: WorkerPoolEnrichment, Weight: 2, SharedWeight: 2, TaskTypes: []string{
-		TypeSummaryGeneration, TypeDataTableSummary, TypeKnowledgeAutoTag, TypeDocumentGenerate, TypeKnowledgeBaseProfile,
+		TypeSummaryGeneration, TypeDataTableSummary, TypeKnowledgeAutoTag, TypeDocumentGenerate,
+		TypeWorkbenchArchiveDoc, TypeKnowledgeBaseProfile,
 	}},
 	{Name: QueueMultimodal, Pool: WorkerPoolEnrichment, Weight: 1, SharedWeight: 1, TaskTypes: []string{TypeImageMultimodal}},
 	{Name: QueueGraph, Pool: WorkerPoolEnrichment, Weight: 1, SharedWeight: 1, TaskTypes: []string{TypeChunkExtract}},
@@ -257,6 +258,9 @@ const (
 	TypeMemoryExtract = "memory:extract"
 	// TypeDocumentGenerate 文档助手生成任务（逐章生成，checkpoint 续跑）
 	TypeDocumentGenerate = "doc-assistant:generate"
+	// TypeWorkbenchArchiveDoc 章节文档生成成功后的自动归档（§6.9）。
+	// 与人工归档同一条写入路径，只是由 worker 触发，便于重试与限流。
+	TypeWorkbenchArchiveDoc = "workbench:archive-doc"
 )
 
 // MemoryExtractPayload carries everything the background distillation task

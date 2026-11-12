@@ -45,6 +45,17 @@ affine-slash-menu {
   --affine-icon-color: var(--td-text-color-secondary);
   --affine-icon-secondary: var(--td-text-color-placeholder);
 
+  /**
+   * 品牌色（上游 `--affine-primary-color` 系列）。
+   *
+   * 表格选中框、拖拽指示线、日历今日高亮、行选中底色都引用这两个变量，
+   * 但它们同样来自未引入的 `@toeverything/theme`：值为空时 `border` 会回退成
+   * `currentColor`，于是在深色文字单元格上画出一圈**黑色粗框**（截图现象）。
+   * 这里映射到 TDesign 品牌色，选中态与全局主题一致。
+   */
+  --affine-primary-color: var(--td-brand-color);
+  --affine-primary-color-04: var(--td-brand-color-light);
+
   --affine-line-height: 22px;
   --affine-font-base: var(--app-text-base);
   --affine-font-sm: var(--app-text-md);
@@ -70,6 +81,33 @@ affine-slash-menu {
 
   /* 看板卡片底色（上游默认值同样来自未注入的主题样式表）。 */
   --affine-background-kanban-card-color: var(--td-bg-color-container);
+
+  /**
+   * AFFiNE v2 主题变量（`--affine-v2-*`）。
+   *
+   * 这些变量只在 `@toeverything/theme` 的 style.css 里定义，而本工程没有引入该表，
+   * 于是所有引用方拿到的都是空值：
+   *   - `layer/background/overlayPanel` 为空 → 视图设置、筛选、排序等弹层**没有底图**；
+   *   - `layer/insideBorder/border` 为空 → 弹层边框消失，浮在白底页面上像一片空白；
+   *   - `text/secondary`、`icon/primary` 为空 → 次级文字与图标退化成主色。
+   * 这里按 v2 的命名（路径里的 `/` 换成 `-`）映射到 TDesign 令牌，深浅色自动跟随。
+   */
+  --affine-v2-layer-background-overlayPanel: var(--td-bg-color-container);
+  --affine-v2-layer-background-primary: var(--td-bg-color-container);
+  --affine-v2-layer-background-secondary: var(--td-bg-color-secondarycontainer);
+  --affine-v2-layer-background-tertiary: var(--td-bg-color-component);
+  --affine-v2-layer-background-hoverOverlay: var(--td-bg-color-container-hover);
+  --affine-v2-layer-insideBorder-border: var(--td-component-stroke);
+  --affine-v2-layer-insideBorder-blackBorder: var(--td-component-stroke);
+  --affine-v2-input-border-default: var(--td-component-stroke);
+  --affine-v2-text-primary: var(--td-text-color-primary);
+  --affine-v2-text-secondary: var(--td-text-color-secondary);
+  --affine-v2-text-emphasis: var(--td-brand-color);
+  --affine-v2-icon-primary: var(--td-text-color-secondary);
+  --affine-v2-icon-secondary: var(--td-text-color-placeholder);
+
+  /* 弹层阴影：视图设置等浮层用 `unsafeCSSVar('overlayPanelShadow')`，同样缺定义。 */
+  --affine-overlay-panel-shadow: var(--td-shadow-2);
 }
 
 /**
@@ -146,6 +184,19 @@ affine-database
 }
 
 /**
+ * 视图只保留「表格 / 看板 / 日历」三种，禁止新增（产品约定，用户明确要求）。
+ *
+ * 上游在 Tab 栏末尾渲染一个「+」按钮（`data-testid="database-add-view-button"`），
+ * 点开是描述符列表（Table / Kanban / Calendar）；一旦允许新增，用户就能造出
+ * 第四种视图，与「事项固定三种呈现」的产品口径冲突。
+ * 同时上游源码里「N More」菜单的 Create 项、Tab ⋯ 菜单与视图设置弹层的
+ * Duplicate / Delete 项已在 blocksuite 源码中移除，这里保留隐藏兜底。
+ */
+affine-database [data-testid='database-add-view-button'] {
+  display: none !important;
+}
+
+/**
  * 视图 Tab 栏不换行（P3-1 布局修正）。
  *
  * 上游 `component-overflow` 用 `flex-wrap: wrap` 排布视图 Tab：当 Tab 与右侧
@@ -176,12 +227,14 @@ affine-database {
 }
 
 /* 表头外框只留底部一条线：原型 th 只有 border-bottom，没有左右边框。
- * 原型 th 是 sticky 表头（滚动时吸顶）。 */
+ * 原型 th 是 sticky 表头（滚动时吸顶）。
+ * 高度用 auto：上游列内容固定 32px（原型 th 高），外壳再写 32px 会把
+ * 2px 溢到底线之外，字段名看起来偏上、底线压住文字。 */
 affine-database affine-database-column-header {
   position: sticky;
   top: 0;
   z-index: 3;
-  height: 32px;
+  height: auto;
   background-color: var(--wb-db-thead-bg);
   border: 0;
   border-bottom: 1px solid var(--td-component-stroke);
@@ -190,6 +243,13 @@ affine-database affine-database-column-header {
 affine-database .affine-database-column-header {
   background-color: var(--wb-db-thead-bg);
   border: 0;
+}
+
+/* 列内容固定 32px 并垂直居中（上游是 34px，会顶出外壳）。 */
+affine-database
+  affine-database-column-header
+  .affine-database-column-content {
+  height: 32px;
 }
 
 affine-database .affine-database-column-text {
@@ -212,12 +272,31 @@ affine-database .affine-database-column-type-icon {
   display: none;
 }
 
-/* 数据单元格：12px 二级文字，无竖线，行高 40（原型 td）。 */
+/* 数据单元格：12px 二级文字，无竖线，行高 40（原型 td）。
+   上游是 `align-items: start`，在 40px 行高里内容会贴着上边缘（偏上约 9px），
+   换成居中后与原型 td 的垂直居中一致；`position: relative` 供空值占位定位。 */
 affine-database dv-table-view-cell-container {
+  position: relative;
   height: 40px;
   border-right: 0;
   color: var(--td-text-color-secondary);
   font-size: 12px;
+  align-items: center;
+}
+
+/**
+ * 单元格焦点框（上游 `.database-focus`）。
+ *
+ * 它写的是 `1px solid var(--affine-primary-color)`，该变量来自未引入的主题样式表，
+ * 值为空时 border 回退成 currentColor —— 于是在深色文字单元格上画出一圈粗黑框
+ * （用户截图里那个黑矩形）。变量已在 :root 补齐为品牌色；编辑态上游还会用
+ * inline style 叠一层蓝色光晕，与品牌色不搭，这里统一换成极浅的品牌色外发光。
+ */
+affine-database .database-focus {
+  /* 只改颜色与圆角，保留上游在拖拽填充时切换的 dashed 边框 */
+  border-color: var(--td-brand-color) !important;
+  border-radius: 3px !important;
+  box-shadow: 0 0 0 2px var(--td-brand-color-light) !important;
 }
 
 affine-database dv-table-view-cell-container uni-lit > *:first-child {
@@ -230,8 +309,14 @@ affine-database .affine-database-block-row {
   border-bottom: 1px solid #f0f1ef;
 }
 
-/* 数据行里每列后面那根独立竖分隔条：原型没有，直接收掉。 */
-affine-database .affine-database-block-row > div:not(.row-ops) > div {
+/* 数据行里每列后面那根独立竖分隔条：原型没有，直接收掉。
+   只命中「紧跟单元格容器的那一个 div」——早期写成 `> div > div` 会连带
+   隐藏单元格内部的两层 div（富文本编辑器容器），表现为点开能编辑但看不到内容。 */
+affine-database
+  .affine-database-block-row
+  > div:not(.row-ops)
+  > dv-table-view-cell-container
+  + div {
   display: none !important;
 }
 
@@ -277,86 +362,59 @@ affine-database .affine-database-block-row [data-column-id='wb-col-date'] {
   font-size: 11.5px;
 }
 
-/* 标题列：原型在标题前有一个 13px 的文档图标（.cell-title .row-ico）。 */
+/* 标题列：原型在标题前有一个 13px 的文档图标（.cell-title .row-ico）。
+   用 padding 而不是 ::before 占位，编辑时光标不会落在图标右侧。 */
 affine-database
   .affine-database-block-row
   [data-column-id='wb-col-title']
   uni-lit
-  > *:first-child::before {
-  content: '';
-  display: inline-block;
-  width: 13px;
-  height: 13px;
-  margin-right: 7px;
-  vertical-align: -2px;
-  background: no-repeat center / 13px 13px
+  > *:first-child {
+  padding-left: 20px;
+  background: no-repeat left center / 13px 13px
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2397a49b' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 3v5h5'/%3E%3C/svg%3E");
 }
 
 /**
- * 表格铺满（对齐原型 table{width:100%}）。
+ * 编辑态：把本层所有装饰（文档图标、空值「—」、优先级圆点、负责人头像）全部收掉。
  *
- * 上游是「外层 100% + overflowX:scroll，内层 fit-content/min-width:100%」，
- * 列宽固定 180px，所以容器宽于 1080 时右侧留白、窄于 1080 时横向滚动，
- * 与原型「表格始终铺满卡片宽度」不一致。
+ * 为什么必须在这里、且选择器要压过装饰规则：装饰都是伪元素，编辑时若不摘掉，
+ * 「—」和头像会画在输入框/光标上，用户看到的就是「在列表里打字，输入框不显示内容」。
+ * 上游给单元格打 `data-editing="true"`，这里以它为开关。
+ */
+affine-database .affine-database-block-row dv-table-view-cell-container[data-editing='true'] uni-lit > *:first-child,
+affine-database .affine-database-block-row dv-table-view-cell-container[data-editing='true']::after,
+affine-database
+  .affine-database-block-row
+  dv-table-view-cell-container[data-editing='true'][data-wb-initial]::before,
+affine-database
+  .affine-database-block-row
+  dv-table-view-cell-container[data-editing='true']
+  .select-selected[data-wb-prio]::before {
+  padding-left: 10px;
+  background-image: none;
+  content: none;
+}
+
+affine-database
+  .affine-database-block-row
+  [data-column-id='wb-col-title']
+  uni-lit
+  > *:first-child:empty {
+  padding-left: 0;
+  background-image: none;
+}
+
+/**
+ * 表格宽度（对齐原型 table{width:100%}）。
  *
- * 做法：让列变成可伸缩项均分容器宽度。上游给单元格写的是内联 width，
- * 必须用 !important 才能覆盖；弹性的中间层是行内那个 display:flex 的包裹 div。
- * 交互与列拖拽仍由上游决定（拖拽后写回内联 width，被这里的 auto 覆盖，
- * 因此拖拽列宽在该视图下不再生效，换取与原型一致的满宽布局）。
+ * 只让外层容器占满、内层允许横向滚动，**不再**把列宽改成 flex 均分：
+ * 早期用 `width:auto!important` + `flex-grow` 铺满，副作用是列宽拖拽彻底失效
+ * （拖完立刻被覆盖），且 8 列时列宽全被压扁。列宽现在由视图数据决定
+ * （`database-view-defaults.ts` 给六主列原型比例、来源两列 112），可拖拽可持久化。
  */
 affine-database .affine-database-table-container {
   width: 100% !important;
   min-width: 0 !important;
-}
-
-affine-database .affine-database-block-row > div:not(.row-ops) {
-  flex: 1 1 0;
-  min-width: 0;
-}
-
-affine-database dv-table-view-cell-container,
-affine-database affine-database-header-column {
-  width: auto !important;
-  min-width: 0 !important;
-  flex: 1 1 0;
-}
-
-/**
- * 列宽比例对齐原型（34% / 14% / 16% / 13% / 11% / 12%）。
- *
- * 原型的 th 用 nth-child 写死比例；这里换成 flex-grow 比例，仍然铺满容器。
- * 数据行的 flex item 是「每列一个包裹 div」，包裹本身没有 data-column-index，
- * 用 :has() 按里面的单元格取序号。第 6 列（关联文档）保持默认 12。
- */
-affine-database affine-database-header-column[data-column-index='0'],
-affine-database .affine-database-block-row > div:has(> [data-column-index='0']) {
-  flex-grow: 34;
-}
-
-affine-database affine-database-header-column[data-column-index='1'],
-affine-database .affine-database-block-row > div:has(> [data-column-index='1']) {
-  flex-grow: 14;
-}
-
-affine-database affine-database-header-column[data-column-index='2'],
-affine-database .affine-database-block-row > div:has(> [data-column-index='2']) {
-  flex-grow: 16;
-}
-
-affine-database affine-database-header-column[data-column-index='3'],
-affine-database .affine-database-block-row > div:has(> [data-column-index='3']) {
-  flex-grow: 13;
-}
-
-affine-database affine-database-header-column[data-column-index='4'],
-affine-database .affine-database-block-row > div:has(> [data-column-index='4']) {
-  flex-grow: 11;
-}
-
-affine-database affine-database-header-column[data-column-index='5'],
-affine-database .affine-database-block-row > div:has(> [data-column-index='5']) {
-  flex-grow: 12;
 }
 
 /**
@@ -435,31 +493,67 @@ affine-database data-view-header-tools-add-row {
    它被上游包在一个 flex:1 的容器里，右侧筛选组由那个容器推到头；
    这里补原型里的竖分隔线、左间距与 Tab 行底线。 */
 affine-database data-view-header-views {
+  gap: 0; /* 间距统一由 Tab 自身的 margin-right 控制，避免 4px + 4px 叠加成 8px */
   border-left: 1px solid var(--td-component-stroke);
   border-bottom: 1px solid var(--td-component-stroke);
   padding-left: var(--app-space-3);
 }
 
 /**
- * 视图 Tab 选中态（原型 .view-tab.is-active）。
+ * 视图 Tab 页签样式（表格 / 看板 / 日历）。
  *
- * 原型是「文字加粗 + 2px 品牌色下边框」的页签，不是实心胶囊；
- * 未选中为三级灰，图标与文字同色，选中后图标变品牌色。
+ * 上游默认是「圆角胶囊 + hover 填充底色 + 选中实心底色」，与本项目
+ * 「文字加粗 + 2px 品牌色下划线」的页签风格混搭，视觉上像两种控件并排。
+ * 这里统一成纯文字页签：
+ *   - 未选中：三级灰、无底色；
+ *   - hover：只提升文字色，不出现胶囊底；
+ *   - 选中：主文字色 + 加粗 + 底部 2px 品牌色下划线，图标同色。
  */
-affine-database .database-view-button {
+affine-database data-view-header-views .database-view-button {
+  margin-right: 2px !important; /* 上游有内联 margin-right:4px，需 !important 覆盖 */
+  padding: 0 10px;
+  gap: 6px; /* 图标与文字间距，替代上游 .icon 的 margin-right */
+  border-radius: 0;
+  font-size: 13px;
   color: var(--td-text-color-placeholder);
+  transition: color 0.15s ease;
 }
 
-affine-database .database-view-button.selected {
+affine-database data-view-header-views .database-view-button .name {
+  font-size: 13px;
+  line-height: 28px;
+  font-weight: 400;
+  padding-right: 0;
+}
+
+affine-database data-view-header-views .database-view-button .icon {
+  margin-right: 0;
+}
+
+affine-database data-view-header-views .database-view-button .icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 去掉上游 .dv-hover 的胶囊底色，hover 只变文字色 */
+affine-database data-view-header-views .database-view-button.dv-hover:hover,
+affine-database data-view-header-views .database-view-button.dv-hover.active {
+  background-color: transparent;
+  color: var(--td-text-color-secondary);
+}
+
+affine-database data-view-header-views .database-view-button.selected {
   background-color: transparent !important;
   color: var(--td-text-color-primary) !important;
-  font-weight: 500;
-  border-radius: 4px 4px 0 0;
   box-shadow: inset 0 -2px 0 var(--td-brand-color);
 }
 
-affine-database .database-view-button.selected .icon,
-affine-database .database-view-button.selected svg {
+affine-database data-view-header-views .database-view-button.selected .name {
+  font-weight: 500;
+}
+
+affine-database data-view-header-views .database-view-button.selected .icon,
+affine-database data-view-header-views .database-view-button.selected svg {
   color: var(--td-brand-color);
 }
 
@@ -592,9 +686,9 @@ affine-database .affine-select-cell-container .select-selected {
  */
 affine-database affine-data-view-kanban-group {
   width: auto;
-  min-width: 168px;
-  flex: 1 1 168px;
-  flex-shrink: 1;
+  min-width: 0;
+  flex: 1 1 0;
+  box-sizing: border-box;
   min-height: 200px;
   padding: 8px;
   background-color: #f7f8f7;
@@ -602,53 +696,121 @@ affine-database affine-data-view-kanban-group {
   border-radius: 7px;
 }
 
-/* 列间距与列宽：原型是 grid 三列等分（repeat(3, 1fr)、gap 12）。 */
-div:has(> affine-data-view-kanban-group) {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+/* 列间距与列宽：原型是 grid 三列等分（repeat(3, 1fr)、gap 12、内边距 12/18/18）。
+   上游容器是 flex + 20px 间距，且带内联左右 padding:0，必须用 !important 覆盖。 */
+affine-database div[class]:has(> affine-data-view-kanban-group) {
   gap: 12px;
-  padding-bottom: 0;
+  align-items: flex-start;
+  padding: 12px 18px 18px !important;
+}
+
+/* 上游末尾的「新建分组」按钮：原型看板没有，去掉后列宽才能均分。
+   该按钮带内联 display:flex，必须 !important 才能收起。
+   只对事项表生效，自建数据库仍保留新建分组入口。 */
+[data-wb-things]
+  affine-database
+  div[class]:has(> affine-data-view-kanban-group)
+  > div:not([data-key]) {
+  display: none !important;
+}
+
+/* 未分组列：空列不显示（避免常显空列模式下多出一列）；
+   一旦有卡片就保留，避免没有状态的行从看板消失。 */
+affine-database
+  affine-data-view-kanban-group[data-key='Ungroups']:not(:has(affine-data-view-kanban-card)) {
+  display: none;
 }
 
 /**
- * 看板列头对齐原型（P3-1）。
+ * 看板列头对齐原型（.kanban-head）。
  *
- * 原型列头是「值 + 灰色计数胶囊」，13px/700，上下留 8px；上游列头带一个
- * 属性类型图标、一个同宽方块计数，并用 hover 才出现的 +/⋯ 按钮。
- * 这里收起图标与方块样式，让列头回到原型的「文字 + 计数」两段式。
+ * 原型列头是「状态圆点 + 纯文字 + 灰色计数胶囊 + 加号」，11.5px/600、
+ * 行高约 20px；上游列头把列名渲染成带底色的标签胶囊，并用 hover 才出现的
+ * ＋/⋯ 两个按钮。这里去掉标签底色、计数胶囊的固定 22px 行高和多余的「⋯」，
+ * 让列头回到原型的紧凑高度。
  */
 affine-data-view-kanban-group .group-header {
   height: auto;
+  gap: 6px;
   padding: 2px 3px 8px;
-  font-size: 12px;
+  font-size: 11.5px;
+  line-height: 1.4;
   font-weight: 600;
   color: var(--td-text-color-secondary);
+  /* 原型是「圆点 + 列名 + 计数」靠左，「＋」靠右；上游默认 space-between
+     会把中间的列名挤到中间去。 */
+  justify-content: flex-start;
+}
+
+/* 列名容器不能吃满整行，否则计数/加号的位置会飘。 */
+affine-data-view-kanban-group .group-header > div:not(.group-header-ops) {
+  flex: 0 1 auto;
+  margin: 0;
+  justify-content: flex-start;
+}
+
+affine-data-view-kanban-group .group-header .group-header-ops {
+  margin-left: auto;
 }
 
 affine-data-view-kanban-group .group-header-icon {
   display: none;
 }
 
+/* 列名不再用上游的标签胶囊（原型是纯文字）。 */
+affine-data-view-kanban-group .group-header .tag {
+  height: auto;
+  padding: 0;
+  border-radius: 0;
+  background-color: transparent !important;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
 affine-data-view-kanban-group .group-header-count {
   width: auto;
   min-width: 0;
-  height: auto;
+  height: 16px;
   padding: 0 5px;
   border-radius: var(--app-radius-pill);
   background-color: #e9ebe9;
   color: var(--td-text-color-placeholder);
   font-size: 10px;
+  line-height: 16px;
   font-weight: 500;
+}
+
+/* 列头只保留「＋」：原型的看板列没有「⋯」分组操作菜单。
+   仅限事项表，自建数据库保留分组菜单。 */
+[data-wb-things]
+  affine-data-view-kanban-group
+  .group-header
+  .group-header-op:not(.add-card) {
+  display: none;
+}
+
+/* 列头「＋」常显：原型每列都有新增入口。 */
+affine-data-view-kanban-group .group-header .group-header-op.add-card {
+  visibility: visible;
+  opacity: 1;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  justify-content: center;
 }
 
 affine-data-view-kanban-group .group-body {
   margin-top: 0;
   padding: 0;
-  gap: var(--app-space-2);
+  /* 卡片自身有 7px 下间距；再用 gap 会变成 15px，原型是 7px。 */
+  gap: 0;
 }
 
-/* 列底「Add」入口：原型列里只有卡片，新建入口统一放在工具条。 */
-affine-data-view-kanban-group .add-card {
+/* 列底「Add」入口：原型列里只有卡片，新建入口统一放在工具条。
+   注意：`.group-header .add-card` 是列头的「＋」按钮（点它按该状态新建卡片），
+   必须保留；这里只收掉列体底部那个占位入口。 */
+affine-data-view-kanban-group .group-body > .add-card {
   display: none;
 }
 
@@ -656,8 +818,8 @@ affine-data-view-kanban-group .add-card {
  * 看板卡片对齐原型（.kanban-card）。
  *
  * 原型卡片：白底 + 1px #e7e7e7 描边 + 6px 圆角 + 9px/10px 内边距 + 7px 下间距，
- * 带一层极浅投影；内部是「标题（12px/500）→ meta 行（优先级 + 负责人，10px 三级灰）」。
- * 上游卡片投影更重、标题与正文同字号、每列铺成一行。
+ * 带一层极浅投影；内部是「标题（12px/500）→ 单行 meta（优先级 + 头像 + 截止日）」。
+ * 上游卡片投影更重、标题与正文同字号，并把所有列竖排进卡片。
  * 列 id 来自 database-seed.ts 的 WORKBENCH_DB_COLUMNS。
  */
 affine-data-view-kanban-card {
@@ -683,6 +845,12 @@ affine-database affine-data-view-kanban-card {
   border-radius: 6px;
 }
 
+/* hover 时的描边与投影（原型 .kanban-card:hover）。 */
+affine-database affine-data-view-kanban-card:hover {
+  border-color: #cfd8d1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
 affine-database affine-data-view-kanban-card .card-header {
   order: 1;
   padding: 0;
@@ -702,14 +870,25 @@ affine-database affine-data-view-kanban-card .card-header-title {
   line-height: 1.4;
 }
 
-affine-database affine-data-view-kanban-card .card-body {
+/* 卡片标题前的文档图标：原型卡片只有纯标题文字（仅事项表）。 */
+[data-wb-things] affine-database affine-data-view-kanban-card .card-header-title svg {
+  display: none;
+}
+
+/* 卡片 meta 行：上游默认把单元格竖排，这里改成原型的一行（仅事项表）。 */
+[data-wb-things] affine-database affine-data-view-kanban-card .card-body {
   order: 2;
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  height: auto;
   padding: 6px 0 0;
   font-size: 10px;
+  line-height: 1.2;
   color: var(--td-text-color-placeholder);
+  overflow: hidden;
 }
 
 affine-database
@@ -717,6 +896,7 @@ affine-database
   .card-body
   affine-data-view-kanban-cell {
   padding: 0;
+  line-height: 1.2;
 }
 
 /* 卡片里不再重复列的类型图标（原型是纯标签 / 纯文字）。 */
@@ -728,21 +908,102 @@ affine-database
   display: none;
 }
 
-/* 卡片底部只保留优先级与负责人（原型的 meta 行：优先级 + 负责人/日期）。
-   状态由所在列表达，关联文档留行详情。 */
-affine-database
+/* meta 行只保留优先级 / 负责人 / 截止日；其余列（状态、来源、自定义列）
+   由所在列或行详情表达，避免空单元格把卡片撑高。仅限事项表。 */
+[data-wb-things]
   affine-data-view-kanban-card
   .card-body
-  affine-data-view-kanban-cell[data-column-id='wb-col-status'],
-affine-database
-  affine-data-view-kanban-card
-  .card-body
-  affine-data-view-kanban-cell[data-column-id='wb-col-date'],
-affine-database
-  affine-data-view-kanban-card
-  .card-body
-  affine-data-view-kanban-cell[data-column-id='wb-col-relation'] {
+  affine-data-view-kanban-cell:not([data-column-id='wb-col-priority']):not(
+    [data-column-id='wb-col-owner']
+  ):not([data-column-id='wb-col-date']) {
   display: none;
+}
+
+/* 优先级在最左，负责人紧随，截止日靠右（原型：优先级 + 头像 … 日期）。 */
+affine-database
+  affine-data-view-kanban-card
+  .card-body
+  affine-data-view-kanban-cell[data-column-id='wb-col-priority'] {
+  order: 1;
+  flex: 0 0 auto;
+}
+
+affine-database
+  affine-data-view-kanban-card
+  .card-body
+  affine-data-view-kanban-cell[data-column-id='wb-col-owner'] {
+  order: 2;
+  flex: 0 0 auto;
+}
+
+affine-database
+  affine-data-view-kanban-card
+  .card-body
+  affine-data-view-kanban-cell[data-column-id='wb-col-date'] {
+  order: 3;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--td-text-color-placeholder);
+}
+
+/* 卡片里负责人只显示头像（原型没有姓名文字）：内容节点收起，保留 ::before 圆形头像。
+   内容节点带内联 display:block，必须 !important 才能收起。 */
+affine-database
+  affine-data-view-kanban-card
+  .card-body
+  affine-data-view-kanban-cell[data-column-id='wb-col-owner']
+  > * {
+  display: none !important;
+}
+
+/* 卡片里的优先级胶囊比表格小一号（原型 9px / 18px，仅事项表）。 */
+[data-wb-things] affine-database affine-data-view-kanban-card .select-selected {
+  height: 18px !important;
+  padding: 0 6px !important;
+  border-radius: var(--app-radius-pill);
+  font-size: 9px !important;
+  line-height: 18px !important;
+}
+
+/* 卡片里的截止日只显示「11-06 / 已逾期」+ 日历图标（内容由装饰层写进 data-wb-date）。
+   内容节点带内联 display:block，必须 !important 才能收起。 */
+affine-database
+  affine-data-view-kanban-card
+  .card-body
+  affine-data-view-kanban-cell[data-column-id='wb-col-date']
+  > * {
+  display: none !important;
+}
+
+affine-database
+  affine-data-view-kanban-card
+  .card-body
+  affine-data-view-kanban-cell[data-column-id='wb-col-date']::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 2h2v2h6V2h2v2h3v18H4V4h3V2zm13 8H6v10h14V10z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 2h2v2h6V2h2v2h3v18H4V4h3V2zm13 8H6v10h14V10z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+affine-data-view-kanban-card
+  .card-body
+  affine-data-view-kanban-cell[data-column-id='wb-col-date'][data-wb-date]::after {
+  content: attr(data-wb-date);
+}
+
+/* 逾期：原型用红色（.kc-date 已逾期）。 */
+affine-database
+  affine-data-view-kanban-card
+  .card-body
+  affine-data-view-kanban-cell[data-column-id='wb-col-date'][data-wb-late='true'] {
+  color: #e34d59;
 }
 
 /* 卡片底部「Add」入口：原型卡片没有，收起以免空白卡片多出一行。 */
@@ -851,15 +1112,24 @@ affine-database [data-column-id='wb-col-date'][data-wb-late='true'] {
   color: #e34d59;
 }
 
-/* 空值占位：原型空单元格显示「—」（只在表格行内，卡片里不补）。 */
+/* 空值占位：原型空单元格显示「—」（只在表格行内，卡片里不补）。
+   必须绝对定位：单元格是 flex 容器，`::after` 会作为最后一个 flex 项排在内容之后，
+   于是「有值但被判定为空」的单元格会渲染成「P1 —」，而空单元格的破折号又被
+   挤到右边缘（截图里几个「—」左右乱跳，就是这个问题）。 */
 affine-database
   .affine-database-block-row
   dv-table-view-cell-container[data-wb-empty='true']::after {
   content: '—';
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
   color: var(--td-text-color-placeholder);
+  pointer-events: none;
 }
 
-/* 看板列头的状态圆点：原型按列顺序用灰/蓝/绿。 */
+/* 看板列头的状态圆点：颜色由装饰层按选项底色反推（data-wb-tone），
+   不再按列顺序上色——列顺序一变颜色就错。 */
 affine-data-view-kanban-group .group-header::before {
   content: '';
   display: inline-block;
@@ -870,16 +1140,18 @@ affine-data-view-kanban-group .group-header::before {
   background-color: #b9bcb8;
 }
 
-div:has(> affine-data-view-kanban-group)
-  > affine-data-view-kanban-group:nth-child(2)
-  .group-header::before {
+affine-data-view-kanban-group[data-wb-tone='doing'] .group-header::before {
   background-color: #4a7fd4;
 }
 
-div:has(> affine-data-view-kanban-group)
-  > affine-data-view-kanban-group:nth-child(3)
-  .group-header::before {
+affine-data-view-kanban-group[data-wb-tone='done'] .group-header::before {
   background-color: #0b9a6a;
+}
+
+/* 列头「＋」常显：原型每列都有新增入口，上游默认 hover 才出现。 */
+affine-data-view-kanban-group .group-header .group-header-op.add-card {
+  visibility: visible;
+  opacity: 1;
 }
 
 /**

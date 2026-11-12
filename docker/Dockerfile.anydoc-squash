@@ -1,0 +1,22 @@
+# 把 docker export/import 出来的无元数据单层镜像，恢复成可直接运行的 weknora-app。
+# 由 scripts/squash-anydoc-image.sh 使用；构建上下文为空，只补镜像配置。
+#
+# import 出来的镜像丢了 PATH（Debian 默认值）与入口点，这里显式写回，
+# 其余文件系统内容已由基础镜像完整保留，不需要再次 COPY。
+ARG RAW_IMAGE=weknora-app:squashed-raw
+FROM ${RAW_IMAGE}
+
+# 保持与原 app 镜像一致的 Debian 默认搜索路径
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    BROWSERSKILL_BINARY=/opt/weknora/browserskill/bsk \
+    BROWSERSKILL_EXTENSION_PATH=/opt/weknora/browserskill/browser-skill-weknora-0.4.0.zip
+
+WORKDIR /app
+
+EXPOSE 8080
+
+LABEL org.weknora.anydoc="true"
+LABEL org.weknora.squashed="true"
+
+ENTRYPOINT ["./scripts/docker-entrypoint.sh"]
+CMD ["./WeKnora"]

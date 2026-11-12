@@ -9,7 +9,11 @@ import (
 
 // WorkbenchFeatureFlags 是工作台子功能的发布门禁快照（§9.1）。
 // 由 router 从 config 一次读出后传入，注册函数本身不读全局配置，便于测试。
+//
+// Enabled 是总开关（§15.3）：关闭时整组 /workbench 路由都不注册，
+// 已写入的数据保留、表不回滚；子开关只在总开关打开时才有意义。
 type WorkbenchFeatureFlags struct {
+	Enabled   bool
 	Templates bool
 	Journals  bool
 	AI        bool
@@ -36,7 +40,9 @@ func RegisterWorkbenchRoutes(
 	flags WorkbenchFeatureFlags,
 	g *rbacGuards,
 ) {
-	if itemHandler == nil {
+	// 总开关关闭：整组端点不注册，请求落到 gin 的 404，不返回 500，
+	// 也不影响已有数据（§15.3「不显示菜单入口」由前端按同一配置判定）。
+	if !flags.Enabled || itemHandler == nil {
 		return
 	}
 	group := r.Group("/workbench", middleware.DenyAPIKeyPrincipal())
@@ -66,6 +72,9 @@ func RegisterWorkbenchRoutes(
 
 		group.GET("/items/:id/versions", g.Viewer(), itemHandler.ListVersions)
 		group.POST("/items/:id/versions/:version/restore", g.Viewer(), itemHandler.RestoreVersion)
+
+		// 语义索引（§7.8）：只重建当前用户的工作知识库，不接受 kb_id。
+		group.POST("/kb/semantic-index", g.Viewer(), itemHandler.EnableSemanticIndex)
 	}
 	if folderHandler != nil {
 		group.GET("/folders", g.Viewer(), folderHandler.ListFolders)
@@ -97,6 +106,8 @@ func RegisterWorkbenchRoutes(
 		group.POST("/ai/ask", g.Viewer(), aiHandler.Ask)
 		// 数据库 AI（P3-5）：自然语言 → 补丁，前端预览确认后再写入（§11.7）。
 		group.POST("/ai/database", g.Viewer(), aiHandler.Database)
+		// 事项识别：文档正文 → 事项候选，前端确认后写入（归档自动抽取复用同一端点）。
+		group.POST("/ai/items", g.Viewer(), aiHandler.ExtractItems)
 		// 画布 AI（P2-6）：自然语言 → 分组/平移补丁，同样先预览后写入。
 		group.POST("/ai/canvas", g.Viewer(), aiHandler.Canvas)
 	}
@@ -108,6 +119,8 @@ func RegisterWorkbenchRoutes(
 		group.PATCH("/templates/:id", g.Viewer(), templateHandler.UpdateTemplate)
 		group.DELETE("/templates/:id", g.Viewer(), templateHandler.DeleteTemplate)
 		group.GET("/templates/:id/content", g.Viewer(), templateHandler.GetTemplateContent)
+		// 编辑模板正文：由模板管理页的编辑器提交快照（PUT 与 GET 同路径，语义是覆盖）。
+		group.PUT("/templates/:id/content", g.Viewer(), templateHandler.UpdateTemplateContent)
 	}
 	if assetHandler != nil {
 		// 资产（§12.1）：上传 multipart，下载只认 asset id。

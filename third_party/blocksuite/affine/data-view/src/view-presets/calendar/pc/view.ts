@@ -50,6 +50,15 @@ const weekdayFormatter = new Intl.DateTimeFormat(undefined, {
   weekday: 'short',
 });
 
+/** 单日超过这个数量就折叠，只显示前 N 条，其余进「+N」弹窗。 */
+const MAX_VISIBLE_DAY_ENTRIES = 5;
+
+/** 弹窗标题用的「11 月 12 日」。 */
+const dayTitleFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'long',
+  day: 'numeric',
+});
+
 const startOfDay = (time: number | Date) => {
   const date = time instanceof Date ? time : new Date(time);
   return new Date(
@@ -695,6 +704,67 @@ export class CalendarViewUILogic extends DataViewUILogicBase<CalendarSingleView>
 export class CalendarViewUI extends DataViewUIBase<CalendarViewUILogic> {
   static override styles = calendarViewStyles;
 
+  /** 单日事项折叠后点开的「全部事项」弹窗；null 表示关闭。 */
+  private dayOverflow: { date: number; entries: CalendarEntry[] } | null = null;
+
+  private openDayOverflow(date: number, entries: CalendarEntry[]) {
+    this.dayOverflow = { date, entries };
+    this.requestUpdate();
+  }
+
+  private closeDayOverflow() {
+    if (!this.dayOverflow) return;
+    this.dayOverflow = null;
+    this.requestUpdate();
+  }
+
+  /** 从弹窗里点某一条：关闭弹窗并走与日历条目一致的行详情打开逻辑。 */
+  private openOverflowEntry(entry: CalendarEntry, target: HTMLElement) {
+    this.closeDayOverflow();
+    this.logic.handleEntryClick(entry, target);
+  }
+
+  private renderDayOverflow(): TemplateResult | typeof nothing {
+    const state = this.dayOverflow;
+    if (!state) return nothing;
+    return html`
+      <div
+        class="calendar-day-overflow-mask"
+        @click=${() => this.closeDayOverflow()}
+      >
+        <div
+          class="calendar-day-overflow"
+          @click=${(event: MouseEvent) => event.stopPropagation()}
+        >
+          <div class="calendar-day-overflow-head">
+            <span>${dayTitleFormatter.format(new Date(state.date))}</span>
+            <button
+              class="calendar-icon-button"
+              aria-label="Close"
+              @click=${() => this.closeDayOverflow()}
+            >
+              ${CloseIcon()}
+            </button>
+          </div>
+          <div class="calendar-day-overflow-body">
+            ${state.entries.map(
+              entry => html`<button
+                class="calendar-day-overflow-item"
+                @click=${(event: MouseEvent) =>
+                  this.openOverflowEntry(
+                    entry,
+                    event.currentTarget as HTMLElement
+                  )}
+              >
+                ${entry.title || 'Untitled'}
+              </button>`
+            )}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   override connectedCallback(): void {
     super.connectedCallback();
     this.logic.attach(this);
@@ -1035,6 +1105,19 @@ export class CalendarViewUI extends DataViewUIBase<CalendarViewUILogic> {
                     (day, dayIndex) => {
                       const canReserveNewRow =
                         !this.logic.view.readonly$.value && day.inMonth;
+                      // 单日最多展示 MAX_VISIBLE_DAY_ENTRIES 条，其余折叠成「+N」，
+                      // 保证每个日期格子的高度固定、不随事项数量变化。
+                      const dayEntries = day.entries.filter(
+                        entry => !this.logic.isEntryBeingMoved(entry.id)
+                      );
+                      const hiddenCount = Math.max(
+                        0,
+                        dayEntries.length - MAX_VISIBLE_DAY_ENTRIES
+                      );
+                      const visibleEntries =
+                        hiddenCount > 0
+                          ? dayEntries.slice(0, MAX_VISIBLE_DAY_ENTRIES)
+                          : dayEntries;
                       return html`
                         <div
                           data-date=${day.date}
@@ -1050,13 +1133,29 @@ export class CalendarViewUI extends DataViewUIBase<CalendarViewUILogic> {
                             movingEntryId
                           )};"
                         >
-                          <div class="calendar-day-number">
-                            ${dateFormatter.format(new Date(day.date))}
+                          <div class="calendar-day-head">
+                            <div class="calendar-day-number">
+                              ${dateFormatter.format(new Date(day.date))}
+                            </div>
+                            ${
+                              hiddenCount > 0
+                                ? html`<button
+                                    class="calendar-day-count"
+                                    aria-label=${`Show all ${dayEntries.length} items`}
+                                    @click=${(event: MouseEvent) => {
+                                      event.stopPropagation();
+                                      this.openDayOverflow(day.date, dayEntries);
+                                    }}
+                                  >
+                                    +${hiddenCount}
+                                  </button>`
+                                : nothing
+                            }
                           </div>
                           <div class="calendar-day-entries">
-                            ${day.entries
-                              .filter(e => !this.logic.isEntryBeingMoved(e.id))
-                              .map(entry => this.renderEntry(entry))}
+                            ${visibleEntries.map(entry =>
+                              this.renderEntry(entry)
+                            )}
                             ${this.renderDayPreview(day.date)}
                             ${this.renderPreviewSpacer(day, preview, dayIndex)}
                           </div>
@@ -1094,6 +1193,7 @@ export class CalendarViewUI extends DataViewUIBase<CalendarViewUILogic> {
             }
           )}
         </div>
+        ${this.renderDayOverflow()}
       </div>
     `;
   }

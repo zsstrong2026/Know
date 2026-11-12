@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -637,6 +638,59 @@ func TestRunDiscussionHostIntervenesEveryNRounds(t *testing.T) {
 	assert.Contains(t, hostMsgs[0].Content, "发布方案评审", "兜底介入文案应包含会议主题")
 }
 
+// TestHostInDiscussion 自由抢麦模式下主持人不介入讨论过程，其余模式仍参与
+func TestHostInDiscussion(t *testing.T) {
+	assert.False(t, hostInDiscussion(&types.MeetingRoom{RoutingMode: types.MeetingRoutingFree}),
+		"自由抢麦：主持人不需要介入")
+	assert.True(t, hostInDiscussion(&types.MeetingRoom{RoutingMode: types.MeetingRoutingHostAssign}))
+	assert.True(t, hostInDiscussion(&types.MeetingRoom{RoutingMode: types.MeetingRoutingMention}))
+	assert.True(t, hostInDiscussion(&types.MeetingRoom{}), "旧数据空值等同主持人指派")
+}
+
+// fakeFreeRoutingRoomRepo 自由抢麦房间：即便配置了每 2 轮介入 + 护栏阈值 3，
+// 主持人在讨论过程中也不应产生任何消息。
+type fakeFreeRoutingRoomRepo struct {
+	interfaces.MeetingRoomRepository
+}
+
+func (f *fakeFreeRoutingRoomRepo) GetByIDInternal(_ context.Context, id string) (*types.MeetingRoom, error) {
+	return &types.MeetingRoom{
+		ID: id, TenantID: 1, Title: "发布方案评审",
+		BroadcastMode:    types.MeetingBroadcastSequential,
+		RoutingMode:      types.MeetingRoutingFree,
+		GuardMaxExchange: 3,
+		HostEveryNRounds: 2,
+	}, nil
+}
+
+// TestRunTurnFreeRoutingSkipsHost 真实路径：自由抢麦下智能体互相 @ 跑满子轮上限，
+// 但不触发阶段总结、也不触发互呛打断（主持人全程不介入）。
+func TestRunTurnFreeRoutingSkipsHost(t *testing.T) {
+	ctx := context.Background()
+	e, repo := newGuardEngineFixture(t, "room-free", []*types.MeetingMessage{
+		{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "触发"},
+	})
+	e.roomRepo = &fakeFreeRoutingRoomRepo{}
+	e.participantRepo = &fakeTwoAgentParticipantRepo{}
+	e.agentRepo = &fakeTwoAgentRepoForTurn{}
+	e.sessionService = &fakeMeetingSession{agentQA: func(_ context.Context, req *types.QARequest, bus *event.EventBus) error {
+		target := "@乙"
+		if req.CustomAgent.ID == "agent-B" {
+			target = "@甲"
+		}
+		return bus.Emit(context.Background(), event.Event{
+			Type: event.EventAgentFinalAnswer,
+			Data: event.AgentFinalAnswerData{Content: "我的观点 " + target},
+		})
+	}}
+
+	require.NoError(t, e.RunTurn(ctx, "room-free", "u1"))
+
+	msgs := repo.snapshot()
+	assert.Equal(t, 6, countByKind(msgs, types.MeetingSenderAgent), "子轮仍按硬上限正常展开")
+	assert.Equal(t, 0, countByKind(msgs, types.MeetingSenderHost), "自由抢麦下主持人不应产生任何消息")
+}
+
 // fakeNoInterventionRoomRepo 关闭主持人介入（0）；护栏阈值放宽到 4，
 // 使「前 4 条互 @、其后不再 @」的 6 条讨论消息不足以触发护栏，避免干扰断言。
 type fakeNoInterventionRoomRepo struct {
@@ -882,4 +936,148 @@ func TestRunAgentTurnsPassSilentlySkipped(t *testing.T) {
 			assert.NotEqual(t, "PASS", agentMsgs[0].Content, "落库内容不应是 PASS")
 		})
 	}
+}
+
+// ---- 圆桌讨论：用户中途插话 / @用户 暂停 / 议题自动推进 ----
+
+// fakeAgendaRoomRepo 启用议程的房间（固定返回同一 room 对象）
+type fakeAgendaRoomRepo struct {
+	interfaces.MeetingRoomRepository
+	room *types.MeetingRoom
+}
+
+func (f *fakeAgendaRoomRepo) GetByIDInternal(_ context.Context, _ string) (*types.MeetingRoom, error) {
+	return f.room, nil
+}
+
+// newAgendaEngineFixture 组装启用议程的圆桌讨论场景：两个参会智能体 + 可配置裁判结论 + 可配置发言内容
+func newAgendaEngineFixture(
+	t *testing.T, roomID, verdict string,
+	items []*types.MeetingAgendaItem, preset []*types.MeetingMessage,
+	reply func(req *types.QARequest) string,
+) (*meetingEngine, *fakeMeetingMessageRepo, *fakeAgendaRepo) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	repo := &fakeMeetingMessageRepo{preset: preset}
+	agendaRepo := &fakeAgendaRepo{items: items}
+	e := &meetingEngine{
+		roomRepo: &fakeAgendaRoomRepo{room: &types.MeetingRoom{
+			ID: roomID, TenantID: 1, Title: "发布方案评审", Status: types.MeetingStatusActive,
+			BroadcastMode: types.MeetingBroadcastSequential, AgendaEnabled: true,
+		}},
+		participantRepo: &fakeTwoAgentParticipantRepo{},
+		messageRepo:     repo,
+		agendaRepo:      agendaRepo,
+		agentRepo:       &fakeTwoAgentRepoForTurn{},
+		modelService: &stubModelService{
+			availableModels: []*types.Model{{ID: "m1", Type: types.ModelTypeKnowledgeQA, IsDefault: true}},
+			chatModel:       &hostChatStub{content: verdict},
+		},
+		redis:         rdb,
+		broadcaster:   NewMeetingBroadcaster(),
+		contextMax:    50,
+		turnLockLease: 5 * time.Minute,
+	}
+	if reply != nil {
+		e.sessionService = &fakeMeetingSession{agentQA: func(_ context.Context, req *types.QARequest, bus *event.EventBus) error {
+			return bus.Emit(context.Background(), event.Event{
+				Type: event.EventAgentFinalAnswer,
+				Data: event.AgentFinalAnswerData{Content: reply(req)},
+			})
+		}}
+	}
+	return e, repo, agendaRepo
+}
+
+// TestRunDiscussionUserInterjectionSwitchesTrigger 讨论进行中用户插话：不必等整轮结束，
+// 下一位发言者立即改为回应用户的新消息。
+func TestRunDiscussionUserInterjectionSwitchesTrigger(t *testing.T) {
+	e, repo, _ := newAgendaEngineFixture(t, "room-interject",
+		`{"converged":false,"reason":"仍有分歧"}`,
+		[]*types.MeetingAgendaItem{{ID: "i0", Seq: 0, Title: "成本", Goal: "给出区间", Status: types.MeetingAgendaActive}},
+		[]*types.MeetingMessage{
+			{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "先看成本"},
+			{ID: "u2", SenderKind: types.MeetingSenderUser, Content: "补充约束：预算上限 20 万"},
+		},
+		func(*types.QARequest) string { return "我的观点" },
+	)
+
+	require.NoError(t, e.RunTurn(context.Background(), "room-interject", "u1"))
+
+	agentMsgs := messagesByKind(repo.snapshot(), types.MeetingSenderAgent)
+	require.Len(t, agentMsgs, 4, "首轮双方回应 u1，插话后双方再回应 u2")
+	assert.Equal(t, "u1", agentMsgs[0].ReplyToMessageID)
+	assert.Equal(t, "u1", agentMsgs[1].ReplyToMessageID)
+	assert.Equal(t, "u2", agentMsgs[2].ReplyToMessageID, "用户中途插话后应立即切换到新消息")
+	assert.Equal(t, "u2", agentMsgs[3].ReplyToMessageID)
+}
+
+// TestRunDiscussionPausesWhenAgentAsksUser 智能体发言 @用户 提问时暂停讨论并广播 awaiting_user，
+// 不再按 @ 提及继续展开子轮。
+func TestRunDiscussionPausesWhenAgentAsksUser(t *testing.T) {
+	e, repo, _ := newAgendaEngineFixture(t, "room-ask",
+		`{"converged":false,"reason":"等待用户输入"}`,
+		[]*types.MeetingAgendaItem{{ID: "i0", Seq: 0, Title: "选型", Goal: "确定方案", Status: types.MeetingAgendaActive}},
+		[]*types.MeetingMessage{{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "开始"}},
+		func(req *types.QARequest) string {
+			if req.CustomAgent.ID == "agent-B" {
+				return "我倾向 A。@用户 你更看重成本还是稳定性？"
+			}
+			return "我倾向 B。@乙 你怎么看？"
+		},
+	)
+
+	ch, unsub := e.broadcaster.Subscribe("room-ask")
+	defer unsub()
+
+	require.NoError(t, e.RunTurn(context.Background(), "room-ask", "u1"))
+
+	agentMsgs := messagesByKind(repo.snapshot(), types.MeetingSenderAgent)
+	require.Len(t, agentMsgs, 2, "向用户提问后应暂停，不再展开 @ 子轮")
+	assert.True(t, asksUserMessage(agentMsgs) != nil, "落库消息应被识别为向用户提问")
+
+	var sawAwait bool
+	for len(ch) > 0 {
+		if evt := <-ch; evt.Type == MeetingEventAwaitingUser {
+			sawAwait = true
+		}
+	}
+	assert.True(t, sawAwait, "应广播 discussion.awaiting_user")
+}
+
+// TestRunDiscussionAutoAdvancesAgenda 当前议题覆盖后，主持人自动开下一题并继续讨论，
+// 全部议题完成才收束，不要求用户逐个议题点「下一步」。
+func TestRunDiscussionAutoAdvancesAgenda(t *testing.T) {
+	e, repo, agendaRepo := newAgendaEngineFixture(t, "room-adv",
+		`{"converged":true,"goal_covered":true,"reason":"已得出结论","consensus":"结论已确认"}`,
+		[]*types.MeetingAgendaItem{
+			{ID: "i0", Seq: 0, Title: "成本", Goal: "给出区间", Status: types.MeetingAgendaActive},
+			{ID: "i1", Seq: 1, Title: "兼容性", Goal: "列出不兼容项", Status: types.MeetingAgendaPending},
+		},
+		[]*types.MeetingMessage{{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "开始"}},
+		func(*types.QARequest) string { return "我的观点" },
+	)
+
+	require.NoError(t, e.RunTurn(context.Background(), "room-adv", "u1"))
+
+	msgs := repo.snapshot()
+	assert.Equal(t, 4, countByKind(msgs, types.MeetingSenderAgent), "两个议题各展开一轮，共 4 条智能体发言")
+	require.Len(t, agendaRepo.items, 2)
+	assert.Equal(t, types.MeetingAgendaDone, agendaRepo.items[0].Status, "首个议题应自动收束")
+	assert.Equal(t, types.MeetingAgendaDone, agendaRepo.items[1].Status, "下一议题应自动开题并收束")
+
+	var sawNextOpen, sawWrapUp bool
+	for _, m := range messagesByKind(msgs, types.MeetingSenderHost) {
+		if strings.Contains(m.Content, "【议题 2/2】兼容性") {
+			sawNextOpen = true
+		}
+		if strings.Contains(m.Content, "【会议收束】") {
+			sawWrapUp = true
+		}
+	}
+	assert.True(t, sawNextOpen, "应自动落下一议题的开题消息")
+	assert.True(t, sawWrapUp, "全部议题完成后应落收束消息")
 }

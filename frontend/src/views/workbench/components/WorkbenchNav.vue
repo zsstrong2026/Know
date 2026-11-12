@@ -21,7 +21,7 @@
     </div>
 
     <div class="wb-new-wrap">
-      <!-- 新建不再区分文档/画布：画布只是文档的另一种查看模式，直接建文档 -->
+      <!-- 「新建」是新建文档的快捷入口：一步建好并跳到编辑页，不再弹类型菜单。 -->
       <button class="wb-new" type="button" @click="createDocument">
         <t-icon name="add" size="15px" />
         <span>{{ $t('workbench.new.label') }}</span>
@@ -107,13 +107,14 @@
  * 只负责导航与“新建”动作；文件夹数据由 layout 统一拉取后放进 store，
  * 避免每个子页面各自请求一次。
  */
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { useWorkbenchStore } from '@/stores/workbench'
 import FolderTree from './FolderTree.vue'
 import AddDocsToFolderDialog from './AddDocsToFolderDialog.vue'
+import { todayISO } from '@/workbench/journals/date-only'
 
 const props = defineProps<{
   /** 当前选中的文件夹 id（来自路由参数）；为空表示不在文件夹视图 */
@@ -129,6 +130,15 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const store = useWorkbenchStore()
+
+// 列表页「新建文件夹」只派发事件，由导航统一触发文件夹树的行内输入。
+onMounted(() => {
+  window.addEventListener('workbench:create-folder', onCreateFolderRequested)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('workbench:create-folder', onCreateFolderRequested)
+})
 
 /** 文件夹树的“新建”输入由子组件管理；头部 + 复用同一套行内输入。 */
 const folderTreeRef = ref<InstanceType<typeof FolderTree> | null>(null)
@@ -175,20 +185,25 @@ function isActive(match: string): boolean {
   return name === match
 }
 
+/** 头部「+」：复用文件夹树的行内输入，在根级新建文件夹。 */
+function startCreateFolder() {
+  folderTreeRef.value?.startCreate(null)
+}
+
 /**
- * 新建文档。
+ * 侧栏「新建」：新建文档的快捷入口。
  *
- * 「文档」与「画布」只是同一份内容的两种查看模式，因此这里固定创建
- * page 形态的条目，后续由编辑器里的形态切换在 page / edgeless 间切换。
+ * 直接建一篇 page 形态的文档并跳到编辑页，同时把 journal_date 写成当天，
+ * 让它在 Journals 的「今天」里能直接看到。空标题仍按编辑器偏好生成。
  */
 async function createDocument() {
   try {
-    // 标题固定「未命名文档」：套用模板后视图据此判断是否采用模板名（§9.16.2）。
     const item = await store.createItem(
       'canvas',
-      t('workbench.editor.untitled'),
+      '',
       props.activeFolderId || null,
       'page',
+      todayISO(),
     )
     emit('created')
     await router.push({
@@ -201,9 +216,9 @@ async function createDocument() {
   }
 }
 
-/** 头部「+」：复用文件夹树的行内输入，在根级新建文件夹。 */
-function startCreateFolder() {
-  folderTreeRef.value?.startCreate(null)
+/** 列表页的「新建文件夹」也走同一条行内输入（跨组件用事件，避免层层透传）。 */
+function onCreateFolderRequested() {
+  startCreateFolder()
 }
 
 /** 文件夹树提交新建（根级或某个文件夹下）。 */

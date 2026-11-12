@@ -102,8 +102,8 @@ func workbenchTestEngine(t *testing.T, apiKeyScope *types.TenantAPIKeyScope) *gi
 		newWorkbenchArchiveHandlerForTest(), newWorkbenchJournalHandlerForTest(),
 		newWorkbenchNoticeHandlerForTest(), newWorkbenchAIHandlerForTest(),
 		newWorkbenchTemplateHandlerForTest(), newWorkbenchAssetHandlerForTest(),
-		// 测试引擎把三个门禁全部打开，覆盖到所有子路由。
-		WorkbenchFeatureFlags{Templates: true, Journals: true, AI: true}, guards)
+		// 测试引擎把总开关与三个子门禁全部打开，覆盖到所有子路由。
+		WorkbenchFeatureFlags{Enabled: true, Templates: true, Journals: true, AI: true}, guards)
 	RegisterWorkbenchNoticeRoutes(r.Group("/api/v1"), newWorkbenchNoticeHandlerForTest())
 	return r
 }
@@ -195,7 +195,8 @@ func workbenchGatedEngine(t *testing.T, flags WorkbenchFeatureFlags) *gin.Engine
 // 关闭子功能时不注册路由：请求落到 gin 的 404，而不是 403/500。
 // 这保证「开关只控制入口与路由注册」这条规则在服务端真的生效。
 func TestWorkbenchRoutes_FeatureFlagsSkipRegistration(t *testing.T) {
-	engine := workbenchGatedEngine(t, WorkbenchFeatureFlags{})
+	// 总开关打开、子开关全关：只能验证子门禁，条目端点仍应存在。
+	engine := workbenchGatedEngine(t, WorkbenchFeatureFlags{Enabled: true})
 
 	for _, req := range []*http.Request{
 		httptest.NewRequest(http.MethodGet, "/api/v1/workbench/templates", nil),
@@ -214,4 +215,35 @@ func TestWorkbenchRoutes_FeatureFlagsSkipRegistration(t *testing.T) {
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/workbench/items", nil))
 	require.NotEqual(t, http.StatusNotFound, rec.Code, "条目端点不应被模板/AI/Journals 开关影响")
+}
+
+// 总开关关闭时整组工作台端点都不注册（§15.3）：
+// 即使子开关打开也不能漏出任何入口，且已有数据不受影响（这里只验证路由面）。
+func TestWorkbenchRoutes_TotalSwitchOffSkipsWholeGroup(t *testing.T) {
+	engine := workbenchGatedEngine(t, WorkbenchFeatureFlags{
+		Enabled: false, Templates: true, Journals: true, AI: true,
+	})
+
+	for _, req := range []*http.Request{
+		httptest.NewRequest(http.MethodGet, "/api/v1/workbench/bootstrap", nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/workbench/items", nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/workbench/folders", nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/workbench/templates", nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/workbench/journals/month", nil),
+		httptest.NewRequest(http.MethodPost, "/api/v1/workbench/ai/inline", nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/workbench/assets/a-1", nil),
+	} {
+		rec := httptest.NewRecorder()
+		engine.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusNotFound, rec.Code,
+			"%s %s 在总开关关闭时必须未注册", req.Method, req.URL.Path)
+	}
+}
+
+// 总开关打开后行为与之前一致：空仓储的条目端点返回 404/2400，而不是被门禁吞掉。
+func TestWorkbenchRoutes_TotalSwitchOnRegistersGroup(t *testing.T) {
+	engine := workbenchGatedEngine(t, WorkbenchFeatureFlags{Enabled: true})
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/workbench/items", nil))
+	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
 }

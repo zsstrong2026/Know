@@ -16,6 +16,8 @@ const (
 	MeetingEventTurnEnded            = "discussion.turn_ended"
 	MeetingEventGuardTriggered       = "guard.triggered"
 	MeetingEventConsensusCreated     = "consensus.created"
+	// MeetingEventAwaitingUser 智能体在讨论中 @用户 提问，讨论暂停等待用户回应
+	MeetingEventAwaitingUser         = "discussion.awaiting_user"
 	MeetingEventSolutionGenerating   = "solution.generating"
 	MeetingEventSolutionCreated      = "solution.created"
 	MeetingEventFlowConfirmation     = "discussion.flow_confirmation"

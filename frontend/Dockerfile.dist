@@ -1,0 +1,37 @@
+# 仅用宿主预构建的 dist 产出前端运行镜像（本机构建环境内存不足时的备用路径）。
+#
+# 与 frontend/Dockerfile 的区别：不在容器内跑 npm ci + vite（那一步在 16GB 机器上
+# 会把 Docker 的 WSL VM 压垮）。这里只把静态产物与 nginx 配置覆盖到官方基础镜像上。
+#
+# 基础镜像（nginx:1.30.3-alpine）只带默认 nginx 配置，**不含**本项目的
+# nginx.conf 模板 / api-proxy.conf / http.conf / docker-entrypoint.sh，
+# 所以这些必须显式 COPY，否则：
+#   - 缺 SPA fallback → /platform/xxx 这类前端路由直接 404；
+#   - 缺 api-proxy 与 entrypoint → /api 请求无法转发到 app 容器。
+#
+# 用法：先把同一套文件摆进一个临时上下文目录（dist + 4 个 nginx 文件），
+# 再用 -f 指向本文件构建，避免改动仓库根的 .dockerignore 规则：
+#   npm --prefix frontend run build
+#   docker build -f frontend/Dockerfile.dist -t weknora-ui:local <staging-context>
+#
+# 上下文里需要这些相对路径：
+#   dist/                    前端静态产物
+#   nginx.conf               → /etc/nginx/templates/default.conf.template
+#   nginx-api-proxy.conf     → /etc/nginx/api-proxy.conf
+#   nginx-http.conf          → /etc/nginx/conf.d/00-weknora-http.conf
+#   docker-entrypoint.sh     → /docker-entrypoint.sh
+FROM nginx:1.30.3-alpine@sha256:0d3b80406a13a767339fbe2f41406d6c7da727ab89cf8fae399e81f780f814d1
+
+COPY dist /usr/share/nginx/html
+
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+# 放在 templates/ 之外：envsubst 会吃掉 $host 等 nginx 变量。
+COPY nginx-api-proxy.conf /etc/nginx/api-proxy.conf
+COPY nginx-http.conf /etc/nginx/conf.d/00-weknora-http.conf
+
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+ENV MAX_FILE_SIZE_MB=50
+
+EXPOSE 80

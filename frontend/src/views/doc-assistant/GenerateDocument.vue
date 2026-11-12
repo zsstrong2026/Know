@@ -75,6 +75,15 @@
             />
           </t-form-item>
 
+          <t-form-item :label="t('docAssistant.generate.archive')">
+            <t-checkbox v-model="form.auto_archive">
+              {{ t('docAssistant.generate.autoArchive') }}
+            </t-checkbox>
+            <div class="generate-help">
+              <span class="generate-help-text">{{ t('docAssistant.generate.autoArchiveHint') }}</span>
+            </div>
+          </t-form-item>
+
           <div class="generate-actions">
             <t-button theme="primary" :loading="submitting" :disabled="!canSubmit" @click="handleSubmit">
               <template #icon><t-icon name="send" /></template>
@@ -121,12 +130,15 @@ const form = reactive<{
   model_id: string
   theme: string
   extra_requirement: string
+  auto_archive: boolean
 }>({
   template_id: '',
   kb_ids: [],
   model_id: '',
   theme: '',
   extra_requirement: '',
+  // 默认勾选：生成的资料默认归到工作知识库，用户可显式关闭（§6.9）。
+  auto_archive: true,
 })
 
 const selectedTemplate = computed(() =>
@@ -171,6 +183,7 @@ const resetForm = () => {
   form.model_id = ''
   form.theme = ''
   form.extra_requirement = ''
+  form.auto_archive = true
 }
 
 const handleSubmit = async () => {
@@ -190,6 +203,8 @@ const handleSubmit = async () => {
       model_id: form.model_id || undefined,
       theme: form.theme.trim(),
       extra_requirement: form.extra_requirement.trim() || undefined,
+      // 自动归档：勾选时由服务端使用当前用户的工作知识库，生成成功后入队一次（§6.9）。
+      auto_archive: form.auto_archive,
     })
     MessagePlugin.success(t('docAssistant.generate.submitSuccess'))
     router.push('/platform/doc-assistant/tasks')

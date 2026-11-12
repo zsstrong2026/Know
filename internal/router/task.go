@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Tencent/WeKnora/internal/application/service"
+	workbenchservice "github.com/Tencent/WeKnora/internal/application/service/workbench"
 	"github.com/Tencent/WeKnora/internal/common"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/middleware/asynqdl"
@@ -49,9 +50,12 @@ type AsynqTaskParams struct {
 	TemporaryDocument    interfaces.TemporaryDocumentService
 	MemoryService        interfaces.MemoryService
 	DocAssistantService  interfaces.DocAssistantService
-	PMTaskService        interfaces.PMTaskService
-	DeadLetterRepo       interfaces.TaskDeadLetterRepository
-	SpanTracker          service.SpanTracker
+	// WorkbenchService 只用于注册章节文档自动归档 worker（§6.9）；
+	// 为 nil 时不注册，工作台其余能力不受影响。
+	WorkbenchService *workbenchservice.Service
+	PMTaskService    interfaces.PMTaskService
+	DeadLetterRepo   interfaces.TaskDeadLetterRepository
+	SpanTracker      service.SpanTracker
 }
 
 // defaultRedisOpTimeout is the previous hard-coded read timeout. The 100ms
@@ -324,6 +328,10 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 
 	// Register doc assistant document generation handler
 	mux.HandleFunc(types.TypeDocumentGenerate, params.DocAssistantService.ProcessGeneration)
+	// 章节文档生成成功后的自动归档（§6.9）；与人工归档共用同一条写入路径。
+	if params.WorkbenchService != nil {
+		mux.HandleFunc(types.TypeWorkbenchArchiveDoc, params.WorkbenchService.ProcessDocArchive)
+	}
 
 	// Register PM workstation generation handlers
 	mux.HandleFunc(types.TypePMPRDGenerate, params.PMTaskService.ProcessTask)

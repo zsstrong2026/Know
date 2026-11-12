@@ -39,15 +39,17 @@ func (h *WorkbenchItemHandler) Bootstrap(c *gin.Context) {
 }
 
 // ListItems GET /api/v1/workbench/items
-// 支持 kind / folder_id / favorite / trashed / q / journal / cursor / limit。
+// 支持 kind / exclude_kind / folder_id / favorite / trashed / q / journal / sort / cursor / limit。
 // owner 由服务端从 ctx 取，路径与 query 都不接受 owner 参数。
 func (h *WorkbenchItemHandler) ListItems(c *gin.Context) {
 	filter := types.WorkbenchItemFilter{
-		Kind:    c.Query("kind"),
-		Cursor:  c.Query("cursor"),
-		Query:   strings.TrimSpace(c.Query("q")),
-		Trashed: parseBoolQuery(c, "trashed"),
-		Limit:   parseIntQuery(c, "limit"),
+		Kind:        c.Query("kind"),
+		ExcludeKind: c.Query("exclude_kind"),
+		Cursor:      c.Query("cursor"),
+		Query:       strings.TrimSpace(c.Query("q")),
+		Sort:        strings.TrimSpace(c.Query("sort")),
+		Trashed:     parseBoolQuery(c, "trashed"),
+		Limit:       parseIntQuery(c, "limit"),
 	}
 	if folderID := c.Query("folder_id"); folderID != "" {
 		filter.FolderID = &folderID
@@ -217,6 +219,26 @@ func (h *WorkbenchItemHandler) RestoreVersion(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+
+// EnableSemanticIndex POST /api/v1/workbench/kb/semantic-index
+//
+// 只操作当前用户的工作知识库：不接受 kb_id，避免变成任意知识库重建入口（§7.8）。
+// 没有可用 Embedding 模型时返回 2406，前端据此提示“先去配置模型”。
+func (h *WorkbenchItemHandler) EnableSemanticIndex(c *gin.Context) {
+	var req struct {
+		ModelID string `json:"model_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
+		c.Error(apperrors.NewValidationError("Invalid request data").WithDetails(err.Error()))
+		return
+	}
+	result, err := h.service.EnableSemanticIndex(c.Request.Context(), req.ModelID)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": result})
 }
 
 // fail 统一错误出口：服务层已把业务错误翻译成 AppError，

@@ -33,6 +33,9 @@ type DocAssistantService struct {
 	modelSvc     interfaces.ModelService
 	taskEnqueuer interfaces.TaskEnqueuer
 	tenantRepo   interfaces.TenantRepository
+	// kbService 供自动归档校验输出知识库归属（§6.9）；
+	// 知识库服务不依赖文档助手，方向是安全的。
+	kbService interfaces.KnowledgeBaseService
 }
 
 // NewDocAssistantService 创建文档助手服务
@@ -44,6 +47,7 @@ func NewDocAssistantService(
 	modelSvc interfaces.ModelService,
 	taskEnqueuer interfaces.TaskEnqueuer,
 	tenantRepo interfaces.TenantRepository,
+	kbService interfaces.KnowledgeBaseService,
 ) interfaces.DocAssistantService {
 	return &DocAssistantService{
 		templateRepo: templateRepo,
@@ -53,7 +57,17 @@ func NewDocAssistantService(
 		modelSvc:     modelSvc,
 		taskEnqueuer: taskEnqueuer,
 		tenantRepo:   tenantRepo,
+		kbService:    kbService,
 	}
+}
+
+// MarkTaskArchiveState 回写自动归档状态（供工作台归档 worker 调用，§6.9）。
+func (s *DocAssistantService) MarkTaskArchiveState(
+	ctx context.Context, taskID, status, archiveErr string,
+) error {
+	tenantID := types.MustTenantIDFromContext(ctx)
+	ownerID, _ := types.UserIDFromContext(ctx)
+	return s.taskRepo.MarkArchiveState(ctx, tenantID, ownerID, taskID, status, archiveErr)
 }
 
 // ---- 模板 CRUD ----
@@ -238,11 +252,23 @@ func (s *DocAssistantService) CreateGenerationTask(ctx context.Context, task *ty
 		return nil, fmt.Errorf("%w: at least one knowledge base is required", ErrInvalidTask)
 	}
 
+	// 自动归档目标（§6.9）：output_kb_id 为空时懒创建工作知识库；
+	// 非空时必须是当前用户的私有工作知识库，不允许归档到 workspace 公共库。
+	if task.AutoArchive {
+		outputKBID, err := s.resolveArchiveKB(ctx, tenantID, ownerID, task.OutputKBID)
+		if err != nil {
+			return nil, err
+		}
+		task.OutputKBID = outputKBID
+	}
+
 	task.ID = types.NewDocAssistantID()
 	task.TenantID = tenantID
 	task.OwnerID = ownerID
 	task.TemplateSnapshot = types.JSON(snapshotBytes)
 	task.Status = types.DocTaskStatusPending
+	task.ArchiveStatus = types.DocArchiveStatusNone
+	task.ArchiveError = ""
 	task.CreatedAt = time.Now().UTC()
 	task.Progress = mustProgressJSON(chapters)
 
@@ -273,6 +299,71 @@ func (s *DocAssistantService) enqueueGeneration(ctx context.Context, task *types
 		return err
 	}
 	return nil
+}
+
+// resolveArchiveKB 校验/补齐自动归档目标知识库（§6.9）。
+//
+// 只接受当前用户的私有工作知识库：workspace 公共库、他人的私有库一律 400，
+// 避免把个人文档写进共享空间。
+func (s *DocAssistantService) resolveArchiveKB(
+	ctx context.Context, tenantID uint64, ownerID, outputKBID string,
+) (string, error) {
+	if s.kbService == nil {
+		return "", fmt.Errorf("%w: archive knowledge base service is not configured", ErrInvalidTask)
+	}
+	if outputKBID == "" {
+		kb, err := s.kbService.EnsureWorkKnowledgeBase(ctx, tenantID, ownerID)
+		if err != nil {
+			return "", err
+		}
+		if kb == nil || kb.ID == "" {
+			return "", fmt.Errorf("%w: work knowledge base is unavailable", ErrInvalidTask)
+		}
+		return kb.ID, nil
+	}
+	kb, err := s.kbService.GetKnowledgeBaseByID(ctx, outputKBID)
+	if err != nil || kb == nil {
+		return "", fmt.Errorf("%w: output knowledge base not found", ErrInvalidTask)
+	}
+	if !kb.IsWorkKB() || !kb.IsPrivate() || kb.CreatorID != ownerID {
+		return "", fmt.Errorf("%w: output knowledge base must be the caller's private work knowledge base", ErrInvalidTask)
+	}
+	return kb.ID, nil
+}
+
+// enqueueAutoArchive 在生成成功后入队一次自动归档（§6.9 第 2 步）。
+//
+// 入队失败只把任务标 failed + 写通知，生成结果本身仍然成功。
+func (s *DocAssistantService) enqueueAutoArchive(ctx context.Context, task *types.DocGenerationTask) {
+	if task == nil || !task.AutoArchive {
+		return
+	}
+	if task.ArchiveStatus != types.DocArchiveStatusNone {
+		// 已有终态（archived/skipped/failed）：不重复入队，避免用户删除归档后被重建。
+		return
+	}
+	task.ArchiveStatus = types.DocArchiveStatusPending
+	if err := s.taskRepo.MarkArchiveState(
+		ctx, task.TenantID, task.OwnerID, task.ID, types.DocArchiveStatusPending, ""); err != nil {
+		logger.Warnf(ctx, "[DocAssistant] failed to mark archive pending for %s: %v", task.ID, err)
+	}
+	payload, err := json.Marshal(types.DocArchivePayload{
+		TaskID:   task.ID,
+		TenantID: task.TenantID,
+		OwnerID:  task.OwnerID,
+	})
+	if err == nil {
+		_, err = s.taskEnqueuer.Enqueue(
+			asynq.NewTask(types.TypeWorkbenchArchiveDoc, payload),
+			asynq.MaxRetry(3),
+		)
+	}
+	if err != nil {
+		logger.Errorf(ctx, "[DocAssistant] failed to enqueue auto archive for %s: %v", task.ID, err)
+		_ = s.taskRepo.MarkArchiveState(
+			ctx, task.TenantID, task.OwnerID, task.ID,
+			types.DocArchiveStatusFailed, "failed to enqueue auto archive")
+	}
 }
 
 func (s *DocAssistantService) ListTasks(ctx context.Context) ([]*types.DocGenerationTask, error) {

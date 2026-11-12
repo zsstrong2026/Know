@@ -57,6 +57,7 @@ const (
 	ErrWorkbenchTooLarge        ErrorCode = 2402 // 413：内容超出体积上限
 	ErrWorkbenchArchiveBusy     ErrorCode = 2404 // 409：同一归档分片正被另一请求处理
 	ErrWorkbenchArchiveStale    ErrorCode = 2405 // 409：归档基线版本已过期
+	ErrWorkbenchNoEmbedding     ErrorCode = 2406 // 409：没有可用的 Embedding 模型
 	ErrWorkbenchNoModel         ErrorCode = 2408 // 409：租户没有可用的聊天模型
 	ErrWorkbenchDecodeFailed    ErrorCode = 2409 // 422：快照无法解码 / schema 版本不支持
 	ErrWorkbenchStreamBroken    ErrorCode = 2410 // 502：模型流式回答中途中断
@@ -351,6 +352,17 @@ func NewWorkbenchArchiveVersionStale(currentVersion int) *AppError {
 		Code:     ErrWorkbenchArchiveStale,
 		Message:  "workbench archive source is newer than the request base version",
 		Details:  map[string]any{"current_version": currentVersion},
+		HTTPCode: http.StatusConflict,
+	}
+}
+
+// NewWorkbenchNoEmbedding 生成 2406/409：工作区没有可用的 Embedding 模型，
+// 无法为工作知识库开启语义检索。前端据此提示“先去配置模型”，不反复重试。
+func NewWorkbenchNoEmbedding() *AppError {
+	return &AppError{
+		Code:     ErrWorkbenchNoEmbedding,
+		Message:  "no embedding model available for the work knowledge base",
+		Details:  map[string]any{"reason": "no_embedding_model"},
 		HTTPCode: http.StatusConflict,
 	}
 }

@@ -1,0 +1,28 @@
+# 在已有的 weknora-app 基础镜像之上，把「已链接 anydoc」的后端二进制与其配套
+# 迁移脚本烘进镜像，使 anydoc 解析引擎在容器重建（docker compose up --force-recreate）
+# 之后依然可用。
+#
+# 该文件由 scripts/build-anydoc-image.sh 调用，构建上下文是该脚本生成的产物目录，
+# 里面只有 WeKnora 二进制和 migrations/versioned/，因此上下文很小、构建只需秒级。
+#
+# 为什么不直接重建 Dockerfile.app：它的 browserskill 阶段要从 github.com 克隆源码，
+# 当前网络不可达；本文件改用 FROM 继承那份已经产出过 browserskill 的镜像，
+# apt 依赖、Python 运行时、许可包等一并继承，只有后端二进制和迁移被替换。
+# 默认值与 scripts/build-anydoc-image.sh 的 BASE_IMAGE 保持一致，
+# 避免 BuildKit 报 InvalidDefaultArgInFrom
+ARG BASE_IMAGE=weknora-app:local
+FROM ${BASE_IMAGE}
+
+WORKDIR /app
+
+# 只替换后端二进制本身
+COPY WeKnora /app/WeKnora
+
+# 迁移必须与二进制同批更新：容器启动时 AUTO_MIGRATE 以 /app/migrations 为源，
+# 只换二进制会让 schema 版本停在旧值（历史踩坑，见 workbench-handover.md §7.2）。
+COPY migrations/versioned/ /app/migrations/versioned/
+
+RUN chmod 0755 /app/WeKnora && test -x /app/WeKnora
+
+# 标记该镜像已烘入 anydoc，构建脚本据此识别，避免在旧产物上反复叠层
+LABEL org.weknora.anydoc="true"

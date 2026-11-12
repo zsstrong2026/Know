@@ -6,8 +6,6 @@ import {
   popupTargetFromElement,
 } from '@blocksuite/affine-components/context-menu';
 import {
-  DeleteIcon,
-  DuplicateIcon,
   InfoIcon,
   MoreHorizontalIcon,
   MoveLeftIcon,
@@ -135,21 +133,11 @@ export class DataViewHeaderViews extends WidgetBase {
             });
           }),
         }),
-        menu.group({
-          items: this.dataSource.viewMetas.map(v => {
-            return menu.action({
-              name: `Create ${v.model.defaultName}`,
-              hide: () => this.readonly,
-              prefix: PlusIcon(),
-              select: () => {
-                this.addView(v.type);
-              },
-            });
-          }),
-        }),
       ]
     );
   };
+  // 注意：这里刻意不提供「Create xxx」新建视图入口。
+  // 产品口径：工作台「事项」固定只有表格/看板/日历三种视图，不可新增。
 
   openViewOption = (target: PopupTarget, id: string) => {
     if (this.readonly) {
@@ -212,29 +200,12 @@ export class DataViewHeaderViews extends WidgetBase {
               }),
             ],
           }),
-          menu.group({
-            items: [
-              menu.action({
-                name: 'Duplicate',
-                prefix: DuplicateIcon(),
-                select: () => {
-                  this.viewManager.viewDuplicate(id);
-                },
-              }),
-              menu.action({
-                name: 'Delete',
-                prefix: DeleteIcon(),
-                select: () => {
-                  view.delete();
-                },
-                class: { 'delete-item': true },
-              }),
-            ],
-          }),
         ],
       },
     });
   };
+  // 注意：菜单里不再提供 Duplicate / Delete。
+  // 产品口径：表格/看板/日历三个视图固定存在，既不能删掉也不能复制出第四份。
 
   renderMore = (count: number) => {
     const views = this.viewManager.views$.value;

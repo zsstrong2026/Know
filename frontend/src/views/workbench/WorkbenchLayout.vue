@@ -3,6 +3,17 @@
   <div class="workbench-shell" :style="editorStyle" :data-canvas-scheme="editorPrefs.canvasScheme">
     <WorkbenchNav :active-folder-id="activeFolderId" @created="onCreated" />
     <main class="workbench-main">
+      <!-- 语义检索提示（§5.4）：工作库还没有向量索引，但空间里有可用 Embedding 模型 -->
+      <div v-if="showSemanticHint" class="semantic-hint" role="status">
+        <t-icon name="info-circle" size="14px" />
+        <span class="semantic-text">{{ $t('workbench.semantic.hint') }}</span>
+        <t-button size="small" variant="text" :loading="semanticBusy" @click="enableSemantic">
+          {{ $t('workbench.semantic.enable') }}
+        </t-button>
+        <button class="semantic-close" type="button" :aria-label="$t('workbench.semantic.dismiss')" @click="dismissSemantic">
+          <t-icon name="close" size="12px" />
+        </button>
+      </div>
       <WorkbenchNoticeBanner
         :notices="store.notices"
         @read="onNoticeRead"
@@ -23,7 +34,7 @@
  * 编辑器偏好在这里以 CSS 变量 + data 属性的形式挂在根节点上：
  * 只影响渲染，不写 Y.Doc、不产生 snapshot_version（§9.14.3）。
  */
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
@@ -32,6 +43,8 @@ import WorkbenchNav from './components/WorkbenchNav.vue'
 import WorkbenchNoticeBanner from './components/WorkbenchNoticeBanner.vue'
 import { useWorkbenchStore } from '@/stores/workbench'
 import { useWorkbenchPrefs } from '@/workbench/use-workbench-prefs'
+import { requestSemanticIndex } from '@/api/workbench'
+import { WORKBENCH_ERROR, workbenchErrorCode } from '@/workbench/error-code'
 // 原生 button 兜底外观：组件内 scoped 写不出 0 优先级规则，见文件头注释
 import './workbench-buttons.css'
 
@@ -41,6 +54,41 @@ const store = useWorkbenchStore()
 const { editorPrefs, editorStyle } = useWorkbenchPrefs()
 
 const activeFolderId = computed(() => String(route.params.folderId ?? ''))
+
+/** 语义检索提示：bootstrap 判定为需要且用户没有主动关掉（§5.4）。 */
+const semanticDismissed = ref(false)
+const semanticBusy = ref(false)
+const showSemanticHint = computed(
+  () => Boolean(store.bootstrap?.needs_semantic_index) && !semanticDismissed.value,
+)
+
+function dismissSemantic() {
+  semanticDismissed.value = true
+}
+
+/**
+ * 启用语义检索：绑定默认 Embedding 模型并重建索引。
+ *
+ * 成功只提示入队条数，不做前端索引进度模拟 —— 进度以知识库的
+ * processing_count 为准（§5.4 第 4 步）。
+ */
+async function enableSemantic() {
+  semanticBusy.value = true
+  try {
+    const result = await requestSemanticIndex()
+    MessagePlugin.success(t('workbench.semantic.enabled', { count: result.queued }))
+    semanticDismissed.value = true
+    await store.fetchBootstrap()
+  } catch (error) {
+    if (workbenchErrorCode(error) === WORKBENCH_ERROR.noEmbeddingModel) {
+      MessagePlugin.warning(t('workbench.semantic.noModel'))
+    } else {
+      MessagePlugin.error(t('workbench.semantic.failed'))
+    }
+  } finally {
+    semanticBusy.value = false
+  }
+}
 
 onMounted(async () => {
   // bootstrap 失败通常意味着工作知识库不可用（未登录/无成员权限），
@@ -101,5 +149,38 @@ function onNoticeReadAll() {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* 语义检索提示条：与通知条同一视觉层级，但不抢内容区高度 */
+.semantic-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  margin: 10px 16px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--td-brand-color-2);
+  border-radius: var(--app-radius-lg);
+  background: var(--td-brand-color-1);
+  color: var(--td-text-color-primary);
+  font-size: var(--app-text-sm);
+}
+
+.semantic-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.semantic-close {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: var(--app-radius-pill);
+  color: var(--td-text-color-placeholder);
+
+  &:hover {
+    background: var(--td-bg-color-container-hover);
+  }
 }
 </style>

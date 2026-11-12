@@ -135,6 +135,39 @@ func (s *Service) UpdateTemplate(
 	return updated.ToSummary(), nil
 }
 
+// UpdateTemplateContent 用客户端提交的快照替换模板正文。
+//
+// 与 CreateTemplate 的分工：创建时服务端只复制已落盘条目，避免多一条写入路径；
+// 而模板管理页没有"源文档"，用户直接在模板里编辑，只能由客户端把快照提交上来。
+// 校验顺序：请求 → base64 解码 → 模板体积上限，全部通过才落库。
+func (s *Service) UpdateTemplateContent(
+	ctx context.Context, id string, req *types.UpdateWorkbenchTemplateContentRequest,
+) (*types.WorkbenchTemplateSummary, error) {
+	tenantID, ownerID, err := callerScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := req.Validate(); err != nil {
+		return nil, mapTemplateValidationError(err)
+	}
+	ydoc, err := decodeTemplateYDoc(req.YDoc)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := s.repo.UpdateTemplateContent(
+		ctx, tenantID, ownerID, id, ydoc, len(ydoc), req.EditorSchemaVersion,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if updated == nil {
+		return nil, notFound("workbench template not found")
+	}
+	// 日志只记 id 与体积，不记模板名与正文。
+	logger.Infof(ctx, "[workbench] template content updated id=%s size=%d", updated.ID, updated.SizeBytes)
+	return updated.ToSummary(), nil
+}
+
 // DeleteTemplate 硬删；已用该模板创建的文档不受影响。
 func (s *Service) DeleteTemplate(ctx context.Context, id string) error {
 	tenantID, ownerID, err := callerScope(ctx)
@@ -185,11 +218,31 @@ func (s *Service) GetTemplateContent(
 	}, nil
 }
 
+// decodeTemplateYDoc 解码 base64 快照，并按解码后字节数复核模板上限（1MB）。
+func decodeTemplateYDoc(raw string) ([]byte, error) {
+	ydoc, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, apperrors.NewWorkbenchSchemaUnsupported(types.SupportedEditorSchemaVersion).
+			WithDetails(map[string]any{"reason": "ydoc is not valid base64"})
+	}
+	if len(ydoc) == 0 {
+		return nil, apperrors.NewBadRequestError("template snapshot is empty")
+	}
+	if len(ydoc) > types.WorkbenchTemplateMaxYDocBytes {
+		return nil, apperrors.NewWorkbenchTooLarge(types.WorkbenchTemplateMaxYDocBytes, int64(len(ydoc)))
+	}
+	return ydoc, nil
+}
+
 // mapTemplateValidationError 把 types 里的哨兵翻译成 400 / 413。
 func mapTemplateValidationError(err error) error {
 	switch {
 	case errors.Is(err, types.ErrWorkbenchTemplateTooLarge):
 		return apperrors.NewWorkbenchTooLarge(types.WorkbenchTemplateMaxYDocBytes, 0)
+	case errors.Is(err, types.ErrWorkbenchTemplateEmpty):
+		return apperrors.NewBadRequestError("template snapshot is empty")
+	case errors.Is(err, types.ErrWorkbenchInvalidEditorSchemaVersion):
+		return apperrors.NewWorkbenchSchemaUnsupported(types.SupportedEditorSchemaVersion)
 	case errors.Is(err, types.ErrWorkbenchInvalidTemplateDescription):
 		return apperrors.NewWorkbenchInvalidField("description", "at most 200 characters")
 	case errors.Is(err, types.ErrWorkbenchInvalidTemplateSource):

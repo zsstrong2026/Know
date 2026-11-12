@@ -402,16 +402,27 @@ type createGenerationRequest struct {
 	ModelID          string   `json:"model_id"`
 	Theme            string   `json:"theme" binding:"required"`
 	ExtraRequirement string   `json:"extra_requirement"`
+	// OutputKBID 自动归档目标（§6.9）；为空时由服务端懒创建工作知识库。
+	OutputKBID string `json:"output_kb_id"`
+	// AutoArchive 不传时按 true 处理：生成的资料默认归到工作知识库，
+	// 显式传 false 才关闭（§6.9 默认值口径）。
+	AutoArchive *bool `json:"auto_archive"`
 }
 
 func (r *createGenerationRequest) toType() *types.DocGenerationTask {
 	kbJSON, _ := json.Marshal(r.KbIDs)
+	autoArchive := true
+	if r.AutoArchive != nil {
+		autoArchive = *r.AutoArchive
+	}
 	return &types.DocGenerationTask{
 		TemplateID:       r.TemplateID,
 		KbIDs:            types.JSON(kbJSON),
 		ModelID:          r.ModelID,
 		Theme:            r.Theme,
 		ExtraRequirement: r.ExtraRequirement,
+		OutputKBID:       r.OutputKBID,
+		AutoArchive:      autoArchive,
 	}
 }
 

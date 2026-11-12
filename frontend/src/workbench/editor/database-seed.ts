@@ -11,8 +11,16 @@
 import { DatabaseBlockDataSource } from '@blocksuite/affine/blocks/database'
 
 import type { EditorSeedContext } from './blocksuite'
-import { WORKBENCH_DB_COLUMNS } from './database-columns'
-import { PROTOTYPE_CARD_PROPERTIES, PROTOTYPE_COLUMN_WIDTHS, SEED_COLUMN_WIDTH } from './database-view-defaults'
+import {
+  WORKBENCH_DB_COLUMNS,
+  WORKBENCH_DB_SOURCE_COLUMNS,
+  WORKBENCH_SOURCE_OPTIONS,
+} from './database-columns'
+import {
+  PROTOTYPE_CARD_PROPERTIES,
+  SOURCE_COLUMN_WIDTH,
+  defaultColumnWidth,
+} from './database-view-defaults'
 
 type BsStore = any
 
@@ -31,6 +39,12 @@ export interface DatabaseSeedLabels {
   ownerColumn: string
   priorityColumn: string
   relationColumn: string
+  /** 来源列：取值 手动 / AI 识别 / 文档归档 */
+  sourceColumn: string
+  /** 来源文档列：抽取自哪篇文档的条目名快照 */
+  sourceDocColumn: string
+  /** 来源列的三个选项；顺序固定为 手动 → AI 识别 → 文档归档 */
+  sourceOptions: [string, string, string]
   /** 数据库块标题：上游默认渲染英文 “Untitled”，这里跟条目名保持一致 */
   databaseTitle: string
   /** 状态列的三个选项；顺序固定为 待开始 → 进行中 → 已完成。 */
@@ -41,6 +55,9 @@ export interface DatabaseSeedLabels {
    */
   viewNames: { table: string; kanban: string; calendar: string }
 }
+
+/** 来源列的选项 id；定义搬到 `database-columns.ts`，这里原样再导出。 */
+export { WORKBENCH_SOURCE_OPTIONS }
 
 /** 优先级选项：P0/P1/P2 是跨语言通用写法，不做本地化。 */
 const PRIORITY_OPTIONS = [
@@ -62,8 +79,9 @@ function selectOptions(ids: readonly string[], values: readonly string[], colors
 /**
  * 工作台数据库的列定义（建库与老条目补列共用）。
  *
- * 列集合与原型（AFFiNE-Know原型.html 的事项表格）一致：事项 / 状态 / 负责人 /
- * 截止日 / 优先级 / 关联文档。表格视图的列顺序由视图数据决定，这里只保证列定义存在。
+ * 前六列与原型（AFFiNE-Know原型.html 的事项表格）一致：事项 / 状态 / 负责人 /
+ * 截止日 / 优先级 / 关联文档；后两列是「来源 / 来源文档」，用于记录事项从哪来
+ * （手动录入、AI 识别、文档归档抽取），放在末尾不影响原型六列的观感。
  */
 function buildWorkbenchColumns(labels: DatabaseSeedLabels) {
   return [
@@ -79,16 +97,91 @@ function buildWorkbenchColumns(labels: DatabaseSeedLabels) {
     // 优先级只做展示与筛选；上游没有 person / relation 类型，负责人与关联项都用文本承载。
     { id: WORKBENCH_DB_COLUMNS.priority, type: 'select', name: labels.priorityColumn, data: { options: PRIORITY_OPTIONS } },
     { id: WORKBENCH_DB_COLUMNS.relation, type: 'text', name: labels.relationColumn, data: {} },
+    // 来源两列：默认可见（用户明确要求可追溯），排在想定位置末尾。
+    {
+      id: WORKBENCH_DB_COLUMNS.source,
+      type: 'select',
+      name: labels.sourceColumn,
+      data: {
+        options: selectOptions(
+          [WORKBENCH_SOURCE_OPTIONS.manual, WORKBENCH_SOURCE_OPTIONS.ai, WORKBENCH_SOURCE_OPTIONS.archive],
+          labels.sourceOptions,
+          ['var(--affine-tag-gray)', 'var(--affine-tag-purple)', 'var(--affine-tag-teal)'],
+        ),
+      },
+    },
+    { id: WORKBENCH_DB_COLUMNS.sourceDoc, type: 'text', name: labels.sourceDocColumn, data: {} },
   ]
 }
 
 /**
- * 清理误加的四列（描述 / 需求来源 / 价值达成 / 所属版本）。
+ * 老条目补齐「来源 / 来源文档」两列（幂等）。
  *
- * 这四列是按旧原型误加进来的，真实原型（AFFiNE-Know原型.html）的事项表只有六列。
- * 已经写进 Y.Doc 的条目需要把列定义删掉，否则表头会多出四个空列。幂等。
+ * 为什么需要：列定义写在 Y.Doc 的 `columns` 里，改 seed 只对新建条目生效，
+ * 而事项是全局单例、只建一次，不补列老用户永远看不到来源。
+ *
+ * 只追加缺失的两列（按 id 判断），不重排、不改已有列；同时把它们补进每个
+ * 表格视图的 `columns`，否则视图只显示建视图时的那几列。
  */
-const OBSOLETE_COLUMN_IDS = ['wb-col-desc', 'wb-col-source', 'wb-col-value', 'wb-col-version']
+export function ensureWorkbenchSourceColumns(
+  store: BsStore,
+  labels: DatabaseSeedLabels,
+): boolean {
+  const databaseId = findDatabaseId(store)
+  if (!databaseId) return false
+  const model = store.getModelById(databaseId)
+  const current: any[] = model?.props?.columns$?.value ?? []
+  if (!model || !current.length) return false
+
+  const existing = new Set(current.map((column) => column?.id))
+  // 只补来源两列：其余列即使用户删掉也不应该被「复活」。
+  const missing = buildWorkbenchColumns(labels).filter(
+    (column) =>
+      WORKBENCH_DB_SOURCE_COLUMNS.includes(column.id as (typeof WORKBENCH_DB_SOURCE_COLUMNS)[number]) &&
+      !existing.has(column.id),
+  )
+  if (!missing.length) return false
+
+  store.updateBlock(databaseId, { columns: [...current, ...missing] })
+
+  // 视图层的列顺序存在 view data 里：新建列若不补进视图，表格会「有列但看不到」。
+  // 上游会在视图激活时 materialize，这里主动补齐可避免首帧缺列。
+  const dataSource = new DatabaseBlockDataSource(model)
+  const viewIds: string[] = dataSource.viewManager.views$.value ?? []
+  if (!viewIds.length) return true
+  for (const viewId of viewIds) {
+    const data = dataSource.viewDataGet(viewId)
+    if (data?.mode !== 'table') continue
+    const columns: any[] = Array.isArray(data.columns) ? data.columns : []
+    const present = new Set(columns.map((column) => column.id))
+    const appended = missing
+      .filter((column) => !present.has(column.id))
+      .map((column) => ({ id: column.id, width: SOURCE_COLUMN_WIDTH }))
+    if (!appended.length) continue
+    dataSource.viewDataUpdate(viewId, (viewData: any) => ({
+      ...viewData,
+      columns: [...columns, ...appended],
+    }))
+  }
+  return true
+}
+
+/** 来源两列在表格视图里的默认宽度见 `database-view-defaults.ts` 的 SOURCE_COLUMN_WIDTH。 */
+
+/**
+ * 清理误加的列（描述 / 需求来源 / 价值达成 / 所属版本 / Progress）。
+ *
+ * 前四列是按旧原型误加进来的，真实原型（AFFiNE-Know原型.html）的事项表只有六列；
+ * `wbjg7w6g-1` 是早期一次误操作留下的 progress 列，会让表头多出 “Progress”
+ * 并把表格撑出横向滚动。已经写进 Y.Doc 的条目需要把列定义删掉，否则表头会多列。幂等。
+ */
+const OBSOLETE_COLUMN_IDS = [
+  'wb-col-desc',
+  'wb-col-source',
+  'wb-col-value',
+  'wb-col-version',
+  'wbjg7w6g-1',
+]
 
 export function removeObsoleteWorkbenchColumns(store: BsStore): boolean {
   const databaseId = findDatabaseId(store)
@@ -98,6 +191,21 @@ export function removeObsoleteWorkbenchColumns(store: BsStore): boolean {
   const next = current.filter((column) => !OBSOLETE_COLUMN_IDS.includes(column?.id))
   if (next.length === current.length) return false
   store.updateBlock(databaseId, { columns: next })
+
+  // 视图层另存一份列顺序与列宽：只删块级列的话，表头仍会照视图配置把旧列渲染出来。
+  const dataSource = new DatabaseBlockDataSource(model)
+  const viewIds: string[] = dataSource.viewManager.views$.value ?? []
+  for (const viewId of viewIds) {
+    const data = dataSource.viewDataGet(viewId)
+    const columns: any[] = Array.isArray(data?.columns) ? data.columns : []
+    if (!columns.some((column) => OBSOLETE_COLUMN_IDS.includes(column?.id))) continue
+    dataSource.viewDataUpdate(viewId, (viewData: any) => ({
+      ...viewData,
+      columns: (Array.isArray(viewData?.columns) ? viewData.columns : []).filter(
+        (column: any) => !OBSOLETE_COLUMN_IDS.includes(column?.id),
+      ),
+    }))
+  }
   return true
 }
 
@@ -148,16 +256,16 @@ function createTableView(dataSource: any, name: string): string {
   const viewId: string = dataSource.viewManager.viewAdd('table')
   dataSource.viewDataUpdate(viewId, () => ({
     name,
-    // 列宽按原型比例一次性写好（事项宽、状态/优先级窄），六列一屏能看全。
+    // 列宽按原型比例一次性写好（事项宽、状态/优先级窄），八列（含来源）一屏能看全。
     columns: dataSource.properties$.value.map((id: string) => ({
       id,
-      width: PROTOTYPE_COLUMN_WIDTHS[id] ?? SEED_COLUMN_WIDTH,
+      width: defaultColumnWidth(id),
     })),
   }))
   return viewId
 }
 
-/** 看板：只补卡片可见属性，分组交给上游 defaultData 解析。 */
+/** 看板：只补卡片可见属性与「显示空列」，分组交给上游 defaultData 解析。 */
 function createKanbanView(dataSource: any, name: string): string {
   const viewId: string = dataSource.viewManager.viewAdd('kanban')
   dataSource.viewDataUpdate(viewId, (data: any) => ({
@@ -168,6 +276,9 @@ function createKanbanView(dataSource: any, name: string): string {
       ...data.card,
       visiblePropertyIds: [...PROTOTYPE_CARD_PROPERTIES],
     },
+    // 三个状态列常显（即使某列暂时没有卡片），否则用户会以为「状态只剩存在的几种」。
+    // 未分组列由 CSS 按「是否有卡片」决定显隐：空的隐藏，有卡片的保留。
+    groupBy: data.groupBy ? { ...data.groupBy, hideEmpty: false } : data.groupBy,
   }))
   return viewId
 }

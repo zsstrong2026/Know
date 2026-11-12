@@ -219,6 +219,9 @@ func (r *workbenchRepository) ListItems(
 	if filter.Kind != "" {
 		db = db.Where("kind = ?", filter.Kind)
 	}
+	if filter.ExcludeKind != "" {
+		db = db.Where("kind <> ?", filter.ExcludeKind)
+	}
 	if filter.FolderID != nil {
 		db = db.Where("folder_id = ?", *filter.FolderID)
 	}
@@ -244,20 +247,40 @@ func (r *workbenchRepository) ListItems(
 		db = db.Where("kind = ? AND journal_date IS NOT NULL", types.WorkbenchKindCanvas)
 	}
 
-	cursor, err := decodeItemsCursor(filter.Cursor)
+	// 排序（B5）：白名单三选一，未知值退回“最近更新”。
+	// 排序键同时决定 cursor 的比较列，两者必须成对出现。
+	sort := types.NormalizeWorkbenchItemSort(filter.Sort)
+	orderBy := "updated_at DESC, id DESC"
+	switch sort {
+	case types.WorkbenchSortCreated:
+		orderBy = "created_at DESC, id DESC"
+	case types.WorkbenchSortTitle:
+		orderBy = "title ASC, id DESC"
+	}
+
+	cursor, err := decodeWorkbenchItemsCursor(filter.Cursor, sort)
 	if err != nil {
 		return nil, false, err
 	}
 	if cursor != nil {
-		// 与 ORDER BY 一一对应：updated_at 降序，同刻再按 id 降序。
-		db = db.Where("(updated_at < ? OR (updated_at = ? AND id < ?))",
-			cursor.updatedAt, cursor.updatedAt, cursor.id)
+		// 与 ORDER BY 一一对应：先比排序键，同值再按 id 降序，保证翻页不重不漏。
+		switch sort {
+		case types.WorkbenchSortTitle:
+			db = db.Where("(title > ? OR (title = ? AND id < ?))",
+				cursor.key, cursor.key, cursor.id)
+		case types.WorkbenchSortCreated:
+			db = db.Where("(created_at < ? OR (created_at = ? AND id < ?))",
+				cursor.at, cursor.at, cursor.id)
+		default:
+			db = db.Where("(updated_at < ? OR (updated_at = ? AND id < ?))",
+				cursor.at, cursor.at, cursor.id)
+		}
 	}
 
 	var items []*types.WorkbenchItem
 	// 多取一条判断是否还有下一页，返回前裁掉。
 	if err := db.Select(workbenchItemListColumns).
-		Order("updated_at DESC, id DESC").
+		Order(orderBy).
 		Limit(limit + 1).
 		Find(&items).Error; err != nil {
 		return nil, false, err
@@ -426,7 +449,81 @@ func (r *workbenchRepository) PurgeTrashedBefore(
 	return purged, err
 }
 
-// itemsCursor 是 "updated_at|id" 的翻页锚点。
+// EncodeWorkbenchItemsCursor 把一页的最后一条编码成 next_cursor（B5）。
+//
+// 排序键不同，cursor 承载的比较值也不同：title 存字符串，其余存时间。
+// 服务层按同一套 sort 编码，翻页时才能与 ORDER BY 对上。
+func EncodeWorkbenchItemsCursor(item *types.WorkbenchItem, sort string) string {
+	if item == nil {
+		return ""
+	}
+	var key string
+	switch types.NormalizeWorkbenchItemSort(sort) {
+	case types.WorkbenchSortTitle:
+		key = "t:" + item.Title
+	case types.WorkbenchSortCreated:
+		key = "c:" + item.CreatedAt.UTC().Format(time.RFC3339Nano)
+	default:
+		key = "u:" + item.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(key + "|" + item.ID))
+}
+
+// workbenchItemsCursor 是按排序键解码后的翻页锚点。
+type workbenchItemsCursor struct {
+	key string
+	at  time.Time
+	id  string
+}
+
+// decodeWorkbenchItemsCursor 解析 cursor 并校验它属于当前排序。
+//
+// 排序变化后沿用旧 cursor 会翻出错乱的页，因此这里直接按非法 cursor 处理，
+// 让前端重置分页而不是静默串页。
+func decodeWorkbenchItemsCursor(raw, sort string) (*workbenchItemsCursor, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: cursor is not valid base64", types.ErrWorkbenchInvalidCursor)
+	}
+	parts := strings.SplitN(string(decoded), "|", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("%w: cursor must be sort_key|id", types.ErrWorkbenchInvalidCursor)
+	}
+	if parts[1] == "" {
+		return nil, fmt.Errorf("%w: cursor id is empty", types.ErrWorkbenchInvalidCursor)
+	}
+	key := parts[0]
+	cursor := &workbenchItemsCursor{id: parts[1]}
+	sort = types.NormalizeWorkbenchItemSort(sort)
+	switch {
+	case sort == types.WorkbenchSortTitle && strings.HasPrefix(key, "t:"):
+		cursor.key = strings.TrimPrefix(key, "t:")
+		if cursor.key == "" {
+			return nil, fmt.Errorf("%w: cursor title is empty", types.ErrWorkbenchInvalidCursor)
+		}
+	case sort == types.WorkbenchSortCreated && strings.HasPrefix(key, "c:"):
+		at, parseErr := time.Parse(time.RFC3339Nano, strings.TrimPrefix(key, "c:"))
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: cursor timestamp is invalid", types.ErrWorkbenchInvalidCursor)
+		}
+		cursor.at = at.UTC()
+	case sort == types.WorkbenchSortUpdated && strings.HasPrefix(key, "u:"):
+		at, parseErr := time.Parse(time.RFC3339Nano, strings.TrimPrefix(key, "u:"))
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: cursor timestamp is invalid", types.ErrWorkbenchInvalidCursor)
+		}
+		cursor.at = at.UTC()
+	default:
+		// 排序与 cursor 不匹配（切换排序后沿用旧 cursor）。
+		return nil, fmt.Errorf("%w: cursor does not match the requested sort",
+			types.ErrWorkbenchInvalidCursor)
+	}
+	return cursor, nil
+}
+
 type itemsCursor struct {
 	updatedAt time.Time
 	id        string

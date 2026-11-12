@@ -49,12 +49,15 @@
         <div class="routing-hint">{{ $t('meeting.routingHint') }}</div>
       </t-form-item>
       <t-form-item :label="$t('meeting.hostEveryNRounds')">
-        <t-select v-model="form.hostEveryNRounds" class="intervene-select">
+        <!-- 自由抢麦下主持人不介入讨论过程，该项无意义 -->
+        <t-select v-model="form.hostEveryNRounds" class="intervene-select" :disabled="form.routingMode === 'free'">
           <t-option :value="0" :label="$t('meeting.hostEveryNRoundsOff')" />
           <t-option v-for="n in HOST_INTERVENE_OPTIONS" :key="n" :value="n"
             :label="$t('meeting.hostInterveneEvery', { n })" />
         </t-select>
-        <div class="routing-hint">{{ $t('meeting.hostEveryNRoundsHint') }}</div>
+        <div class="routing-hint">
+          {{ form.routingMode === 'free' ? $t('meeting.hostEveryNRoundsFreeHint') : $t('meeting.hostEveryNRoundsHint') }}
+        </div>
       </t-form-item>
       <t-form-item :label="$t('meeting.consensusDetection')">
         <t-switch v-model="form.consensusDetectionEnabled" />

@@ -261,9 +261,3 @@ func mapSaveError(err error, currentVersion int, updatedAt time.Time) error {
 	}
 	return err
 }
-
-// encodeCursor 把一页最后一条编码成 next_cursor（updated_at|id 的 base64url）。
-func encodeCursor(updatedAt time.Time, id string) string {
-	return base64.RawURLEncoding.EncodeToString(
-		[]byte(updatedAt.UTC().Format(time.RFC3339Nano) + "|" + id))
-}

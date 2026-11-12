@@ -301,6 +301,9 @@ type GetSystemInfoResponse struct {
 	StartedAt string `json:"started_at,omitempty" extensions:"x-agent"`
 	// UptimeSeconds is seconds elapsed since process start.
 	UptimeSeconds int64 `json:"uptime_seconds,omitempty" extensions:"x-agent"`
+	// WorkbenchEnabled 是工作台总开关（§15.3）。前端据此决定是否显示侧栏入口
+	// 与注册 /platform/workbench 子路由；服务端路由注册以同一份配置为准。
+	WorkbenchEnabled bool `json:"workbench_enabled"`
 }
 
 // 编译时注入的版本信息
@@ -376,6 +379,7 @@ func (h *SystemHandler) GetSystemInfo(c *gin.Context) {
 		DBMigrationFailed:   dbMigrationErr != "",
 		StartedAt:           startedAt,
 		UptimeSeconds:       uptimeSec,
+		WorkbenchEnabled:    h.workbenchEnabled(),
 	}
 
 	logger.Info(ctx, "System info retrieved successfully")
@@ -585,6 +589,11 @@ func (h *SystemHandler) getKeywordIndexEngine() string {
 		return "未配置"
 	}
 	return strings.Join(keywordEngines, ", ")
+}
+
+// workbenchEnabled 读取工作台总开关；配置缺失（单测）时按关闭处理。
+func (h *SystemHandler) workbenchEnabled() bool {
+	return h.cfg != nil && h.cfg.Workbench != nil && h.cfg.Workbench.Enabled
 }
 
 // getVectorStoreEngine returns the vector store engine name

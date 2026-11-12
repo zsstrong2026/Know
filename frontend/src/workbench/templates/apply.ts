@@ -40,6 +40,16 @@ export function decodeTemplateBase64(text: string): Uint8Array {
   return bytes
 }
 
+/** 二进制 → base64；分块避免超长参数列表导致栈溢出（编辑模板后回写用）。 */
+export function encodeTemplateBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
 /**
  * 校验并准备模板快照。
  *

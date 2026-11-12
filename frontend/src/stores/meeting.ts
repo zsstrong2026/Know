@@ -6,7 +6,7 @@ import {
   listArtifacts, requestArtifact as apiRequestArtifact, regenerateArtifact as apiRegenerateArtifact,
   listAgenda, advanceAgenda as apiAdvanceAgenda,
   appendAgenda as apiAppendAgenda, reopenAgenda as apiReopenAgenda,
-  archiveMeeting,
+  archiveMeeting, isOpeningAnalyzing,
   type MeetingRoom, type MeetingMessage, type MeetingArtifact, type MeetingAgendaItem, type ArtifactKindType,
 } from '@/api/meeting';
 
@@ -15,7 +15,8 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   const currentRoom = ref<MeetingRoom | null>(null);
   const messages = ref<MeetingMessage[]>([]);
   const hasMore = ref(false);      // 顶部是否还有更早消息
-  const discussing = ref(false);   // 是否有讨论轮在进行（禁用输入用）
+  const discussing = ref(false);   // 是否有讨论轮在进行（可插话，不再禁用输入）
+  const awaitingUser = ref<MeetingMessage | null>(null); // 智能体 @用户 提问后，等待用户回应
   const guardNotice = ref<unknown>(null); // 护栏触发提示（主持人介入）
   const consensusNotice = ref<unknown>(null); // 裁判判定收敛提示（consensus.created）
   const solutionGenerating = ref(false);  // 方案生成中（按钮 loading 用）
@@ -26,6 +27,10 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   const activeAgendaItem = computed(() => agenda.value.find((it) => it.status === 'active') ?? null);
   // 已覆盖议题数（用于进度提示）
   const agendaDoneCount = computed(() => agenda.value.filter((it) => it.status === 'done').length);
+
+  // 开场生成中：待确认态下开场消息尚未回流（含用户刚发出调整意见/澄清回答后的重出）。
+  // 视图据此展示「正在分析议题」占位，并把「开始会议」确认坞推迟到开场回流之后。
+  const openingAnalyzing = computed(() => isOpeningAnalyzing(currentRoom.value?.status, messages.value));
 
   // 最近一条开场消息是否处于「等待用户澄清主题」态（与后端 openingNeedsClarification 对齐）；
   // 澄清态下用户直接输入语义为「补充说明」，而非隐式确认开会。
@@ -69,6 +74,7 @@ export const useMeetingStore = defineStore('meetingStore', () => {
 
   async function speak(content: string, mentionAgentIds: string[] = [], adjustFlow = false) {
     if (!currentRoom.value) return;
+    awaitingUser.value = null; // 用户已回应，等待提示随之收起
     // 后端不会通过 SSE 回推用户自身的消息，这里本地插入返回值，避免自己发言不显示
     const msg = await sendMessage(currentRoom.value.id, content, mentionAgentIds, adjustFlow);
     appendMessage(msg);
@@ -197,10 +203,15 @@ export const useMeetingStore = defineStore('meetingStore', () => {
       solutionGenerating.value = false;
     } else if (event === 'discussion.turn_started') {
       discussing.value = true;
+      awaitingUser.value = null; // 用户发言后讨论已继续，旧的等待提示失效
       guardNotice.value = null; // 新一轮开始清除旧的护栏提示
       consensusNotice.value = null; // 新一轮开始清除旧的共识提示
     } else if (event === 'discussion.turn_ended') {
       discussing.value = false;
+    } else if (event === 'discussion.awaiting_user') {
+      // 智能体 @用户 提问：讨论暂停，输入区提示「待你回应」
+      discussing.value = false;
+      awaitingUser.value = (data as { message?: MeetingMessage } | null)?.message ?? null;
     } else if (event === 'guard.triggered') {
       discussing.value = false;
       guardNotice.value = data;
@@ -232,15 +243,16 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     messages.value = [];
     hasMore.value = false;
     discussing.value = false;
+    awaitingUser.value = null;
     guardNotice.value = null;
     consensusNotice.value = null;
     artifacts.value = [];
     agenda.value = [];
   }
 
-  return { rooms, currentRoom, messages, hasMore, discussing, guardNotice, consensusNotice, solutionGenerating, artifacts,
+  return { rooms, currentRoom, messages, hasMore, discussing, awaitingUser, guardNotice, consensusNotice, solutionGenerating, artifacts,
     agenda, activeAgendaItem, agendaDoneCount,
-    needsClarification,
+    needsClarification, openingAnalyzing,
     fetchRooms, enterRoom, loadEarlier, speak, confirm, generate, archive, rollback, applyStreamEvent, clearGuardNotice, clearConsensusNotice, leaveRoom,
     fetchArtifacts, requestArtifact, regenerateArtifact, advanceAgenda, appendAgenda, reopenAgenda };
 });

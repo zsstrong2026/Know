@@ -164,7 +164,7 @@ func (e *meetingEngine) rewriteAnswer(
 	}
 	b.WriteString("未通过原因：" + reason + "\n")
 	b.WriteString("\n你上一条发言：\n" + truncate(answer, 1200) + "\n")
-	b.WriteString("\n请重写：只围绕当前子议题，给出不超过 3 条核心观点，必须包含已有讨论中没有的新信息（新事实/新约束/新方案/明确分歧理由）；")
+	b.WriteString("\n请重写：像会议发言一样最多 3 句话、不超过 120 字，只围绕当前子议题，必须包含已有讨论中没有的新信息（新事实/新约束/新方案/明确分歧理由）；")
 	b.WriteString("若确实没有新增内容，只回复 PASS。不要解释为什么重写。")
 	return e.runAgentOnce(ctx, room, meetingAgent, b.String(), kbIDs)
 }

@@ -99,6 +99,21 @@ func (m *memTemplateRepo) UpdateTemplate(
 	return row, nil
 }
 
+func (m *memTemplateRepo) UpdateTemplateContent(
+	_ context.Context, tenantID uint64, ownerID, id string,
+	ydoc []byte, sizeBytes, schemaVersion int,
+) (*types.WorkbenchTemplate, error) {
+	row, ok := m.rows[id]
+	if !ok || row.TenantID != tenantID || row.OwnerID != ownerID {
+		return nil, nil
+	}
+	row.YDoc = ydoc
+	row.SizeBytes = sizeBytes
+	row.EditorSchemaVersion = schemaVersion
+	row.UpdatedAt = time.Now().UTC()
+	return row, nil
+}
+
 func (m *memTemplateRepo) DeleteTemplate(
 	_ context.Context, tenantID uint64, ownerID, id string,
 ) (int64, error) {
@@ -188,6 +203,13 @@ func (c *combinedRepo) UpdateTemplate(
 	ctx context.Context, tenantID uint64, ownerID, id string, fields map[string]any,
 ) (*types.WorkbenchTemplate, error) {
 	return c.templates.UpdateTemplate(ctx, tenantID, ownerID, id, fields)
+}
+
+func (c *combinedRepo) UpdateTemplateContent(
+	ctx context.Context, tenantID uint64, ownerID, id string,
+	ydoc []byte, sizeBytes, schemaVersion int,
+) (*types.WorkbenchTemplate, error) {
+	return c.templates.UpdateTemplateContent(ctx, tenantID, ownerID, id, ydoc, sizeBytes, schemaVersion)
 }
 
 func (c *combinedRepo) DeleteTemplate(
@@ -393,6 +415,84 @@ func TestDeleteTemplate_DoesNotAffectItem(t *testing.T) {
 	// 再删一次是 404
 	err = s.DeleteTemplate(ctxFor(1, "user-a"), created.ID)
 	require.Error(t, err)
+}
+
+func TestUpdateTemplateContent_ReplacesSnapshot(t *testing.T) {
+	s := newTemplateTestService()
+	s.seedCanvas(1, "user-a", true)
+	created, err := s.CreateTemplate(ctxFor(1, "user-a"), &types.CreateWorkbenchTemplateRequest{
+		SourceItemID: "item-1",
+		Name:         "T",
+		Description:  "原描述",
+	})
+	require.NoError(t, err)
+
+	// 客户端提交新快照：正文替换，名称/描述/来源条目都不动。
+	updated, err := s.UpdateTemplateContent(ctxFor(1, "user-a"), created.ID,
+		&types.UpdateWorkbenchTemplateContentRequest{
+			YDoc:                "BQYHCA==", // base64 of 5..8
+			EditorSchemaVersion: types.SupportedEditorSchemaVersion,
+		})
+	require.NoError(t, err)
+	assert.Equal(t, "T", updated.Name)
+	assert.Equal(t, "原描述", updated.Description)
+	assert.Equal(t, 4, updated.SizeBytes)
+
+	content, err := s.GetTemplateContent(ctxFor(1, "user-a"), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "BQYHCA==", content.YDoc, "模板正文应被新快照覆盖")
+}
+
+func TestUpdateTemplateContent_RejectsBadRequest(t *testing.T) {
+	s := newTemplateTestService()
+	s.seedCanvas(1, "user-a", true)
+	created, err := s.CreateTemplate(ctxFor(1, "user-a"), &types.CreateWorkbenchTemplateRequest{
+		SourceItemID: "item-1",
+		Name:         "T",
+	})
+	require.NoError(t, err)
+	ctx := ctxFor(1, "user-a")
+
+	// 空快照
+	_, err = s.UpdateTemplateContent(ctx, created.ID, &types.UpdateWorkbenchTemplateContentRequest{
+		YDoc:                "   ",
+		EditorSchemaVersion: 1,
+	})
+	require.Error(t, err)
+
+	// schema 非法
+	_, err = s.UpdateTemplateContent(ctx, created.ID, &types.UpdateWorkbenchTemplateContentRequest{
+		YDoc:                "AQID",
+		EditorSchemaVersion: types.SupportedEditorSchemaVersion + 1,
+	})
+	require.Error(t, err)
+	appErr, ok := apperrors.IsAppError(err)
+	require.True(t, ok)
+	assert.Equal(t, 422, appErr.HTTPCode, "schema 不支持走 2409")
+
+	// 非法 base64
+	_, err = s.UpdateTemplateContent(ctx, created.ID, &types.UpdateWorkbenchTemplateContentRequest{
+		YDoc:                "!!!not-base64!!!",
+		EditorSchemaVersion: 1,
+	})
+	require.Error(t, err)
+}
+
+func TestUpdateTemplateContent_OtherOwnerIs404(t *testing.T) {
+	s := newTemplateTestService()
+	s.seedCanvas(1, "user-a", true)
+	created, err := s.CreateTemplate(ctxFor(1, "user-a"), &types.CreateWorkbenchTemplateRequest{
+		SourceItemID: "item-1",
+		Name:         "T",
+	})
+	require.NoError(t, err)
+
+	_, err = s.UpdateTemplateContent(ctxFor(1, "user-b"), created.ID,
+		&types.UpdateWorkbenchTemplateContentRequest{YDoc: "AQID", EditorSchemaVersion: 1})
+	require.Error(t, err)
+	appErr, ok := apperrors.IsAppError(err)
+	require.True(t, ok)
+	assert.Equal(t, 404, appErr.HTTPCode, "他人模板应按不存在处理")
 }
 
 func TestCreateTemplate_InvalidNameAndDescription(t *testing.T) {

@@ -163,6 +163,14 @@ func (m *memWorkbenchRepo) CountItems(context.Context, uint64, string) (int64, e
 	return int64(len(m.items)), nil
 }
 
+// ListLiveBySources 是列表批量填充归档状态的只读聚合。
+// 内存仓储没有归档行，统一返回空 map（列表徽标显示 none）。
+func (m *memWorkbenchRepo) ListLiveBySources(
+	context.Context, uint64, string, string, []string,
+) (map[string][]*types.WorkbenchArchive, error) {
+	return map[string][]*types.WorkbenchArchive{}, nil
+}
+
 func (m *memWorkbenchRepo) PurgeTrashedBefore(context.Context, time.Time, int) (int64, error) {
 	return 0, nil
 }

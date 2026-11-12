@@ -144,15 +144,49 @@ func (f fakeDocTasks) ListTasks(context.Context) ([]*types.DocGenerationTask, er
 	return rows, nil
 }
 
+// embeddingModels 只提供 ListModels，用于 NeedsSemanticIndex 的判定。
+// 与 ai_test.go 的 fakeModels 区分命名，避免同包重复声明。
+type embeddingModels struct {
+	rows []*types.Model
+	err  error
+}
+
+func (f embeddingModels) ListModels(context.Context) ([]*types.Model, error) {
+	return f.rows, f.err
+}
+
+// activeEmbeddingModel 返回一个可用的 embedding 模型，供“有模型时才提示重建”的用例使用。
+func activeEmbeddingModel() embeddingModels {
+	return embeddingModels{rows: []*types.Model{{
+		ID: "emb-1", Type: types.ModelTypeEmbedding, Status: types.ModelStatusActive,
+	}}}
+}
+
 // 只有关键词索引时提示需要语义索引。
 func TestBootstrapSuggestsSemanticIndexWithoutVector(t *testing.T) {
 	kb := newBootstrapKB()
 	kb.IndexingStrategy = types.IndexingStrategy{KeywordEnabled: true, VectorEnabled: false}
 
-	svc := NewService(&bootstrapRepo{}).WithArchiveServices(bootstrapKB{kb: kb}, nil)
+	svc := NewService(&bootstrapRepo{}).
+		WithArchiveServices(bootstrapKB{kb: kb}, nil).
+		WithSemanticIndex(nil, nil, activeEmbeddingModel())
 	result, err := svc.Bootstrap(newTestContext())
 	require.NoError(t, err)
 	assert.True(t, result.NeedsSemanticIndex)
+}
+
+// 没有任何 embedding 模型时不提示重建：点了也必然失败，应引导去配模型（§7.3）。
+func TestBootstrapNoSemanticHintWithoutModels(t *testing.T) {
+	kb := newBootstrapKB()
+	kb.IndexingStrategy = types.IndexingStrategy{KeywordEnabled: true, VectorEnabled: false}
+	kb.EmbeddingModelID = ""
+
+	svc := NewService(&bootstrapRepo{}).
+		WithArchiveServices(bootstrapKB{kb: kb}, nil).
+		WithSemanticIndex(nil, nil, embeddingModels{})
+	result, err := svc.Bootstrap(newTestContext())
+	require.NoError(t, err)
+	assert.False(t, result.NeedsSemanticIndex)
 }
 
 // 没注入 KB 服务时返回 503，而不是 panic。

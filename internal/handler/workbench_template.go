@@ -66,6 +66,24 @@ func (h *WorkbenchTemplateHandler) UpdateTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": tpl})
 }
 
+// UpdateTemplateContent PUT /api/v1/workbench/templates/:id/content
+//
+// 模板正文是客户端编辑后提交的快照；服务端只做 schema/体积校验后覆盖存储，
+// 不解析、不合并 Y.Doc。
+func (h *WorkbenchTemplateHandler) UpdateTemplateContent(c *gin.Context) {
+	var req types.UpdateWorkbenchTemplateContentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewValidationError("Invalid request data").WithDetails(err.Error()))
+		return
+	}
+	tpl, err := h.service.UpdateTemplateContent(c.Request.Context(), c.Param("id"), &req)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": tpl})
+}
+
 // DeleteTemplate DELETE /api/v1/workbench/templates/:id
 func (h *WorkbenchTemplateHandler) DeleteTemplate(c *gin.Context) {
 	if err := h.service.DeleteTemplate(c.Request.Context(), c.Param("id")); err != nil {

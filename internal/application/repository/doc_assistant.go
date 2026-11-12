@@ -119,11 +119,43 @@ func (r *DocTaskRepository) Update(ctx context.Context, task *types.DocGeneratio
 		return errors.New("doc generation task id is empty")
 	}
 	return r.db.WithContext(ctx).Model(task).Updates(map[string]interface{}{
-		"status":      task.Status,
-		"progress":    task.Progress,
-		"error":       task.Error,
-		"finished_at": task.FinishedAt,
+		"status":         task.Status,
+		"progress":       task.Progress,
+		"error":          task.Error,
+		"finished_at":    task.FinishedAt,
+		"output_kb_id":   task.OutputKBID,
+		"auto_archive":   task.AutoArchive,
+		"archive_status": task.ArchiveStatus,
+		"archive_error":  task.ArchiveError,
 	}).Error
+}
+
+// MarkArchiveState 只回写自动归档相关三列（§6.9）。
+//
+// 单独一个方法而不是复用 Update：worker 回写归档状态时不能覆盖并发的
+// 生成进度（progress/status），两者是不同的写者。
+func (r *DocTaskRepository) MarkArchiveState(
+	ctx context.Context, tenantID uint64, ownerID, id, status, archiveErr string,
+) error {
+	if id == "" {
+		return errors.New("doc generation task id is empty")
+	}
+	res := r.db.WithContext(ctx).
+		Model(&types.DocGenerationTask{}).
+		Where("id = ?", id).
+		Where("tenant_id = ?", tenantID).
+		Where("owner_id = ?", ownerID).
+		Updates(map[string]interface{}{
+			"archive_status": status,
+			"archive_error":  archiveErr,
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrDocTaskNotFound
+	}
+	return nil
 }
 
 func (r *DocTaskRepository) FindByID(ctx context.Context, tenantID uint64, ownerID, id string) (*types.DocGenerationTask, error) {

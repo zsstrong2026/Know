@@ -73,9 +73,19 @@ export interface DocGenerationTask {
   status: DocTaskStatus
   progress?: { chapters?: DocChapterProgress[] }
   error?: string
+  /** 自动归档目标知识库（§6.9）；为空表示不归档 */
+  output_kb_id?: string
+  /** 是否自动归档（默认 true） */
+  auto_archive?: boolean
+  /** 自动归档结果：'' / pending / archived / failed / deleted / skipped */
+  archive_status?: DocArchiveTaskStatus
+  archive_error?: string
   created_at: string
   finished_at?: string | null
 }
+
+/** 自动归档结果（doc_generation_tasks.archive_status） */
+export type DocArchiveTaskStatus = '' | 'pending' | 'archived' | 'failed' | 'deleted' | 'skipped'
 
 export interface DocGenerationPayload {
   template_id?: string
@@ -83,6 +93,10 @@ export interface DocGenerationPayload {
   model_id?: string
   theme: string
   extra_requirement?: string
+  /** 自动归档目标；留空由服务端使用当前用户的工作知识库 */
+  output_kb_id?: string
+  /** 不传时服务端按 true 处理 */
+  auto_archive?: boolean
 }
 
 export interface DocReference {

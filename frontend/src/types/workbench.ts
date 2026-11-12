@@ -11,6 +11,12 @@ export type WorkbenchItemKind = 'canvas' | 'database'
 
 export type WorkbenchScope = 'recent' | 'database' | 'folder' | 'favorites' | 'trash'
 
+/** 列表排序（B5）：最近更新 / 创建时间 / 名称。 */
+export type WorkbenchItemSort = 'updated' | 'created' | 'title'
+
+/** 新建菜单的四个入口（§9.5 / §9.16.2）。 */
+export type WorkbenchCreateAction = 'document' | 'canvas' | 'database' | 'folder'
+
 export type ArchiveSourceType = 'item' | 'doc'
 
 /** 七态：后端由映射行 + 知识存在性实时聚合，不落库（§7.6）。 */
@@ -67,6 +73,12 @@ export interface WorkbenchBootstrap {
   limits: WorkbenchBootstrapLimits
   features: WorkbenchFeatureToggles
   server_time: string
+}
+
+/** 语义索引重建结果（§7.8）：queued 是已重新入队的知识条数。 */
+export interface WorkbenchReindexResult {
+  queued: number
+  model_id: string
 }
 
 export interface WorkbenchItem {

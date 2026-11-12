@@ -201,6 +201,24 @@ func (h *WorkbenchAIHandler) Canvas(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }
 
+// ExtractItems POST /api/v1/workbench/ai/items
+//
+// 从文档正文识别事项候选：非流式整包 JSON（半截 JSON 无法预览）。
+// 服务端只产出候选，写入由前端确认后在 BlockSuite 事务里执行。
+func (h *WorkbenchAIHandler) ExtractItems(c *gin.Context) {
+	var req types.WorkbenchAIItemsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewValidationError("Invalid request data").WithDetails(err.Error()))
+		return
+	}
+	result, err := h.service.ExtractItems(c.Request.Context(), req)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+
 // writeInlineEvent 写一帧并 flush；返回 false 表示连接已断。
 func writeInlineEvent(c *gin.Context, event string, data gin.H) bool {
 	payload, err := json.Marshal(data)

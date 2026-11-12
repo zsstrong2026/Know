@@ -43,6 +43,8 @@ export interface SystemInfo {
   started_at?: string
   /** Seconds since process start. */
   uptime_seconds?: number
+  /** 工作台总开关（§15.3）。false 时侧栏不显示入口，/platform/workbench 路由回退。 */
+  workbench_enabled?: boolean
 }
 
 export interface DeploymentCapability {

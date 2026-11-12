@@ -971,11 +971,19 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// 工作台章节文档列表延迟回填：workbench.Service 的构造参数里不能直接要
 	// docAssistant（会形成 workbench ↔ docAssistant ↔ tenantMember 的环，
 	// 见工作台 provider 处注释），必须等到 docAssistant 已注册后在这里补上。
+	// 同一处顺带注入章节文档归档能力（§6.2/§6.9）：docAssistant 满足
+	// workbench.DocArchiveSource 的窄接口，方向仍是 workbench -> docAssistant。
 	must(container.Invoke(func(
 		svc *workbenchservice.Service,
 		docAssistant interfaces.DocAssistantService,
+		kbService interfaces.KnowledgeBaseService,
+		knowledgeService interfaces.KnowledgeService,
+		modelService interfaces.ModelService,
 	) {
 		svc.WithDocTasks(docAssistant)
+		svc.WithDocArchive(docAssistant)
+		// 语义索引（§5.4/§7.8）：改绑 embedding 模型 + 复用 ReparseKnowledge 重建。
+		svc.WithSemanticIndex(kbService, knowledgeService, modelService)
 	}))
 
 	// Doc assistant handler

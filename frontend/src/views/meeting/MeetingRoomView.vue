@@ -105,6 +105,12 @@
           <t-loading size="small" />
           <span>{{ $t('meeting.discussing') }}</span>
         </div>
+
+        <!-- 主持人分析议题中：开场消息尚未回流，先在对话框内给出明确等待提示（避免空白无反馈） -->
+        <div v-if="openingWaiting" class="discussing">
+          <t-loading size="small" />
+          <span>{{ $t('meeting.openingAnalyzing') }}</span>
+        </div>
       </div>
     </div>
 
@@ -179,6 +185,15 @@
       </div>
     </div>
 
+    <!-- 智能体在讨论中向你提问：讨论已暂停，直接回复即可继续 -->
+    <div v-if="store.awaitingUser && !isArchived" class="await-user-dock">
+      <div class="await-user-dock__title">
+        <t-icon name="chat-bubble-smile" />
+        <span>{{ $t('meeting.awaitingUserTitle', { name: senderLabel(store.awaitingUser) }) }}</span>
+      </div>
+      <p class="await-user-dock__desc">{{ $t('meeting.awaitingUserDesc') }}</p>
+    </div>
+
     <footer class="input-bar">
       <div class="input-inner">
         <!-- 已选 @ 的智能体 chip，可点关闭移除 -->
@@ -202,11 +217,11 @@
         <!-- t-textarea 的 keyup 会以组件参数回调（非原生事件），故在其外层原生 div 上监听并借冒泡触发 -->
         <div class="editor" @keyup.ctrl.enter="send">
           <t-textarea ref="draftRef" v-model="draft" :autosize="{ minRows: 2, maxRows: 6 }"
-            :disabled="store.discussing || isArchived" :placeholder="inputPlaceholder" />
+            :disabled="isArchived" :placeholder="inputPlaceholder" />
         </div>
         <div class="input-actions">
           <MentionPicker @pick="addMention" />
-          <t-button theme="primary" :disabled="store.discussing || isArchived || !draft.trim()" @click="send">
+          <t-button theme="primary" :disabled="isArchived || !draft.trim()" @click="send">
             {{ $t('meeting.send') }}
           </t-button>
         </div>
@@ -256,8 +271,25 @@ const roomId = computed(() => (route.params.roomId as string) || '');
 // 归档只读态：输入/发送/评审/生成方案全部禁用，SSE 仍保持接收（归档系统消息可推送到场）
 const isArchived = computed(() => store.currentRoom?.status === 'archived');
 
+// 主持人分析议题中的等待态；超时后不再阻塞确认坞，避免 SSE 断流时用户被永久卡在等待中
+const openingWaitTimedOut = ref(false);
+const openingWaiting = computed(() => store.openingAnalyzing && !openingWaitTimedOut.value);
+let openingWaitTimer: ReturnType<typeof setTimeout> | null = null;
+function clearOpeningWaitTimer() {
+  if (openingWaitTimer) clearTimeout(openingWaitTimer);
+  openingWaitTimer = null;
+}
+// 只观察 store 侧的等待态：新一次分析开始时重置超时标记并重新计时
+watch(() => store.openingAnalyzing, (analyzing) => {
+  clearOpeningWaitTimer();
+  openingWaitTimedOut.value = false;
+  if (analyzing) openingWaitTimer = setTimeout(() => { openingWaitTimedOut.value = true; }, 120000);
+}, { immediate: true });
+onBeforeUnmount(clearOpeningWaitTimer);
+
 // 待确认态：等待用户确认开场流程（确认后转 active）
-const isAwaiting = computed(() => store.currentRoom?.status === 'awaiting_confirmation');
+// 主持人仍在分析议题（openingWaiting）时不展示确认坞，避免「分析未完成就先让用户开始会议」
+const isAwaiting = computed(() => store.currentRoom?.status === 'awaiting_confirmation' && !openingWaiting.value);
 const confirming = ref(false); // 「开始会议」按钮 loading
 const adjustMode = ref(false); // 「调整流程」输入模式
 
@@ -307,8 +339,11 @@ const newAgendaTitle = ref('');
 const newAgendaGoal = ref('');
 const agendaActing = ref(false);      // 追加/恢复议题请求进行中
 
-// 收敛提示到达即展开决策坞；归档后不再引导（只读态由提示条告知）
-const showNextStepDock = computed(() => !!store.consensusNotice && !isArchived.value);
+// 收敛提示到达即展开决策坞；但只有"全部议题都已完成"时才引导会议走向，
+// 议题中途收束由主持人自动过渡到下一议题，不再打断用户节奏。
+const allAgendaSettled = computed(() =>
+  !store.agenda.length || store.agenda.every(it => it.status === 'done' || it.status === 'skipped'));
+const showNextStepDock = computed(() => !!store.consensusNotice && allAgendaSettled.value && !isArchived.value);
 
 // 「补充讨论」目标议题：优先最近一个已结束议题（收敛通常发生在其结束后），无则退回活跃议题
 const supplementItemId = computed(() => {
@@ -380,6 +415,8 @@ function endMeeting() {
 const inputPlaceholder = computed(() => {
   if (adjustMode.value) return t('meeting.adjustFlowPlaceholder');
   if (needsClarification.value) return t('meeting.clarifyPlaceholder');
+  // 讨论进行中不再锁输入：用户可随时插话，被 @ 的智能体会优先回应
+  if (store.discussing) return t('meeting.speakingPlaceholder');
   return t('meeting.inputPlaceholder');
 });
 
@@ -966,6 +1003,32 @@ async function interrupt() {
 .adjust-chip {
   display: flex;
   margin-bottom: var(--app-space-2);
+}
+
+/* ---------- 智能体等待用户回应 ---------- */
+.await-user-dock {
+  flex: 0 0 auto;
+  margin: var(--app-space-2) var(--app-space-5) 0;
+  padding: var(--app-space-2) var(--app-space-4);
+  border: 1px solid var(--td-brand-color-3);
+  border-radius: var(--app-radius-lg);
+  background: color-mix(in srgb, var(--td-brand-color) 6%, var(--td-bg-color-container));
+}
+
+.await-user-dock__title {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-1);
+  font-size: var(--app-text-md);
+  font-weight: 500;
+  color: var(--td-text-color-primary);
+}
+
+.await-user-dock__desc {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--td-text-color-secondary);
 }
 
 /* ---------- 输入区 ---------- */

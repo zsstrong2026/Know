@@ -213,8 +213,14 @@
       @attach="onImportedAttachments"
     />
 
-    <!-- 收集事项：规则抽取文档待办 → 预览勾选 → 确认后同步到「事项」库 -->
-    <CollectDialog v-model:visible="collectOpen" :todos="collectTodos" @confirm="onCollectConfirm" />
+    <!-- 识别事项：AI 识别（不可用时降级为正文待办规则路径）→ 预览勾选 → 确认后同步到「事项」库 -->
+    <CollectDialog
+      v-model:visible="collectOpen"
+      :candidates="collectCandidates"
+      :loading="collectLoading"
+      :origin="collectOrigin"
+      @confirm="onCollectConfirm"
+    />
   </section>
 </template>
 
@@ -227,10 +233,10 @@
  *   - 保存走 save-queue，冲突时弹三选项，绝不静默覆盖；
  *   - 归档需要 Markdown，本页从投影结果生成并提交。
  */
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin, NotifyPlugin } from 'tdesign-vue-next'
 import ArchiveBadge from './components/ArchiveBadge.vue'
 import VersionHistoryDialog from './components/VersionHistoryDialog.vue'
 import PageAILayer from './components/PageAILayer.vue'
@@ -252,6 +258,7 @@ import {
   getWorkbenchItem,
   listWorkbenchTemplates,
   refreshArchive,
+  requestItemCandidates,
   restoreWorkbenchVersion,
   updateWorkbenchItem,
   workbenchErrorCode,
@@ -265,7 +272,8 @@ import { type ArchiveBadgeAction } from '@/workbench/archive-status'
 import { shouldAdoptTemplateTitle, type PreparedTemplateSnapshot } from '@/workbench/templates/apply'
 import type { TemplateCardItem } from '@/workbench/templates/picker'
 import type { ArchiveStatus, WorkbenchItem } from '@/types/workbench'
-import type { CollectedTodo } from '@/workbench/editor/collect-todos'
+import type { ItemCandidate, ItemCandidateOrigin } from '@/workbench/ai/item-candidates'
+import { buildItemPatch, dedupeCandidates } from '@/workbench/ai/item-candidates'
 import type { DatabaseToolbarController } from '@/workbench/editor/database-session'
 import type { DatabaseRowDetail } from '@/workbench/editor/database-session'
 import type { DatabaseToolbarState } from '@/workbench/editor/database-state'
@@ -305,9 +313,11 @@ const exporting = ref(false)
 const databaseAIOpen = ref(false)
 /** 导入资料对话框（P4-1） */
 const importOpen = ref(false)
-/** 收集事项：预览弹窗与本次抽取结果（规则抽取，不依赖 AI） */
+/** 识别事项：预览弹窗、候选列表与加载态 */
 const collectOpen = ref(false)
-const collectTodos = ref<CollectedTodo[]>([])
+const collectCandidates = ref<ItemCandidate[]>([])
+const collectLoading = ref(false)
+const collectOrigin = ref<ItemCandidateOrigin>('ai')
 const isDatabase = computed(() => item.value?.kind === 'database')
 /** 跨月拖拽的清理函数：挂在编辑器宿主上，销毁时解除。 */
 let stopEdgeFlip: (() => void) | null = null
@@ -415,26 +425,63 @@ function leaveDatabaseFocus() {
 }
 
 /**
- * 收集事项：按规则抽正文待办做预览。
- * 不走 AI —— AI 只是可选增强，关闭时同样可用。
+ * 识别事项：优先走 AI，AI 不可用或失败时降级到正文待办的规则路径。
+ *
+ * 两条路径都产出 `ItemCandidate`，确认后的写入链路完全一致；
+ * AI 只是「理解得更好」，不是完成这件事的前提。
  */
 async function openCollect() {
-  const { collectTodos: extractTodos } = await import('@/workbench/editor/collect-todos')
-  collectTodos.value = extractTodos(session.editor.value?.store)
+  collectOrigin.value = canUseAI.value ? 'ai' : 'todo'
+  collectCandidates.value = []
   collectOpen.value = true
+  const markdown = session.markdown()
+  if (canUseAI.value && markdown.trim()) {
+    collectLoading.value = true
+    try {
+      const result = await requestItemCandidates({
+        item_id: itemId.value,
+        markdown,
+        agent_id: aiPrefs.value.defaultAgentId || undefined,
+        source_title: title.value,
+        limit: 30,
+      })
+      const { kept } = dedupeCandidates(result.items ?? [])
+      collectCandidates.value = kept
+      collectOrigin.value = 'ai'
+      if (!kept.length) MessagePlugin.info(t('workbench.collect.aiNotFound'))
+      return
+    } catch {
+      // AI 失败不阻断：继续走规则路径，用户仍能把正文待办收集进事项。
+      MessagePlugin.warning(t('workbench.collect.aiFailed'))
+    } finally {
+      collectLoading.value = false
+    }
+  }
+  collectOrigin.value = 'todo'
+  const { collectTodos: extractTodos } = await import('@/workbench/editor/collect-todos')
+  collectCandidates.value = extractTodos(session.editor.value?.store).map((todo) => ({
+    title: todo.title,
+    done: todo.done,
+  }))
 }
 
 /**
- * 确认收集：先落盘当前文档，再把结果暂存后跳到唯一的「事项」条目应用。
- * 只暂存 { title, done }：状态选项值随建库语言变化，由事项页按真实列配置解析。
+ * 确认识别结果：先落盘当前文档，再把候选暂存后跳到唯一的「事项」条目应用。
+ *
+ * 只暂存候选本身：状态与来源文案随建库语言变化，由事项页按真实列配置解析。
  */
-async function onCollectConfirm(picked: CollectedTodo[]) {
+async function onCollectConfirm(picked: ItemCandidate[]) {
   if (picked.length === 0) return
   collectOpen.value = false
   try {
     await session.flush()
     const things = await workbenchStore.ensureThingsItem()
-    workbenchStore.setPendingCollect({ itemId: things.id, todos: picked })
+    workbenchStore.setPendingCollect({
+      itemId: things.id,
+      candidates: picked,
+      origin: collectOrigin.value,
+      sourceTitle: title.value,
+    })
     await router.push({
       name: 'workbenchItem',
       params: { itemId: things.id },
@@ -552,25 +599,31 @@ function goAISettings() {
   void router.push({ name: 'workbenchSettings', query: { tab: 'ai' } })
 }
 
+/**
+ * 保存状态文案（§9.7）：自动保存只写回源条目，属于「草稿暂存」，
+ * 与「已归档」是两条链路。因此这里统一用「草稿已暂存」系列文案，
+ * 不出现「已保存 / 已归档」，避免用户以为内容已经进了知识库。
+ */
 const saveLabel = computed(() => {
   switch (saveState.value) {
     case 'pending':
-      return t('workbench.editor.savePending')
+      return t('workbench.editor.saveDraftPending')
     case 'saving':
-      return t('workbench.editor.saveSaving')
+      return t('workbench.editor.saveDraftSaving')
     case 'error':
+      return t('workbench.editor.saveDraftError')
     case 'conflict':
-      return t('workbench.editor.saveError')
+      return t('workbench.editor.saveDraftConflict')
     default:
-      return t('workbench.editor.saveSaved')
+      return t('workbench.editor.saveDraftSaved')
   }
 })
 
 /**
- * 最近一次保存的时间（工具条右侧显示「已保存 · 16:03」）。
+ * 最近一次保存的时间（工具条右侧显示「草稿已暂存 · 16:03」）。
  *
  * 优先用队列里真正落盘的时间；页面刚打开还没保存过时退回条目的 updated_at，
- * 否则会显示成「已保存」却没有时间。跨天时补上日期，避免昨天的 16:03 被当今天。
+ * 否则会显示成「草稿已暂存」却没有时间。跨天时补上日期，避免昨天的 16:03 被当今天。
  */
 const savedAtLabel = computed(() => {
   const stamp = savedAt.value ?? (item.value?.updated_at ? Date.parse(item.value.updated_at) : Number.NaN)
@@ -978,6 +1031,8 @@ async function submitArchive(action: ArchiveBadgeAction, options: { silent?: boo
         t(action === 'update' || action === 'retry' ? 'workbench.archive.action.update' : 'workbench.archive.action.create'),
       )
     }
+    // 归档成功后异步把正文里的安排同步到事项表：不阻塞归档结果，失败只记日志。
+    scheduleItemSync(markdown)
   } catch (error) {
     if (workbenchErrorCode(error) === WORKBENCH_ERROR.archiveStale) {
       MessagePlugin.warning(t('workbench.archive.status.stale'))
@@ -987,6 +1042,50 @@ async function submitArchive(action: ArchiveBadgeAction, options: { silent?: boo
   } finally {
     archiving.value = false
   }
+}
+
+/**
+ * 归档后自动同步事项（用户确认的口径：直接入库，不做二次确认）。
+ *
+ * 三条边界：
+ *   - 事项表自身归档不触发（否则会把自己的行再识别一遍）；
+ *   - AI 关闭时不做（识别依赖模型，规则路径只认正文待办，归档场景收益低）；
+ *   - 全程异步：归档已经成功，任何失败都只影响这次同步，不回滚归档、不弹错误。
+ * 成功后给一张带「撤销」的通知卡片，撤销按本次写入的行 id 删除。
+ */
+function scheduleItemSync(markdown: string) {
+  if (isDatabase.value || !canUseAI.value) return
+  void (async () => {
+    const { syncItemsAfterArchive, undoItemSync } = await import('@/workbench/item-extract')
+    const outcome = await syncItemsAfterArchive({
+      itemId: itemId.value,
+      sourceTitle: title.value,
+      markdown,
+      agentId: aiPrefs.value.defaultAgentId || undefined,
+    })
+    if (outcome.rows <= 0) return
+    NotifyPlugin.info({
+      title: t('workbench.collect.title'),
+      content: t('workbench.database.itemExtract.applied', { title: title.value, count: outcome.rows }),
+      duration: 8000,
+      closeBtn: true,
+      footer: () =>
+        h(
+          't-button',
+          {
+            size: 'small',
+            variant: 'text',
+            onClick: async () => {
+              const removed = await undoItemSync(outcome.rowIds)
+              if (removed > 0) {
+                MessagePlugin.success(t('workbench.database.itemExtract.undone', { count: removed }))
+              }
+            },
+          },
+          () => t('workbench.database.itemExtract.undo'),
+        ),
+    })
+  })()
 }
 
 /**
@@ -1135,6 +1234,9 @@ async function setupDatabaseTools(handle: NonNullable<typeof session.editor.valu
       表格: t('workbench.database.views.table'),
       看板: t('workbench.database.views.kanban'),
       日历: t('workbench.database.views.calendar'),
+      // 上一版误用了「Calendar 视图」这种中英混排名，一并纠正为新文案。
+      'Calendar 视图': t('workbench.database.views.calendar'),
+      'Calendar 視圖': t('workbench.database.views.calendar'),
     })
     controller.onUpdate(() => {
       // 每次重算都换一个新对象，shallowRef 才会触发 Vue 更新。
@@ -1142,6 +1244,10 @@ async function setupDatabaseTools(handle: NonNullable<typeof session.editor.valu
       // 数据视图晚于控制器就绪：状态一变就尝试消费「收集事项」暂存。
       void applyPendingCollect(controller)
     })
+    // 新行被当前筛选挡住时表格不会有任何变化，给一句提示，避免看起来像「点了没反应」。
+    controller.onNewRowHidden = () => {
+      MessagePlugin.warning(t('workbench.database.toolbar.newRowHidden'))
+    }
     dbState.value = { ...controller.state }
     dbController.value = controller
     // 首次 derive 可能早于 onUpdate 注册：补一次，避免错过已经就绪的时机。
@@ -1161,14 +1267,14 @@ async function setupDatabaseTools(handle: NonNullable<typeof session.editor.valu
 }
 
 /**
- * 消费「收集事项」暂存（规则路径，不经过 AI）。
+ * 消费「识别事项」暂存（AI 路径与正文待办路径共用）。
  *
- * 状态列名与选项值都从真实列配置读取：建库时写入的是当时语言的文案，
- * 硬编码会在切换界面语言后写错值。任一步不成立就把暂存放回，
- * 等下一次状态更新（`onUpdate`）再试，不丢弃用户已确认的待办。
+ * 列 id、列名与选项文案全部从控制器读真实配置：建库语言不同，
+ * 「待开始 / 文档归档」的文案也不同，硬编码会写错值。任一步不成立就把暂存放回，
+ * 等下一次状态更新（`onUpdate`）再试，不丢弃用户已确认的事项。
  */
 async function applyPendingCollect(controller: DatabaseToolbarController) {
-  // 数据视图还没渲染出来时先不动暂存：此时 applyAiPatch 必然失败。
+  // 数据视图还没渲染出来时先不动暂存：此时写入必然失败。
   if (!controller.state.ready) return
   const pending = workbenchStore.takePendingCollect()
   if (!pending) return
@@ -1177,25 +1283,29 @@ async function applyPendingCollect(controller: DatabaseToolbarController) {
     workbenchStore.setPendingCollect(pending)
     return
   }
-  const [{ getDatabaseModel, WORKBENCH_DB_COLUMNS }, { buildCollectPatch }] = await Promise.all([
-    import('@/workbench/editor/database-seed'),
-    import('@/workbench/editor/collect-todos'),
-  ])
-  const model = getDatabaseModel(session.editor.value?.store)
-  // 列声明在信号里：老条目的 `columns` 可能是普通数组，两种都兼容。
-  const columns = (model?.props?.columns$.value ?? model?.props?.columns ?? []) as any[]
-  const statusColumn = columns.find((column) => column.id === WORKBENCH_DB_COLUMNS.status)
-  const options = (statusColumn?.data?.options ?? []) as Array<{ id: string; value: string }>
-  const todo = options.find((option) => option.id === 'wb-opt-todo')?.value
-  const done = options.find((option) => option.id === 'wb-opt-done')?.value
-  if (!statusColumn?.name || !todo || !done) {
+  const schema = controller.itemWriteSchema(pending.sourceTitle)
+  if (!schema) {
     workbenchStore.setPendingCollect(pending)
     return
   }
-  const patch = buildCollectPatch(pending.todos, { columnName: statusColumn.name, todo, done })
+  // 来源列：手动识别 / 归档自动抽取 / 正文待办，分别落到对应选项。
+  schema.sourceLabel =
+    pending.origin === 'todo'
+      ? controller.sourceLabel('manual')
+      : pending.origin === 'archive'
+        ? controller.sourceLabel('archive')
+        : controller.sourceLabel('ai')
+
+  // 与表里已有行去重：同标题 + 同截止日视为同一件事，避免重复点一次就多一份。
+  const { kept } = dedupeCandidates(pending.candidates, controller.existingFingerprints())
+  if (!kept.length) {
+    MessagePlugin.info(t('workbench.collect.aiNotFound'))
+    return
+  }
+  const patch = buildItemPatch(kept, schema)
   const outcome = controller.applyAiPatch(patch, false)
   if (!outcome) {
-    // 未绑定 / 只读 / 写入被拒：放回，避免静默丢掉这批待办。
+    // 未绑定 / 只读 / 写入被拒：放回，避免静默丢掉这批事项。
     workbenchStore.setPendingCollect(pending)
     return
   }

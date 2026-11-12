@@ -25,6 +25,10 @@ type DocTaskRepository interface {
 	ListByOwner(ctx context.Context, tenantID uint64, ownerID string) ([]*types.DocGenerationTask, error)
 	// Delete 物理删除（任务删除时级联删除文档）
 	Delete(ctx context.Context, tenantID uint64, ownerID, id string) error
+	// MarkArchiveState 只回写自动归档状态两列，不覆盖并发生成进度（§6.9）。
+	MarkArchiveState(
+		ctx context.Context, tenantID uint64, ownerID, id, status, archiveErr string,
+	) error
 }
 
 // DocDocumentRepository 生成文档仓储（版本化）
@@ -82,7 +86,10 @@ type DocAssistantService interface {
 	RegenerateChapter(ctx context.Context, docID string, chapterNo int) (*types.DocDocument, error)
 	// UpdateChapterContent 编辑章节文字内容（v+1）
 	UpdateChapterContent(ctx context.Context, docID string, chapterNo int, content string) (*types.DocDocument, error)
+	// DeleteDocument 删除文档版本
 	DeleteDocument(ctx context.Context, docID string) error
+	// MarkTaskArchiveState 回写自动归档状态（工作台归档 worker 调用，§6.9）
+	MarkTaskArchiveState(ctx context.Context, taskID, status, archiveErr string) error
 
 	// ---- 导出 ----
 	// RenderMarkdown 渲染文档 md 内容（供下载/预览）

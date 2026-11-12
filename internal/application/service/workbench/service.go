@@ -55,6 +55,12 @@ type Service struct {
 	knowledge archiveKnowledgeService
 	// 章节文档计数（离开预览、bootstrap）；未注入时按 0 处理。
 	docTasks docTaskLister
+	// 章节文档归档（§6.2/§6.9）：未注入时 doc 来源的归档端点返回 2400。
+	docArchive DocArchiveSource
+	// 语义索引（§5.4/§7.8）：未注入时 enable 端点返回 503、bootstrap 不提示。
+	semanticKB        semanticKBService
+	semanticKnowledge semanticKnowledgeService
+	semanticModels    semanticModelProvider
 	// 资产文件存储；未注入时资产端点返回 503，其余端点不受影响。
 	assetStore AssetStore
 	// 发布门禁（§9.1）：只用于 bootstrap 下发，路由注册由 router 侧判定。

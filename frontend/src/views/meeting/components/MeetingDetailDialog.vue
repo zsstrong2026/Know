@@ -44,11 +44,13 @@
           :disabled="isArchived" />
       </t-form-item>
       <t-form-item :label="$t('meeting.hostEveryNRounds')">
-        <t-select v-model="form.hostEveryNRounds" :disabled="isArchived">
+        <!-- 自由抢麦下主持人不介入讨论过程，该项无意义 -->
+        <t-select v-model="form.hostEveryNRounds" :disabled="isArchived || form.routingMode === 'free'">
           <t-option :value="0" :label="$t('meeting.hostEveryNRoundsOff')" />
           <t-option v-for="n in HOST_INTERVENE_OPTIONS" :key="n" :value="n"
             :label="$t('meeting.hostInterveneEvery', { n })" />
         </t-select>
+        <div v-if="form.routingMode === 'free'" class="field-hint">{{ $t('meeting.hostEveryNRoundsFreeHint') }}</div>
       </t-form-item>
       <t-form-item :label="$t('meeting.consensusDetection')">
         <t-switch v-model="form.consensusDetectionEnabled" :disabled="isArchived" />

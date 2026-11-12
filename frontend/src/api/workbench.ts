@@ -22,10 +22,12 @@ import type {
   WorkbenchItemContent,
   WorkbenchItemKind,
   WorkbenchItemPage,
+  WorkbenchItemSort,
   WorkbenchJournalDay,
   WorkbenchJournalMonth,
   WorkbenchLeavePreview,
   WorkbenchNoticePage,
+  WorkbenchReindexResult,
   WorkbenchTemplateContent,
   WorkbenchTemplateSummary,
   WorkbenchVersionSummary,
@@ -41,14 +43,31 @@ export function getWorkbenchBootstrap(): Promise<WorkbenchBootstrap> {
   return get<{ success: boolean; data: WorkbenchBootstrap }>(`${BASE}/bootstrap`).then((r) => r.data)
 }
 
+/**
+ * 启用语义检索：为当前用户的工作知识库绑定 embedding 模型并重建索引（§7.8）。
+ *
+ * 不接受 kb_id —— 服务端固定操作调用者自己的工作库，避免变成任意库重建入口。
+ * model_id 留空则用默认 Embedding 模型；没有可用模型时返回 2406。
+ */
+export function requestSemanticIndex(modelId = ''): Promise<WorkbenchReindexResult> {
+  return post<{ success: boolean; data: WorkbenchReindexResult }>(
+    `${BASE}/kb/semantic-index`,
+    { model_id: modelId },
+  ).then((r) => r.data)
+}
+
 export interface ListWorkbenchItemsParams {
   kind?: WorkbenchItemKind
+  /** 排除某类条目：「最近」用它挡掉事项（kind=database） */
+  exclude_kind?: WorkbenchItemKind
   folder_id?: string
   favorite?: boolean
   trashed?: boolean
   q?: string
   /** 按标签过滤（P4-2） */
   tag_id?: string
+  /** 列表排序（B5）：updated（默认）/ created / title */
+  sort?: WorkbenchItemSort
   cursor?: string
   limit?: number
 }
@@ -56,11 +75,13 @@ export interface ListWorkbenchItemsParams {
 export function listWorkbenchItems(params: ListWorkbenchItemsParams = {}): Promise<WorkbenchItemPage> {
   const query = new URLSearchParams()
   if (params.kind) query.set('kind', params.kind)
+  if (params.exclude_kind) query.set('exclude_kind', params.exclude_kind)
   if (params.folder_id) query.set('folder_id', params.folder_id)
   if (params.favorite) query.set('favorite', '1')
   if (params.trashed) query.set('trashed', '1')
   if (params.q) query.set('q', params.q)
   if (params.tag_id) query.set('tag_id', params.tag_id)
+  if (params.sort) query.set('sort', params.sort)
   if (params.cursor) query.set('cursor', params.cursor)
   query.set('limit', String(params.limit ?? 30))
   return get<{ success: boolean; data: WorkbenchItemPage }>(`${BASE}/items?${query.toString()}`)
@@ -316,6 +337,22 @@ export function deleteWorkbenchTemplate(id: string): Promise<void> {
   return del<{ success: boolean }>(`${BASE}/templates/${encodeURIComponent(id)}`).then(() => undefined)
 }
 
+/**
+ * 覆盖模板正文（模板管理页的编辑器提交）。
+ *
+ * 与 createWorkbenchTemplate 的区别：创建时服务端从已保存条目复制字节；
+ * 这里没有源文档，快照只能由客户端提交。
+ */
+export function updateWorkbenchTemplateContent(
+  id: string,
+  payload: { ydoc: string; editor_schema_version: number },
+): Promise<WorkbenchTemplateSummary> {
+  return put<{ success: boolean; data: WorkbenchTemplateSummary }>(
+    `${BASE}/templates/${encodeURIComponent(id)}/content`,
+    payload,
+  ).then((r) => r.data)
+}
+
 export function getWorkbenchTemplateContent(id: string): Promise<WorkbenchTemplateContent> {
   return get<{ success: boolean; data: WorkbenchTemplateContent }>(
     `${BASE}/templates/${encodeURIComponent(id)}/content`,
@@ -385,6 +422,43 @@ export function requestDatabasePatch(payload: DatabaseAIPayload): Promise<{
     `${BASE}/ai/database`,
     payload,
   ).then((r) => r.data)
+}
+
+// ---- 事项识别 ----
+// 文档正文 → 事项候选：非流式整包 JSON，前端确认后写入事项表。
+// 归档后的自动抽取复用同一个端点，只是来源标签不同。
+
+export interface ItemExtractPayload {
+  item_id: string
+  markdown: string
+  agent_id?: string
+  source_title?: string
+  status_options?: string[]
+  priority_options?: string[]
+  existing_titles?: string[]
+  limit?: number
+}
+
+export interface ItemExtractCandidate {
+  title: string
+  status?: string
+  owner?: string
+  due?: string
+  priority?: string
+  relation?: string
+  evidence?: string
+  confidence?: number
+}
+
+export function requestItemCandidates(payload: ItemExtractPayload): Promise<{
+  items: ItemExtractCandidate[]
+  model_id?: string
+  agent_id?: string
+}> {
+  return post<{
+    success: boolean
+    data: { items: ItemExtractCandidate[]; model_id?: string; agent_id?: string }
+  }>(`${BASE}/ai/items`, payload).then((r) => r.data)
 }
 
 // ---- 画布 AI（P2-6） ----

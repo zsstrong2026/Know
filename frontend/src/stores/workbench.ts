@@ -31,12 +31,13 @@ import {
 import { currentMonth, formatJournalTitle, todayISO } from '@/workbench/journals/date-only'
 import { resolveCreateTitle } from '@/workbench/editor/prefs'
 import { currentEditorPrefs } from '@/workbench/use-workbench-prefs'
-import type { CollectedTodo } from '@/workbench/editor/collect-todos'
+import type { ItemCandidate, ItemCandidateOrigin } from '@/workbench/ai/item-candidates'
 import type {
   WorkbenchBootstrap,
   WorkbenchFolder,
   WorkbenchItem,
   WorkbenchItemKind,
+  WorkbenchItemSort,
   WorkbenchJournalEntry,
   WorkbenchNotice,
   WorkbenchScope,
@@ -45,9 +46,9 @@ import type {
 /** scope → 列表查询条件。trash 用 trashed，folder 用 folder_id，其余各有默认。 */
 export function scopeToParams(
   scope: WorkbenchScope,
-  options: { folderId?: string; q?: string; tagId?: string } = {},
+  options: { folderId?: string; q?: string; tagId?: string; sort?: WorkbenchItemSort } = {},
 ): ListWorkbenchItemsParams {
-  const base: ListWorkbenchItemsParams = { q: options.q, tag_id: options.tagId }
+  const base: ListWorkbenchItemsParams = { q: options.q, tag_id: options.tagId, sort: options.sort }
   switch (scope) {
     case 'database':
       return { ...base, kind: 'database' }
@@ -58,7 +59,8 @@ export function scopeToParams(
     case 'folder':
       return { ...base, folder_id: options.folderId }
     default:
-      return base
+      // 最近：事项是全局单例视图，不是普通条目，只在「事项」里出现。
+      return { ...base, exclude_kind: 'database' }
   }
 }
 
@@ -94,11 +96,20 @@ export function mergeJournalEntry(
   return next
 }
 
-/** 已确认待写入「事项」库的收集结果；跨条目传递，不落服务端。 */
+/**
+ * 已确认待写入「事项」库的候选；跨条目传递，不落服务端。
+ *
+ * 文档页没有事项库的 dataSource，无法直接写库；用户确认后先暂存，
+ * 由事项页在数据库工具就绪后取出并应用。
+ */
 export interface PendingCollect {
   /** 目标（事项）条目 id：事项页只在匹配时消费 */
   itemId: string
-  todos: CollectedTodo[]
+  candidates: ItemCandidate[]
+  /** 来源标记：手动识别 / 归档自动抽取 / 正文待办规则路径 */
+  origin: ItemCandidateOrigin
+  /** 来源文档标题，写进「来源文档」列 */
+  sourceTitle?: string
 }
 
 export const useWorkbenchStore = defineStore('workbenchStore', () => {
@@ -140,7 +151,7 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
 
   async function fetchItems(
     scope: WorkbenchScope,
-    options: { folderId?: string; q?: string; tagId?: string } = {},
+    options: { folderId?: string; q?: string; tagId?: string; sort?: WorkbenchItemSort } = {},
   ) {
     loading.value = true
     try {
@@ -155,7 +166,7 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
   /** 加载下一页并追加；没有 next_cursor 时是空操作。 */
   async function loadMore(
     scope: WorkbenchScope,
-    options: { folderId?: string; q?: string; tagId?: string } = {},
+    options: { folderId?: string; q?: string; tagId?: string; sort?: WorkbenchItemSort } = {},
   ) {
     if (!nextCursor.value || loadingMore.value) return
     loadingMore.value = true
@@ -233,6 +244,8 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
     folderId?: string | null,
     /** 显式指定初始形态；「新建文档」用 'page'，绕过编辑器偏好的默认形态 */
     modeOverride?: 'page' | 'edgeless',
+    /** 传了就顺手把它钉进该日期的 Journals（工作台侧栏的「新建」用当天） */
+    journalDate?: string,
   ) {
     // 普通条目读编辑器偏好：空标题可用设备本地日期命名，初始形态取 defaultCreateMode。
     // Journal 不走这里（createJournal 固定 page + 固定标题），因此两者互不影响（§9.14.4）。
@@ -247,6 +260,7 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
       kind,
       title: resolvedTitle || placeholder,
       folder_id: folderId ?? null,
+      ...(journalDate ? { journal_date: journalDate } : {}),
       // 数据库条目的形态由 kind 决定，不受页面/画布偏好与 override 影响。
       ...(kind === 'canvas' ? { current_mode: modeOverride ?? prefs.defaultCreateMode } : {}),
     })

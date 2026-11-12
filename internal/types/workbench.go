@@ -652,15 +652,39 @@ type WorkbenchItemFilter struct {
 	TenantID uint64
 	OwnerID  string
 	Kind     string
-	FolderID *string
-	Favorite *bool
-	Journal  *bool // 非 nil 且为 true 时只返回 journal_date IS NOT NULL 的条目
+	// ExcludeKind 非空时排除该类型。「最近」用它挡掉事项（kind=database）：
+	// 事项是全局单例视图，不是普通条目，只在「事项」列表里出现。
+	ExcludeKind string
+	FolderID    *string
+	Favorite    *bool
+	Journal     *bool // 非 nil 且为 true 时只返回 journal_date IS NOT NULL 的条目
 	// TagID 非空时只返回打了该标签的条目（P4-2）。
-	TagID   string
-	Trashed  bool
-	Query    string
-	Cursor   string
-	Limit    int
+	TagID string
+	// Sort 列表排序（B5）：空/updated = 最近更新，created = 创建时间，title = 名称。
+	// 排序键会写进 cursor，切换排序必须重置分页。
+	Sort    string
+	Trashed bool
+	Query   string
+	Cursor  string
+	Limit   int
+}
+
+// 列表排序取值（§9.5）。
+const (
+	WorkbenchSortUpdated = "updated"
+	WorkbenchSortCreated = "created"
+	WorkbenchSortTitle   = "title"
+)
+
+// NormalizeWorkbenchItemSort 把排序取值收敛到白名单；未知值（含空）退回「最近更新」。
+// 仓储的 ORDER BY 与 cursor 编码必须用同一个归一化结果，否则翻页会串页。
+func NormalizeWorkbenchItemSort(sort string) string {
+	switch sort {
+	case WorkbenchSortCreated, WorkbenchSortTitle:
+		return sort
+	default:
+		return WorkbenchSortUpdated
+	}
 }
 
 // WorkbenchItemPage cursor 分页响应。

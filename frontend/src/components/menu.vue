@@ -1095,6 +1095,11 @@ onMounted(async () => {
             isLiteEdition.value = true
             authStore.setLiteMode(true)
         }
+        // 工作台总开关（§15.3）：后端明确返回 false 时才隐藏侧栏入口。
+        const wbEnabled = editorResources.systemInfo?.workbench_enabled
+        if (typeof wbEnabled === 'boolean') {
+            usemenuStore.setWorkbenchEnabled(wbEnabled)
+        }
     }).catch(() => { })
 
     await loadCurrentKbInfo((route.params as any)?.kbId as string)

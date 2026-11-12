@@ -120,13 +120,14 @@ type RouterParams struct {
 	OperationDispatcher *operations.HandlerDispatcher
 }
 
-// workbenchFlags 从配置读取工作台子功能开关（§9.1）。
+// workbenchFlags 从配置读取工作台门禁（§9.1/§15.3）。
 // Config 为 nil（单测常见）时全部视为关闭，与发布门禁默认值一致。
 func workbenchFlags(cfg *config.Config) WorkbenchFeatureFlags {
 	if cfg == nil || cfg.Workbench == nil {
 		return WorkbenchFeatureFlags{}
 	}
 	return WorkbenchFeatureFlags{
+		Enabled:   cfg.Workbench.Enabled,
 		Templates: cfg.Workbench.TemplatesEnabled,
 		Journals:  cfg.Workbench.JournalsEnabled,
 		AI:        cfg.Workbench.AIEnabled,
@@ -374,7 +375,11 @@ func NewRouter(params RouterParams) *gin.Engine {
 			params.WorkbenchNoticeHandler, params.WorkbenchAIHandler,
 			params.WorkbenchTemplateHandler, params.WorkbenchAssetHandler,
 			workbenchFlags(params.Config), rbacGuards)
-		RegisterWorkbenchNoticeRoutes(v1, params.WorkbenchNoticeHandler)
+		// 用户级通知同样受总开关控制：关闭后前端不再有工作台入口，
+		// 保留通知端点只会让“入口不存在但接口还在”的门禁语义自相矛盾。
+		if workbenchFlags(params.Config).Enabled {
+			RegisterWorkbenchNoticeRoutes(v1, params.WorkbenchNoticeHandler)
+		}
 		RegisterAutomationRoutes(v1, params.AutomationHandler, rbacGuards)
 		RegisterChunkerDebugRoutes(v1, rbacGuards)
 

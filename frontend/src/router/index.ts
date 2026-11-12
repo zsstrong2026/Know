@@ -3,6 +3,7 @@ import { defineComponent } from 'vue'
 import type { RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useDeploymentCapabilitiesStore } from '@/stores/deploymentCapabilities'
+import { useEditorResourcesStore } from '@/stores/editorResources'
 import { autoSetup, userInfoFromApi } from '@/api/auth'
 import type { DeploymentCapabilityKey } from '@/config/deploymentCapabilities'
 import { MessagePlugin } from 'tdesign-vue-next'
@@ -326,7 +327,9 @@ const router = createRouter({
           // 工作台：左侧工作台二级导航 + 右侧内容区；BlockSuite 只随 workbenchItem 异步加载。
           path: "workbench",
           component: () => import("../views/workbench/WorkbenchLayout.vue"),
-          meta: { requiresInit: true, requiresAuth: true },
+          // requiresWorkbench：总开关（§15.3）由 system/info 的 workbench_enabled 下发，
+          // 关闭时不让用户停留在 /platform/workbench/*，回到知识库列表。
+          meta: { requiresInit: true, requiresAuth: true, requiresWorkbench: true },
           children: [
             {
               path: "",
@@ -596,6 +599,23 @@ router.beforeEach(async (to, from, next) => {
   // the bounce. This is UI-only; the server enforces the real check.
   if (to.meta.requiresSystemAdmin === true) {
     if (!authStore.isSystemAdmin) {
+      next('/platform/knowledge-bases')
+      return
+    }
+  }
+
+  // 工作台总开关（§15.3）：与后端路由注册读同一份配置（system/info 的
+  // workbench_enabled）。探测失败时放行，由后端 404 兜底——门禁不应该因为
+  // 一次网络抖动把用户锁在登录页之外。
+  if (to.meta.requiresWorkbench === true) {
+    const editorResources = useEditorResourcesStore()
+    try {
+      await editorResources.ensureSystemInfo()
+    } catch {
+      // 忽略：按放行处理
+    }
+    if (editorResources.systemInfo?.workbench_enabled === false) {
+      MessagePlugin.warning(i18n.global.t('settings.capabilityUnavailable'))
       next('/platform/knowledge-bases')
       return
     }

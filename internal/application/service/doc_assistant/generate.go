@@ -30,6 +30,15 @@ func (s *DocAssistantService) ProcessGeneration(ctx context.Context, t *asynq.Ta
 
 	// worker 上下文无租户，从 payload 重建
 	ctx = context.WithValue(ctx, types.TenantIDContextKey, payload.TenantID)
+	// 检索与归档都要按 owner 判定私有知识库可见性（§8.6 第 2 步）：
+	// 只改执行租户不会授予任何权限，caller 仍指向任务发起人。
+	ctx = types.WithExecutionTenant(ctx, payload.TenantID)
+	ctx = types.WithCaller(ctx, types.Caller{
+		TenantID: payload.TenantID,
+		UserID:   payload.OwnerID,
+		Role:     types.TenantRoleViewer,
+	})
+	ctx = context.WithValue(ctx, types.UserIDContextKey, payload.OwnerID)
 	// 检索依赖完整租户信息（embedding/向量库配置），参照数据源同步的注入方式
 	tenant, terr := s.tenantRepo.GetTenantByID(ctx, payload.TenantID)
 	if terr != nil {
@@ -159,6 +168,10 @@ func (s *DocAssistantService) ProcessGeneration(ctx context.Context, t *asynq.Ta
 	}
 	logger.Infof(ctx, "[DocAssistant] task %s finished status=%s succeed=%d failed=%d skipped=%d",
 		task.ID, task.Status, succeed, failed, skipped)
+	// 自动归档（§6.9）：只在生成有产出时入队一次；入队失败不影响生成结果。
+	if task.Status == types.DocTaskStatusSuccess || task.Status == types.DocTaskStatusPartial {
+		s.enqueueAutoArchive(ctx, task)
+	}
 	return nil
 }
 

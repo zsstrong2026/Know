@@ -16,6 +16,7 @@ import {
 import { projectMarkdown } from './projection'
 import { noteStyleSeedFromPrefs } from './prefs'
 import {
+  ensureWorkbenchSourceColumns,
   removeObsoleteWorkbenchColumns,
   seedWorkbenchDatabase,
   type DatabaseSeedLabels,
@@ -141,8 +142,9 @@ function seedFor(item: WorkbenchItem | null, labels: DatabaseSeedLabels) {
  *
  * seed 在 store 建立后立即执行，此时 Vue 的 i18n 实例可用；
  * 用 t() 而不是硬编码中文，六语言用户都能看到母语列名。
+ * 导出供离屏会话（item-extract）在事项条目尚未建库时用同一套列定义建库。
  */
-function editorSeedLabels(): DatabaseSeedLabels {
+export function editorSeedLabels(): DatabaseSeedLabels {
   return {
     titleColumn: i18n.global.t('workbench.database.columns.title'),
     statusColumn: i18n.global.t('workbench.database.columns.status'),
@@ -150,6 +152,13 @@ function editorSeedLabels(): DatabaseSeedLabels {
     ownerColumn: i18n.global.t('workbench.database.columns.owner'),
     priorityColumn: i18n.global.t('workbench.database.columns.priority'),
     relationColumn: i18n.global.t('workbench.database.columns.relation'),
+    sourceColumn: i18n.global.t('workbench.database.columns.source'),
+    sourceDocColumn: i18n.global.t('workbench.database.columns.sourceDoc'),
+    sourceOptions: [
+      i18n.global.t('workbench.database.source.manual'),
+      i18n.global.t('workbench.database.source.ai'),
+      i18n.global.t('workbench.database.source.archive'),
+    ],
     databaseTitle: i18n.global.t('workbench.item.untitled'),
     statusOptions: [
       i18n.global.t('workbench.database.status.todo'),
@@ -312,6 +321,8 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
     // 真实原型只有六列，这里清掉一次；幂等，写回后由 onChange 触发落盘。
     if (kindOf(item.value) === 'database' && editor.value?.store) {
       removeObsoleteWorkbenchColumns(editor.value.store)
+      // 「来源 / 来源文档」是后加的两列：老步骤要在同一时机补齐，否则用户看不到来源。
+      ensureWorkbenchSourceColumns(editor.value.store, seedLabels)
     }
 
     // 模板路径：快照来自内存 override，服务端仍是 version 0，而 BlockSuite 用快照

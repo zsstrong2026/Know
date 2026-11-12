@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -264,7 +265,9 @@ func (s *Service) ListItems(
 	}
 	if hasMore && len(items) > 0 {
 		last := items[len(items)-1]
-		page.NextCursor = encodeCursor(last.UpdatedAt, last.ID)
+		// cursor 必须带排序键（B5）：仓储按同一套 sort 解码，切换排序后旧 cursor 会被判非法。
+		page.NextCursor = repository.EncodeWorkbenchItemsCursor(
+			last, types.NormalizeWorkbenchItemSort(filter.Sort))
 	}
 	return page, nil
 }

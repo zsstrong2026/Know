@@ -49,6 +49,14 @@ export const useMenuStore = defineStore('menuStore', () => {
   ])
 
   const isFirstSession = ref(false)
+  /**
+   * 工作台总开关（§15.3）。默认 true：system/info 还没回来时不隐藏入口，
+   * 避免刷新时菜单闪一下；后端返回 workbench_enabled=false 才真正隐藏。
+   */
+  const workbenchEnabled = ref(true)
+  const setWorkbenchEnabled = (enabled: boolean) => {
+    workbenchEnabled.value = enabled
+  }
   const firstQuery = ref('')
   const firstMentionedItems = ref<any[]>([])
   const firstModelId = ref('')
@@ -90,6 +98,10 @@ export const useMenuStore = defineStore('menuStore', () => {
         return false
       }
       if (!deploymentCapabilities.isSupported(item.requiredCapability)) {
+        return false
+      }
+      // 工作台总开关关闭时隐藏侧栏入口（§15.3）；后端同时不注册路由。
+      if (item.path === 'workbench' && !workbenchEnabled.value) {
         return false
       }
       return true
@@ -160,6 +172,8 @@ export const useMenuStore = defineStore('menuStore', () => {
   return {
     menuArr,
     visibleMenuArr,
+    workbenchEnabled,
+    setWorkbenchEnabled,
     isFirstSession,
     firstQuery,
     firstMentionedItems,

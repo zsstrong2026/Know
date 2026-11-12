@@ -1,7 +1,6 @@
 import {
   type Menu,
   menu,
-  type MenuButtonData,
   type MenuConfig,
   popMenu,
   type PopupTarget,
@@ -11,11 +10,9 @@ import { unsafeCSSVarV2 } from '@blocksuite/affine-shared/theme';
 import {
   ArrowRightSmallIcon,
   DeleteIcon,
-  DuplicateIcon,
   FilterIcon,
   GroupingIcon,
   InfoIcon,
-  LayoutIcon,
   MoreHorizontalIcon,
   PlusIcon,
   SortIcon,
@@ -23,7 +20,6 @@ import {
 import { autoPlacement, offset, shift } from '@floating-ui/dom';
 import { signal } from '@preact/signals-core';
 import { css, html } from 'lit';
-import { styleMap } from 'lit/directives/style-map.js';
 
 import { filterTraitKey } from '../../../../core/filter/trait.js';
 import {
@@ -34,7 +30,6 @@ import { groupTraitKey } from '../../../../core/group-by/trait.js';
 import {
   type DataViewUILogicBase,
   popCreateFilter,
-  renderUniLit,
 } from '../../../../core/index.js';
 import { popCreateSort } from '../../../../core/sort/add-sort.js';
 import { sortTraitKey } from '../../../../core/sort/manager.js';
@@ -324,91 +319,8 @@ export const popViewOptions = (
       })
     );
 
-    items.push(
-      menu.group({
-        items: [
-          menuObj => {
-            const viewTypeItems = menuObj.renderItems(
-              view.manager.viewMetas.map<MenuConfig>(meta => {
-                return menuObj => {
-                  if (!menuObj.search(meta.model.defaultName)) {
-                    return;
-                  }
-                  const isSelected =
-                    meta.type === view.manager.currentView$.value?.type;
-                  const iconStyle = styleMap({
-                    fontSize: '24px',
-                    color: isSelected
-                      ? 'var(--affine-text-emphasis-color)'
-                      : 'var(--affine-icon-secondary)',
-                  });
-                  const textStyle = styleMap({
-                    fontSize: '14px',
-                    lineHeight: '22px',
-                    color: isSelected
-                      ? 'var(--affine-text-emphasis-color)'
-                      : 'var(--affine-text-secondary-color)',
-                  });
-                  const buttonData: MenuButtonData = {
-                    content: () => html`
-                      <div
-                        style="width:100%;min-width:0;display: flex;flex-direction: column;align-items: center;justify-content: center;padding: 6px 4px;white-space: nowrap;box-sizing:border-box;"
-                      >
-                        <div style="${iconStyle}">
-                          ${renderUniLit(meta.renderer.icon)}
-                        </div>
-                        <div style="${textStyle}">
-                          ${meta.model.defaultName}
-                        </div>
-                      </div>
-                    `,
-                    select: () => {
-                      const id = view.manager.currentViewId$.value;
-                      if (!id || meta.type === view.type) {
-                        return;
-                      }
-                      view.manager.viewChangeType(id, meta.type);
-                      dataViewLogic.clearSelection();
-                    },
-                    class: {},
-                  };
-                  const containerStyle = styleMap({
-                    flex: '1',
-                  });
-                  return html`<affine-menu-button
-                    style="${containerStyle}"
-                    .data="${buttonData}"
-                    .menu="${menuObj}"
-                  ></affine-menu-button>`;
-                };
-              })
-            );
-            if (!viewTypeItems.length) {
-              return html``;
-            }
-            return html`
-              <div
-                style="display:flex;align-items:center;gap:8px;padding:0 2px;"
-              >
-                <div
-                  style="display:flex;align-items:center;color:var(--affine-icon-color);"
-                >
-                  ${LayoutIcon()}
-                </div>
-                <div
-                  style="font-size:14px;line-height:22px;color:var(--affine-text-secondary-color);"
-                >
-                  Layout
-                </div>
-              </div>
-              <div style="display:flex;gap:4px;margin-top:8px;">
-                ${viewTypeItems}
-              </div>
-            `;
-          },
-        ],
-      })
-    );
+    // 注意：这里刻意不提供「布局（Layout）」切换。
+    // 产品口径：工作台「事项」固定显示表格/看板/日历三种视图，视图类型不可再改。
 
     const settingItems: MenuConfig[] = [];
 
@@ -527,29 +439,8 @@ export const popViewOptions = (
       items.push(menu.group({ items: viewSpecificItems }));
     }
 
-    items.push(
-      menu.group({
-        items: [
-          menu.action({
-            name: 'Duplicate view',
-            prefix: DuplicateIcon(),
-            closeOnSelect: false,
-            select: () => {
-              view.duplicate();
-            },
-          }),
-          menu.action({
-            name: 'Delete view',
-            prefix: DeleteIcon(),
-            closeOnSelect: false,
-            select: () => {
-              view.delete();
-            },
-            class: { 'delete-item': true },
-          }),
-        ],
-      })
-    );
+    // 注意：这里刻意不提供 Duplicate view / Delete view。
+    // 产品口径：工作台「事项」固定只有表格/看板/日历三种视图，不可新增或删除。
 
     return items;
   };

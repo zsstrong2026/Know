@@ -238,6 +238,20 @@ func (e *meetingEngine) ensureAgendaGenerated(ctx context.Context, room *types.M
 	e.publishAgendaUpdate(ctx, room.ID)
 }
 
+// agendaOpenContent 生成一句式议题开题消息：只交代议题与目标，不写长段流程说明。
+func agendaOpenContent(item *types.MeetingAgendaItem, items []*types.MeetingAgendaItem) string {
+	if item == nil {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "【议题 %d/%d】%s", item.Seq+1, len(items), item.Title)
+	if item.Goal != "" {
+		b.WriteString("（目标：" + item.Goal + "）")
+	}
+	b.WriteString("\n请围绕本议题继续讨论。")
+	return b.String()
+}
+
 // openNextAgenda 为当前活跃议题落一条"开题"主持人消息，作为下一轮讨论的触发点。
 // 仅当该议题还没有任何发言时创建（避免重复开题）；返回 nil 表示无需继续（无议题或已在讨论中）。
 func (e *meetingEngine) openNextAgenda(ctx context.Context, room *types.MeetingRoom) *types.MeetingMessage {
@@ -251,13 +265,7 @@ func (e *meetingEngine) openNextAgenda(ctx context.Context, room *types.MeetingR
 	if msgs, err := e.messageRepo.ListByAgendaItem(ctx, room.ID, active.ID, 1); err == nil && len(msgs) > 0 {
 		return nil
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "【议题开题】%d/%d「%s」", active.Seq+1, len(items), active.Title)
-	if active.Goal != "" {
-		b.WriteString("\n本议题要产出的结论：" + active.Goal)
-	}
-	b.WriteString("\n请各位围绕本议题给出见解；已有结论的部分不必重复。")
-	msg, err := e.appendHostMessageForItem(ctx, room.ID, active.ID, b.String())
+	msg, err := e.appendHostMessageForItem(ctx, room.ID, active.ID, agendaOpenContent(active, items))
 	if err != nil {
 		logger.Warnf(ctx, "meeting open agenda failed, room=%s item=%s err=%v", room.ID, active.ID, err)
 		return nil
@@ -267,8 +275,7 @@ func (e *meetingEngine) openNextAgenda(ctx context.Context, room *types.MeetingR
 }
 
 // advanceAgenda 结束当前议程项：写小结、标记 done。
-// 不再自动激活下一项——后续动作（生成方案/继续讨论/追加议题/结束）由用户的弹框决策驱动。
-// 返回值恒为 true（本议题已结束，本轮讨论收束），保留返回值仅为兼容既有调用。
+// 引擎在议题收束时会自动激活并开启下一项；人工推进（PATCH/前端按钮）后仍由用户决定下一步。
 func (e *meetingEngine) advanceAgenda(ctx context.Context, room *types.MeetingRoom, active *types.MeetingAgendaItem, summary string) bool {
 	if active == nil || e.agendaRepo == nil {
 		return false
@@ -425,14 +432,15 @@ func buildAgendaQuery(
 			if m.Content == triggerContent {
 				continue
 			}
-			fmt.Fprintf(&b, "\n%s: %s", senderLabel(m), truncate(m.Content, 600))
+			// 会议是对话不是报告：上下文只保留近期短片段，避免模型跟着写长文
+			fmt.Fprintf(&b, "\n%s: %s", senderLabel(m), truncate(m.Content, 300))
 		}
 	}
 	b.WriteString("\n【待回应的发言】" + triggerContent)
-	b.WriteString("\n请以你的身份与职责，只围绕【当前子议题】作答，不要引入其他子议题或主题外内容：")
-	b.WriteString("\n- 核心观点不超过 3 条，直接给出结论与理由；")
-	b.WriteString("\n- 优先给出能推进【本议题要产出的结论】的信息，并尽量引用你可检索到的知识库依据；")
-	b.WriteString("\n- 若需赞同或反驳其他参会人，最多 2 条、每条不超过 30 字，并在该句中直接用 @对方姓名 提及；")
-	b.WriteString("\n- 若相较上述讨论记录没有新增观点（无信息增量），请仅回复 PASS，不要输出任何其他内容。")
+	b.WriteString("\n请像在会议桌前发言一样回应【待回应的发言】，只围绕【当前子议题】：")
+	b.WriteString("\n- 最多 3 句话、不超过 120 字，先表态再给理由；不要用标题、列表或代码块，也不要复述背景；")
+	b.WriteString("\n- 不要重复本议题讨论记录里已有的内容，优先补充新事实、新约束或明确的分歧理由；")
+	b.WriteString("\n- 要请某位参会人接话，在句末 @对方姓名；需要用户拍板或补充，在句末 @用户 提一个问题；")
+	b.WriteString("\n- 若相较上述讨论记录没有新增观点，请仅回复 PASS，不要输出任何其他内容。")
 	return b.String()
 }

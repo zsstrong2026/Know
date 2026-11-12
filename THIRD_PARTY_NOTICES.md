@@ -65,6 +65,34 @@ packages by the current build recipes. Generating the header does not copy the
 tool's implementation into the product. If distributing build environments or
 the tool itself, retain its license and provide its corresponding source too.
 
+## BlockSuite / AFFiNE (vendored frontend subtree)
+
+- Component: `third_party/blocksuite`, a copy of the `blocksuite/` subtree of
+  [toeverything/AFFiNE](https://github.com/toeverything/AFFiNE) tag `v0.27.4`
+  (commit `b4c8548c09da21b2898443559a5b846f0ccf5dd8`). Imported as a local Vite
+  alias; it is not published as a separate package.
+- License: MIT for everything used by the workbench (72 of the 74 `@blocksuite/*`
+  packages). The upstream top-level license splits the repository: content under
+  `packages/backend` and `packages/common/native` carries its own license, and
+  everything else is MIT. Both upstream license files are reproduced in
+  [`licenses/blocksuite-LICENSE.txt`](licenses/blocksuite-LICENSE.txt) and
+  [`licenses/blocksuite-LICENSE-MIT.txt`](licenses/blocksuite-LICENSE-MIT.txt).
+- Copyright: 2022-present TOEVERYTHING PTE. LTD. and its affiliates.
+- **Correction to the design document:** the implementation plan states
+  "BlockSuite 采用 MPL-2.0". That is not true for this tag. Only the two
+  documentation packages `@blocksuite/bs-docs` and `@blocksuite/docs` declare
+  MPL-2.0, and neither is imported by the frontend build. See
+  [`third_party/blocksuite/UPSTREAM.md`](third_party/blocksuite/UPSTREAM.md).
+- Modifications by WeKnora: none. `third_party/blocksuite/PATCHES.md` records
+  "no patches"; the only repository-side additions are the metadata/license
+  files in that directory.
+- NOT bundled: AFFiNE EE code (`packages/backend`, `packages/common/native`) and
+  any AFFiNE brand assets, product names, or logos. The product name and UI do
+  not reference AFFiNE.
+- Third-party components inside the subtree keep their own licenses; they are
+  installed through npm and covered by the normal `node_modules` notices rather
+  than by this file.
+
 ## Maintaining this bundle
 
 When upgrading either MPL module, update the version, license, and SHA-256 pin in
