@@ -32,6 +32,7 @@ type meetingEngine struct {
 	artifactRepo    interfaces.MeetingArtifactRepository
 	sessionService  interfaces.SessionService
 	modelService    interfaces.ModelService
+	userService     interfaces.UserService // 解析会议创建者用户名（供智能体 @用户名 向用户提问）
 	redis           *redis.Client
 	broadcaster     *MeetingBroadcaster
 	cfg             *config.Config
@@ -52,6 +53,7 @@ func NewMeetingEngine(
 	artifactRepo interfaces.MeetingArtifactRepository,
 	sessionService interfaces.SessionService,
 	modelService interfaces.ModelService,
+	userService interfaces.UserService,
 	messageService interfaces.MessageService,
 	sandboxConfigRepo repository.TenantSandboxConfigRepository,
 	collector *ArtifactCollector,
@@ -68,6 +70,7 @@ func NewMeetingEngine(
 		messageRepo: messageRepo, agendaRepo: agendaRepo, agentRepo: agentRepo,
 		artifactRepo:   artifactRepo,
 		sessionService: sessionService, modelService: modelService,
+		userService: userService,
 		redis:         redisClient,
 		broadcaster:   NewMeetingBroadcaster(),
 		cfg:           cfg,
@@ -647,10 +650,22 @@ func (e *meetingEngine) queuedUserMessageAfter(ctx context.Context, roomID, afte
 	return nil
 }
 
-// asksUserMessage 找出本轮中向用户提问（@用户）的智能体消息；无则返回 nil
+// asksUserMessage 找出本轮中向用户提问的智能体消息；无则返回 nil。
+// 优先读取落库时的 payload 标记（兼容 @用户名 与 @用户），旧消息回退文本匹配 @用户。
 func asksUserMessage(msgs []*types.MeetingMessage) *types.MeetingMessage {
 	for _, m := range msgs {
-		if m.SenderKind == types.MeetingSenderAgent && strings.Contains(m.Content, meetingAwaitUserToken) {
+		if m.SenderKind != types.MeetingSenderAgent {
+			continue
+		}
+		if len(m.Payload) > 0 {
+			var payload struct {
+				AsksUser bool `json:"asks_user"`
+			}
+			if json.Unmarshal(m.Payload, &payload) == nil && payload.AsksUser {
+				return m
+			}
+		}
+		if strings.Contains(m.Content, meetingAwaitUserToken) {
 			return m
 		}
 	}
@@ -772,7 +787,9 @@ func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoo
 	meetingAgent := e.cloneAgentForMeeting(agent, room)
 	kbIDs := unionKnowledgeBaseIDs(meetingAgent.Config.KBSelectionMode, meetingAgent.Config.KnowledgeBases, room.KnowledgeBaseIDs)
 
-	query, agendaItemID, kbIDs := e.buildTurnQuery(ctx, room, replyTo, participants, kbIDs)
+	// 会议创建者用户名：注入 query 供智能体 @用户名 称呼用户；取不到时退回通用 @用户
+	userName := e.meetingUserName(ctx, room)
+	query, agendaItemID, kbIDs := e.buildTurnQuery(ctx, room, replyTo, participants, kbIDs, userName)
 
 	answer, err := e.runAgentOnce(ctx, room, meetingAgent, query, kbIDs)
 	if err != nil {
@@ -803,8 +820,8 @@ func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoo
 		AdmissionState:    admissionState,
 		AdmissionNote:     admissionNote,
 	}
-	// 发言里 @用户 表示在向用户提问：打上 payload 标记，前端据此提示"待你回应"，引擎暂停自动讨论
-	if strings.Contains(answer, meetingAwaitUserToken) {
+	// 发言里 @用户 或 @用户名 表示在向用户提问：打上 payload 标记，前端据此提示"待你回应"，引擎暂停自动讨论
+	if asksUserByAnswer(answer, userName) {
 		if b, merr := json.Marshal(map[string]bool{"asks_user": true}); merr == nil {
 			msg.Payload = b
 		}
@@ -820,7 +837,7 @@ func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoo
 // 启用议程时只带本议题记录 + 其他议题小结；否则退回全房间最近 contextMax 条。
 func (e *meetingEngine) buildTurnQuery(
 	ctx context.Context, room *types.MeetingRoom, replyTo *types.MeetingMessage,
-	participants []*types.MeetingParticipant, kbIDs []string,
+	participants []*types.MeetingParticipant, kbIDs []string, userName string,
 ) (query string, agendaItemID string, effectiveKBs []string) {
 	if !room.AgendaEnabled || e.agendaRepo == nil {
 		contextMsgs, err := e.messageRepo.ListRecent(ctx, room.ID, e.contextMax)
@@ -828,12 +845,12 @@ func (e *meetingEngine) buildTurnQuery(
 			logger.Warnf(ctx, "meeting context load failed, room=%s err=%v", room.ID, err)
 			contextMsgs = nil
 		}
-		return buildMeetingQuery(room, replyTo.Content, contextMsgs, participants), "", kbIDs
+		return buildMeetingQuery(room, replyTo.Content, contextMsgs, participants, userName), "", kbIDs
 	}
 	items, active := e.ensureActiveAgenda(ctx, room)
 	if active == nil {
 		// 议程已全部覆盖：仍按主题作答，不再注入子议题上下文
-		return buildMeetingQuery(room, replyTo.Content, nil, participants), "", kbIDs
+		return buildMeetingQuery(room, replyTo.Content, nil, participants, userName), "", kbIDs
 	}
 	itemMsgs, err := e.messageRepo.ListByAgendaItem(ctx, room.ID, active.ID, meetingAgendaContextMax)
 	if err != nil {
@@ -844,7 +861,28 @@ func (e *meetingEngine) buildTurnQuery(
 	if len(active.KnowledgeBaseIDs) > 0 {
 		kbIDs = mergeUnique(kbIDs, active.KnowledgeBaseIDs)
 	}
-	return buildAgendaQuery(room, active, items, replyTo.Content, itemMsgs, participants), active.ID, kbIDs
+	return buildAgendaQuery(room, active, items, replyTo.Content, itemMsgs, participants, userName), active.ID, kbIDs
+}
+
+// meetingUserName 解析会议创建者的用户名：智能体可以用 @用户名 直接称呼用户。
+// 解析失败返回空串，此时智能体仍可使用 @用户 的通用标记。
+func (e *meetingEngine) meetingUserName(ctx context.Context, room *types.MeetingRoom) string {
+	if e.userService == nil || room == nil || room.CreatedBy == "" {
+		return ""
+	}
+	user, err := e.userService.GetUserByID(ctx, room.CreatedBy)
+	if err != nil || user == nil {
+		return ""
+	}
+	return strings.TrimSpace(user.Username)
+}
+
+// asksUserByAnswer 判断发言是否在向用户提问：兼容 @用户名 与通用 @用户 两种写法。
+func asksUserByAnswer(content, userName string) bool {
+	if strings.Contains(content, meetingAwaitUserToken) {
+		return true
+	}
+	return userName != "" && strings.Contains(content, "@"+userName)
 }
 
 // runAgentOnce 执行一次 AgentQA 调用并收集最终答复
@@ -1081,7 +1119,7 @@ const meetingFocusSystemPrompt = "【会议发言要求】你正在参加一场�
 	"1. 每次只说 1-3 句话、不超过 120 字；先给判断，再给一条核心理由；\n" +
 	"2. 禁止使用标题、编号列表、表格、代码块；不要复述背景，也不要重复别人刚说过的内容；\n" +
 	"3. 直接回应上一位发言者或用户；想让某位参会人接话，就在句末用 @对方姓名；\n" +
-	"4. 需要用户拍板或补充信息时，在句末用 @用户 提一个具体问题，然后停下等用户回答；\n" +
+	"4. 需要用户拍板或补充信息时，在句末 @用户姓名（用会议信息【用户】给出的名字；没有名字时写 @用户）提一个问题，然后停下等用户回答；\n" +
 	"5. 所有发言围绕【当前子议题】；若相较已有讨论没有新增观点，仅回复 PASS。"
 
 // meetingAwaitUserToken 智能体向用户提问的显式标记（提示词协议约定）
@@ -1195,7 +1233,10 @@ func filterByIDs(agents []*types.CustomAgent, ids []string) []*types.CustomAgent
 
 // buildMeetingQuery 把会议主题 + 共享上下文 + 参会名册 + 触发消息拼成单轮 query（MultiTurnEnabled=false）。
 // 未启用议程时使用；启用议程走 buildAgendaQuery（按议题聚焦）。
-func buildMeetingQuery(room *types.MeetingRoom, triggerContent string, contextMsgs []*types.MeetingMessage, participants []*types.MeetingParticipant) string {
+func buildMeetingQuery(
+	room *types.MeetingRoom, triggerContent string,
+	contextMsgs []*types.MeetingMessage, participants []*types.MeetingParticipant, userName string,
+) string {
 	var b strings.Builder
 	b.WriteString("【会议主题】" + effectiveTopic(room))
 	if room.Description != "" {
@@ -1207,6 +1248,10 @@ func buildMeetingQuery(room *types.MeetingRoom, triggerContent string, contextMs
 	// 参会智能体名册：仅列出可被 @ 的 agent 展示名（主持人不是 @ 目标，不列入）
 	if names := collectAgentDisplayNames(participants); len(names) > 0 {
 		b.WriteString("\n【参会智能体】" + strings.Join(names, "、"))
+	}
+	// 用户姓名：让智能体能像真人会议一样直接称呼用户，而不是只会 @用户 这个占位词
+	if userName != "" {
+		b.WriteString("\n【用户】" + userName + "（可 @用户名 向用户提问）")
 	}
 	if len(contextMsgs) > 0 {
 		b.WriteString("\n【讨论记录】")
@@ -1221,7 +1266,12 @@ func buildMeetingQuery(room *types.MeetingRoom, triggerContent string, contextMs
 	b.WriteString("\n【当前议题】" + triggerContent)
 	b.WriteString("\n请像在会议桌前发言一样，直接回应【当前议题】：")
 	b.WriteString("\n- 最多 3 句话、不超过 120 字，先表态再给理由；不要用标题、列表或代码块，也不要复述背景；")
-	b.WriteString("\n- 要请某位参会人接话，在句末 @对方姓名；需要用户拍板或补充，在句末 @用户 提一个问题；")
+	b.WriteString("\n- 要请某位参会人接话，在句末 @对方姓名；")
+	if userName != "" {
+		b.WriteString("\n- 需要用户拍板或补充，在句末 @" + userName + "（或 @用户）提一个问题；")
+	} else {
+		b.WriteString("\n- 需要用户拍板或补充，在句末 @用户 提一个问题；")
+	}
 	b.WriteString("\n- 若相较上述讨论记录没有新增观点，请仅回复 PASS，不要输出其他任何内容。")
 	return b.String()
 }

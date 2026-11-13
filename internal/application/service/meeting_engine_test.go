@@ -49,13 +49,16 @@ func TestBuildMeetingQuery(t *testing.T) {
 		{Kind: types.ParticipantKindHost, DisplayName: "主持人甲"},
 		{Kind: types.ParticipantKindAgent, AgentID: "a1", DisplayName: "乙"},
 	}
-	q := buildMeetingQuery(room, "讨论下部署方案", msgs, participants)
+	q := buildMeetingQuery(room, "讨论下部署方案", msgs, participants, "张三")
 	// 应包含会议主题与共享上下文
 	assert.Contains(t, q, room.Title)
 	assert.Contains(t, q, "讨论下部署方案")
 	assert.Contains(t, q, msgs[0].Content)
 	// 关键回归断言：名册必须注入 agent 展示名，否则模型无从产出可命中的 @展示名
 	assert.Contains(t, q, "乙")
+	// 用户姓名必须注入，智能体才能用 @用户名 直接称呼用户
+	assert.Contains(t, q, "【用户】张三")
+	assert.Contains(t, q, "@张三")
 	// 主持人不是 @ 目标，展示名不得出现在名册中
 	assert.NotContains(t, q, "主持人甲")
 }
@@ -67,7 +70,7 @@ func TestBuildMeetingQueryNoAgentRoster(t *testing.T) {
 	participants := []*types.MeetingParticipant{
 		{Kind: types.ParticipantKindHost, DisplayName: "主持人甲"},
 	}
-	q := buildMeetingQuery(room, "讨论下部署方案", msgs, participants)
+	q := buildMeetingQuery(room, "讨论下部署方案", msgs, participants, "")
 	assert.NotContains(t, q, "【参会智能体】")
 }
 
@@ -967,11 +970,13 @@ func newAgendaEngineFixture(
 		roomRepo: &fakeAgendaRoomRepo{room: &types.MeetingRoom{
 			ID: roomID, TenantID: 1, Title: "发布方案评审", Status: types.MeetingStatusActive,
 			BroadcastMode: types.MeetingBroadcastSequential, AgendaEnabled: true,
+			CreatedBy: "owner-1",
 		}},
 		participantRepo: &fakeTwoAgentParticipantRepo{},
 		messageRepo:     repo,
 		agendaRepo:      agendaRepo,
 		agentRepo:       &fakeTwoAgentRepoForTurn{},
+		userService:     &fakeMeetingUserService{},
 		modelService: &stubModelService{
 			availableModels: []*types.Model{{ID: "m1", Type: types.ModelTypeKnowledgeQA, IsDefault: true}},
 			chatModel:       &hostChatStub{content: verdict},
@@ -1080,4 +1085,57 @@ func TestRunDiscussionAutoAdvancesAgenda(t *testing.T) {
 	}
 	assert.True(t, sawNextOpen, "应自动落下一议题的开题消息")
 	assert.True(t, sawWrapUp, "全部议题完成后应落收束消息")
+}
+
+// fakeMeetingUserService 仅实现 GetUserByID：会议创建者统一解析为「张三」
+type fakeMeetingUserService struct {
+	interfaces.UserService
+}
+
+func (f *fakeMeetingUserService) GetUserByID(_ context.Context, id string) (*types.User, error) {
+	return &types.User{ID: id, Username: "张三"}, nil
+}
+
+// TestAsksUserByAnswer 发言是否在向用户提问：兼容 @用户名 与 @用户 两种写法
+func TestAsksUserByAnswer(t *testing.T) {
+	assert.True(t, asksUserByAnswer("@张三 你更看重成本还是稳定性？", "张三"))
+	assert.True(t, asksUserByAnswer("@用户 你更看重哪个？", "张三"), "通用占位词仍兼容")
+	assert.False(t, asksUserByAnswer("@李四 你怎么看？", "张三"), "提及他人不算向用户提问")
+	assert.False(t, asksUserByAnswer("我的观点如下", "张三"))
+	assert.True(t, asksUserByAnswer("@用户 请确认", ""), "用户名缺失时仍可用 @用户")
+}
+
+// TestAsksUserMessagePrefersPayload payload 已标记 asks_user 的消息应被识别（即使正文没有 @用户）
+func TestAsksUserMessagePrefersPayload(t *testing.T) {
+	m := &types.MeetingMessage{
+		SenderKind: types.MeetingSenderAgent,
+		Content:    "请确认预算上限",
+		Payload:    []byte(`{"asks_user":true}`),
+	}
+	assert.NotNil(t, asksUserMessage([]*types.MeetingMessage{m}))
+}
+
+// TestRunDiscussionPausesWhenAgentMentionsUserName 智能体用 @用户名 提问时同样暂停讨论，
+// 不再只识别 @用户 这一种写法。
+func TestRunDiscussionPausesWhenAgentMentionsUserName(t *testing.T) {
+	e, repo, _ := newAgendaEngineFixture(t, "room-ask-name",
+		`{"converged":false,"reason":"等待用户输入"}`,
+		[]*types.MeetingAgendaItem{{ID: "i0", Seq: 0, Title: "选型", Goal: "确定方案", Status: types.MeetingAgendaActive}},
+		[]*types.MeetingMessage{{ID: "u1", SenderKind: types.MeetingSenderUser, Content: "开始"}},
+		func(req *types.QARequest) string {
+			if req.CustomAgent.ID == "agent-B" {
+				return "我倾向 A。@张三 你更看重成本还是稳定性？"
+			}
+			return "我倾向 B。@乙 你怎么看？"
+		},
+	)
+
+	require.NoError(t, e.RunTurn(context.Background(), "room-ask-name", "u1"))
+
+	agentMsgs := messagesByKind(repo.snapshot(), types.MeetingSenderAgent)
+	require.Len(t, agentMsgs, 2, "@用户名 提问后应暂停，不再展开 @ 子轮")
+	askMsg := asksUserMessage(agentMsgs)
+	require.NotNil(t, askMsg, "应识别出向用户提问的消息")
+	assert.Contains(t, askMsg.Content, "@张三")
+	assert.NotEmpty(t, askMsg.Payload, "落库时应带 asks_user 标记")
 }

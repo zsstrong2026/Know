@@ -96,7 +96,7 @@ func TestBuildAgendaQueryFocusesOnItem(t *testing.T) {
 	}
 	participants := []*types.MeetingParticipant{{Kind: types.ParticipantKindAgent, AgentID: "a1", DisplayName: "架构师"}}
 
-	q := buildAgendaQuery(room, items[1], items, "兼容性怎么看？", itemMsgs, participants)
+	q := buildAgendaQuery(room, items[1], items, "兼容性怎么看？", itemMsgs, participants, "张三")
 
 	assert.Contains(t, q, "评估 v2 发布风险", "必须使用收敛后的主题")
 	assert.Contains(t, q, "【当前子议题】兼容性")

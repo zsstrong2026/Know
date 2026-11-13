@@ -404,6 +404,7 @@ func agendaProgressText(items []*types.MeetingAgendaItem) string {
 func buildAgendaQuery(
 	room *types.MeetingRoom, item *types.MeetingAgendaItem, items []*types.MeetingAgendaItem,
 	triggerContent string, itemMsgs []*types.MeetingMessage, participants []*types.MeetingParticipant,
+	userName string,
 ) string {
 	var b strings.Builder
 	b.WriteString("【会议主题】" + effectiveTopic(room))
@@ -425,6 +426,10 @@ func buildAgendaQuery(
 	if names := collectAgentDisplayNames(participants); len(names) > 0 {
 		b.WriteString("\n【参会智能体】" + strings.Join(names, "、"))
 	}
+	// 用户姓名：让智能体能像真人会议一样直接称呼用户，而不是只会 @用户 这个占位词
+	if userName != "" {
+		b.WriteString("\n【用户】" + userName + "（可 @用户名 向用户提问）")
+	}
 	if len(itemMsgs) > 0 {
 		b.WriteString("\n【本议题讨论记录】")
 		for _, m := range itemMsgs {
@@ -440,7 +445,12 @@ func buildAgendaQuery(
 	b.WriteString("\n请像在会议桌前发言一样回应【待回应的发言】，只围绕【当前子议题】：")
 	b.WriteString("\n- 最多 3 句话、不超过 120 字，先表态再给理由；不要用标题、列表或代码块，也不要复述背景；")
 	b.WriteString("\n- 不要重复本议题讨论记录里已有的内容，优先补充新事实、新约束或明确的分歧理由；")
-	b.WriteString("\n- 要请某位参会人接话，在句末 @对方姓名；需要用户拍板或补充，在句末 @用户 提一个问题；")
+	b.WriteString("\n- 要请某位参会人接话，在句末 @对方姓名；")
+	if userName != "" {
+		b.WriteString("\n- 需要用户拍板或补充，在句末 @" + userName + "（或 @用户）提一个问题；")
+	} else {
+		b.WriteString("\n- 需要用户拍板或补充，在句末 @用户 提一个问题；")
+	}
 	b.WriteString("\n- 若相较上述讨论记录没有新增观点，请仅回复 PASS，不要输出任何其他内容。")
 	return b.String()
 }
