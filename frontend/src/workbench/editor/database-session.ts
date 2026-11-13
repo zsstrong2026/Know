@@ -562,7 +562,10 @@ export class DatabaseToolbarController {
    */
   newRow(): string {
     if (!this.ensureBound()) return ''
-    const rowId: string = this.dataSource.rowAdd('end')
+    // 表格里新行插到第一行（产品口径）；看板 / 日历仍追加到末尾，
+    // 否则卡片会跳到分组顶部，破坏既有的拖拽习惯。
+    const position = this.state.currentViewMode === 'table' ? 'start' : 'end'
+    const rowId: string = this.dataSource.rowAdd(position)
     this.applyDefaultStatus(rowId)
     if (this.state.currentViewMode === 'table') {
       this.focusRowTitle(rowId)
@@ -717,6 +720,21 @@ export class DatabaseToolbarController {
       })
     }
     requestAnimationFrame(step)
+  }
+
+  /**
+   * 当前视图的行 id（已应用排序与筛选），分页按这个顺序切页。
+   *
+   * 不能用 `dataSource.rows$`：那是原始顺序，表格渲染用的是视图顺序，
+   * 视图有排序时两者不一致，分页会切错行。
+   */
+  viewRowIds(): string[] {
+    const ui: any = this.rendererLogic()?.currentView$?.value
+    const view: any = ui?.view ?? ui
+    const rows: any[] = view?.rows$?.value ?? []
+    return rows
+      .map((row) => row?.rowId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0)
   }
 
   /** 打开行详情：走上游 openDetailPanel（行详情里的字段编辑器全部复用上游）。 */

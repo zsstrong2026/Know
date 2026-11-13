@@ -176,6 +176,8 @@ const emit = defineEmits<{
   action: [value: string]
   /** 归档/更新归档；具体调用仍由条目页统一处理 */
   archive: [action: ArchiveBadgeAction]
+  /** 新建行完成：页面据此切回第 1 页（新行插在第一行） */
+  'new-row': []
 }>()
 
 function onArchiveAction(action: ArchiveBadgeAction) {
@@ -435,6 +437,8 @@ function pickSort(value: string) {
 
 function newRow() {
   props.controller?.newRow()
+  // 新行插在第一行：通知页面切回第 1 页，否则停在别的页就看不到它。
+  emit('new-row')
 }
 </script>
 

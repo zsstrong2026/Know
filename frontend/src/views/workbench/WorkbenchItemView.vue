@@ -107,6 +107,7 @@
       :archive-busy="archiving"
       @action="onToolbarAction"
       @archive="onArchiveAction"
+      @new-row="onNewRow"
     />
 
     <!-- 行详情抽屉：自研只读版，数据来自同一个 dataSource（原型 .db-drawer） -->
@@ -128,6 +129,20 @@
     >
       <!-- BlockSuite 挂载点：由 editor-session 注入宿主元素 -->
       <div ref="hostRef" class="editor-mount" />
+      <!-- 事项表格分页：默认每页 20 条；非当前页的行在视图层隐藏 -->
+      <div
+        v-if="isDatabase && ready && dbState.currentViewMode === 'table' && dbRowTotal > DB_PAGE_SIZE"
+        class="db-pager"
+      >
+        <t-pagination
+          v-model="dbPage"
+          :total="dbRowTotal"
+          :page-size="DB_PAGE_SIZE"
+          size="small"
+          :show-page-size="false"
+          @change="onPageChange"
+        />
+      </div>
       <div v-if="!ready && !pickerOpen" class="editor-loading">{{ $t('workbench.editor.loading') }}</div>
       <!-- 独立数据库视图的返回入口：只改 query，不重新加载文档（§10.7.2）。
            只有画布内数据库块的“全屏”才需要返回画布；数据库条目本身没有画布。 -->
@@ -305,6 +320,80 @@ const versionDialog = ref<{ open: () => void; setRestoring: (version: number) =>
 // 首屏 chunk，违背「只在真正打开内容时才加载编辑器」的约定。
 const dbController = shallowRef<DatabaseToolbarController | null>(null)
 const dbState = shallowRef<DatabaseToolbarState>(EMPTY_DATABASE_STATE)
+
+// ---- 事项表格分页 ----
+// Blocksuite 表格没有分页能力，这里只在视图层切页：按视图行顺序（已排序/筛选）
+// 给非当前页的行加 `wb-page-hidden`，不改数据、不改上游视图配置。
+const DB_PAGE_SIZE = 20
+const dbPage = ref(1)
+const dbRowTotal = ref(0)
+
+function applyRowPagination() {
+  const host = hostRef.value
+  const controller = dbController.value
+  if (!host || !controller) return
+  const rows = Array.from(host.querySelectorAll('.affine-database-block-row'))
+  if (!rows.length) return
+  // 看板 / 日历不分页：把可能残留的隐藏标记清掉。
+  if (dbState.value.currentViewMode !== 'table') {
+    rows.forEach((row) => row.classList.remove('wb-page-hidden'))
+    return
+  }
+  const ids = controller.viewRowIds()
+  dbRowTotal.value = ids.length
+  const pageCount = Math.max(1, Math.ceil(ids.length / DB_PAGE_SIZE))
+  if (dbPage.value > pageCount) dbPage.value = pageCount
+  const start = (dbPage.value - 1) * DB_PAGE_SIZE
+  const visible = new Set(ids.slice(start, start + DB_PAGE_SIZE))
+  rows.forEach((row) => {
+    const id = row.querySelector('[data-row-id]')?.getAttribute('data-row-id') ?? ''
+    row.classList.toggle('wb-page-hidden', !visible.has(id))
+  })
+}
+
+/** 表格行会随数据 / 筛选 / 排序反复重建，用一帧节流避免每次都全量遍历。 */
+let pageApplyScheduled = false
+function scheduleApplyRowPagination() {
+  if (pageApplyScheduled) return
+  pageApplyScheduled = true
+  requestAnimationFrame(() => {
+    pageApplyScheduled = false
+    applyRowPagination()
+  })
+}
+
+/** 翻页后回到表格第一行，避免停在上一页的滚动位置。 */
+function onPageChange() {
+  applyRowPagination()
+  hostRef.value
+    ?.querySelector('.affine-database-block-row:not(.wb-page-hidden)')
+    ?.scrollIntoView({ block: 'start' })
+}
+
+/** 新建行插在第一行：切回第 1 页，等行渲染后再套用分页。 */
+function onNewRow() {
+  dbPage.value = 1
+  requestAnimationFrame(() => applyRowPagination())
+}
+
+watch(dbState, () => scheduleApplyRowPagination(), { flush: 'post' })
+watch(dbPage, () => applyRowPagination())
+
+// 行节点由 BlockSuite 自己重建，watch 不到：用 MutationObserver 兜住每一次渲染。
+let pageObserver: MutationObserver | null = null
+watch(
+  hostRef,
+  (host) => {
+    pageObserver?.disconnect()
+    pageObserver = null
+    if (!host) return
+    pageObserver = new MutationObserver(() => scheduleApplyRowPagination())
+    pageObserver.observe(host, { childList: true, subtree: true })
+    applyRowPagination()
+  },
+  { immediate: true },
+)
+
 /** CSV 导入的隐藏文件输入；菜单触发 click 后由 change 事件消费 */
 const importInputRef = ref<HTMLInputElement | null>(null)
 /** 画布导出包（P2-4）在飞：菜单项置灰，避免重复打包 */
@@ -1371,6 +1460,8 @@ onBeforeUnmount(() => {
     clearTimeout(autoSyncTimer)
     autoSyncTimer = null
   }
+  pageObserver?.disconnect()
+  pageObserver = null
   teardownDatabaseTools()
   void session.flush()
   session.destroy()
@@ -1510,6 +1601,19 @@ onBeforeUnmount(() => {
   transition: right var(--app-motion-base) ease;
 }
 
+/* 事项表格分页：浮在表格底部居中，不往 BlockSuite 内部插节点（会被 lit 重渲染清掉）。 */
+.db-pager {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: var(--td-bg-color-container);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
 /**
  * 独立数据库视图（§10.7.2）：只做视图层聚焦，不改 store、不换保存链路。
  *
@@ -1544,6 +1648,11 @@ onBeforeUnmount(() => {
     padding: 0;
     border-radius: 0;
     background: transparent;
+  }
+
+  /* 给底部悬浮的分页条留出空间，避免遮住最后一行 */
+  :deep(.affine-database-table-container) {
+    padding-bottom: 52px;
   }
 
   /**

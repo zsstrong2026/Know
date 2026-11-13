@@ -309,6 +309,12 @@ affine-database .affine-database-block-row {
   border-bottom: 1px solid #f0f1ef;
 }
 
+/* 事项表格分页：非当前页的行在视图层隐藏（BlockSuite 表格本身没有分页）。
+   必须用 display:none 而不是 visibility，否则行仍占位、分页看起来无效。 */
+affine-database .affine-database-block-row.wb-page-hidden {
+  display: none !important;
+}
+
 /* 数据行里每列后面那根独立竖分隔条：原型没有，直接收掉。
    只命中「紧跟单元格容器的那一个 div」——早期写成 `> div > div` 会连带
    隐藏单元格内部的两层 div（富文本编辑器容器），表现为点开能编辑但看不到内容。 */
