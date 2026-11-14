@@ -9,10 +9,16 @@ import (
 // 工作台 AI 的校验错误。这里只为「400 还是 413」提供可判定的类型，
 // HTTP 状态与错误码由 service/handler 映射，types 包不依赖 errors 包。
 var (
-	ErrWorkbenchAIInvalidAction = errors.New("workbench ai: action must be one of polish, continue, translate, summarize, outline, custom")
+	ErrWorkbenchAIInvalidAction = errors.New("workbench ai: action is not registered")
 	ErrWorkbenchAIEmptyText     = errors.New("workbench ai: text is required")
 	ErrWorkbenchAIEmptyQuestion = errors.New("workbench ai: question is required")
 )
+
+// WorkbenchAIInvalidActionMessage 生成带合法动作列表的对外文案。
+// 注册表新增动作时文案自动跟上，不再需要手工同步一处字符串。
+func WorkbenchAIInvalidActionMessage() string {
+	return "action must be one of " + strings.Join(WorkbenchAIActionNames(), ", ")
+}
 
 // WorkbenchAILengthError 表示某个字段超过上限（→ 2402/413）。
 type WorkbenchAILengthError struct {
@@ -30,8 +36,8 @@ func (e *WorkbenchAILengthError) Error() string {
 // 这里只定义契约，不放业务逻辑：校验函数只做「长度与白名单」这类纯判断，
 // 让 handler 与 service 共用同一套口径，避免两边各写一份 limit。
 
-// 工作台内联 AI 允许的六个 action。前端 19 个菜单项全部映射到这里，
-// 预设名称不是安全边界，服务端只认这六个值（§11.2 规则 1）。
+// 工作台内联 AI 允许的 action。前端菜单项全部映射到这里，
+// 预设名称不是安全边界，服务端只认这份注册表里的值（§11.2 规则 1）。
 const (
 	WorkbenchAIActionPolish    = "polish"
 	WorkbenchAIActionContinue  = "continue"
@@ -39,7 +45,96 @@ const (
 	WorkbenchAIActionSummarize = "summarize"
 	WorkbenchAIActionOutline   = "outline"
 	WorkbenchAIActionCustom    = "custom"
+	// WorkbenchAIActionProofread 返回结构化问题列表（JSON），供前端逐条接受。
+	WorkbenchAIActionProofread = "proofread"
 )
+
+// WorkbenchAIOutputFormat 是动作的输出格式：纯文本或 JSON。
+// JSON 动作的约束由注册表统一追加，前端按同一契约解析。
+type WorkbenchAIOutputFormat string
+
+const (
+	WorkbenchAIOutputText WorkbenchAIOutputFormat = "text"
+	WorkbenchAIOutputJSON WorkbenchAIOutputFormat = "json"
+)
+
+// WorkbenchAIActionSpec 是一个动作的完整定义。
+//
+// 把 prompt、输出格式收在一处，是为了让「新增一个动作」只改注册表一行：
+// 校验白名单、系统提示、错误文案、前端菜单都从这份定义派生。
+type WorkbenchAIActionSpec struct {
+	Action string
+	// Prompt 是本动作固定的输出约束，追加在智能体系统提示之后，不可被预设 instruction 放宽。
+	Prompt string
+	Output WorkbenchAIOutputFormat
+}
+
+// workbenchAIActionSpecs 是动作注册表；顺序即错误信息与文档里的提示顺序。
+var workbenchAIActionSpecs = []WorkbenchAIActionSpec{
+	{
+		Action: WorkbenchAIActionPolish,
+		Prompt: "只返回润色后的文本；保留 Markdown 结构与专有名词；不解释、不加前后缀。",
+		Output: WorkbenchAIOutputText,
+	},
+	{
+		Action: WorkbenchAIActionContinue,
+		Prompt: "延续原文的语气与视角继续往下写；最多 300 字；不重复原文已有的句子。",
+		Output: WorkbenchAIOutputText,
+	},
+	{
+		Action: WorkbenchAIActionTranslate,
+		Prompt: "按用户指定的目标语言翻译；保留代码、链接、数字与术语；不添加解释、不加译注、不保留原文。",
+		Output: WorkbenchAIOutputText,
+	},
+	{
+		Action: WorkbenchAIActionSummarize,
+		Prompt: "输出 3–5 条要点或一段摘要；只使用原文出现的信息，不编造事实。",
+		Output: WorkbenchAIOutputText,
+	},
+	{
+		Action: WorkbenchAIActionOutline,
+		Prompt: "输出 Markdown 标题提纲；层级不超过 3 层；不写正文段落。",
+		Output: WorkbenchAIOutputText,
+	},
+	{
+		Action: WorkbenchAIActionCustom,
+		Prompt: "严格执行用户指令；仍不得调用工具、访问网络或写入任何数据。",
+		Output: WorkbenchAIOutputText,
+	},
+	{
+		Action: WorkbenchAIActionProofread,
+		Prompt: "找出错别字、语法、标点与明显病句，逐条给出最小修改建议；不改写无关内容，" +
+			"不调整结构，不新增信息；没有问题时返回空数组。",
+		Output: WorkbenchAIOutputJSON,
+	},
+}
+
+// workbenchAIJSONShapeHint 是 JSON 动作共用的结构说明。
+// 单独抽出来是因为模型对「字段名 + 类型」的遵循度远高于自然语言描述。
+const workbenchAIJSONShapeHint = "只输出 JSON，不要 Markdown 代码围栏、不要任何解释文字。结构：" +
+	`{"issues":[{"original":"原文片段","suggestion":"建议文本","reason":"原因"}]}`
+
+// WorkbenchAIJSONShapeHint 暴露结构契约，供 prompt 组装与前端契约文档共用。
+func WorkbenchAIJSONShapeHint() string { return workbenchAIJSONShapeHint }
+
+// LookupWorkbenchAIAction 按名称取动作定义；未知动作返回 false。
+func LookupWorkbenchAIAction(action string) (WorkbenchAIActionSpec, bool) {
+	for _, spec := range workbenchAIActionSpecs {
+		if spec.Action == action {
+			return spec, true
+		}
+	}
+	return WorkbenchAIActionSpec{}, false
+}
+
+// WorkbenchAIActionNames 返回全部合法动作名，供错误文案与测试断言使用。
+func WorkbenchAIActionNames() []string {
+	names := make([]string, 0, len(workbenchAIActionSpecs))
+	for _, spec := range workbenchAIActionSpecs {
+		names = append(names, spec.Action)
+	}
+	return names
+}
 
 // 长度上限（§11.2 规则 2）。超限返回 2402/413，不静默截断。
 const (
@@ -47,16 +142,6 @@ const (
 	WorkbenchAIInstructionMaxRunes = 500
 	WorkbenchAIContextMaxRunes     = 4000
 )
-
-// workbenchAIActions 是 action 白名单；顺序即错误信息里的提示顺序。
-var workbenchAIActions = []string{
-	WorkbenchAIActionPolish,
-	WorkbenchAIActionContinue,
-	WorkbenchAIActionTranslate,
-	WorkbenchAIActionSummarize,
-	WorkbenchAIActionOutline,
-	WorkbenchAIActionCustom,
-}
 
 // InlineAIRequest 内联车道请求（§11.2）。
 //
@@ -141,14 +226,10 @@ func (r *AskAIRequest) Validate() error {
 	return nil
 }
 
-// IsWorkbenchAIAction 判断 action 是否在白名单内。
+// IsWorkbenchAIAction 判断 action 是否在注册表内。
 func IsWorkbenchAIAction(action string) bool {
-	for _, allowed := range workbenchAIActions {
-		if action == allowed {
-			return true
-		}
-	}
-	return false
+	_, ok := LookupWorkbenchAIAction(action)
+	return ok
 }
 
 // Normalize 归一化可选字段：去空白、action 与 target_lang 统一小写无关，

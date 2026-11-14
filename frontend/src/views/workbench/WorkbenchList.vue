@@ -13,6 +13,17 @@
         <div class="page-sub">{{ subtitle }}</div>
       </div>
       <span class="spacer" />
+      <!-- 回收站：一键清空（仅在有内容时出现） -->
+      <t-button
+        v-if="scope === 'trash' && store.items.length > 0"
+        theme="danger"
+        variant="outline"
+        :loading="emptying"
+        @click="confirmEmptyTrash"
+      >
+        <template #icon><t-icon name="delete" /></template>
+        {{ $t('workbench.list.emptyTrashAction') }}
+      </t-button>
       <!-- 导入资料（P4-1）：列表页只有「加入工作知识库」一条路径 -->
       <t-button v-if="scope !== 'trash'" variant="outline" @click="importOpen = true">
         <template #icon><t-icon name="upload" /></template>
@@ -84,8 +95,10 @@
       :selected-count="selectedIds.size"
       :actionable-count="actionableSelection.length"
       :skipped-count="selectedIds.size - actionableSelection.length"
+      :trashable-count="selectedIds.size"
       @select-all-actionable="selectAllActionable"
       @archive="openBatchDialog"
+      @trash="confirmBatchTrash"
       @cancel="toggleSelectMode"
     />
 
@@ -133,7 +146,6 @@
           :trashed="scope === 'trash'"
           @open="selectMode ? toggleCandidate(item) : open(item)"
           @favorite="toggleFavorite"
-          @archive="onArchive"
           @menu="onItemMenu"
         />
       </div>
@@ -229,6 +241,8 @@ const sortOptions = computed(() => [
 ])
 /** 导入资料对话框（P4-1）；列表页只走「加入工作知识库」 */
 const importOpen = ref(false)
+/** 一键清空回收站请求中：按钮 loading，避免重复提交 */
+const emptying = ref(false)
 
 /**
  * 列表视图分组：只在「最近更新」排序下按天分组。
@@ -478,6 +492,44 @@ async function onBatchFinished() {
   void store.fetchBootstrap()
 }
 
+/**
+ * 批量移入回收站。
+ *
+ * 后端只有单条软删除接口，这里逐条串行调用，单条失败不阻塞其余条目；
+ * 结束时统一刷新列表与计数，并把成功/失败数量明确告诉用户。
+ */
+function confirmBatchTrash() {
+  const targets = store.items.filter((item) => selectedIds.value.has(item.id))
+  if (targets.length === 0) return
+  const dialog = DialogPlugin({
+    header: t('workbench.batchArchive.trashTitle'),
+    body: t('workbench.batchArchive.trashConfirm', { count: targets.length }),
+    theme: 'warning',
+    confirmBtn: t('workbench.batchArchive.trashSelected'),
+    onConfirm: async () => {
+      let failed = 0
+      for (const item of targets) {
+        try {
+          await store.trashItem(item.id, {
+            deleteArchives: canDeleteArchive(item.archive_status),
+          })
+        } catch {
+          failed += 1
+        }
+      }
+      dialog.hide()
+      await onBatchFinished()
+      if (failed > 0) {
+        MessagePlugin.warning(
+          t('workbench.batchArchive.trashPartial', { done: targets.length - failed, failed }),
+        )
+      } else {
+        MessagePlugin.success(t('workbench.batchArchive.trashDone', { count: targets.length }))
+      }
+    },
+  })
+}
+
 /** Esc 退出选择模式；Cmd/Ctrl+A 只全选可归档项。 */
 function onKeydown(event: KeyboardEvent) {
   if (!selectMode.value) return
@@ -603,6 +655,29 @@ function purge(item: WorkbenchItem) {
         dialog.hide()
       } catch {
         MessagePlugin.error(t('workbench.item.deleteFailed'))
+      }
+    },
+  })
+}
+
+/** 一键清空回收站：二次确认后由服务端永久删除全部条目。 */
+function confirmEmptyTrash() {
+  const dialog = DialogPlugin({
+    header: t('workbench.list.emptyTrashAction'),
+    body: t('workbench.list.emptyTrashConfirm'),
+    theme: 'warning',
+    confirmBtn: t('workbench.list.emptyTrashAction'),
+    onConfirm: async () => {
+      emptying.value = true
+      try {
+        const purged = await store.emptyTrash()
+        MessagePlugin.success(t('workbench.list.emptyTrashDone', { count: purged }))
+        dialog.hide()
+        void store.fetchBootstrap()
+      } catch {
+        MessagePlugin.error(t('workbench.list.emptyTrashFailed'))
+      } finally {
+        emptying.value = false
       }
     },
   })

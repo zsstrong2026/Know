@@ -11,7 +11,7 @@
     <span v-if="badge.version > 0" class="chip-version">· v{{ badge.version }}</span>
   </span>
   <button
-    v-if="badge.action !== 'none' && !readonly"
+    v-if="badge.action !== 'none' && !readonly && showAction"
     class="chip-action"
     type="button"
     :disabled="busy"
@@ -42,8 +42,10 @@ const props = withDefaults(
     readonly?: boolean
     /** 归档请求在飞：按钮置灰并显示「同步中」，防止重复提交 */
     busy?: boolean
+    /** 是否展示「归档/更新」操作按钮；卡片视图只保留状态徽标 */
+    showAction?: boolean
   }>(),
-  { archivedVersion: 0, readonly: false, busy: false },
+  { archivedVersion: 0, readonly: false, busy: false, showAction: true },
 )
 
 const emit = defineEmits<{ action: [action: ArchiveBadgeAction] }>()

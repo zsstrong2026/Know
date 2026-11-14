@@ -489,6 +489,9 @@ export const popViewOptions = (
         );
       if (bodyEl) {
         bodyEl.style.overflowY = 'auto';
+        // 纵向滚动时 overflow-x 会隐式变成 auto：只要有一两像素的横向溢出
+        // 就会出现横向滚动条。菜单内容都是自适应宽度的行，直接裁掉 X 方向。
+        bodyEl.style.overflowX = 'hidden';
         bodyEl.style.flex = '1';
         bodyEl.style.minHeight = '0';
       }

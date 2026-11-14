@@ -38,17 +38,6 @@
       >
         <t-icon :name="entry.icon" size="16px" />
         <span>{{ $t(entry.labelKey) }}</span>
-        <!-- Journals 行右端日历按钮：开/关右侧面板；不在 Journals 时先进入再打开 -->
-        <button
-          v-if="entry.name === 'workbenchJournals'"
-          class="nav-cal-btn"
-          type="button"
-          :aria-label="$t('workbench.journals.togglePanel')"
-          :aria-pressed="store.journalPanelOpen"
-          @click.prevent.stop="toggleJournalPanel"
-        >
-          <t-icon name="calendar" size="13px" />
-        </button>
       </RouterLink>
 
       <div class="nav-group-label">
@@ -326,21 +315,6 @@ function openWorkKb() {
   if (!store.workKbId) return
   void router.push(`/platform/knowledge-bases/${store.workKbId}`)
 }
-
-/**
- * 日历按钮（§9.13.1 入口①）。
- *
- * 不在 Journals 时先跳进去再展开面板；已在 Journals 时只切换开合。
- */
-async function toggleJournalPanel() {
-  const inJournals = route.name === 'workbenchJournals' || route.name === 'workbenchJournalDay'
-  if (!inJournals) {
-    store.journalPanelOpen = true
-    await router.push({ name: 'workbenchJournals' })
-    return
-  }
-  store.journalPanelOpen = !store.journalPanelOpen
-}
 </script>
 
 <style lang="less" scoped>
@@ -481,35 +455,6 @@ async function toggleJournalPanel() {
     box-shadow:
       0 10px 20px color-mix(in srgb, var(--td-brand-color) 28%, transparent),
       inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  }
-}
-
-.nav-cal-btn {
-  margin-left: auto;
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  flex: none;
-  border-radius: var(--app-radius-pill);
-  background: var(--td-bg-color-secondarycontainer);
-  color: var(--td-text-color-placeholder);
-  transition:
-    background-color var(--app-motion-fast) ease,
-    color var(--app-motion-fast) ease;
-
-  &:hover {
-    background: var(--td-bg-color-secondarycontainer-hover);
-    color: var(--td-brand-color);
-  }
-}
-
-.nav-item.is-active .nav-cal-btn {
-  background: rgba(255, 255, 255, 0.18);
-  color: var(--td-text-color-anti);
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.28);
   }
 }
 

@@ -50,6 +50,11 @@
 
     <div ref="scrollRef" class="msg-scroll">
       <div class="msg-list">
+        <!-- 进房/切换会议时先给加载占位，避免消息尚未拉回时对话框短暂空白 -->
+        <div v-if="store.loadingRoom && !store.messages.length" class="room-loading">
+          <t-loading size="small" />
+          <span>{{ $t('meeting.loadingRoom') }}</span>
+        </div>
         <div v-if="store.guardNotice" class="guard-notice">
           <span>{{ $t('meeting.guardNotice') }}</span>
           <t-button size="small" variant="text" @click="store.clearGuardNotice()">✕</t-button>
@@ -88,11 +93,6 @@
                 <t-tag v-else-if="m.sender_kind === 'agent'" size="small" variant="light">
                   {{ $t('meeting.senderAgent') }}
                 </t-tag>
-                <!-- 发言准入结果：observed=仅记录、rewritten=按未通过原因重写过，便于观察治理效果 -->
-                <t-tag v-if="m.admission_state === 'observed' || m.admission_state === 'rewritten'"
-                  size="small" variant="outline" theme="warning" :title="m.admission_note">
-                  {{ m.admission_state === 'rewritten' ? $t('meeting.admissionRewritten') : $t('meeting.admissionObserved') }}
-                </t-tag>
               </div>
               <div class="bubble markdown-content"
                 :class="{ 'is-solution': m.is_solution, 'is-consensus': m.is_consensus }"
@@ -101,7 +101,12 @@
           </div>
         </template>
 
-        <div v-if="store.discussing" class="discussing">
+        <!-- 优先展示具体是谁在组织发言，否则退回通用的"讨论中" -->
+        <div v-if="store.thinkingSpeaker" class="discussing">
+          <t-loading size="small" />
+          <span>{{ $t('meeting.thinking', { name: store.thinkingSpeaker.agent_name }) }}</span>
+        </div>
+        <div v-else-if="store.discussing" class="discussing">
           <t-loading size="small" />
           <span>{{ $t('meeting.discussing') }}</span>
         </div>
@@ -196,6 +201,20 @@
 
     <footer class="input-bar">
       <div class="input-inner">
+        <!-- 会议文件：上传后后台解析，ready 后自动进入智能体发言上下文 -->
+        <div v-if="store.attachments.length || store.attachmentUploading" class="meeting-files">
+          <t-tag v-for="file in store.attachments" :key="file.id" size="small" variant="light"
+            :theme="fileTagTheme(file.status)" :title="file.error_message || file.file_name"
+            class="meeting-file-tag">
+            <t-icon name="file" class="meeting-file-icon" />
+            <span class="meeting-file-name">{{ file.file_name }}</span>
+            <span class="meeting-file-status">{{ fileStatusText(file.status) }}</span>
+            <t-icon v-if="!isArchived" name="close" class="meeting-file-remove" @click="removeFile(file.id)" />
+          </t-tag>
+          <t-tag v-if="store.attachmentUploading" size="small" variant="light" theme="primary">
+            {{ $t('meeting.fileUploading') }}
+          </t-tag>
+        </div>
         <!-- 已选 @ 的智能体 chip，可点关闭移除 -->
         <div v-if="mentions.length" class="mention-chips">
           <t-tag v-for="m in mentions" :key="m.agent_id" size="small" closable theme="primary" variant="light"
@@ -220,6 +239,15 @@
             :disabled="isArchived" :placeholder="inputPlaceholder" />
         </div>
         <div class="input-actions">
+          <input ref="attachmentInputRef" type="file" class="attachment-input" multiple
+            :accept="attachmentAccept" @change="onAttachmentSelected" />
+          <t-tooltip :content="$t('meeting.fileUpload')" placement="top">
+            <t-button size="small" shape="circle" variant="outline" class="attachment-trigger"
+              :loading="store.attachmentUploading" :disabled="isArchived" :aria-label="$t('meeting.fileUpload')"
+              @click="pickAttachment">
+              <t-icon name="attach" size="16px" />
+            </t-button>
+          </t-tooltip>
           <MentionPicker @pick="addMention" />
           <t-button theme="primary" :disabled="isArchived || !draft.trim()" @click="send">
             {{ $t('meeting.send') }}
@@ -240,7 +268,8 @@ import { useRoute } from 'vue-router';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { useMeetingStore } from '@/stores/meeting';
 import { interruptMeeting, openMeetingStream } from '@/api/meeting';
-import type { MeetingMessage, MeetingParticipant } from '@/api/meeting';
+import type { MeetingAttachmentStatus, MeetingMessage, MeetingParticipant } from '@/api/meeting';
+import { MAX_FILE_SIZE_MB } from '@/utils';
 import { createChatMarkdownRenderer, renderChatMarkdown } from '@/utils/chatMarkdownRenderer';
 import { safeMarkdownToHTML, sanitizeMarkdownHTML } from '@/utils/security';
 import { useChatCitationPopover } from '@/composables/useChatCitationPopover';
@@ -499,18 +528,22 @@ async function openRoom(id: string) {
   adjustMode.value = false;
   confirming.value = false;
   store.leaveRoom();
-  try {
-    await store.enterRoom(id);
-  } catch {
-    MessagePlugin.error(t('meeting.loadFailed'));
-    return; // 仅在加载成功后才建立 SSE，避免空白页
-  }
-  await nextTick();
-  scrollToBottom();
+  // 先订阅 SSE，再拉历史消息：开场与首轮讨论可能在拉取窗口内生成，
+  // 先订阅可避免这些消息漏收；enterRoom 会按 id 去重合并。
   closeStream = openMeetingStream(id, {
     onEvent: (event, data) => store.applyStreamEvent(event, data),
     onError: () => { /* M1：视图显示离线提示即可，重连留给 M2 */ },
   });
+  try {
+    await store.enterRoom(id);
+  } catch {
+    closeStream?.();
+    closeStream = null;
+    MessagePlugin.error(t('meeting.loadFailed'));
+    return;
+  }
+  await nextTick();
+  scrollToBottom();
 }
 
 function scrollToBottom() {
@@ -598,6 +631,67 @@ async function send() {
   } catch (e) {
     draft.value = content;                          // 失败时回填，避免丢内容
     toastError(e);
+  }
+}
+
+// ---- 会议文件上传 ----
+const attachmentInputRef = ref<HTMLInputElement | null>(null);
+const ATTACHMENT_MAX = 5; // 与后端 MaxTemporaryAttachmentsPerMessage 一致
+// 与聊天附件支持的类型对齐；后端还会按租户解析引擎再校验一次
+const attachmentAccept = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.epub,.mhtml,.xmind,'
+  + '.txt,.md,.markdown,.csv,.json,.xml,.html,.yaml,.yml,.log,.jpg,.jpeg,.png,.gif,.bmp,.tiff,.webp';
+
+function pickAttachment() {
+  if (isArchived.value) return;
+  attachmentInputRef.value?.click();
+}
+
+async function onAttachmentSelected(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const files = Array.from(input.files || []);
+  input.value = ''; // 允许再次选择同一个文件
+  if (!files.length) return;
+  if (store.attachments.length + files.length > ATTACHMENT_MAX) {
+    MessagePlugin.warning(t('meeting.fileTooMany', { max: ATTACHMENT_MAX }));
+    return;
+  }
+  for (const file of files) {
+    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      MessagePlugin.warning(t('meeting.fileTooLarge', { name: file.name, max: MAX_FILE_SIZE_MB }));
+      continue;
+    }
+    try {
+      await store.uploadAttachment(file);
+      MessagePlugin.success(t('meeting.fileUploaded'));
+    } catch (e) {
+      toastError(e);
+    }
+  }
+}
+
+async function removeFile(attachmentId: string) {
+  try {
+    await store.removeAttachment(attachmentId);
+  } catch (e) {
+    toastError(e);
+  }
+}
+
+function fileTagTheme(status: MeetingAttachmentStatus): 'primary' | 'success' | 'danger' | 'default' {
+  switch (status) {
+    case 'ready': return 'success';
+    case 'failed': return 'danger';
+    case 'uploaded':
+    case 'processing': return 'primary';
+    default: return 'default';
+  }
+}
+
+function fileStatusText(status: MeetingAttachmentStatus): string {
+  switch (status) {
+    case 'ready': return t('meeting.fileReady');
+    case 'failed': return t('meeting.fileFailed');
+    default: return t('meeting.fileParsing');
   }
 }
 
@@ -795,6 +889,17 @@ async function interrupt() {
   align-items: center;
   justify-content: center;
   gap: var(--app-space-2);
+  font-size: var(--app-text-sm);
+  color: var(--td-text-color-secondary);
+}
+
+.room-loading {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: var(--app-space-2);
+  min-height: 160px;
   font-size: var(--app-text-sm);
   color: var(--td-text-color-secondary);
 }
@@ -1048,6 +1153,59 @@ async function interrupt() {
   flex-wrap: wrap;
   gap: var(--app-space-1);
   margin-bottom: var(--app-space-2);
+}
+
+/* ---------- 会议文件 ---------- */
+.meeting-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-1);
+  margin-bottom: var(--app-space-2);
+}
+
+.meeting-file-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.meeting-file-icon {
+  flex: 0 0 auto;
+  color: var(--td-text-color-secondary);
+}
+
+.meeting-file-name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meeting-file-status {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--td-text-color-secondary);
+}
+
+.meeting-file-remove {
+  flex: 0 0 auto;
+  margin-left: 2px;
+  cursor: pointer;
+  color: var(--td-text-color-placeholder);
+}
+
+.meeting-file-remove:hover {
+  color: var(--td-error-color);
+}
+
+.attachment-input {
+  display: none;
+}
+
+/* 上传按钮与 @ 按钮保持一致的圆形图标样式 */
+.attachment-trigger {
+  flex-shrink: 0;
 }
 
 .input-actions {

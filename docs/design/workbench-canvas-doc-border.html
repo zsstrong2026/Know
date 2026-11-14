@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>无限画布 · 文档边框方案</title>
+<style>
+  /* ========== 主题变量 ========== */
+  * { box-sizing: border-box; }
+  html { -webkit-font-smoothing: antialiased; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(880px 420px at 6% -8%, var(--glow-a), transparent 62%),
+      radial-gradient(720px 380px at 98% 2%, var(--glow-b), transparent 58%),
+      var(--bg);
+    transition: background-color .25s ease, color .25s ease;
+  }
+
+  body[data-theme="light"] {
+    --bg: #f4f5f7;
+    --ink: #1f2329;
+    --ink-2: #5f6672;
+    --ink-3: #8f959e;
+    --line: rgba(31, 35, 41, .10);
+    --line-strong: rgba(31, 35, 41, .16);
+    --card: rgba(255, 255, 255, .78);
+    --card-solid: #ffffff;
+    --glow-a: rgba(0, 82, 217, .07);
+    --glow-b: rgba(0, 82, 217, .04);
+    --brand: #0052d9;
+    --brand-soft: rgba(0, 82, 217, .10);
+    --canvas-bg: #f0f2f5;
+    --canvas-plain: #ffffff;
+    --grid-dot: rgba(31, 35, 41, .13);
+    --paper: #ffffff;
+    --paper-ink: #1f2329;
+    --paper-ink-2: #6b7280;
+    --paper-line: rgba(31, 35, 41, .10);
+    --shadow-page: 0 1px 2px rgba(16, 24, 40, .04), 0 24px 48px -36px rgba(16, 24, 40, .35);
+  }
+
+  body[data-theme="dark"] {
+    --bg: #121316;
+    --ink: rgba(255, 255, 255, .90);
+    --ink-2: rgba(255, 255, 255, .56);
+    --ink-3: rgba(255, 255, 255, .38);
+    --line: rgba(255, 255, 255, .09);
+    --line-strong: rgba(255, 255, 255, .16);
+    --card: rgba(255, 255, 255, .045);
+    --card-solid: #1c1d21;
+    --glow-a: rgba(74, 127, 224, .10);
+    --glow-b: rgba(74, 127, 224, .05);
+    --brand: #6a9bff;
+    --brand-soft: rgba(106, 155, 255, .14);
+    --canvas-bg: #17181b;
+    --canvas-plain: #0f1012;
+    --grid-dot: rgba(255, 255, 255, .10);
+    --paper: #1e1f23;
+    --paper-ink: rgba(255, 255, 255, .88);
+    --paper-ink-2: rgba(255, 255, 255, .52);
+    --paper-line: rgba(255, 255, 255, .10);
+    --shadow-page: 0 1px 2px rgba(0, 0, 0, .4), 0 28px 56px -32px rgba(0, 0, 0, .9);
+  }
+
+  /* ========== 页面骨架 ========== */
+  .page { max-width: 1180px; margin: 0 auto; padding: 52px 28px 80px; }
+  .page-head { margin-bottom: 26px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 10px;
+    font-size: 11px; font-weight: 600; letter-spacing: .16em;
+    color: var(--brand);
+  }
+  .eyebrow::before { content: ""; width: 24px; height: 1px; background: var(--brand); opacity: .7; }
+  .head-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 18px; margin-top: 14px; }
+  h1 { margin: 0; font-size: 34px; line-height: 1.25; letter-spacing: -.02em; font-weight: 650; }
+  h1 em { font-style: normal; color: var(--brand); }
+  .lead {
+    margin: 16px 0 0; max-width: 820px;
+    font-size: 13.5px; line-height: 1.85; color: var(--ink-2);
+  }
+  .lead b { color: var(--ink); font-weight: 600; }
+  .note-line {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin-top: 14px; padding: 7px 12px;
+    border: 1px solid var(--line); border-radius: 999px;
+    font-size: 12px; color: var(--ink-2);
+    background: var(--card);
+  }
+  .note-line b { color: var(--ink); font-weight: 600; }
+  .note-line .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #07a94f; box-shadow: 0 0 0 3px rgba(7, 169, 79, .14);
+  }
+
+  /* 右上角切换器 */
+  .controls { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .seg {
+    display: inline-flex; align-items: center; padding: 3px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card);
+  }
+  .seg-btn {
+    height: 26px; padding: 0 12px; border: 0; border-radius: 999px;
+    background: transparent; color: var(--ink-3);
+    font-size: 11.5px; font-family: inherit; cursor: pointer;
+    transition: background-color .18s ease, color .18s ease;
+  }
+  .seg-btn.is-on { background: var(--ink); color: var(--bg); }
+
+  /* ========== 画布舞台 ========== */
+  .stage {
+    position: relative;
+    height: 320px;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background-color: var(--canvas-bg);
+    background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px);
+    background-size: 22px 22px;
+    background-position: -9px -9px;
+  }
+  body[data-canvas="plain"] .stage {
+    background-image: none;
+    background-color: var(--canvas-plain);
+  }
+  .stage-sm { height: 272px; }
+
+  .zoom-chip {
+    position: absolute; top: 12px; right: 12px; z-index: 3;
+    height: 22px; padding: 0 9px;
+    display: inline-flex; align-items: center;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--card-solid);
+    color: var(--ink-3);
+    font-size: 10.5px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    box-shadow: 0 2px 8px rgba(16, 24, 40, .06);
+  }
+
+  /* ========== 文档卡片（画布里的 note） ========== */
+  .doc {
+    position: absolute; left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(76%, 430px);
+    padding: 24px 26px 20px;
+    border-radius: 10px;
+    background: var(--paper);
+    color: var(--paper-ink);
+  }
+  .doc-title { margin: 0; font-size: 19px; line-height: 1.4; font-weight: 650; letter-spacing: -.01em; }
+  .doc-meta { margin: 6px 0 0; font-size: 10.5px; color: var(--paper-ink-2); }
+  .doc-body { margin-top: 16px; }
+  .doc-h4 {
+    margin: 0 0 8px; font-size: 12px; font-weight: 600;
+    color: var(--paper-ink); letter-spacing: .02em;
+  }
+  .doc-tasks { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  .doc-tasks li {
+    position: relative; padding-left: 20px;
+    font-size: 12px; line-height: 1.65; color: var(--paper-ink-2);
+  }
+  .doc-tasks li::before {
+    content: ""; position: absolute; left: 0; top: 3px;
+    width: 10px; height: 10px; border-radius: 3px;
+    border: 1px solid var(--paper-line);
+  }
+  .doc-tasks li.done::before {
+    background: var(--brand); border-color: var(--brand);
+  }
+  .doc-tasks li.done::after {
+    content: ""; position: absolute; left: 2.5px; top: 5px;
+    width: 5px; height: 3px;
+    border-left: 1.4px solid #fff; border-bottom: 1.4px solid #fff;
+    transform: rotate(-45deg);
+  }
+  .doc-tasks li.done { text-decoration: line-through; text-decoration-color: var(--paper-line); }
+  .doc-p { margin: 12px 0 0; font-size: 12px; line-height: 1.75; color: var(--paper-ink-2); }
+  .doc-rule { height: 1px; margin: 14px 0 0; background: var(--paper-line); }
+
+  /* ========== 五套边框 ========== */
+  /* A · 发丝线：只有 1px 描边，用外环不占布局 */
+  .doc-a {
+    box-shadow: 0 0 0 1px rgba(31, 35, 41, .16);
+  }
+  body[data-theme="dark"] .doc-a {
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, .18);
+  }
+
+  /* B · 卡片浮层：描边 + 低强度投影，缩放后仍能看出边界 */
+  .doc-b {
+    box-shadow:
+      0 0 0 1px rgba(31, 35, 41, .10),
+      0 1px 2px rgba(16, 24, 40, .05),
+      0 16px 36px -20px rgba(16, 24, 40, .30);
+  }
+  body[data-theme="dark"] .doc-b {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, .12),
+      0 2px 4px rgba(0, 0, 0, .35),
+      0 20px 42px -22px rgba(0, 0, 0, .85);
+  }
+  /* 悬停：描边加深一级，投影略抬 */
+  .doc-b-hover {
+    box-shadow:
+      0 0 0 1px rgba(31, 35, 41, .20),
+      0 2px 4px rgba(16, 24, 40, .07),
+      0 22px 44px -22px rgba(16, 24, 40, .38);
+  }
+  body[data-theme="dark"] .doc-b-hover {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, .22),
+      0 3px 6px rgba(0, 0, 0, .42),
+      0 26px 50px -22px rgba(0, 0, 0, .95);
+  }
+
+  /* C · 双线画框：外 1px + 内缩 4px 的 1px 内线 */
+  .doc-c {
+    box-shadow:
+      0 0 0 1px rgba(31, 35, 41, .16),
+      inset 0 0 0 4px var(--paper),
+      inset 0 0 0 5px rgba(31, 35, 41, .09);
+  }
+  body[data-theme="dark"] .doc-c {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, .18),
+      inset 0 0 0 4px var(--paper),
+      inset 0 0 0 5px rgba(255, 255, 255, .10);
+  }
+
+  /* D · 左侧书脊：外描边 + 3px 品牌色内衬 */
+  .doc-d {
+    box-shadow:
+      0 0 0 1px rgba(31, 35, 41, .14),
+      inset 3px 0 0 0 rgba(0, 82, 217, .55);
+  }
+  body[data-theme="dark"] .doc-d {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, .14),
+      inset 3px 0 0 0 rgba(106, 155, 255, .65);
+  }
+
+  /* E · 虚线草稿：1.5px 虚线，弱化「正式文档」的重量感 */
+  .doc-e {
+    border: 1.5px dashed rgba(31, 35, 41, .26);
+    padding: 22.5px 24.5px 18.5px;
+  }
+  body[data-theme="dark"] .doc-e {
+    border-color: rgba(255, 255, 255, .28);
+  }
+
+  /* 选中态：沿用画布原生蓝色选框 + 四角手柄，不再叠加自定义描边 */
+  .doc.is-selected {
+    box-shadow: none;
+    border: 0;
+    padding: 24px 26px 20px;
+    outline: 2px solid #1e96eb;
+    outline-offset: 5px;
+  }
+  /* 选中演示：用外层容器定位，四角手柄贴着蓝色选框 */
+  .selected-demo {
+    position: absolute; left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(74%, 330px);
+  }
+  .selected-demo .doc {
+    position: relative; left: auto; top: auto;
+    transform: none; width: 100%;
+    padding: 20px 22px 16px;
+  }
+  .sel-handle {
+    position: absolute; width: 8px; height: 8px;
+    border-radius: 2px; background: #fff;
+    border: 1.5px solid #1e96eb; z-index: 4;
+  }
+  .sel-handle.tl { left: -11px; top: -11px; }
+  .sel-handle.tr { right: -11px; top: -11px; }
+  .sel-handle.bl { left: -11px; bottom: -11px; }
+  .sel-handle.br { right: -11px; bottom: -11px; }
+
+  /* ========== 对照区 ========== */
+  .compare {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px; margin-top: 22px;
+  }
+  figure { margin: 0; }
+  figcaption {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 10px; font-size: 12.5px; color: var(--ink-2);
+  }
+  .tag {
+    display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
+    border-radius: 999px; font-size: 11px; font-weight: 600;
+  }
+  .tag-ghost { background: var(--line); color: var(--ink-2); }
+  .tag-rec { background: var(--brand-soft); color: var(--brand); }
+  .callout {
+    position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+    padding: 5px 11px; border-radius: 999px;
+    border: 1px dashed var(--line-strong);
+    background: var(--card-solid);
+    color: var(--ink-3); font-size: 10.5px; white-space: nowrap;
+  }
+
+  /* ========== 方案卡 ========== */
+  .options {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px; margin-top: 40px;
+  }
+  .option {
+    padding: 18px 18px 16px;
+    border: 1px solid var(--line); border-radius: 20px;
+    background: var(--card);
+    box-shadow: var(--shadow-page);
+  }
+  .option-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .idx {
+    width: 26px; height: 26px; flex: none;
+    display: grid; place-items: center;
+    border: 1px solid var(--line); border-radius: 8px;
+    font-size: 11.5px; font-weight: 600;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--ink-2);
+    background: var(--card-solid);
+  }
+  .option-head h2 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+  .badge {
+    margin-left: auto;
+    display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
+    border-radius: 999px; font-size: 10.5px; font-weight: 600;
+    background: var(--line); color: var(--ink-2);
+  }
+  .badge.brand { background: var(--brand-soft); color: var(--brand); }
+  .option-meta p {
+    margin: 14px 0 0; font-size: 12.5px; line-height: 1.75; color: var(--ink-2);
+  }
+  .option-meta p b { color: var(--ink); font-weight: 600; }
+  .spec-list {
+    display: grid; gap: 6px;
+    margin-top: 12px; padding-top: 11px;
+    border-top: 1px dashed var(--line);
+  }
+  .spec-list div { display: flex; justify-content: space-between; gap: 14px; font-size: 11.5px; }
+  .spec-list dt { color: var(--ink-3); }
+  .spec-list dd {
+    margin: 0; color: var(--ink-2); text-align: right;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .verdict { margin-top: 12px; font-size: 11.5px; line-height: 1.7; color: var(--ink-3); }
+  .verdict b { color: var(--ink-2); font-weight: 600; }
+
+  /* ========== 状态演示 ========== */
+  .states { margin-top: 44px; }
+  .section-head { display: flex; align-items: baseline; gap: 10px; }
+  .section-head h2 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -.01em; }
+  .section-head span { font-size: 12px; color: var(--ink-3); }
+  .state-grid {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px; margin-top: 14px;
+  }
+  .state-grid .doc { width: min(74%, 330px); padding: 20px 22px 16px; }
+  .state-grid .doc-title { font-size: 16px; }
+  .state-grid .doc-body { margin-top: 12px; }
+  .state-grid .doc-p { display: none; }
+  .state-grid figcaption { justify-content: center; margin-top: 10px; margin-bottom: 0; }
+
+  /* ========== 实现口径 ========== */
+  .impl { margin-top: 44px; padding: 24px 26px; border: 1px solid var(--line); border-radius: 20px; background: var(--card); }
+  .impl-list { margin: 16px 0 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+  .impl-list li {
+    display: grid; grid-template-columns: 92px 1fr; gap: 14px;
+    font-size: 12.5px; line-height: 1.8; color: var(--ink-2);
+  }
+  .impl-list b { color: var(--ink); font-weight: 600; }
+  footer {
+    margin-top: 30px; padding-top: 18px;
+    border-top: 1px dashed var(--line);
+    font-size: 12px; line-height: 1.8; color: var(--ink-3);
+  }
+  footer b { color: var(--ink-2); font-weight: 600; }
+
+  /* ========== 响应式 ========== */
+  @media (max-width: 900px) {
+    .page { padding: 36px 16px 64px; }
+    h1 { font-size: 27px; }
+    .controls { margin-left: 0; }
+    .compare, .options, .state-grid { grid-template-columns: minmax(0, 1fr); }
+    .stage { height: 280px; }
+    .impl-list li { grid-template-columns: 1fr; gap: 2px; }
+  }
+</style>
+</head>
+<body data-theme="light" data-canvas="grid">
+
+<main class="page">
+  <header class="page-head">
+    <div class="eyebrow">WORKBENCH · EDGELESS</div>
+    <div class="head-row">
+      <h1>无限画布里的文档，<em>默认带一圈边框</em></h1>
+      <div class="controls">
+        <div class="seg" id="canvasSeg" role="group" aria-label="画布背景">
+          <button class="seg-btn is-on" type="button" data-canvas="grid">网格背景</button>
+          <button class="seg-btn" type="button" data-canvas="plain">纯白背景</button>
+        </div>
+        <div class="seg" id="themeSeg" role="group" aria-label="主题">
+          <button class="seg-btn is-on" type="button" data-theme="light">浅色</button>
+          <button class="seg-btn" type="button" data-theme="dark">深色</button>
+        </div>
+      </div>
+    </div>
+    <p class="lead">
+      现状：切到无限画布后，文档（note 卡片）与画布底色接近，边界感很弱，容易和其他便签糊在一起。
+      下面 5 套方案都<b>只作用于「文档」本身</b>，画布上新建的便签不受影响；默认态显示边框，悬停加深一级，选中时仍沿用画布原生的蓝色选框。
+    </p>
+    <div class="note-line">
+      <span class="dot"></span>推荐 <b>方案 B · 卡片浮层</b>：描边 + 低强度投影，缩放到 50% 时边界仍然清晰。
+    </div>
+  </header>
+
+  <!-- 现状 vs 目标 -->
+  <section class="compare" aria-label="现状与目标对比">
+    <figure>
+      <figcaption><span class="tag tag-ghost">现状</span>无边框，文档与画布融在一起</figcaption>
+      <div class="stage">
+        <div class="zoom-chip">67%</div>
+        <article class="doc" data-doc></article>
+        <div class="callout">看不出文档的边界在哪里</div>
+      </div>
+    </figure>
+    <figure>
+      <figcaption><span class="tag tag-rec">目标</span>方案 B：描边 + 轻投影，文档成为画布上的“物件”</figcaption>
+      <div class="stage">
+        <div class="zoom-chip">67%</div>
+        <article class="doc doc-b" data-doc></article>
+      </div>
+    </figure>
+  </section>
+
+  <!-- 五套方案 -->
+  <section class="options">
+    <!-- A -->
+    <article class="option">
+      <div class="option-head">
+        <span class="idx">A</span>
+        <h2>发丝线</h2>
+        <span class="badge">最克制</span>
+      </div>
+      <div class="stage stage-sm">
+        <div class="zoom-chip">67%</div>
+        <article class="doc doc-a" data-doc></article>
+      </div>
+      <div class="option-meta">
+        <p>一圈 1px 中性灰描边，不加投影。视觉重量最轻，几乎不改变文档原本的气质，适合追求极简的界面。</p>
+        <dl class="spec-list">
+          <div><dt>描边</dt><dd>1px rgba(31,35,41,.16)</dd></div>
+          <div><dt>圆角 / 投影</dt><dd>10px / 无</dd></div>
+        </dl>
+        <p class="verdict"><b>适合：</b>极简偏好、大面积画布；<b>注意：</b>缩小到 50% 以下描边会偏淡。</p>
+      </div>
+    </article>
+
+    <!-- B -->
+    <article class="option">
+      <div class="option-head">
+        <span class="idx">B</span>
+        <h2>卡片浮层</h2>
+        <span class="badge brand">推荐默认</span>
+      </div>
+      <div class="stage stage-sm">
+        <div class="zoom-chip">67%</div>
+        <article class="doc doc-b" data-doc></article>
+      </div>
+      <div class="option-meta">
+        <p>1px 描边 + 一层很轻的投影。描边负责“边界”，投影负责“浮起”，缩放到 50% 时两者仍能互相补位。</p>
+        <dl class="spec-list">
+          <div><dt>描边</dt><dd>1px rgba(31,35,41,.10)</dd></div>
+          <div><dt>投影</dt><dd>0 16px 36px -20px rgba(16,24,40,.30)</dd></div>
+          <div><dt>圆角</dt><dd>10px</dd></div>
+        </dl>
+        <p class="verdict"><b>适合：</b>作为默认态；<b>注意：</b>投影强度要低，避免画布上出现一圈“雾”。</p>
+      </div>
+    </article>
+
+    <!-- C -->
+    <article class="option">
+      <div class="option-head">
+        <span class="idx">C</span>
+        <h2>双线画框</h2>
+        <span class="badge">最有仪式感</span>
+      </div>
+      <div class="stage stage-sm">
+        <div class="zoom-chip">67%</div>
+        <article class="doc doc-c" data-doc></article>
+      </div>
+      <div class="option-meta">
+        <p>外圈 1px，内缩 4px 再压一条 1px 内线，像把文档装进画框。正式感强，适合长文档、对外材料。</p>
+        <dl class="spec-list">
+          <div><dt>外框</dt><dd>1px rgba(31,35,41,.16)</dd></div>
+          <div><dt>内线</dt><dd>1px，内缩 4px</dd></div>
+          <div><dt>圆角 / 投影</dt><dd>10px / 无</dd></div>
+        </dl>
+        <p class="verdict"><b>适合：</b>正式文档、演示场景；<b>注意：</b>内线会压住内边距，正文需要多留 4px。</p>
+      </div>
+    </article>
+
+    <!-- D -->
+    <article class="option">
+      <div class="option-head">
+        <span class="idx">D</span>
+        <h2>左侧书脊</h2>
+        <span class="badge">辨识度最高</span>
+      </div>
+      <div class="stage stage-sm">
+        <div class="zoom-chip">67%</div>
+        <article class="doc doc-d" data-doc></article>
+      </div>
+      <div class="option-meta">
+        <p>普通描边之外，在左侧内衬一条 3px 品牌色书脊，像笔记本的装订边，一眼能看出“这是一份文档”。</p>
+        <dl class="spec-list">
+          <div><dt>描边</dt><dd>1px rgba(31,35,41,.14)</dd></div>
+          <div><dt>书脊</dt><dd>3px rgba(0,82,217,.55)</dd></div>
+        </dl>
+        <p class="verdict"><b>适合：</b>文档与便签混排、需要快速区分；<b>注意：</b>带颜色，多个文档并排时会有重复感。</p>
+      </div>
+    </article>
+
+    <!-- E -->
+    <article class="option">
+      <div class="option-head">
+        <span class="idx">E</span>
+        <h2>虚线草稿</h2>
+        <span class="badge">最“画布”</span>
+      </div>
+      <div class="stage stage-sm">
+        <div class="zoom-chip">67%</div>
+        <article class="doc doc-e" data-doc></article>
+      </div>
+      <div class="option-meta">
+        <p>1.5px 虚线边框，弱化“正式纸张”的重量感，更像画布上的一个占位或草稿，和网格背景更协调。</p>
+        <dl class="spec-list">
+          <div><dt>描边</dt><dd>1.5px dashed rgba(31,35,41,.26)</dd></div>
+          <div><dt>圆角 / 投影</dt><dd>10px / 无</dd></div>
+        </dl>
+        <p class="verdict"><b>适合：</b>草稿、临时文档；<b>注意：</b>虚线容易被理解为“未完成”或“可拖放占位”。</p>
+      </div>
+    </article>
+  </section>
+
+  <!-- 状态演示 -->
+  <section class="states">
+    <div class="section-head">
+      <h2>交互状态</h2>
+      <span>以方案 B 为例：边框只在默认态出现，选中时交还给画布原生选框</span>
+    </div>
+    <div class="state-grid">
+      <figure>
+        <div class="stage stage-sm">
+          <div class="zoom-chip">67%</div>
+          <article class="doc doc-b" data-doc></article>
+        </div>
+        <figcaption>默认 · 1px 描边 + 轻投影</figcaption>
+      </figure>
+      <figure>
+        <div class="stage stage-sm">
+          <div class="zoom-chip">67%</div>
+          <article class="doc doc-b-hover" data-doc></article>
+        </div>
+        <figcaption>悬停 · 描边加深一级</figcaption>
+      </figure>
+      <figure>
+        <div class="stage stage-sm">
+          <div class="zoom-chip">67%</div>
+          <div class="selected-demo">
+            <article class="doc doc-b is-selected" data-doc></article>
+            <span class="sel-handle tl"></span>
+            <span class="sel-handle tr"></span>
+            <span class="sel-handle bl"></span>
+            <span class="sel-handle br"></span>
+          </div>
+        </div>
+        <figcaption>选中 · 原生蓝色选框 + 四角手柄</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- 实现口径 -->
+  <section class="impl">
+    <div class="section-head">
+      <h2>实现口径</h2>
+      <span>确认方案后按这些约束落地</span>
+    </div>
+    <ul class="impl-list">
+      <li><b>作用范围</b><span>只给无限画布中的「文档根 note」加描边；画布上新建的便签继续沿用设置里的笔记样式，互不影响。</span></li>
+      <li><b>画布缩放</b><span>边框随缩放变化。为保证 50% 缩放下仍可辨识，推荐「1px 描边 + 低强度投影」组合，而不是单纯加粗描边。</span></li>
+      <li><b>状态优先级</b><span>默认（描边）→ 悬停（描边加深一级）→ 选中（画布原生蓝色选框，不再叠加自定义描边，避免双框）。</span></li>
+      <li><b>主题适配</b><span>浅色用低透明度墨色描边；深色翻成低透明度白色描边，投影强度相应减弱，避免发灰。</span></li>
+      <li><b>可配置</b><span>可复用现有「编辑器 → 笔记样式」里的边框 / 圆角 / 阴影偏好，也可以新增一个「文档边框」预设项，具体听你的。</span></li>
+    </ul>
+  </section>
+
+  <footer>
+    确认方式：直接回复方案字母即可，例如「选 B」或「B，但边框再淡一点」。颜色深浅、圆角、投影强度、是否可关闭，也可以一起定，我再按最终口径实现到工作台。
+  </footer>
+</main>
+
+<template id="docTemplate">
+  <h3 class="doc-title">Q4 产品路线图</h3>
+  <p class="doc-meta">更新于 10 分钟前 · 1,284 字 · 私有</p>
+  <div class="doc-body">
+    <h4 class="doc-h4">本周重点</h4>
+    <ul class="doc-tasks">
+      <li class="done">完成无限画布边框方案评审</li>
+      <li class="done">画布工具条支持自定义</li>
+      <li>文档导出接入增量快照</li>
+    </ul>
+    <p class="doc-p">画布模式下，文档应该像一个可以拿起来摆放的物件：边界清楚，但不喧宾夺主。</p>
+  </div>
+  <div class="doc-rule"></div>
+</template>
+
+<script>
+  // 统一填充文档示例内容，避免 9 处重复 HTML
+  const docTpl = document.getElementById('docTemplate');
+  document.querySelectorAll('[data-doc]').forEach((el) => {
+    el.appendChild(docTpl.content.cloneNode(true));
+  });
+
+  // 画布背景切换：验证边框在网格 / 纯白两种背景下的可见性
+  document.querySelectorAll('#canvasSeg .seg-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.body.dataset.canvas = btn.dataset.canvas;
+      document.querySelectorAll('#canvasSeg .seg-btn').forEach((b) => b.classList.toggle('is-on', b === btn));
+    });
+  });
+
+  // 主题切换：边框颜色与投影强度需要分别适配亮 / 暗主题
+  document.querySelectorAll('#themeSeg .seg-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.body.dataset.theme = btn.dataset.theme;
+      document.querySelectorAll('#themeSeg .seg-btn').forEach((b) => b.classList.toggle('is-on', b === btn));
+    });
+  });
+</script>
+
+</body>
+</html>

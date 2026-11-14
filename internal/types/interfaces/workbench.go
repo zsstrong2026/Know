@@ -58,6 +58,18 @@ type WorkbenchItemRepository interface {
 	// PurgeItem 硬删条目及其 versions/links/assets 行；存储文件由服务层在事务后删。
 	PurgeItem(ctx context.Context, tenantID uint64, ownerID, id string) error
 
+	// ListTrashedItems 返回回收站内的条目元数据（清空回收站用），
+	// 按 deleted_at 升序，最多 limit 条；limit<=0 表示不限量。
+	ListTrashedItems(
+		ctx context.Context, tenantID uint64, ownerID string, limit int,
+	) ([]*types.WorkbenchItem, error)
+
+	// PurgeTrashedItems 批量硬删回收站条目及其从属行，返回删除行数。
+	// 只删仍处于回收站（deleted_at IS NOT NULL）且属于该 owner 的行。
+	PurgeTrashedItems(
+		ctx context.Context, tenantID uint64, ownerID string, ids []string,
+	) (int64, error)
+
 	// RestoreItem 清空 deleted_at 并返回恢复后的条目。
 	RestoreItem(ctx context.Context, tenantID uint64, ownerID, id string) (*types.WorkbenchItem, error)
 

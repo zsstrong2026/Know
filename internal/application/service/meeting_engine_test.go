@@ -736,7 +736,7 @@ func TestRunDiscussionNoInterventionWhenDisabled(t *testing.T) {
 
 	require.NoError(t, e.RunTurn(ctx, "room-off", "u1"))
 
-	assert.Equal(t, 6, countByKind(repo.snapshot(), types.MeetingSenderAgent), "讨论仍应正常推进 3 个子轮")
+	assert.Equal(t, 6, countByKind(repo.snapshot(), types.MeetingSenderAgent), "历史房间保留批量发言：3 个子轮 × 2 人")
 	assert.Equal(t, 0, countByKind(repo.snapshot(), types.MeetingSenderHost), "关闭介入不应产生主持人消息")
 }
 
@@ -848,7 +848,7 @@ func TestRunDiscussionConsensusConvergesStopsTurn(t *testing.T) {
 // TestRunDiscussionConsensusNotConvergedKeepsGoing 裁判判未收敛：讨论照常推进，不产生共识消息
 func TestRunDiscussionConsensusNotConvergedKeepsGoing(t *testing.T) {
 	ctx := context.Background()
-	// 前 4 次互相 @ → 3 个子轮（6 条）；GuardMaxExchange=4 使护栏不触发，避免干扰断言
+	// 前 4 次互相 @ → 4 个子轮（每轮 1 条）；GuardMaxExchange=4 使护栏不触发，避免干扰断言
 	e, repo := newConsensusEngineFixture(t, "room-nc",
 		`{"converged":false,"reason":"仍有分歧"}`,
 		&fakeConsensusRoomRepo{guardMaxExchange: 4}, 4)
@@ -1013,11 +1013,17 @@ func TestRunDiscussionUserInterjectionSwitchesTrigger(t *testing.T) {
 	require.NoError(t, e.RunTurn(context.Background(), "room-interject", "u1"))
 
 	agentMsgs := messagesByKind(repo.snapshot(), types.MeetingSenderAgent)
-	require.Len(t, agentMsgs, 4, "首轮双方回应 u1，插话后双方再回应 u2")
-	assert.Equal(t, "u1", agentMsgs[0].ReplyToMessageID)
-	assert.Equal(t, "u1", agentMsgs[1].ReplyToMessageID)
-	assert.Equal(t, "u2", agentMsgs[2].ReplyToMessageID, "用户中途插话后应立即切换到新消息")
-	assert.Equal(t, "u2", agentMsgs[3].ReplyToMessageID)
+	require.GreaterOrEqual(t, len(agentMsgs), 2, "首轮至少一人回应 u1，插话后继续讨论")
+	assert.Equal(t, "u1", agentMsgs[0].ReplyToMessageID, "首条应回应触发消息")
+	// 插话后引擎应立即切换到新消息：后续发言可接在别人话后，但不得继续回应 u1
+	repliedU2 := false
+	for _, m := range agentMsgs[1:] {
+		assert.NotEqual(t, "u1", m.ReplyToMessageID, "插话后不应继续回应旧消息")
+		if m.ReplyToMessageID == "u2" {
+			repliedU2 = true
+		}
+	}
+	assert.True(t, repliedU2, "插话后应有人回应新的用户消息")
 }
 
 // TestRunDiscussionPausesWhenAgentAsksUser 智能体发言 @用户 提问时暂停讨论并广播 awaiting_user，
@@ -1079,12 +1085,12 @@ func TestRunDiscussionAutoAdvancesAgenda(t *testing.T) {
 		if strings.Contains(m.Content, "【议题 2/2】兼容性") {
 			sawNextOpen = true
 		}
-		if strings.Contains(m.Content, "【会议收束】") {
+		if strings.Contains(m.Content, "【会议结论】") {
 			sawWrapUp = true
 		}
 	}
 	assert.True(t, sawNextOpen, "应自动落下一议题的开题消息")
-	assert.True(t, sawWrapUp, "全部议题完成后应落收束消息")
+	assert.True(t, sawWrapUp, "全部议题完成后应自动生成会议结论")
 }
 
 // fakeMeetingUserService 仅实现 GetUserByID：会议创建者统一解析为「张三」
@@ -1138,4 +1144,43 @@ func TestRunDiscussionPausesWhenAgentMentionsUserName(t *testing.T) {
 	require.NotNil(t, askMsg, "应识别出向用户提问的消息")
 	assert.Contains(t, askMsg.Content, "@张三")
 	assert.NotEmpty(t, askMsg.Payload, "落库时应带 asks_user 标记")
+}
+
+// fakeMeetingAttachmentDocs 仅实现会议附件上下文所需的两个方法
+type fakeMeetingAttachmentDocs struct {
+	interfaces.TemporaryDocumentService
+	docs []*types.TemporaryDocument
+}
+
+func (f *fakeMeetingAttachmentDocs) List(_ context.Context, _ uint64, _ string) ([]*types.TemporaryDocument, error) {
+	return f.docs, nil
+}
+
+func (f *fakeMeetingAttachmentDocs) ResolveForPrompt(
+	_ context.Context, _ uint64, _ string, ids []string, _ string,
+) (*types.TemporaryDocumentPromptResult, error) {
+	return &types.TemporaryDocumentPromptResult{Attachments: types.MessageAttachments{{
+		ID: ids[0], FileName: "预算.pdf", Content: "预算上限 20 万", ContentMode: types.AttachmentContentModeFull,
+	}}}, nil
+}
+
+// TestMeetingAttachmentContext 已就绪文件注入正文，解析中的文件只提示状态
+func TestMeetingAttachmentContext(t *testing.T) {
+	e := &meetingEngine{temporaryDocs: &fakeMeetingAttachmentDocs{docs: []*types.TemporaryDocument{
+		{ID: "d1", FileName: "预算.pdf", Status: types.TemporaryDocumentStatusReady},
+		{ID: "d2", FileName: "架构.docx", Status: types.TemporaryDocumentStatusProcessing},
+	}}}
+	room := &types.MeetingRoom{ID: "r1", TenantID: 1}
+
+	got := e.meetingAttachmentContext(context.Background(), room, "预算怎么定？")
+	assert.Contains(t, got, "【会议文件资料】")
+	assert.Contains(t, got, "预算.pdf")
+	assert.Contains(t, got, "预算上限 20 万")
+	assert.Contains(t, got, "【文件解析中】架构.docx")
+}
+
+// TestMeetingAttachmentContextDisabled 未注入附件服务时不产生任何附件上下文
+func TestMeetingAttachmentContextDisabled(t *testing.T) {
+	e := &meetingEngine{}
+	assert.Empty(t, e.meetingAttachmentContext(context.Background(), &types.MeetingRoom{ID: "r1"}, "问题"))
 }

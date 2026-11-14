@@ -332,8 +332,7 @@ func mapInlineValidationError(err error) error {
 		return apperrors.NewWorkbenchTooLarge(int64(lengthErr.Limit), int64(lengthErr.Actual))
 	}
 	if errors.Is(err, types.ErrWorkbenchAIInvalidAction) {
-		return apperrors.NewBadRequestError(
-			"action must be one of polish, continue, translate, summarize, outline, custom")
+		return apperrors.NewBadRequestError(types.WorkbenchAIInvalidActionMessage())
 	}
 	return apperrors.NewBadRequestError(err.Error())
 }

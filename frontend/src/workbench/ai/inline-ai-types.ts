@@ -5,7 +5,7 @@
  * 不把 axios 与 Pinia 拖进 `tsx --test`。
  */
 
-/** 内联车道允许的六个 action；与后端白名单一一对应。 */
+/** 内联车道允许的 action；与后端注册表一一对应。 */
 export type InlineAIAction =
   | 'polish'
   | 'continue'
@@ -13,6 +13,7 @@ export type InlineAIAction =
   | 'summarize'
   | 'outline'
   | 'custom'
+  | 'proofread'
 
 export const INLINE_AI_ACTIONS: readonly InlineAIAction[] = [
   'polish',
@@ -21,7 +22,15 @@ export const INLINE_AI_ACTIONS: readonly InlineAIAction[] = [
   'summarize',
   'outline',
   'custom',
+  'proofread',
 ]
+
+/** 纠错动作返回的一条问题；字段名与后端 JSON 契约一致。 */
+export interface ProofreadIssue {
+  original: string
+  suggestion: string
+  reason: string
+}
 
 /** 请求体（§11.3）。不含 model_id / system_prompt / tools：那些由服务端解析。 */
 export interface InlineAIRequest {

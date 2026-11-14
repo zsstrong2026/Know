@@ -38,8 +38,16 @@ function makeHandle(options: {
         {
           flavour: 'affine:note',
           children: [
-            { flavour: 'affine:paragraph', model: { text: { toString: () => '第一段' } } },
-            { flavour: 'affine:list', model: { text: { toString: () => '列表项' } } },
+            {
+              id: 'b1',
+              flavour: 'affine:paragraph',
+              model: { text: { toString: () => blocks.b1?.text ?? '' } },
+            },
+            {
+              id: 'code1',
+              flavour: 'affine:code',
+              model: { text: { toString: () => blocks.code1?.text ?? '' } },
+            },
           ],
         },
       ],
@@ -111,7 +119,7 @@ test('无选区 / 非文本选区 / 折叠选区都返回 null', () => {
   assert.equal(collapsed.getSelection(), null, '零长度选区不弹工具条')
 })
 
-test('跨块选区不支持，返回 null', () => {
+test('跨块选区串成 spans，文本按块顺序拼接', () => {
   const handle = makeHandle({
     selections: [
       {
@@ -122,7 +130,13 @@ test('跨块选区不支持，返回 null', () => {
       },
     ],
   })
-  assert.equal(createPageAIAdapter({ handle: () => handle, itemId: () => 'i' }).getSelection(), null)
+  const snapshot = createPageAIAdapter({ handle: () => handle, itemId: () => 'i' }).getSelection()!
+  assert.equal(snapshot.blockId, 'b1', '首块作为锚点')
+  assert.equal(snapshot.spans?.length, 2)
+  // 首块从 from.index 取到块尾；尾块从块首取到 to.index + to.length
+  assert.equal(snapshot.spans?.[0].text, '123456789abcdef')
+  assert.equal(snapshot.spans?.[1].text, 'con')
+  assert.equal(snapshot.text, '123456789abcdef\ncon')
 })
 
 test('偏移越界时当作无选区，不返回半截文本', () => {
@@ -150,9 +164,20 @@ test('代码块判定：自身或祖先命中都算', () => {
   assert.equal(isCodeBlockSelection(handle.store, 'nested'), true, '祖先命中也要算')
 })
 
-test('页面纯文本只取 note 下的段落与列表', () => {
+test('页面纯文本只取 note 下的正文段落，跳过代码块', () => {
   const adapter = createPageAIAdapter({ handle: () => makeHandle({}), itemId: () => 'i' })
-  assert.equal(adapter.getPageText(), '第一段\n列表项')
+  assert.equal(adapter.getPageText(), '0123456789abcdef')
+})
+
+test('getAnchorBlockId：有选区取首块，无选区取最后一块', () => {
+  const withSelection = createPageAIAdapter({
+    handle: () => makeHandle({ selections: [forwardSelection] }),
+    itemId: () => 'i',
+  })
+  assert.equal(withSelection.getAnchorBlockId?.(), 'b1')
+
+  const withoutSelection = createPageAIAdapter({ handle: () => makeHandle({}), itemId: () => 'i' })
+  assert.equal(withoutSelection.getAnchorBlockId?.(), 'code1', '无选区时落到文末')
 })
 
 test('currentTextSelection 不依赖 store 上的 selection 属性', () => {

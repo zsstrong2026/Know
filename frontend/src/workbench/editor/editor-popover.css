@@ -592,17 +592,60 @@ affine-database data-view-header-tools-search {
   display: none !important;
 }
 
+/**
+ * 「视图设置」入口对齐工具条按钮。
+ *
+ * 上游是「描边宿主 + 内部 div.more-action」两层：宿主 54×30、内部 34×34
+ * （28px 再加 padding 与描边），且弹层展开时内部还会变灰 —— 看起来像
+ * 一个套在框里的灰方块。这里把外观统一交给宿主：26×26、与工具条「⋯」
+ * 同款描边按钮；内部层只负责点击，不再有自己的底色、描边与内边距。
+ */
 affine-database data-view-header-tools-view-options {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 28px;
-  min-width: 36px;
-  padding: 0 var(--app-space-2);
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  min-width: 0;
+  padding: 0;
   border: 1px solid var(--td-component-stroke);
-  border-radius: var(--app-radius-xs);
+  border-radius: 6px;
   background-color: var(--td-bg-color-container);
   color: var(--td-text-color-secondary);
+  cursor: pointer;
+}
+
+affine-database data-view-header-tools-view-options:hover {
+  color: var(--td-text-color-primary);
+}
+
+affine-database
+  data-view-header-tools-view-options
+  .affine-database-toolbar-item.more-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: inherit;
+  background: transparent;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+/* 弹层展开 / 悬停内部层时保持透明，避免出现双层底色 */
+affine-database
+  data-view-header-tools-view-options
+  .affine-database-toolbar-item.more-action:hover,
+affine-database
+  data-view-header-tools-view-options
+  .affine-database-toolbar-item.more-action.active {
+  background: transparent;
+  color: inherit;
 }
 
 affine-database data-view-component-button.new-record {
@@ -661,14 +704,21 @@ affine-database data-view-header-area-text > div {
   display: none !important;
 }
 
-/* 表格底部「+ 新建一行」：原型末尾有一行弱化的新建入口。 */
+/* 表格底部「+ 新建一行」：入口统一收到工具条的「＋ 新建行」，底部不再重复。 */
 affine-database .data-view-table-group-add-row {
-  height: 34px;
-  padding: 0 10px;
-  border-bottom: 1px solid #f0f1ef;
-  background-color: #fcfcfb;
-  color: var(--td-text-color-placeholder);
-  font-size: 11.5px;
+  display: none !important;
+}
+
+/**
+ * 表头列禁止被压缩。
+ *
+ * 上游表头是 flex 行，列元素只有内联 width（flex-shrink 默认 1），而数据行
+ * 不收缩。当列宽总和超过容器时（窄窗口、或在行详情抽屉里 Add Property 多出一列），
+ * 表头会被挤扁、数据行保持原宽，于是「表头与字段」左右错开。
+ * 这里禁止收缩，让表头与数据行同宽并一起横向滚动。
+ */
+affine-database .affine-database-column-header > * {
+  flex-shrink: 0;
 }
 
 /* 标签：原型里状态 pill 是紧凑小胶囊（11px 字、18px 高）。 */
@@ -810,6 +860,11 @@ affine-data-view-kanban-group .group-body {
   margin-top: 0;
   padding: 0;
   /* 卡片自身有 7px 下间距；再用 gap 会变成 15px，原型是 7px。 */
+  gap: 0;
+}
+
+/* 卡片列表与列体同样不叠加 gap；超过 10 张时由该容器在列内滚动。 */
+affine-data-view-kanban-group .group-cards {
   gap: 0;
 }
 
@@ -1200,4 +1255,34 @@ body center-peek .close-modal {
   right: var(--app-space-3);
   top: var(--app-space-3);
   z-index: 2;
+}
+
+/*
+ * 上游行详情抽屉底部的删除入口（由 WorkbenchItemView 注入）。
+ * 与自研 DatabaseRowDrawer 的删除按钮保持同一视觉，避免两套抽屉观感不一致。
+ */
+body center-peek .wb-peek-footer {
+  flex: none;
+  padding: 10px 16px;
+  border-top: 1px solid #f0f1ef;
+}
+
+body center-peek .wb-peek-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 30px;
+  padding: 0;
+  border: 1px solid #e5e6e4;
+  border-radius: 6px;
+  background: none;
+  color: var(--td-error-color);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+body center-peek .wb-peek-delete:hover {
+  border-color: #f0c9c6;
+  background: #fdf3f2;
 }

@@ -227,8 +227,8 @@ func TestAgentSkillNamesAndKnowledgeScope(t *testing.T) {
 	assert.Equal(t, "未绑定", describeKnowledgeScope(agent.Config))
 }
 
-func TestBuildSpeakerSelectionPromptWithSkillAndKB(t *testing.T) {
-	p := buildSpeakerSelectionPrompt("主题", "描述", "问题", []speakerCandidate{
+func TestBuildNextSpeakerPromptWithSkillAndKB(t *testing.T) {
+	p := buildNextSpeakerPrompt(&types.MeetingRoom{Title: "主题"}, "问题", "", "", []speakerCandidate{
 		{ID: "a1", Name: "DBA", Description: "数据库", Skills: []string{"sql-review"}, KnowledgeScope: "2 个"},
 	})
 	assert.Contains(t, p, "技能=sql-review")

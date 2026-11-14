@@ -144,13 +144,13 @@ function onDragEnd() {
 
 <style lang="less" scoped>
 .jp {
-  width: 300px;
-  flex: none;
+  /* 宽度由外层右侧栏控制（日历 / AI 共用同一栏宽） */
+  width: 100%;
+  flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--td-bg-color-container);
-  border-left: 1px solid var(--td-component-stroke);
 }
 
 .jp-head {

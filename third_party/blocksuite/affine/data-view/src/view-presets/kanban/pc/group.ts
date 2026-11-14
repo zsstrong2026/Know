@@ -16,6 +16,9 @@ import type { Group } from '../../../core/group-by/trait.js';
 import { dragHandler } from '../../../core/utils/wc-dnd/dnd-context.js';
 import type { KanbanViewUILogic } from './kanban-view-ui-logic.js';
 
+/** 每个状态列默认最多完整显示的卡片数；超出后列内滚动。 */
+const MAX_VISIBLE_CARDS = 10;
+
 const styles = css`
   affine-data-view-kanban-group {
     width: 260px;
@@ -54,6 +57,49 @@ const styles = css`
     flex-direction: column;
     padding: 0 4px;
     gap: 12px;
+    min-height: 0;
+  }
+
+  .group-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+  }
+
+  /* 超出 10 张时列内滚动。滚动条平时完全透明，鼠标悬停到该列才淡显，
+     避免在浅色列底上抢视觉；窄条 + 圆角，尽量贴近原型的「无滚动条」观感。 */
+  .group-cards.is-scrollable {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  .group-cards.is-scrollable:hover {
+    scrollbar-color: rgba(128, 128, 128, 0.4) transparent;
+  }
+
+  /* 兼容不支持标准 scrollbar-color 的浏览器。 */
+  .group-cards.is-scrollable::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .group-cards.is-scrollable::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .group-cards.is-scrollable::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 2px;
+  }
+
+  .group-cards.is-scrollable:hover::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, 0.32);
+  }
+
+  .group-cards.is-scrollable::-webkit-scrollbar-thumb:hover {
+    background: rgba(128, 128, 128, 0.55);
   }
 
   .add-card {
@@ -94,6 +140,10 @@ export class KanbanGroup extends SignalWatcher(
   WithDisposable(ShadowlessElement)
 ) {
   static override styles = styles;
+
+  /** 卡片高度变化（标题换行等）时重新计算列内可视高度。 */
+  private cardResizeObserver: ResizeObserver | null = null;
+  private observedCards: HTMLElement[] = [];
 
   private readonly clickAddCard = () => {
     const id = this.view.addCard('end', this.group.key);
@@ -154,6 +204,66 @@ export class KanbanGroup extends SignalWatcher(
     ]);
   };
 
+  override updated() {
+    this.applyCardListLimit();
+    this.observeCards();
+  }
+
+  override disconnectedCallback() {
+    super.disconnectedCallback();
+    this.cardResizeObserver?.disconnect();
+    this.cardResizeObserver = null;
+    this.observedCards = [];
+  }
+
+  /**
+   * 每列默认只完整显示 MAX_VISIBLE_CARDS 张卡片，其余在列内滚动。
+   *
+   * 卡片高度随标题行数与可见属性变化，无法用固定像素；这里取第 10 张卡片
+   * 的下沿作为可视高度。用卡片的相对差值计算，列内已滚动时也不会算错。
+   */
+  private applyCardListLimit(): void {
+    const list = this.querySelector('.group-cards') as HTMLElement | null;
+    if (!list) return;
+    const cards = Array.from(
+      list.querySelectorAll(':scope > affine-data-view-kanban-card')
+    ) as HTMLElement[];
+    if (cards.length <= MAX_VISIBLE_CARDS) {
+      list.classList.remove('is-scrollable');
+      list.style.maxHeight = '';
+      return;
+    }
+    const first = cards[0].getBoundingClientRect();
+    const last = cards[MAX_VISIBLE_CARDS - 1].getBoundingClientRect();
+    const height = Math.round(last.bottom - first.top);
+    if (height <= 0) return;
+    list.classList.add('is-scrollable');
+    list.style.maxHeight = `${height}px`;
+  }
+
+  /** 监听卡片尺寸：标题换行会改变第 10 张卡片的下沿。 */
+  private observeCards(): void {
+    const list = this.querySelector('.group-cards') as HTMLElement | null;
+    if (!list) return;
+    if (!this.cardResizeObserver) {
+      this.cardResizeObserver = new ResizeObserver(() => {
+        this.applyCardListLimit();
+      });
+    }
+    const cards = Array.from(list.children).filter(
+      (el): el is HTMLElement => el instanceof HTMLElement
+    );
+    for (const card of this.observedCards) {
+      if (!cards.includes(card)) this.cardResizeObserver.unobserve(card);
+    }
+    for (const card of cards) {
+      if (!this.observedCards.includes(card)) {
+        this.cardResizeObserver.observe(card);
+      }
+    }
+    this.observedCards = cards;
+  }
+
   override render() {
     const cards = this.group.rows;
     return html`
@@ -165,20 +275,22 @@ export class KanbanGroup extends SignalWatcher(
         })}
       </div>
       <div class="group-body">
-        ${repeat(
-          cards,
-          row => row.rowId,
-          row => {
-            return html`
-              <affine-data-view-kanban-card
-                data-card-id="${row.rowId}"
-                .groupKey="${this.group.key}"
-                .kanbanViewLogic="${this.kanbanViewLogic}"
-                .cardId="${row.rowId}"
-              ></affine-data-view-kanban-card>
-            `;
-          }
-        )}
+        <div class="group-cards">
+          ${repeat(
+            cards,
+            row => row.rowId,
+            row => {
+              return html`
+                <affine-data-view-kanban-card
+                  data-card-id="${row.rowId}"
+                  .groupKey="${this.group.key}"
+                  .kanbanViewLogic="${this.kanbanViewLogic}"
+                  .cardId="${row.rowId}"
+                ></affine-data-view-kanban-card>
+              `;
+            }
+          )}
+        </div>
         ${
           this.view.readonly$.value
             ? nothing

@@ -6,8 +6,10 @@ import {
   listArtifacts, requestArtifact as apiRequestArtifact, regenerateArtifact as apiRegenerateArtifact,
   listAgenda, advanceAgenda as apiAdvanceAgenda,
   appendAgenda as apiAppendAgenda, reopenAgenda as apiReopenAgenda,
+  listMeetingAttachments, uploadMeetingAttachment, deleteMeetingAttachment,
   archiveMeeting, isOpeningAnalyzing,
-  type MeetingRoom, type MeetingMessage, type MeetingArtifact, type MeetingAgendaItem, type ArtifactKindType,
+  type MeetingRoom, type MeetingMessage, type MeetingArtifact, type MeetingAgendaItem,
+  type MeetingAttachment, type ArtifactKindType,
 } from '@/api/meeting';
 
 export const useMeetingStore = defineStore('meetingStore', () => {
@@ -16,12 +18,19 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   const messages = ref<MeetingMessage[]>([]);
   const hasMore = ref(false);      // 顶部是否还有更早消息
   const discussing = ref(false);   // 是否有讨论轮在进行（可插话，不再禁用输入）
+  // 进房/切换会议时加载房间与消息的占位状态，避免对话框出现短暂空白
+  const loadingRoom = ref(false);
+  // 当前正在组织发言的智能体（discussion.speaker_thinking）；消息落库后清除
+  const thinkingSpeaker = ref<{ agent_id: string; agent_name: string } | null>(null);
   const awaitingUser = ref<MeetingMessage | null>(null); // 智能体 @用户 提问后，等待用户回应
   const guardNotice = ref<unknown>(null); // 护栏触发提示（主持人介入）
   const consensusNotice = ref<unknown>(null); // 裁判判定收敛提示（consensus.created）
   const solutionGenerating = ref(false);  // 方案生成中（按钮 loading 用）
   const artifacts = ref<MeetingArtifact[]>([]); // 当前房间产物（solution + generated 统一）
   const agenda = ref<MeetingAgendaItem[]>([]);  // 当前房间议程（结构性治理；未启用时为空）
+  const attachments = ref<MeetingAttachment[]>([]); // 当前房间文件（解析状态轮询）
+  const attachmentUploading = ref(false);        // 文件上传中
+  let attachmentPollTimer: ReturnType<typeof setTimeout> | null = null;
 
   // 当前活跃议题（仅 status=active；用于提示条与"结束议题"按钮）
   const activeAgendaItem = computed(() => agenda.value.find((it) => it.status === 'active') ?? null);
@@ -47,14 +56,25 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   }
 
   async function enterRoom(roomId: string) {
-    currentRoom.value = await getMeeting(roomId);
-    const [page, items] = await Promise.all([
-      listMessages(roomId),
-      listAgenda(roomId).catch(() => [] as MeetingAgendaItem[]), // 议程为可选能力，失败不阻断进房
-    ]);
-    messages.value = page;
-    agenda.value = items;
-    hasMore.value = page.length >= 100;
+    loadingRoom.value = true;
+    try {
+      currentRoom.value = await getMeeting(roomId);
+      const [page, items, files] = await Promise.all([
+        listMessages(roomId),
+        listAgenda(roomId).catch(() => [] as MeetingAgendaItem[]), // 议程为可选能力，失败不阻断进房
+        listMeetingAttachments(roomId).catch(() => [] as MeetingAttachment[]), // 会议文件同理
+      ]);
+      // SSE 可能先于本次分页返回：保留拉取期间已到达的新消息，避免被整页覆盖
+      const seen = new Set(page.map((m) => m.id));
+      const arrived = messages.value.filter((m) => !seen.has(m.id));
+      messages.value = arrived.length ? [...page, ...arrived] : page;
+      agenda.value = items;
+      attachments.value = files;
+      hasMore.value = page.length >= 100;
+      ensureAttachmentPolling();
+    } finally {
+      loadingRoom.value = false;
+    }
   }
 
   // 顶部“加载更早”：以当前最旧一条为游标向前翻
@@ -193,31 +213,101 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     await enterRoom(currentRoom.value.id);
   }
 
+  // 拉取当前房间文件列表；解析中的文件会继续轮询直到就绪
+  async function fetchAttachments() {
+    if (!currentRoom.value) return;
+    try {
+      attachments.value = await listMeetingAttachments(currentRoom.value.id);
+      ensureAttachmentPolling();
+    } catch {
+      // 附件为可选能力，失败不阻断会议
+    }
+  }
+
+  // 解析是后台异步任务：只在存在 uploaded/processing 时每 2 秒刷新一次，全部就绪后停止
+  function ensureAttachmentPolling() {
+    const pending = attachments.value.some(
+      (a) => a.status === 'uploaded' || a.status === 'processing',
+    );
+    if (!pending) {
+      stopAttachmentPolling();
+      return;
+    }
+    if (attachmentPollTimer) return;
+    attachmentPollTimer = setTimeout(() => {
+      attachmentPollTimer = null;
+      void fetchAttachments();
+    }, 2000);
+  }
+
+  function stopAttachmentPolling() {
+    if (attachmentPollTimer) {
+      clearTimeout(attachmentPollTimer);
+      attachmentPollTimer = null;
+    }
+  }
+
+  // 上传会议文件：解析完成后自动进入后续智能体发言上下文
+  async function uploadAttachment(file: File) {
+    if (!currentRoom.value) return null;
+    attachmentUploading.value = true;
+    try {
+      const doc = await uploadMeetingAttachment(currentRoom.value.id, file);
+      if (doc && !attachments.value.some((a) => a.id === doc.id)) attachments.value.push(doc);
+      ensureAttachmentPolling();
+      return doc;
+    } finally {
+      attachmentUploading.value = false;
+    }
+  }
+
+  async function removeAttachment(attachmentId: string) {
+    if (!currentRoom.value) return;
+    await deleteMeetingAttachment(currentRoom.value.id, attachmentId);
+    attachments.value = attachments.value.filter((a) => a.id !== attachmentId);
+  }
+
   // SSE 事件入口：由视图层订阅后调用
   function applyStreamEvent(event: string, data: unknown) {
     if (event === 'message.created' && data) {
       appendMessage(data as MeetingMessage);
+      thinkingSpeaker.value = null; // 有消息落库，说明上一位已说完
+    } else if (event === 'discussion.speaker_thinking') {
+      const d = data as { agent_id?: string; agent_name?: string } | null;
+      if (d?.agent_id) {
+        thinkingSpeaker.value = { agent_id: d.agent_id, agent_name: d.agent_name ?? '' };
+        discussing.value = true;
+      }
     } else if (event === 'solution.generating') {
       solutionGenerating.value = true;
     } else if (event === 'solution.created') {
       solutionGenerating.value = false;
     } else if (event === 'discussion.turn_started') {
       discussing.value = true;
+      thinkingSpeaker.value = null;
+      // 开场完成后后端会自动开始讨论：本地同步为 active，避免待确认坞残留
+      if (currentRoom.value?.status === 'awaiting_confirmation') {
+        currentRoom.value = { ...currentRoom.value, status: 'active' };
+      }
       awaitingUser.value = null; // 用户发言后讨论已继续，旧的等待提示失效
       guardNotice.value = null; // 新一轮开始清除旧的护栏提示
       consensusNotice.value = null; // 新一轮开始清除旧的共识提示
     } else if (event === 'discussion.turn_ended') {
       discussing.value = false;
+      thinkingSpeaker.value = null;
     } else if (event === 'discussion.awaiting_user') {
       // 智能体 @用户 提问：讨论暂停，输入区提示「待你回应」
       discussing.value = false;
+      thinkingSpeaker.value = null;
       awaitingUser.value = (data as { message?: MeetingMessage } | null)?.message ?? null;
     } else if (event === 'guard.triggered') {
       discussing.value = false;
+      thinkingSpeaker.value = null;
       guardNotice.value = data;
     } else if (event === 'consensus.created') {
       // 裁判判定收敛：讨论轮终止，展示共识提示（共识消息本体由 message.created 回流）
       discussing.value = false;
+      thinkingSpeaker.value = null;
       consensusNotice.value = data;
     } else if (event === 'artifact.generating' || event === 'artifact.created' || event === 'artifact.failed') {
       upsertArtifact(artifactFromEvent(event, data));
@@ -225,6 +315,9 @@ export const useMeetingStore = defineStore('meetingStore', () => {
       // 议程拆解/推进：后端推完整列表，直接覆盖；讨论推进后前端提示条随之更新
       const items = (data as { items?: MeetingAgendaItem[] } | null)?.items;
       if (Array.isArray(items)) agenda.value = items;
+    } else if (event === 'meeting.attachment_updated') {
+      // 文件上传/删除/解析状态变化：拉取最新列表（解析完成由轮询兜底）
+      void fetchAttachments();
     } else if (event === 'discussion.flow_confirmation') {
       // 开场确认事件：无独立状态，开场消息本体经 message.created 回流，按钮组由 payload.stage 渲染
     }
@@ -239,20 +332,26 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   }
 
   function leaveRoom() {
+    stopAttachmentPolling();
     currentRoom.value = null;
     messages.value = [];
     hasMore.value = false;
     discussing.value = false;
+    loadingRoom.value = false;
+    thinkingSpeaker.value = null;
     awaitingUser.value = null;
     guardNotice.value = null;
     consensusNotice.value = null;
     artifacts.value = [];
     agenda.value = [];
+    attachments.value = [];
+    attachmentUploading.value = false;
   }
 
-  return { rooms, currentRoom, messages, hasMore, discussing, awaitingUser, guardNotice, consensusNotice, solutionGenerating, artifacts,
-    agenda, activeAgendaItem, agendaDoneCount,
+  return { rooms, currentRoom, messages, hasMore, discussing, loadingRoom, thinkingSpeaker, awaitingUser, guardNotice, consensusNotice, solutionGenerating, artifacts,
+    agenda, activeAgendaItem, agendaDoneCount, attachments, attachmentUploading,
     needsClarification, openingAnalyzing,
     fetchRooms, enterRoom, loadEarlier, speak, confirm, generate, archive, rollback, applyStreamEvent, clearGuardNotice, clearConsensusNotice, leaveRoom,
-    fetchArtifacts, requestArtifact, regenerateArtifact, advanceAgenda, appendAgenda, reopenAgenda };
+    fetchArtifacts, requestArtifact, regenerateArtifact, advanceAgenda, appendAgenda, reopenAgenda,
+    fetchAttachments, uploadAttachment, removeAttachment };
 });

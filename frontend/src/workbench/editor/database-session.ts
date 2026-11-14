@@ -106,8 +106,6 @@ export class DatabaseToolbarController {
   private dataSource: any = null
   private readonly dbModel: any
   private listener: (() => void) | null = null
-  /** 新建行被当前视图的筛选条件隐藏时的回调（由 Vue 层接上提示）。 */
-  onNewRowHidden: (() => void) | null = null
   private retryFrames = 0
   private destroyed = false
   /** 视图名本地化表：构造时可能还没绑上 dataSource，绑定时补一次。 */
@@ -116,6 +114,8 @@ export class DatabaseToolbarController {
   private viewDefaultsApplied = false
   /** 上一次按实测宽度归一表格列宽时的容器宽度；变化超过阈值才重算。 */
   private appliedTableWidth = 0
+  /** 上一次归一时的列 id 顺序；列增删（Add Property）也要触发重算。 */
+  private appliedTableColumns = ''
   /** 固定三视图的补齐只尝试一次：上游缺可分组列时创建会失败，不能每帧重试。 */
   private viewsEnsured = false
   /**
@@ -267,17 +267,28 @@ export class DatabaseToolbarController {
    * 为什么不能沿用一次性守卫：首帧时容器可能只量到几百像素（甚至量到 0），
    * 按那个宽度算出的列宽会把六列一起压到最小宽度（72px）；布局展开到 930px 后
    * 若不再重算，表格就永久定格在「左侧一小片、右侧一大片空白」。
-   * 这里以「实测宽度变化 ≥ 4px」为触发条件，容器变宽/变窄都会重新铺满。
+   * 这里以「实测宽度变化 ≥ 4px 或列集合变化」为触发条件，容器变宽/变窄、
+   * 抽屉里加列/删列都会重新铺满。
    */
   private applyTableColumnWidths(viewIds: string[]): void {
     const availableWidth = this.tableViewWidth()
     if (availableWidth <= 0) return
-    if (Math.abs(availableWidth - this.appliedTableWidth) < TABLE_WIDTH_EPSILON) return
-    this.appliedTableWidth = availableWidth
+    const widthChanged =
+      Math.abs(availableWidth - this.appliedTableWidth) >= TABLE_WIDTH_EPSILON
     for (const viewId of viewIds) {
       const data = this.dataSource.viewDataGet(viewId)
       if (data?.mode !== 'table') continue
-      const next = planColumnWidths(Array.isArray(data.columns) ? data.columns : [], availableWidth)
+      const columns: Array<{ id: string; width?: number }> = Array.isArray(data.columns)
+        ? data.columns
+        : []
+      // 列集合变化（行详情抽屉里 Add Property / 删列）也要重新铺满：
+      // 新列默认 180px，只在容器宽度变化时才重算的话，总宽会超出容器，
+      // 表头被压扁而数据行保持原宽，两者就错位了。
+      const signature = columns.map((column) => column.id).join('|')
+      if (!widthChanged && signature === this.appliedTableColumns) continue
+      this.appliedTableWidth = availableWidth
+      this.appliedTableColumns = signature
+      const next = planColumnWidths(columns, availableWidth)
       if (next) {
         this.dataSource.viewDataUpdate(viewId, (current: any) => ({ ...current, columns: next }))
       }
@@ -554,47 +565,37 @@ export class DatabaseToolbarController {
   }
 
   /**
-   * 新建行并进入标题编辑态。
+   * 新建行：表格插到首行、看板/日历追加到末尾，随后一律在右侧抽屉里编辑。
    *
-   * 只 `rowAdd` 的话，新行落在表格末尾、视口外，光标也不在单元格里，
-   * 用户会以为「点了没反应」。这里补三步：滚动到新行 → 选中标题单元格 →
-   * 进入编辑态（复用上游 table 视图的 selectionController，不自己维护选区）。
+   * 表格此前是行内聚焦标题，但新建入口在工具条最右侧，长表格里新行与入口相距很远；
+   * 现在三种视图统一走右侧抽屉（上游 openDetailPanel），交互一致。
    */
   newRow(): string {
     if (!this.ensureBound()) return ''
+    // 有筛选时新行往往不满足条件，会被过滤掉、看起来像「点了没反应」。
+    // 新增前先清空当前视图的筛选，保证新行落在第一页首行并能直接编辑。
+    if (this.state.currentViewMode === 'table') this.clearActiveFilters()
     // 表格里新行插到第一行（产品口径）；看板 / 日历仍追加到末尾，
     // 否则卡片会跳到分组顶部，破坏既有的拖拽习惯。
     const position = this.state.currentViewMode === 'table' ? 'start' : 'end'
     const rowId: string = this.dataSource.rowAdd(position)
     this.applyDefaultStatus(rowId)
-    if (this.state.currentViewMode === 'table') {
-      this.focusRowTitle(rowId)
-    } else {
-      // 看板 / 日历没有等价的单元格内编辑，新增后在右侧抽屉里改，
-      // 与上游自己的「+」「New row」行为保持一致。
-      this.openRow(rowId)
-    }
-    this.notifyIfRowHidden(rowId)
+    // 三种视图统一：新建后在右侧抽屉里编辑，不再在表格里行内聚焦标题。
+    this.openRow(rowId)
     return rowId
   }
 
-  /**
-   * 新行不满足当前视图的筛选条件时，通知界面给一句提示。
-   *
-   * 行确实建好了，但被 `filter` 过滤掉的表格里一行都不多，看起来像「点了没反应」。
-   * 判定用视图的 `rows$`（已应用筛选/排序），而不是 `dataSource.rows$`（全部行）。
-   */
-  private notifyIfRowHidden(rowId: string): void {
-    if (!rowId) return
-    const ui: any = this.rendererLogic()?.currentView$?.value
-    const view: any = ui?.view ?? ui
-    if (!view?.rows$ || !this.onNewRowHidden) return
-    // 等一帧：rowAdd 之后视图的过滤结果要下一轮重算才包含新行。
-    requestAnimationFrame(() => {
-      const rows: any[] = view.rows$?.value ?? []
-      const visible = rows.some((row: any) => row?.rowId === rowId)
-      if (!visible) this.onNewRowHidden?.()
-    })
+  /** 清空当前视图的筛选条件；没有筛选时不做任何写入。 */
+  private clearActiveFilters(): void {
+    const viewId = this.dataSource.viewManager.currentViewId$.value
+    if (!viewId) return
+    const data = this.dataSource.viewDataGet(viewId)
+    const conditions = data?.filter?.conditions
+    if (!Array.isArray(conditions) || conditions.length === 0) return
+    this.dataSource.viewDataUpdate(viewId, (current: any) => ({
+      ...current,
+      filter: { ...current.filter, conditions: [] },
+    }))
   }
 
   /**
@@ -643,83 +644,6 @@ export class DatabaseToolbarController {
     const options = Array.isArray(data?.options) ? data.options : []
     if (!options.some((option) => option.id === WORKBENCH_SOURCE_OPTIONS.manual)) return
     dataSource.cellValueChange(rowId, WORKBENCH_DB_COLUMNS.source, WORKBENCH_SOURCE_OPTIONS.manual)
-  }
-
-  /**
-   * 聚焦某一行的标题单元格并进入编辑。
-   *
-   * 上游只在表格视图暴露这个能力（看板/日历的选区结构不同），
-   * 非表格视图或拿不到选区控制器时静默跳过 —— 行已经建好，不影响数据正确性。
-   */
-  private focusRowTitle(rowId: string): void {
-    if (!rowId || this.state.currentViewMode !== 'table') return
-    const logic = this.rendererLogic()
-    // 上游 `currentView$` 给的是表格的 UI 逻辑对象（TableViewUILogic），
-    // 真正的视图实例（含 properties$）挂在它的 `.view` 上。
-    const viewLogic: any = logic?.currentView$?.value
-    const view: any = viewLogic?.view ?? viewLogic
-    const selection = viewLogic?.selectionController ?? view?.selectionController
-    if (!selection) return
-    const properties: any[] = view?.properties$?.value ?? []
-    const titleIndex = Math.max(
-      0,
-      properties.findIndex((property) => property?.type$?.value === 'title'),
-    )
-
-    let attempts = 0
-    let applied = false
-    const step = () => {
-      attempts += 1
-      // 必须用**视图**的行顺序（已排序/筛选）：表格按 view.rows$ 渲染，
-      // 而 dataSource.rows$ 是原始顺序。视图带排序时两者不一致，
-      // 用错索引会把光标定位到另一行，表现为「新建行看不到光标和实时输入内容」。
-      const viewRows: any[] = view?.rows$?.value ?? []
-      const rowIndex = viewRows.findIndex((row: any) => row?.rowId === rowId)
-      if (rowIndex >= 0 && !applied) {
-        applied = true
-        selection.selection = {
-          selectionType: 'area',
-          rowsSelection: { start: rowIndex, end: rowIndex },
-          columnsSelection: { start: titleIndex, end: titleIndex },
-          focus: { rowIndex, columnIndex: titleIndex },
-          isEditing: true,
-        }
-        // 刷新由 TableViewUILogic.ui$ 驱动（SingleView 上没有 ui$）。
-        viewLogic?.ui$?.value?.requestUpdate?.()
-      }
-      // 编辑器要等上游把 isEditing 渲染成富文本之后才存在，
-      // 且必须按 rowId 定位到**这一行**：切换编辑态时上一行可能下一帧才退出，
-      // 全局取第一个 `[data-editing]` 会拿到别的行，焦点和输入就落错了地方。
-      requestAnimationFrame(() => {
-        const containers = Array.from(
-          this.host.querySelectorAll('dv-table-view-cell-container[data-editing="true"]'),
-        ) as HTMLElement[]
-        const container = containers.find(
-          (element) => element.getAttribute('data-row-id') === rowId,
-        )
-        const editor = container?.querySelector(
-          '[contenteditable="true"]',
-        ) as HTMLElement | null
-        if (editor) {
-          // focus 同时会把行滚进视口，长表格里新建在末尾也能看到光标。
-          if (document.activeElement !== editor) editor.focus()
-          // 兜底：焦点在编辑器里但没有选区时，把光标放到内容末尾 ——
-          // 没有任何 range 的 contenteditable 不显示光标、也收不到输入。
-          const selectionState = window.getSelection()
-          if (selectionState && selectionState.rangeCount === 0) {
-            const range = document.createRange()
-            range.selectNodeContents(editor)
-            range.collapse(false)
-            selectionState.removeAllRanges()
-            selectionState.addRange(range)
-          }
-          return
-        }
-        // 行还没渲染 / 编辑态还没挂上：再等几帧（约 200ms），避免一次扑空。
-        if (attempts < 12) step()
-      })
-    }
-    requestAnimationFrame(step)
   }
 
   /**

@@ -11,6 +11,7 @@ import {
   type ToolbarPlacement,
 } from '@blocksuite/affine-shared/services';
 import { nextTick } from '@blocksuite/global/utils';
+import { TextSelection } from '@blocksuite/std';
 import { MoreVerticalIcon } from '@blocksuite/icons/lit';
 import type {
   AutoUpdateOptions,
@@ -198,6 +199,70 @@ const merge = (a: any, b: any) =>
   );
 
 /**
+ * 固定置顶工具条的上一次渲染签名。
+ *
+ * 上游在每次选区变化（包括每敲一个字）都会重新 render 整条工具条；
+ * 工具条里全是 `editor-icon-button` / `editor-menu-button` 这类自定义元素，
+ * 重建后要等各自一轮异步更新才画出图标，输入时就会看到按钮一闪一闪。
+ * 固定模式下内容没有实质变化时直接跳过重建，只同步显隐相关属性。
+ */
+const fixedToolbarSignature = new WeakMap<EditorToolbar, string>();
+
+/**
+ * 计算固定工具条的渲染签名。
+ *
+ * 只收录会改变视觉结果的字段：动作集合、激活/禁用态、当前文本块的类型与对齐。
+ * 刻意不含光标位置与文本长度，保证同一段落内连续输入不会触发重绘。
+ */
+function fixedToolbarSignatureOf(
+  context: ToolbarContext,
+  flavour: string,
+  actions: ToolbarActions
+): string {
+  const signatureOf = (list: ToolbarActions): string =>
+    list
+      .map(action => {
+        const active =
+          typeof action.active === 'function'
+            ? action.active(context)
+            : action.active;
+        const disabled =
+          typeof action.disabled === 'function'
+            ? action.disabled(context)
+            : action.disabled;
+        const nested =
+          'actions' in action && action.actions?.length
+            ? `(${signatureOf(combine(action.actions, context))})`
+            : '';
+        return `${action.id}:${active ? 1 : 0}:${disabled ? 1 : 0}${nested}`;
+      })
+      .join(',');
+
+  const selection = context.std.selection.find(TextSelection);
+  const model = selection
+    ? context.store.getBlock(selection.blockId)?.model
+    : (context.getCurrentModel() as any);
+  const props = (model as any)?.props ?? {};
+  const modelKey = model
+    ? [
+        model.flavour,
+        model.id,
+        props.type ?? '',
+        props.textAlign ?? '',
+        props.checked ? 1 : 0,
+      ].join(':')
+    : 'none';
+  const range = context.std.range.value;
+
+  return [
+    flavour,
+    range?.collapsed ? 'collapsed' : 'range',
+    modelKey,
+    signatureOf(actions),
+  ].join('|');
+}
+
+/**
  * Renders toolbar
  *
  * Merges the following configs:
@@ -246,6 +311,7 @@ export function renderToolbar(
 
   // Resets
   if (primaryActionGroup.length === 0) {
+    fixedToolbarSignature.delete(toolbar);
     context.reset();
     return;
   }
@@ -293,13 +359,22 @@ export function renderToolbar(
     }
   }
 
-  render(
-    join(
-      renderActions(primaryActionGroup, context),
-      innerToolbar ? null : renderToolbarSeparator()
-    ),
-    toolbar
-  );
+  // 固定置顶模式下内容没变就不重建 DOM（输入时逐字重建会让按钮闪动）。
+  const fixed = toolbar.dataset.fixed === 'true';
+  const signature = fixed
+    ? fixedToolbarSignatureOf(context, flavour, ordered)
+    : '';
+
+  if (!fixed || signature !== fixedToolbarSignature.get(toolbar)) {
+    if (fixed) fixedToolbarSignature.set(toolbar, signature);
+    render(
+      join(
+        renderActions(primaryActionGroup, context),
+        innerToolbar ? null : renderToolbarSeparator()
+      ),
+      toolbar
+    );
+  }
 
   // Avoids shaking
   if (flavour === 'affine:note' && context.std.range.value) {

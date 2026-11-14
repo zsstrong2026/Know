@@ -443,8 +443,11 @@ func buildAgendaQuery(
 	}
 	b.WriteString("\n【待回应的发言】" + triggerContent)
 	b.WriteString("\n请像在会议桌前发言一样回应【待回应的发言】，只围绕【当前子议题】：")
-	b.WriteString("\n- 最多 3 句话、不超过 120 字，先表态再给理由；不要用标题、列表或代码块，也不要复述背景；")
+	b.WriteString("\n- 常态 1-3 句话、不超过 120 字；被追问或关键论证可放宽到 200 字，不要每条都一样长；")
+	b.WriteString("\n- 先表态再给理由；不要用标题、列表或代码块，也不要复述背景；")
 	b.WriteString("\n- 不要重复本议题讨论记录里已有的内容，优先补充新事实、新约束或明确的分歧理由；")
+	b.WriteString("\n- 可以明确反对；不同意就说清反对点和能改变你立场的证据，不要为了和气而附和；")
+	b.WriteString("\n- 强烈不同意上一位时，可以用「先打断一下」开头直接反驳并 @ 对方；")
 	b.WriteString("\n- 要请某位参会人接话，在句末 @对方姓名；")
 	if userName != "" {
 		b.WriteString("\n- 需要用户拍板或补充，在句末 @" + userName + "（或 @用户）提一个问题；")

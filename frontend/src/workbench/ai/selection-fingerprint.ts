@@ -4,10 +4,27 @@
  * 纯逻辑，不碰 DOM、不碰 BlockSuite：发起请求时记录指纹，应用前重新校验；
  * 变化就拒绝应用并提示重新生成，绝不覆盖用户新输入的文字。
  */
+import { splitResultBlocks } from './text-diff'
+
+/** 跨块选区里单个块的采样结果。 */
+export interface BlockSpan {
+  blockId: string
+  start: number
+  end: number
+  text: string
+}
+
+/** 指纹里的块快照：只留定位与哈希，不保存正文（§11.9 不缓存内容）。 */
+export interface FingerprintSpan {
+  blockId: string
+  start: number
+  end: number
+  textHash: number
+}
 
 /** 一次生成的选区指纹。 */
 export interface SelectionFingerprint {
-  /** 目标块 id；插入“下方”时也用它定位锚点块。 */
+  /** 目标块 id；插入“下方”时也用它定位锚点块。跨块时是首块。 */
   blockId: string
   /** 选区起点（块内字符偏移）。 */
   start: number
@@ -17,6 +34,19 @@ export interface SelectionFingerprint {
   textHash: number
   /** 发起请求时的条目 id；切条目后必须作废。 */
   itemId: string
+  /**
+   * 跨块选区的块序列（含首尾块）。
+   *
+   * 单块选区不填；多块时用它做后置校验，避免用户中途改动了中间某个块
+   * 却被误认为“选区没变”。
+   */
+  spans?: FingerprintSpan[]
+  /**
+   * true 表示这不是真实选区，而是「插入锚点」（无选区时的文末/选中块末尾）。
+   *
+   * 校验时只要求锚点块仍然存在，不做文本比对——块的正文变化不影响插入位置。
+   */
+  anchorOnly?: boolean
 }
 
 /** 当前编辑器里的选区实况，用于与指纹比对。 */
@@ -26,11 +56,16 @@ export interface SelectionSnapshot {
   end: number
   text: string
   itemId: string
+  /** 跨块选区的块序列；单块不填。 */
+  spans?: BlockSpan[]
 }
 
 export type FingerprintVerdict =
   | { ok: true }
-  | { ok: false; reason: 'item-changed' | 'block-missing' | 'selection-moved' | 'text-changed' }
+  | {
+      ok: false
+      reason: 'item-changed' | 'block-missing' | 'selection-moved' | 'text-changed'
+    }
 
 /** 轻量字符串哈希（FNV-1a 32 位）。只用于等值判断，不做安全用途。 */
 export function hashText(text: string): number {
@@ -50,6 +85,12 @@ export function fingerprintOf(snapshot: SelectionSnapshot): SelectionFingerprint
     end: snapshot.end,
     textHash: hashText(snapshot.text),
     itemId: snapshot.itemId,
+    spans: snapshot.spans?.map((span) => ({
+      blockId: span.blockId,
+      start: span.start,
+      end: span.end,
+      textHash: hashText(span.text),
+    })),
   }
 }
 
@@ -70,6 +111,26 @@ export function verifyFingerprint(
     return { ok: false, reason: 'selection-moved' }
   }
   if (hashText(current.text) !== fingerprint.textHash) return { ok: false, reason: 'text-changed' }
+  // 跨块选区再逐个块校验：中间某块被改动时首尾可能仍然一致，只查首块会漏判。
+  if (fingerprint.spans?.length) {
+    const currentSpans = current.spans ?? []
+    if (currentSpans.length !== fingerprint.spans.length) {
+      return { ok: false, reason: 'selection-moved' }
+    }
+    for (let i = 0; i < fingerprint.spans.length; i += 1) {
+      const expected = fingerprint.spans[i]
+      const actual = currentSpans[i]
+      if (!actual || actual.blockId !== expected.blockId) {
+        return { ok: false, reason: 'block-missing' }
+      }
+      if (actual.start !== expected.start || actual.end !== expected.end) {
+        return { ok: false, reason: 'selection-moved' }
+      }
+      if (hashText(actual.text) !== expected.textHash) {
+        return { ok: false, reason: 'text-changed' }
+      }
+    }
+  }
   return { ok: true }
 }
 
@@ -84,24 +145,59 @@ export interface WritePlan {
   end: number
   /** AI 返回的 Markdown；aside 模式不使用。 */
   markdown: string
+  /**
+   * 跨块写入的块序列。
+   *
+   * 有值时按块逐段替换，`segments` 与之一一对应：段数少于块数说明模型合并了段落，
+   * 多出的块会被清空（不是删除，保留用户原有的块结构）；段数多出时多余的段
+   * 合并进最后一块。
+   */
+  spans?: FingerprintSpan[]
+  segments?: string[]
+  /**
+   * 纯文本写入：摘要框里的「替换选中 / 插入下方」用它。
+   * 插入下方时不再把文本当 Markdown 解析，段落按空行拆分、段内换行原样保留。
+   */
+  plain?: boolean
 }
 
 /**
  * 由指纹 + 结果构造写入计划；aside 返回 null（只出卡片，永不写）。
+ *
+ * 跨块选区在这里完成「结果 → 块」的对齐，编辑器层只按 segments 逐块执行。
  */
 export function buildWritePlan(
   fingerprint: SelectionFingerprint,
   markdown: string,
   mode: InlineWriteMode,
+  plain = false,
 ): WritePlan | null {
   if (mode === 'aside') return null
-  return {
+  const base: WritePlan = {
     mode,
     blockId: fingerprint.blockId,
     start: fingerprint.start,
     end: fingerprint.end,
     markdown,
+    ...(plain ? { plain: true } : {}),
   }
+  if (!fingerprint.spans?.length || fingerprint.spans.length < 2) return base
+
+  // 跨块只支持「整体重写」语义：插入下方仍然落在首块之后，不做逐块插入。
+  const parts = splitResultBlocks(markdown)
+  const spans = fingerprint.spans
+  if (parts.length === spans.length) {
+    return { ...base, spans, segments: parts }
+  }
+  if (parts.length > spans.length) {
+    // 多出的段合并进最后一块，保证内容不丢。
+    const head = parts.slice(0, spans.length - 1)
+    const tail = parts.slice(spans.length - 1).join('\n\n')
+    return { ...base, spans, segments: [...head, tail] }
+  }
+  // 段数不足：按顺序填，缺口补空串（对齐时清空该块）。
+  const segments = spans.map((_, index) => parts[index] ?? '')
+  return { ...base, spans, segments }
 }
 
 /**

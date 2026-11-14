@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"regexp"
 	"strings"
 	"sync"
@@ -32,12 +33,15 @@ type meetingEngine struct {
 	artifactRepo    interfaces.MeetingArtifactRepository
 	sessionService  interfaces.SessionService
 	modelService    interfaces.ModelService
-	userService     interfaces.UserService // 解析会议创建者用户名（供智能体 @用户名 向用户提问）
+	userService     interfaces.UserService              // 解析会议创建者用户名（供智能体 @用户名 向用户提问）
+	temporaryDocs   interfaces.TemporaryDocumentService // 会议文件：读取用户上传文件并注入发言上下文
 	redis           *redis.Client
 	broadcaster     *MeetingBroadcaster
 	cfg             *config.Config
 	contextMax      int // LLM 上下文消息上限（MEETING_CONTEXT_MAX_MESSAGES，默认 50）
 	turnLockLease   time.Duration
+	// thinkDelay 发言前的短暂停顿，让节奏更像真人会议；nil 表示不等待（单测精简引擎）
+	thinkDelay func() time.Duration
 
 	messageService    interfaces.MessageService                // 后台会话 assistant 消息落库（产物链路）
 	sandboxConfigRepo repository.TenantSandboxConfigRepository // 租户沙箱配置解析（产物执行沙箱）
@@ -54,6 +58,7 @@ func NewMeetingEngine(
 	sessionService interfaces.SessionService,
 	modelService interfaces.ModelService,
 	userService interfaces.UserService,
+	temporaryDocs interfaces.TemporaryDocumentService,
 	messageService interfaces.MessageService,
 	sandboxConfigRepo repository.TenantSandboxConfigRepository,
 	collector *ArtifactCollector,
@@ -70,12 +75,16 @@ func NewMeetingEngine(
 		messageRepo: messageRepo, agendaRepo: agendaRepo, agentRepo: agentRepo,
 		artifactRepo:   artifactRepo,
 		sessionService: sessionService, modelService: modelService,
-		userService: userService,
+		userService: userService, temporaryDocs: temporaryDocs,
 		redis:         redisClient,
 		broadcaster:   NewMeetingBroadcaster(),
 		cfg:           cfg,
 		contextMax:    contextMax,
 		turnLockLease: 5 * time.Minute,
+		thinkDelay: func() time.Duration {
+			// 0.8~2.5 秒：足够让用户感知"正在思考"，又不至于拖慢整场会议
+			return time.Duration(800+rand.Intn(1700)) * time.Millisecond
+		},
 
 		messageService:    messageService,
 		sandboxConfigRepo: sandboxConfigRepo,
@@ -297,10 +306,12 @@ func parseMentionedAgentIDs(content string, participants []*types.MeetingPartici
 	return out
 }
 
-// meetingSpeaker 一个发言任务：agent 回应 replyTo 这条消息
+// meetingSpeaker 一个发言任务：agent 回应 replyTo 这条消息。
+// hint 为主持人点名时附带的具体问题（可为空），用于让接话有明确目的。
 type meetingSpeaker struct {
 	agent   *types.CustomAgent
 	replyTo *types.MeetingMessage
+	hint    string
 }
 
 // runAgentTurns 一轮发言（所有发言者回应同一 trigger）；保留既有签名供既有测试/调用复用
@@ -324,7 +335,7 @@ func (e *meetingEngine) runSpeakerTasks(ctx context.Context, room *types.Meeting
 			wg.Add(1)
 			go func(i int, task meetingSpeaker) {
 				defer wg.Done()
-				msg, err := e.runAgentTurn(ctx, room, task.replyTo, task.agent, participants)
+				msg, err := e.runAgentTurnWithHint(ctx, room, task.replyTo, task.agent, participants, task.hint)
 				if errors.Is(err, errAgentPass) {
 					return // 弃权：静默跳过，不计失败、不提示
 				}
@@ -345,7 +356,7 @@ func (e *meetingEngine) runSpeakerTasks(ctx context.Context, room *types.Meeting
 			logger.Infof(ctx, "meeting turn interrupted. room=%s", room.ID)
 			return out // 打断收尾（系统提示 + 主持人收敛）统一由 RunTurn 处理
 		}
-		msg, err := e.runAgentTurn(ctx, room, task.replyTo, task.agent, participants)
+		msg, err := e.runAgentTurnWithHint(ctx, room, task.replyTo, task.agent, participants, task.hint)
 		if errors.Is(err, errAgentPass) {
 			continue // 弃权：静默跳过，不计失败、不提示
 		}
@@ -461,14 +472,19 @@ func (e *meetingEngine) runDiscussion(
 
 		// 下一子轮：优先按 @ 提及接力
 		tasks = planReplyRound(created, participants, agentsByID)
-		// 没人被点名：若本议题还没形成交锋，按参会顺序请一位尚未发言的人接话（最多补到 3 个子轮）
-		if len(tasks) == 0 && room.AgendaEnabled && agendaRounds < 3 {
-			if next := pickUnspokenAgent(allAgents, spoken); next != nil {
-				replyTo := lastMessage(created)
-				if replyTo == nil {
-					replyTo = currentTrigger
-				}
-				tasks = replyTasks([]*types.CustomAgent{next}, replyTo)
+		// 没人被点名：规则筛候选 + 小模型选一人，并附一个具体问题。
+		// 这样讨论不会因为"没人 @"而冷场，也不会退化成按参会顺序轮询。
+		if len(tasks) == 0 && canAutoContinue(room) && agendaRounds < agendaRoundsPerTopic(len(allAgents)) {
+			replyTo := lastMessage(created)
+			if replyTo == nil {
+				replyTo = currentTrigger
+			}
+			lastSpeakerID := ""
+			if replyTo != nil && replyTo.SenderKind == types.MeetingSenderAgent {
+				lastSpeakerID = replyTo.SenderID
+			}
+			if next, hint := e.chooseNextSpeaker(ctx, room, replyTo, allAgents, spoken, lastSpeakerID); next != nil {
+				tasks = []meetingSpeaker{{agent: next, replyTo: replyTo, hint: hint}}
 			}
 		}
 
@@ -541,6 +557,11 @@ func (e *meetingEngine) evaluateDiscussion(ctx context.Context, room *types.Meet
 		logger.Warnf(ctx, "meeting referee list messages failed, room=%s err=%v", room.ID, err)
 		return nil, false
 	}
+	// 议题归属可能因历史数据/降级链路缺失：本议题没有记录时回退到房间最近消息，
+	// 否则裁判会因拿不到讨论内容而永远判不出收敛。
+	if len(recent) == 0 {
+		recent, _ = e.messageRepo.ListByRoom(ctx, room.ID, "", e.contextMax)
+	}
 	verdict := e.judgeConsensus(ctx, room, item, recent, completed)
 
 	// 跑题：只提醒一句，不打断有效分歧（房间最后一条已是主持人消息时不重复刷屏）
@@ -557,20 +578,31 @@ func (e *meetingEngine) evaluateDiscussion(ctx context.Context, room *types.Meet
 		return nil, false
 	}
 
-	// 落一条简短的议题小结（归属当前议题，后续议题仍可读到）
+	// 落议题小结；最后一个议题完成时直接汇总成"会议结论"，不再额外多一条收束提示。
 	remaining := pendingAgenda(items, item.ID)
-	if msg, merr := e.appendConsensusMessageForItem(ctx, room.ID, item.ID, agendaRecap(item, remaining, verdict)); merr == nil {
+	conclusion := ""
+	if len(remaining) == 0 {
+		conclusion = buildMeetingConclusion(items, item, verdict)
+	}
+	recap := agendaRecap(item, remaining, verdict)
+	if conclusion != "" {
+		recap = conclusion
+	}
+	if msg, merr := e.appendConsensusMessageForItem(ctx, room.ID, item.ID, recap); merr == nil {
 		e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventConsensusCreated, Data: map[string]interface{}{
 			"room_id": room.ID, "message": msg, "agenda_item_id": item.ID,
 			"reason": verdict.Reason, "completed_rounds": completed, "all_done": len(remaining) == 0,
 		}})
 	}
-	e.advanceAgenda(ctx, room, item, firstNonEmpty(verdict.Consensus, verdict.Reason))
+	summary := firstNonEmpty(verdict.Consensus, verdict.Reason)
+	if len(verdict.Unresolved) > 0 {
+		summary += "；未解决：" + strings.Join(verdict.Unresolved, "；")
+	}
+	e.advanceAgenda(ctx, room, item, summary)
 	e.publishAgendaUpdate(ctx, room.ID)
 
 	if len(remaining) == 0 {
-		// 全部议题完成：收束本轮，后续动作由用户在「下一步」中决定
-		e.appendHostMessage(ctx, room.ID, "【会议收束】所有议题已讨论完毕。你可以生成方案，也可以继续追问或补充议题。")
+		// 全部议题完成：会议结论已自动落库，后续是否生成正式产物由用户在「下一步」决定
 		return nil, true
 	}
 
@@ -608,16 +640,6 @@ func lastMessage(msgs []*types.MeetingMessage) *types.MeetingMessage {
 		return nil
 	}
 	return msgs[len(msgs)-1]
-}
-
-// pickUnspokenAgent 按参会顺序取第一位本议题内尚未发言的智能体；全部发过则返回 nil
-func pickUnspokenAgent(agents []*types.CustomAgent, spoken map[string]bool) *types.CustomAgent {
-	for _, a := range agents {
-		if !spoken[a.ID] {
-			return a
-		}
-	}
-	return nil
 }
 
 // queuedUserMessageAfter 查询触发消息之后是否有新的用户消息（用户中途插话）。
@@ -706,6 +728,12 @@ func shouldHostIntervene(everyN, completed int) bool {
 	return everyN > 0 && completed > 0 && completed%everyN == 0
 }
 
+// canAutoContinue 无人被 @ 时是否允许引擎自动选下一位接话。
+// 仅新规则会议（启用议题治理）启用；历史房间保持"没人 @ 就停"的原有节奏。
+func canAutoContinue(room *types.MeetingRoom) bool {
+	return room.AgendaEnabled
+}
+
 // publishHostIntervention 每 N 轮介入：主持人生成阶段总结/重定向消息并落库广播。
 // 主持人模型不可用时降级为固定文案；消息经 message.created 回流，并自然进入后续子轮的共享上下文。
 func (e *meetingEngine) publishHostIntervention(ctx context.Context, room *types.MeetingRoom, completed int) {
@@ -784,12 +812,28 @@ func (e *meetingEngine) isInterrupted(ctx context.Context, roomID string) bool {
 // runAgentTurn 单个智能体发言：回应 replyTo 这条消息；解析回复中的 @ 提及写入 MentionedAgentIDs
 // agent 为已加载的智能体对象（只读）
 func (e *meetingEngine) runAgentTurn(ctx context.Context, room *types.MeetingRoom, replyTo *types.MeetingMessage, agent *types.CustomAgent, participants []*types.MeetingParticipant) (*types.MeetingMessage, error) {
+	return e.runAgentTurnWithHint(ctx, room, replyTo, agent, participants, "")
+}
+
+// runAgentTurnWithHint 单个智能体发言，并把主持人点名的具体问题注入 query。
+// hint 为空时等价于普通的"回应上一条发言"。
+func (e *meetingEngine) runAgentTurnWithHint(ctx context.Context, room *types.MeetingRoom, replyTo *types.MeetingMessage, agent *types.CustomAgent, participants []*types.MeetingParticipant, hint string) (*types.MeetingMessage, error) {
 	meetingAgent := e.cloneAgentForMeeting(agent, room)
 	kbIDs := unionKnowledgeBaseIDs(meetingAgent.Config.KBSelectionMode, meetingAgent.Config.KnowledgeBases, room.KnowledgeBaseIDs)
 
 	// 会议创建者用户名：注入 query 供智能体 @用户名 称呼用户；取不到时退回通用 @用户
 	userName := e.meetingUserName(ctx, room)
 	query, agendaItemID, kbIDs := e.buildTurnQuery(ctx, room, replyTo, participants, kbIDs, userName)
+	if h := strings.TrimSpace(hint); h != "" {
+		query += "\n【主持人点名】请优先回应这个问题：" + h
+	}
+
+	// 先广播"正在思考"并做一次短暂停顿，再发起真实生成：
+	// 用户能看到谁准备发言，整场节奏也不会像接口批量返回。
+	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventSpeakerThinking, Data: map[string]interface{}{
+		"room_id": room.ID, "agent_id": agent.ID, "agent_name": agent.Name, "agenda_item_id": agendaItemID,
+	}})
+	e.waitThinkDelay(ctx)
 
 	answer, err := e.runAgentOnce(ctx, room, meetingAgent, query, kbIDs)
 	if err != nil {
@@ -839,18 +883,20 @@ func (e *meetingEngine) buildTurnQuery(
 	ctx context.Context, room *types.MeetingRoom, replyTo *types.MeetingMessage,
 	participants []*types.MeetingParticipant, kbIDs []string, userName string,
 ) (query string, agendaItemID string, effectiveKBs []string) {
+	// 会议文件资料前置注入：所有议题的发言都基于同一批用户上传文件
+	attachmentCtx := e.meetingAttachmentContext(ctx, room, replyTo.Content)
 	if !room.AgendaEnabled || e.agendaRepo == nil {
 		contextMsgs, err := e.messageRepo.ListRecent(ctx, room.ID, e.contextMax)
 		if err != nil {
 			logger.Warnf(ctx, "meeting context load failed, room=%s err=%v", room.ID, err)
 			contextMsgs = nil
 		}
-		return buildMeetingQuery(room, replyTo.Content, contextMsgs, participants, userName), "", kbIDs
+		return attachmentCtx + buildMeetingQuery(room, replyTo.Content, contextMsgs, participants, userName), "", kbIDs
 	}
 	items, active := e.ensureActiveAgenda(ctx, room)
 	if active == nil {
 		// 议程已全部覆盖：仍按主题作答，不再注入子议题上下文
-		return buildMeetingQuery(room, replyTo.Content, nil, participants, userName), "", kbIDs
+		return attachmentCtx + buildMeetingQuery(room, replyTo.Content, nil, participants, userName), "", kbIDs
 	}
 	itemMsgs, err := e.messageRepo.ListByAgendaItem(ctx, room.ID, active.ID, meetingAgendaContextMax)
 	if err != nil {
@@ -861,7 +907,60 @@ func (e *meetingEngine) buildTurnQuery(
 	if len(active.KnowledgeBaseIDs) > 0 {
 		kbIDs = mergeUnique(kbIDs, active.KnowledgeBaseIDs)
 	}
-	return buildAgendaQuery(room, active, items, replyTo.Content, itemMsgs, participants, userName), active.ID, kbIDs
+	return attachmentCtx + buildAgendaQuery(room, active, items, replyTo.Content, itemMsgs, participants, userName), active.ID, kbIDs
+}
+
+// meetingAttachmentContext 把本会议已解析完成的文件内容渲染为发言上下文。
+// 按当前待回应发言选择相关片段，避免整份大文件灌满每次发言；未解析完成的文件只提示状态。
+func (e *meetingEngine) meetingAttachmentContext(ctx context.Context, room *types.MeetingRoom, query string) string {
+	if e.temporaryDocs == nil || room == nil {
+		return ""
+	}
+	scope := meetingAttachmentScope(room.ID)
+	docs, err := e.temporaryDocs.List(ctx, room.TenantID, scope)
+	if err != nil || len(docs) == 0 {
+		return ""
+	}
+	ids := make([]string, 0, len(docs))
+	pending := make([]string, 0, len(docs))
+	for _, doc := range docs {
+		if doc.Status == types.TemporaryDocumentStatusReady {
+			if len(ids) < types.MaxTemporaryAttachmentsPerMessage {
+				ids = append(ids, doc.ID)
+			}
+			continue
+		}
+		if doc.Status == types.TemporaryDocumentStatusUploaded ||
+			doc.Status == types.TemporaryDocumentStatusProcessing {
+			pending = append(pending, doc.FileName)
+		}
+	}
+
+	var b strings.Builder
+	if len(ids) > 0 {
+		result, rerr := e.temporaryDocs.ResolveForPrompt(ctx, room.TenantID, scope, ids, query)
+		if rerr != nil {
+			logger.Warnf(ctx, "meeting attachment resolve failed, room=%s err=%v", room.ID, rerr)
+		} else if result != nil && len(result.Attachments) > 0 {
+			b.WriteString("【会议文件资料】用户上传了以下文件，请优先基于文件内容讨论；引用时注明文件名。\n")
+			for _, att := range result.Attachments {
+				fmt.Fprintf(&b, "\n### 文件：%s", att.FileName)
+				if att.ContentMode != types.AttachmentContentModeFull {
+					b.WriteString("（已按当前议题选取相关片段）")
+				}
+				b.WriteString("\n<content>\n")
+				b.WriteString(att.Content)
+				b.WriteString("\n</content>\n")
+			}
+		}
+	}
+	if len(pending) > 0 {
+		b.WriteString("【文件解析中】" + strings.Join(pending, "、") + "，暂不可读，请先基于其他信息讨论。\n")
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return b.String() + "\n"
 }
 
 // meetingUserName 解析会议创建者的用户名：智能体可以用 @用户名 直接称呼用户。
@@ -925,6 +1024,23 @@ func (e *meetingEngine) runAgentOnce(
 		return "", runErr
 	}
 	return answer.String(), nil
+}
+
+// waitThinkDelay 在发言前等待一小段随机时间；引擎未配置延迟（单测）时不等待。
+func (e *meetingEngine) waitThinkDelay(ctx context.Context) {
+	if e.thinkDelay == nil {
+		return
+	}
+	d := e.thinkDelay()
+	if d <= 0 {
+		return
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
 }
 
 // mergeUnique 合并两个 ID 列表并去重保序
@@ -1034,6 +1150,9 @@ func (e *meetingEngine) lastRoomMessageIsHost(ctx context.Context, roomID string
 
 // agentDisplayName 参会者列表反查展示名，查不到回退 agentID 前 8 位
 func (e *meetingEngine) agentDisplayName(ctx context.Context, roomID string, agentID string) string {
+	if e.participantRepo == nil {
+		return shortID(agentID)
+	}
 	ps, err := e.participantRepo.ListByRoom(ctx, roomID)
 	if err == nil {
 		for _, p := range ps {
@@ -1042,10 +1161,15 @@ func (e *meetingEngine) agentDisplayName(ctx context.Context, roomID string, age
 			}
 		}
 	}
-	if len(agentID) > 8 {
-		return agentID[:8]
+	return shortID(agentID)
+}
+
+// shortID 兜底展示：取 ID 前 8 位，避免空名/长 ID 影响主持人提示词。
+func shortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
 	}
-	return agentID
+	return id
 }
 
 // guardMaxExchange 护栏互呛来回上限：优先房间配置，其次全局配置，最后回退 3
@@ -1116,17 +1240,36 @@ func (e *meetingEngine) cloneAgentForMeeting(agent *types.CustomAgent, room *typ
 // meetingFocusSystemPrompt 会议发言协议：像圆桌讨论一样短句接话，而不是写报告。
 // 通过 QARequest.RunNote 注入（追加到系统提示词尾部），不替换平台 base 提示词。
 const meetingFocusSystemPrompt = "【会议发言要求】你正在参加一场多人圆桌会议，请像现场发言一样交流，不要写成报告：\n" +
-	"1. 每次只说 1-3 句话、不超过 120 字；先给判断，再给一条核心理由；\n" +
-	"2. 禁止使用标题、编号列表、表格、代码块；不要复述背景，也不要重复别人刚说过的内容；\n" +
-	"3. 直接回应上一位发言者或用户；想让某位参会人接话，就在句末用 @对方姓名；\n" +
-	"4. 需要用户拍板或补充信息时，在句末 @用户姓名（用会议信息【用户】给出的名字；没有名字时写 @用户）提一个问题，然后停下等用户回答；\n" +
-	"5. 所有发言围绕【当前子议题】；若相较已有讨论没有新增观点，仅回复 PASS。"
+	"1. 常态 1-3 句话、不超过 120 字；被追问或关键论证可放宽到 200 字，不要每条都一样长；\n" +
+	"2. 先给判断，再给一条核心理由；允许用一句短话附议，也允许直接追问；\n" +
+	"3. 禁止使用标题、编号列表、表格、代码块；不要复述背景，也不要重复别人刚说过的内容；\n" +
+	"4. 可以明确反对；不同意就说出反对点和能改变你立场的证据，不要为了和气而附和；\n" +
+	"5. 如果你强烈不同意上一位，可以用「先打断一下」开头直接反驳并 @ 对方，这是允许的抢话；\n" +
+	"6. 直接回应上一位发言者或用户；想让某位参会人接话，就在句末用 @对方姓名；\n" +
+	"7. 需要用户拍板或补充信息时，在句末 @用户姓名（用会议信息【用户】给出的名字；没有名字时写 @用户）提一个问题，然后停下等用户回答；\n" +
+	"8. 所有发言围绕【当前子议题】；若相较已有讨论没有新增观点，仅回复 PASS。"
 
 // meetingAwaitUserToken 智能体向用户提问的显式标记（提示词协议约定）
 const meetingAwaitUserToken = "@用户"
 
 // meetingMaxTotalSubRounds 单次讨论轮的总子轮上限（跨议题累计），防止一次异步任务失控
-const meetingMaxTotalSubRounds = 18
+const meetingMaxTotalSubRounds = 30
+
+const (
+	meetingAgendaRoundsMin = 3
+	meetingAgendaRoundsMax = 6
+)
+
+// agendaRoundsPerTopic 单个议题的子轮上限：随参会人数自适应，保证 5~6 人会议里每人都有机会发言。
+func agendaRoundsPerTopic(agentCount int) int {
+	if agentCount < meetingAgendaRoundsMin {
+		return meetingAgendaRoundsMin
+	}
+	if agentCount > meetingAgendaRoundsMax {
+		return meetingAgendaRoundsMax
+	}
+	return agentCount
+}
 
 // unionKnowledgeBaseIDs 双层并集：智能体 KB ∪ 会议级 KB
 // all 模式返回 nil（AgentQA 回退为智能体全部 KB，天然包含会议级 KB）
@@ -1171,50 +1314,36 @@ func hostInDiscussion(room *types.MeetingRoom) bool {
 	return room.RoutingMode != types.MeetingRoutingFree
 }
 
-// selectSpeakers 按房间配置的路由模式选择发言人
-//   - host-assign（默认，含旧数据空值）：消息显式 @ 时优先响应，否则由主持人 LLM 指派，均无果则全员兜底
-//   - mention：仅 @ 命中的智能体发言；无人被 @ 时由主持人指派兜底，避免讨论冷场
-//   - free：不筛选，全员自由抢麦
+// selectSpeakers 选择本轮首位发言人：
+//   - 显式 @ 优先（free 模式除外），@ 了几个就回应几个；
+//   - free 模式保留"全员自由抢麦"的历史语义；
+//   - 其余情况只选一人：规则排除上一位发言者并优先未发言者，再由小模型选人并附具体问题。
+//
+// 后续子轮由 runDiscussion 用 chooseNextSpeaker 逐个接话，避免"一次点名多人、依次念稿"。
 func (e *meetingEngine) selectSpeakers(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, agents []*types.CustomAgent) []*types.CustomAgent {
-	// 候选不足 1 个时筛选无意义，直接返回（避免无谓调用主持人）
-	if len(agents) <= 1 {
-		return agents
+	if len(agents) == 0 {
+		return nil
 	}
-	switch room.RoutingMode {
-	case types.MeetingRoutingFree:
-		return agents
-	case types.MeetingRoutingMention:
+	if room.RoutingMode != types.MeetingRoutingFree && len(trigger.MentionedAgentIDs) > 0 {
 		if picked := filterByIDs(agents, trigger.MentionedAgentIDs); len(picked) > 0 {
 			return picked
 		}
-		return e.assignSpeakersByHost(ctx, room, trigger, agents)
-	default:
-		// 显式 @ 优先（保持参会者顺序，保证确定性）
-		if len(trigger.MentionedAgentIDs) > 0 {
-			if picked := filterByIDs(agents, trigger.MentionedAgentIDs); len(picked) > 0 {
-				return picked
-			}
-		}
-		return e.assignSpeakersByHost(ctx, room, trigger, agents)
 	}
-}
-
-// assignSpeakersByHost 主持人 LLM 按相关性指派发言人；不可用或未命中时回退全员
-func (e *meetingEngine) assignSpeakersByHost(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, agents []*types.CustomAgent) []*types.CustomAgent {
-	candidates := make([]speakerCandidate, len(agents))
-	for i, a := range agents {
-		candidates[i] = speakerCandidate{
-			ID: a.ID, Name: a.Name, Description: a.Description,
-			Skills:         agentSkillNames(a),
-			KnowledgeScope: describeKnowledgeScope(a.Config),
-		}
+	if room.RoutingMode == types.MeetingRoutingFree {
+		return agents
 	}
-	if ids := e.selectSpeakersByLLM(ctx, room, trigger, candidates); ids != nil {
-		if picked := filterByIDs(agents, ids); len(picked) > 0 {
-			return picked
-		}
+	// 历史房间（未启用议题治理）保留原有"首轮批量发言"语义，避免升级前行为突变；
+	// 新会议默认启用议题治理，走下面的动态单人接话。
+	if !room.AgendaEnabled {
+		return agents
 	}
-	return agents
+	if len(agents) == 1 {
+		return agents
+	}
+	if next, _ := e.chooseNextSpeaker(ctx, room, trigger, agents, nil, ""); next != nil {
+		return []*types.CustomAgent{next}
+	}
+	return agents[:1]
 }
 
 func filterByIDs(agents []*types.CustomAgent, ids []string) []*types.CustomAgent {
@@ -1265,7 +1394,10 @@ func buildMeetingQuery(
 	}
 	b.WriteString("\n【当前议题】" + triggerContent)
 	b.WriteString("\n请像在会议桌前发言一样，直接回应【当前议题】：")
-	b.WriteString("\n- 最多 3 句话、不超过 120 字，先表态再给理由；不要用标题、列表或代码块，也不要复述背景；")
+	b.WriteString("\n- 常态 1-3 句话、不超过 120 字；被追问或关键论证可放宽到 200 字，不要每条都一样长；")
+	b.WriteString("\n- 先表态再给理由；不要用标题、列表或代码块，也不要复述背景；")
+	b.WriteString("\n- 可以明确反对；不同意就说清反对点和能改变你立场的证据，不要为了和气而附和；")
+	b.WriteString("\n- 强烈不同意上一位时，可以用「先打断一下」开头直接反驳并 @ 对方；")
 	b.WriteString("\n- 要请某位参会人接话，在句末 @对方姓名；")
 	if userName != "" {
 		b.WriteString("\n- 需要用户拍板或补充，在句末 @" + userName + "（或 @用户）提一个问题；")

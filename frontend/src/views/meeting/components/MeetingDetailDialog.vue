@@ -1,5 +1,5 @@
 <template>
-  <!-- 会议详情弹窗：会议设置总入口（标题/描述/参会智能体/讨论模式/路由/护栏/介入/共识） -->
+  <!-- 会议详情弹窗：只维护名称、补充背景与参会智能体；讨论规则由系统统一内置 -->
   <t-dialog :visible="visible" :header="$t('meeting.detailTitle')" :width="640"
     dialog-class-name="meeting-form-dialog"
     :close-on-overlay-click="false" attach="body"
@@ -26,47 +26,15 @@
           <a class="field-hint-link" @click="loadDetail">{{ $t('meeting.retry') }}</a>
         </div>
       </t-form-item>
-      <t-form-item :label="$t('meeting.broadcastMode')">
-        <t-radio-group v-model="broadcastMode" :disabled="isArchived">
-          <t-radio value="sequential">{{ $t('meeting.modeSequential') }}</t-radio>
-          <t-radio value="parallel">{{ $t('meeting.modeParallel') }}</t-radio>
-        </t-radio-group>
-      </t-form-item>
-      <t-form-item :label="$t('meeting.routingMode')">
-        <t-radio-group v-model="routingMode" :disabled="isArchived">
-          <t-radio value="host-assign">{{ $t('meeting.routingHostAssign') }}</t-radio>
-          <t-radio value="mention">{{ $t('meeting.routingMention') }}</t-radio>
-          <t-radio value="free">{{ $t('meeting.routingFree') }}</t-radio>
-        </t-radio-group>
-      </t-form-item>
-      <t-form-item :label="$t('meeting.guardMaxExchange')">
-        <t-input-number v-model="form.guardMaxExchange" :min="1" :max="10" theme="column"
-          :disabled="isArchived" />
-      </t-form-item>
-      <t-form-item :label="$t('meeting.hostEveryNRounds')">
-        <!-- 自由抢麦下主持人不介入讨论过程，该项无意义 -->
-        <t-select v-model="form.hostEveryNRounds" :disabled="isArchived || form.routingMode === 'free'">
-          <t-option :value="0" :label="$t('meeting.hostEveryNRoundsOff')" />
-          <t-option v-for="n in HOST_INTERVENE_OPTIONS" :key="n" :value="n"
-            :label="$t('meeting.hostInterveneEvery', { n })" />
-        </t-select>
-        <div v-if="form.routingMode === 'free'" class="field-hint">{{ $t('meeting.hostEveryNRoundsFreeHint') }}</div>
-      </t-form-item>
-      <t-form-item :label="$t('meeting.consensusDetection')">
-        <t-switch v-model="form.consensusDetectionEnabled" :disabled="isArchived" />
-      </t-form-item>
-      <t-form-item :label="$t('meeting.agendaEnabled')">
-        <t-switch v-model="form.agendaEnabled" :disabled="isArchived" />
-        <div class="field-hint">{{ $t('meeting.agendaEnabledHint') }}</div>
-      </t-form-item>
-      <t-form-item :label="$t('meeting.admissionMode')">
-        <t-select v-model="form.admissionMode" :disabled="isArchived || !form.agendaEnabled">
-          <t-option value="off" :label="$t('meeting.admissionOff')" />
-          <t-option value="observe" :label="$t('meeting.admissionObserve')" />
-          <t-option value="enforce" :label="$t('meeting.admissionEnforce')" />
-        </t-select>
-        <div class="field-hint">{{ $t('meeting.admissionModeHint') }}</div>
-      </t-form-item>
+      <p class="rules-hint">{{ $t('meeting.autoRulesHint') }}</p>
+      <!-- 旧会议升级入口：不静默迁移，由用户显式切换为当前的一整套默认规则 -->
+      <div v-if="needsRuleUpgrade" class="upgrade-rules">
+        <t-button size="small" theme="default" variant="outline"
+          :loading="upgrading" :disabled="saving || isArchived" @click="upgradeRules">
+          {{ $t('meeting.upgradeRules') }}
+        </t-button>
+        <span class="field-hint">{{ $t('meeting.upgradeRulesHint') }}</span>
+      </div>
     </t-form>
   </t-dialog>
 </template>
@@ -77,7 +45,7 @@ import { useI18n } from 'vue-i18n';
 import { MessagePlugin } from 'tdesign-vue-next';
 import {
   getMeeting, replaceParticipants, updateMeeting,
-  type AdmissionMode, type BroadcastMode, type RoutingMode, type MeetingParticipant, type MeetingRoom,
+  type MeetingParticipant, type MeetingRoom,
 } from '@/api/meeting';
 import { listAgents, type CustomAgent } from '@/api/agent';
 
@@ -91,18 +59,10 @@ const saving = ref(false);
 const participantsLockedHint = ref(false);
 let optionsLoaded = false;
 
-const HOST_INTERVENE_OPTIONS = [2, 3, 5, 10];
-
 const form = reactive({
-  title: '', description: '',
+  title: '',
+  description: '',
   agentIds: [] as string[],
-  broadcastMode: 'sequential' as BroadcastMode,
-  routingMode: 'host-assign' as RoutingMode,
-  guardMaxExchange: 3,
-  hostEveryNRounds: 0,
-  consensusDetectionEnabled: false,
-  agendaEnabled: false,
-  admissionMode: 'off' as AdmissionMode,
 });
 
 const isArchived = computed(() => props.room?.status === 'archived');
@@ -110,15 +70,18 @@ const isArchived = computed(() => props.room?.status === 'archived');
 // 否则保存会走「全量替换」把原有参会人清空。idle 表示参会者未知且尚未发起补拉。
 const detailState = ref<'idle' | 'loading' | 'ready' | 'failed'>('idle');
 const canSubmit = computed(() => !isArchived.value && detailState.value === 'ready');
-
-// t-radio-group 变更值类型较宽，用带类型 setter 的 computed 收敛回联合类型
-const broadcastMode = computed<BroadcastMode>({
-  get: () => form.broadcastMode,
-  set: (val) => { form.broadcastMode = val; },
-});
-const routingMode = computed<RoutingMode>({
-  get: () => form.routingMode,
-  set: (val) => { form.routingMode = val; },
+const upgrading = ref(false);
+// 旧会议仍在使用关闭态/旧路由：给出显式升级入口，不做静默迁移
+const needsRuleUpgrade = computed(() => {
+  const r = props.room;
+  if (!r || isArchived.value) return false;
+  return !r.consensus_detection_enabled
+    || !r.agenda_enabled
+    || !r.web_search_enabled
+    || r.routing_mode !== 'host-assign'
+    || r.host_every_n_rounds !== 0
+    || r.admission_mode !== 'observe'
+    || r.broadcast_mode !== 'sequential';
 });
 
 let initialAgentIds: string[] = [];
@@ -132,17 +95,10 @@ watch(() => props.visible, (v) => {
   void loadDetail();
 });
 
-// 用房间对象回填全部设置字段
+// 只回填用户可维护的字段；讨论规则不再展示
 function applyRoom(room: MeetingRoom) {
   form.title = room.title;
   form.description = room.description ?? '';
-  form.broadcastMode = room.broadcast_mode ?? 'sequential';
-  form.routingMode = room.routing_mode ?? 'host-assign';
-  form.guardMaxExchange = room.guard_max_exchange ?? 3;
-  form.hostEveryNRounds = room.host_every_n_rounds ?? 0;
-  form.consensusDetectionEnabled = room.consensus_detection_enabled ?? false;
-  form.agendaEnabled = room.agenda_enabled ?? false;
-  form.admissionMode = room.admission_mode ?? 'off';
   setAgentIds(room.participants);
   // 详情接口已带出参会者时直接可用，否则等 loadDetail 补拉
   detailState.value = room.participants ? 'ready' : 'idle';
@@ -187,6 +143,26 @@ async function loadOptions() {
   }
 }
 
+// 旧会议显式升级：只重置治理规则，不动名称/描述/成员
+async function upgradeRules() {
+  if (!props.room || isArchived.value) return;
+  upgrading.value = true;
+  try {
+    await updateMeeting(props.room.id, {
+      title: form.title.trim() || props.room.title,
+      description: form.description,
+      reset_rules: true,
+    });
+    MessagePlugin.success(t('meeting.upgradeRulesDone'));
+    emit('update:visible', false);
+    emit('saved');
+  } catch (e) {
+    MessagePlugin.error((e as Error)?.message || t('meeting.saveFailed'));
+  } finally {
+    upgrading.value = false;
+  }
+}
+
 async function submit() {
   if (!props.room) return;
   if (!canSubmit.value) return; // 参会人未就绪（加载中/加载失败）时不允许提交
@@ -215,18 +191,10 @@ async function submit() {
         throw e;
       }
     }
-    // 设置类字段走 PATCH 白名单（后端要求 title/broadcast_mode/guard_max_exchange 必填）
+    // 设置类字段只提交标题与描述；其余治理参数由创建时的内置规则决定
     await updateMeeting(props.room.id, {
       title: form.title.trim(),
       description: form.description,
-      broadcast_mode: form.broadcastMode,
-      routing_mode: form.routingMode,
-      guard_max_exchange: form.guardMaxExchange,
-      host_every_n_rounds: form.hostEveryNRounds,
-      consensus_detection_enabled: form.consensusDetectionEnabled,
-      agenda_enabled: form.agendaEnabled,
-      // 未开启议题拆解时准入无意义，统一回落为 off
-      admission_mode: form.agendaEnabled ? form.admissionMode : 'off',
     });
     emit('update:visible', false);
     emit('saved');
@@ -254,5 +222,19 @@ async function submit() {
   margin-left: 6px;
   color: var(--td-brand-color);
   cursor: pointer;
+}
+
+.rules-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--td-text-color-placeholder);
+}
+
+.upgrade-rules {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
 }
 </style>

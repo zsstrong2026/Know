@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -21,7 +22,8 @@ type meetingService struct {
 	agendaRepo      interfaces.MeetingAgendaRepository
 	agentRepo       interfaces.CustomAgentRepository
 	artifactRepo    interfaces.MeetingArtifactRepository
-	messageService  interfaces.MessageService // 产物详情/下载：读取后台会话消息
+	messageService  interfaces.MessageService           // 产物详情/下载：读取后台会话消息
+	temporaryDocs   interfaces.TemporaryDocumentService // 会议文件：复用临时文档解析链路
 	engine          interfaces.MeetingEngine
 }
 
@@ -33,17 +35,52 @@ func NewMeetingService(
 	agentRepo interfaces.CustomAgentRepository,
 	artifactRepo interfaces.MeetingArtifactRepository,
 	messageService interfaces.MessageService,
+	temporaryDocs interfaces.TemporaryDocumentService,
 	engine interfaces.MeetingEngine,
 ) interfaces.MeetingService {
 	return &meetingService{
 		roomRepo: roomRepo, participantRepo: participantRepo,
 		messageRepo: messageRepo, agendaRepo: agendaRepo, agentRepo: agentRepo,
 		artifactRepo: artifactRepo, messageService: messageService,
-		engine: engine,
+		temporaryDocs: temporaryDocs,
+		engine:        engine,
 	}
 }
 
-// validateMeetingCreate 创建参数校验（标题必填、至少 1 个智能体、广播模式回退默认）
+// meetingAttachmentScope 会议文件的作用域键：与聊天附件共用临时文档表，但按会议隔离。
+func meetingAttachmentScope(roomID string) string { return "meeting:" + roomID }
+
+// applyMeetingRuleDefaults 创建会议时统一套用内置规则。
+// 用户只需提供会议名称与参会智能体，其余治理参数不再要求用户理解或配置：
+//   - 讨论按"动态选人"推进，默认主持人不按固定轮次介入；
+//   - 议题拆解、共识检测、发言观察默认开启；
+//   - 联网默认允许（是否真的检索由智能体按需决定，来源以引用呈现）；
+//   - 会议级知识库下线，各智能体使用自身知识库，共享资料走会议文件。
+//
+// 字段仍保留是为了兼容历史数据与 PATCH 调试，但创建入口不再采用请求中的值。
+func applyRuleDefaults(room *types.MeetingRoom) {
+	room.BroadcastMode = types.MeetingBroadcastSequential
+	room.RoutingMode = types.MeetingRoutingHostAssign
+	room.GuardMaxExchange = 3
+	room.HostEveryNRounds = 0
+	room.ConsensusDetectionEnabled = true
+	room.AgendaEnabled = true
+	room.AdmissionMode = types.MeetingAdmissionObserve
+	room.WebSearchEnabled = true
+	room.KnowledgeBaseIDs = nil
+}
+
+func applyMeetingRuleDefaults(room *types.MeetingRoom) {
+	applyRuleDefaults(room)
+	room.Status = types.MeetingStatusAwaitingConfirmation // 创建即待确认；开场后自动开始
+}
+
+// ApplyMeetingRuleDefaults 供旧会议显式升级：只重置治理参数，保留标题/描述/成员/状态。
+func ApplyMeetingRuleDefaults(room *types.MeetingRoom) {
+	applyRuleDefaults(room)
+}
+
+// validateMeetingCreate 创建参数校验（仅保留标题与参会智能体两项必填），其余规则一律套用内置默认
 func validateMeetingCreate(room *types.MeetingRoom, agentIDs []string) error {
 	if room.Title == "" {
 		return errors.New("title is required")
@@ -51,32 +88,7 @@ func validateMeetingCreate(room *types.MeetingRoom, agentIDs []string) error {
 	if len(agentIDs) == 0 {
 		return errors.New("at least one agent is required")
 	}
-	if room.BroadcastMode != types.MeetingBroadcastParallel &&
-		room.BroadcastMode != types.MeetingBroadcastSequential {
-		room.BroadcastMode = types.MeetingBroadcastSequential
-	}
-	// 路由模式白名单归一化：非法/空值回退主持人指派
-	switch room.RoutingMode {
-	case types.MeetingRoutingMention, types.MeetingRoutingFree:
-	default:
-		room.RoutingMode = types.MeetingRoutingHostAssign
-	}
-	if room.GuardMaxExchange <= 0 {
-		room.GuardMaxExchange = 3
-	}
-	// 主持人介入间隔归一化：0（关闭）或 1..10；超范围一律视为关闭
-	if room.HostEveryNRounds < 0 || room.HostEveryNRounds > types.MeetingHostEveryNRoundsMax {
-		room.HostEveryNRounds = 0
-	}
-	if room.Status == "" {
-		room.Status = types.MeetingStatusAwaitingConfirmation // 创建即待确认；开场与确认交互见 M3
-	}
-	// 发言准入模式白名单归一化：非法/空值一律关闭（默认不引入额外模型调用）
-	switch room.AdmissionMode {
-	case types.MeetingAdmissionObserve, types.MeetingAdmissionEnforce:
-	default:
-		room.AdmissionMode = types.MeetingAdmissionOff
-	}
+	applyMeetingRuleDefaults(room)
 	return nil
 }
 
@@ -692,5 +704,82 @@ func (s *meetingService) RollbackSolution(ctx context.Context, tenantID uint64, 
 	if err := s.messageRepo.Create(ctx, sysMsg); err == nil {
 		publishEvent(s.engine, roomID, MeetingEvent{Type: MeetingEventMessageCreated, Data: sysMsg})
 	}
+	return nil
+}
+
+// UploadAttachment 上传会议文件并异步解析。
+// 与聊天附件共用临时文档链路（解析、分块、图片描述），作用域隔离到 meeting:{roomID}。
+func (s *meetingService) UploadAttachment(
+	ctx context.Context, tenantID uint64, roomID, fileName, mimeType string, fileSize int64, reader io.Reader,
+) (*types.TemporaryDocument, error) {
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID)
+	if err != nil {
+		return nil, err // 租户/创建者校验
+	}
+	if err := ensureRoomActive(room); err != nil {
+		return nil, err // 归档房间只读
+	}
+	if s.temporaryDocs == nil {
+		return nil, errors.New("meeting attachments are not available")
+	}
+	docs, err := s.temporaryDocs.List(ctx, tenantID, meetingAttachmentScope(roomID))
+	if err != nil {
+		return nil, err
+	}
+	if len(docs) >= types.MaxTemporaryAttachmentsPerMessage {
+		return nil, fmt.Errorf("a meeting can use at most %d attachments", types.MaxTemporaryAttachmentsPerMessage)
+	}
+	doc, err := s.temporaryDocs.Create(
+		ctx, tenantID, meetingAttachmentScope(roomID), fileName, mimeType, fileSize, reader,
+		types.TemporaryDocumentCreateOptions{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	publishEvent(s.engine, roomID, MeetingEvent{Type: MeetingEventAttachmentUpdated, Data: map[string]interface{}{
+		"room_id": roomID, "attachment": doc.ForClient(),
+	}})
+	return doc.ForClient(), nil
+}
+
+// ListAttachments 本会议已上传文件（按上传时间升序，供前端展示解析状态）
+func (s *meetingService) ListAttachments(
+	ctx context.Context, tenantID uint64, roomID string,
+) ([]*types.TemporaryDocument, error) {
+	if _, err := s.roomRepo.GetByID(ctx, roomID, tenantID); err != nil {
+		return nil, err
+	}
+	if s.temporaryDocs == nil {
+		return []*types.TemporaryDocument{}, nil
+	}
+	docs, err := s.temporaryDocs.List(ctx, tenantID, meetingAttachmentScope(roomID))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*types.TemporaryDocument, 0, len(docs))
+	for _, doc := range docs {
+		out = append(out, doc.ForClient())
+	}
+	return out, nil
+}
+
+// DeleteAttachment 删除会议文件（归档房间拒绝）
+func (s *meetingService) DeleteAttachment(ctx context.Context, tenantID uint64, roomID, attachmentID string) error {
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID)
+	if err != nil {
+		return err
+	}
+	if err := ensureRoomActive(room); err != nil {
+		return err
+	}
+	if s.temporaryDocs == nil {
+		return errors.New("meeting attachments are not available")
+	}
+	if err := s.temporaryDocs.Delete(ctx, tenantID, meetingAttachmentScope(roomID), attachmentID); err != nil {
+		return err
+	}
+	publishEvent(s.engine, roomID, MeetingEvent{Type: MeetingEventAttachmentUpdated, Data: map[string]interface{}{
+		"room_id": roomID, "attachment_id": attachmentID, "deleted": true,
+	}})
 	return nil
 }

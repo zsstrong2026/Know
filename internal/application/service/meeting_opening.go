@@ -155,7 +155,39 @@ func (e *meetingEngine) GenerateOpening(ctx context.Context, room *types.Meeting
 			"room_id": room.ID, "items": agendaItems,
 		}})
 	}
+	// 开场完成即自动开跑，用户不必再点一次「开始会议」。
+	// 主持人若提出了澄清问题，用户仍可随时补充，该补充会作为会议中的插话进入讨论。
+	e.maybeAutoStart(ctx, room, msg.ID)
 	return nil
+}
+
+// maybeAutoStart 把待确认房间置为 active 并异步启动首轮讨论。
+// 仅在房间仍处于 awaiting_confirmation 时生效，避免用户已手动开始/发言后重复触发；
+// 无 Redis 的单测精简引擎直接跳过（讨论轮依赖分布式锁）。
+func (e *meetingEngine) maybeAutoStart(ctx context.Context, room *types.MeetingRoom, openingMsgID string) {
+	if room == nil || openingMsgID == "" || e.redis == nil {
+		return
+	}
+	fresh, err := e.roomRepo.GetByIDInternal(ctx, room.ID)
+	if err != nil || fresh == nil || fresh.Status != types.MeetingStatusAwaitingConfirmation {
+		return
+	}
+	fresh.Status = types.MeetingStatusActive
+	if err := e.roomRepo.Update(ctx, fresh); err != nil {
+		logger.Warnf(ctx, "meeting auto start update failed, room=%s err=%v", room.ID, err)
+		return
+	}
+	go func() {
+		bgCtx := logger.CloneContext(ctx)
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Errorf(bgCtx, "meeting auto start panic, room=%s recover=%v", room.ID, r)
+			}
+		}()
+		if err := e.RunTurn(bgCtx, room.ID, openingMsgID); err != nil {
+			logger.Errorf(bgCtx, "meeting auto start RunTurn failed, room=%s err=%v", room.ID, err)
+		}
+	}()
 }
 
 // loadRoomAgents 加载参会智能体实体（开场/产物生成取名称与专长用）

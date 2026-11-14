@@ -879,6 +879,37 @@ function installEdgelessBlankClickText(std: any, element: HTMLElement): () => vo
   }
 }
 
+/**
+ * 无限画布里的「文档卡片边框」标记（方案 B · 卡片浮层）。
+ *
+ * edgeless 视图把页面级 note（文档正文）与画布便签渲染成同一种
+ * `affine-edgeless-note`，DOM 位置无法区分；这里按 model 父级是
+ * `affine:page` 给文档 note 打标记，样式只在 WorkbenchItemView 中命中标记类，
+ * 画布便签继续沿用各自的笔记样式。
+ *
+ * 观察 childList 而不是只扫一次：切 mode / 分帧渲染都会重建 note 元素。
+ */
+const DOC_NOTE_CLASS = 'wb-doc-note'
+
+function markDocumentNotes(element: HTMLElement, store: BsStore): MutationObserver {
+  const apply = () => {
+    const docNoteIds = new Set<string>(
+      (store.root?.children ?? [])
+        .filter((child: any) => child.flavour === 'affine:note')
+        .map((child: any) => child.id),
+    )
+    element
+      .querySelectorAll<HTMLElement & { model?: any }>('affine-edgeless-note')
+      .forEach(note => {
+        note.classList.toggle(DOC_NOTE_CLASS, docNoteIds.has(note.model?.id))
+      })
+  }
+  apply()
+  const observer = new MutationObserver(apply)
+  observer.observe(element, { childList: true, subtree: true })
+  return observer
+}
+
 function attachView(params: {
   store: BsStore
   mode: EditorMode
@@ -907,6 +938,8 @@ function attachView(params: {
   // 无限画布：空白处单击直接落一个可编辑文本块（AFFiNE 的空白双击效果）
   const removeBlankClickText =
     mode === 'edgeless' ? installEdgelessBlankClickText(std, element) : null
+  // 无限画布：给文档根 note 打标记，样式层据此画「卡片浮层」边框
+  const docNoteMarker = mode === 'edgeless' ? markDocumentNotes(element, store) : null
 
   if (mode === 'edgeless') {
     // 页面模式的内容都放在 note 里，切到画布后是一张卡片；
@@ -926,6 +959,7 @@ function attachView(params: {
   return {
     detach() {
       removeBlankClickText?.()
+      docNoteMarker?.disconnect()
       // host.remove() 触发 disconnectedCallback → std.unmount()，释放该 std 自己的订阅
       host.remove()
       if (!hadViewportClass) element.classList.remove(viewportClass)

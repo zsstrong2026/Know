@@ -5,6 +5,7 @@
     上游的行详情是一套字段编辑器弹层，结构与本原型不同；这里用只读抽屉复刻原型的
     版式：头部「表格行详情」、标题、78px 标签列 + 值的属性行。数据全部来自
     `DatabaseToolbarController.rowDetail()`，与表格共用同一份 dataSource。
+    底部提供删除入口，实际删除由父组件确认后执行。
   -->
   <aside v-if="open && detail" class="db-row-drawer" role="dialog" :aria-label="$t('workbench.database.toolbar.rowDetail')">
     <div class="drawer-head">
@@ -43,12 +44,20 @@
         </span>
       </div>
     </div>
+
+    <!-- 底部删除入口：只读（含回收站）时不出现，避免给出无效操作 -->
+    <div v-if="!readonly" class="drawer-foot">
+      <button class="drawer-delete" type="button" @click="$emit('delete')">
+        <t-icon name="delete" size="13px" />
+        {{ $t('workbench.database.toolbar.deleteRow') }}
+      </button>
+    </div>
   </aside>
 </template>
 
 <script setup lang="ts">
 /**
- * 行详情抽屉：只读展示，不复制数据库状态。
+ * 行详情抽屉：展示为主，不复制数据库状态；删除动作抛给父组件统一处理。
  *
  * 列 id 用固定常量（与 database-seed.ts 保持一致），仅用于选择渲染方式
  * （胶囊/圆点/头像），未知列一律按文本渲染。
@@ -58,9 +67,11 @@ import type { DatabaseRowDetail } from '@/workbench/editor/database-session'
 defineProps<{
   open: boolean
   detail: DatabaseRowDetail | null
+  /** 只读时隐藏删除入口（如回收站、无编辑权限） */
+  readonly?: boolean
 }>()
 
-defineEmits<{ close: [] }>()
+defineEmits<{ close: []; delete: [] }>()
 
 const statusColumnId = 'wb-col-status'
 const priorityColumnId = 'wb-col-priority'
@@ -164,6 +175,34 @@ function relativeDays(value: string): string {
   font-size: 16px;
   font-weight: 600;
   line-height: 1.35;
+}
+
+/* 底部删除区：固定在抽屉底部，不跟随内容滚动 */
+.drawer-foot {
+  flex: none;
+  padding: 10px 16px;
+  border-top: 1px solid #f0f1ef;
+}
+
+.drawer-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  height: 30px;
+  padding: 0;
+  border: 1px solid #e5e6e4;
+  border-radius: 6px;
+  background: none;
+  color: var(--td-error-color);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.drawer-delete:hover {
+  border-color: #f0c9c6;
+  background: #fdf3f2;
 }
 
 /* 原型 .prop-row：78px 固定标签列 + 值 */

@@ -357,6 +357,58 @@ func (r *workbenchRepository) PurgeItem(
 	})
 }
 
+// ListTrashedItems 返回回收站内的条目元数据，按 deleted_at 升序（清空回收站用）。
+func (r *workbenchRepository) ListTrashedItems(
+	ctx context.Context, tenantID uint64, ownerID string, limit int,
+) ([]*types.WorkbenchItem, error) {
+	q := r.db.WithContext(ctx).
+		Unscoped().
+		Table("workbench_items").
+		Select(workbenchItemListColumns).
+		Where("tenant_id = ? AND owner_id = ? AND deleted_at IS NOT NULL", tenantID, ownerID).
+		Order("deleted_at ASC")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	var items []*types.WorkbenchItem
+	if err := q.Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// PurgeTrashedItems 批量硬删回收站条目及其从属行，返回实际删除行数。
+func (r *workbenchRepository) PurgeTrashedItems(
+	ctx context.Context, tenantID uint64, ownerID string, ids []string,
+) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	var purged int64
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 事务内再筛一次：并发恢复的条目不能被这次清空误删。
+		var targetIDs []string
+		if err := tx.Unscoped().Table("workbench_items").
+			Where("tenant_id = ? AND owner_id = ? AND deleted_at IS NOT NULL AND id IN ?",
+				tenantID, ownerID, ids).
+			Pluck("id", &targetIDs).Error; err != nil {
+			return err
+		}
+		if len(targetIDs) == 0 {
+			return nil
+		}
+		if err := purgeItemChildren(tx, tenantID, ownerID, targetIDs); err != nil {
+			return err
+		}
+		res := tx.Unscoped().Table("workbench_items").
+			Where("tenant_id = ? AND owner_id = ? AND id IN ?", tenantID, ownerID, targetIDs).
+			Delete(nil)
+		purged = res.RowsAffected
+		return res.Error
+	})
+	return purged, err
+}
+
 // purgeItemChildren 按各自的关联列删除条目的从属行。
 // tenantID/ownerID 传 0/"" 表示不按归属过滤 —— 只用于清理任务：
 // 那里的 itemIDs 来自已按 deleted_at 筛过的行，且 id 本身全局唯一。

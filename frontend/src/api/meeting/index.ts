@@ -99,6 +99,23 @@ export interface MeetingAgendaItem {
   updated_at: string;
 }
 
+// 会议文件解析状态（复用临时文档链路）
+export type MeetingAttachmentStatus = 'uploaded' | 'processing' | 'ready' | 'failed';
+
+// 会议文件：上传后异步解析，ready 后自动纳入智能体发言上下文
+export interface MeetingAttachment {
+  id: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  mime_type?: string;
+  status: MeetingAttachmentStatus;
+  token_count: number;
+  chunk_count: number;
+  error_message?: string;
+  created_at: string;
+}
+
 // 会议产物（solution 与 generated 统一模型；列表接口不保证 content，详情接口带正文）
 export interface MeetingArtifact {
   id: string;
@@ -137,24 +154,16 @@ export interface UpdateMeetingRequest {
   consensus_detection_enabled?: boolean;
   agenda_enabled?: boolean;
   admission_mode?: AdmissionMode;
+  // 旧会议显式升级：把治理参数重置为当前内置默认（保留标题/描述/成员/状态）
+  reset_rules?: boolean;
 }
 
+// 创建会议只需要名称与参会智能体；描述作为可选补充背景。
+// 议题拆解、共识检测、发言观察、联网、主持人介入等规则由后端统一内置，不再暴露给用户。
 export interface CreateMeetingInput {
   title: string;
-  description: string;
+  description?: string;
   agentIds: string[];
-  knowledgeBaseIds: string[];
-  broadcastMode: BroadcastMode;
-  routingMode: RoutingMode;
-  // 主持人介入间隔：0（关闭，默认）或 1..10（后端超范围一律按关闭处理）
-  hostEveryNRounds: number;
-  // 裁判 + 共识检测开关：默认关闭
-  consensusDetectionEnabled: boolean;
-  // 结构性治理：议程拆解 + 发言准入（默认关闭，保持旧行为）
-  agendaEnabled: boolean;
-  admissionMode: AdmissionMode;
-  // 会议级联网开关：默认关闭；开启后强制全部参会智能体联网（需系统已配置搜索服务）
-  webSearchEnabled: boolean;
 }
 
 // ===== 纯函数：请求体组装（便于单测，不依赖任何浏览器 API）=====
@@ -169,14 +178,6 @@ export function buildCreatePayload(input: CreateMeetingInput) {
     title,
     description: (input.description ?? '').trim(),
     agent_ids: agentIds,
-    knowledge_base_ids: input.knowledgeBaseIds ?? [],
-    broadcast_mode: input.broadcastMode,
-    routing_mode: input.routingMode,
-    host_every_n_rounds: input.hostEveryNRounds ?? 0,
-    consensus_detection_enabled: input.consensusDetectionEnabled ?? false,
-    agenda_enabled: input.agendaEnabled ?? false,
-    admission_mode: input.admissionMode ?? 'off',
-    web_search_enabled: input.webSearchEnabled ?? false,
   };
 }
 
@@ -352,6 +353,38 @@ export async function archiveMeeting(roomId: string): Promise<void> {
 export async function deleteMeeting(roomId: string): Promise<void> {
   const { del } = await loadRequest();
   await del(`/api/v1/meetings/${roomId}`);
+}
+
+// 会议文件列表（含解析状态；正文不下发）
+export async function listMeetingAttachments(roomId: string) {
+  const { get } = await loadRequest();
+  return get<{ data: MeetingAttachment[] }>(`/api/v1/meetings/${roomId}/attachments`)
+    .then((r) => r.data);
+}
+
+// 上传会议文件（后端 202，异步解析；ready 后自动用于后续发言）
+export async function uploadMeetingAttachment(
+  roomId: string,
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<MeetingAttachment> {
+  const { postUpload } = await loadRequest();
+  const form = new FormData();
+  form.append('file', file);
+  const res = await postUpload(
+    `/api/v1/meetings/${roomId}/attachments`,
+    form,
+    (event) => {
+      if (event.total) onProgress?.(Math.round((event.loaded * 100) / event.total));
+    },
+  ) as { data: MeetingAttachment };
+  return res.data;
+}
+
+// 删除会议文件
+export async function deleteMeetingAttachment(roomId: string, attachmentId: string): Promise<void> {
+  const { del } = await loadRequest();
+  await del(`/api/v1/meetings/${roomId}/attachments/${attachmentId}`);
 }
 
 // 下载方案 .md（服务端返回 Content-Disposition attachment 的 markdown 正文）

@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"io"
 
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -110,6 +111,13 @@ type MeetingService interface {
 	AppendAgenda(ctx context.Context, tenantID uint64, roomID string, userID string, title string, goal string) ([]*types.MeetingAgendaItem, error)
 	// ReopenAgenda 恢复指定议题继续讨论（当前活跃项回退为待讨论）
 	ReopenAgenda(ctx context.Context, tenantID uint64, roomID string, itemID string) ([]*types.MeetingAgendaItem, error)
+	// UploadAttachment 上传会议文件：复用会话临时文档的解析链路，作用域隔离到本会议。
+	// 解析在后台异步进行，返回 uploaded/processing 状态，前端轮询列表获取进度。
+	UploadAttachment(ctx context.Context, tenantID uint64, roomID, fileName, mimeType string, fileSize int64, reader io.Reader) (*types.TemporaryDocument, error)
+	// ListAttachments 本会议已上传文件（含解析状态；解析正文不下发）
+	ListAttachments(ctx context.Context, tenantID uint64, roomID string) ([]*types.TemporaryDocument, error)
+	// DeleteAttachment 删除本会议文件（归档房间拒绝）
+	DeleteAttachment(ctx context.Context, tenantID uint64, roomID, attachmentID string) error
 }
 
 // MeetingEngine 讨论引擎：同一会议同一时刻仅一个讨论轮次（Redis 锁保证）

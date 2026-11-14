@@ -51,6 +51,17 @@ import { autoUpdatePosition, renderToolbar, sideMap } from './utils';
 
 export const AFFINE_TOOLBAR_WIDGET = 'affine-toolbar-widget';
 
+/**
+ * 正文格式工具条固定在编辑区顶部时，工具条下沿与正文之间保留的间距。
+ *
+ * 宿主被工作台下移了一条带子（.has-format-bar，默认 52px），工具条就落在这条
+ * 带子里；定位时按工具条自身高度反推 top，保证任何主题/缩放下都不压住正文首行。
+ */
+const PAGE_TEXT_TOOLBAR_GAP = 8;
+
+/** 工具条尚未渲染（offsetHeight 为 0）时的兜底高度，与 EditorToolbar 的 36px 对齐。 */
+const PAGE_TEXT_TOOLBAR_FALLBACK_HEIGHT = 36;
+
 export class AffineToolbarWidget extends WidgetComponent {
   static override styles = css`
     editor-toolbar {
@@ -119,6 +130,26 @@ export class AffineToolbarWidget extends WidgetComponent {
       max-width: calc(100vw - 32px);
       overflow-x: auto;
       touch-action: pan-x;
+    }
+
+    /* 正文文本选区：工具条固定在编辑区顶部，不跟随选区浮动。
+       位置由 JS 写入 inline left/top，这里只兜窄屏下的换行与滚动。 */
+    editor-toolbar[data-fixed] {
+      /* 顶栏是工作台预留的一条实体带子：去掉浮层的圆角 / 描边 / 阴影，
+         让工具条贴在这条带子里，而不是看起来浮在正文上方。 */
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      box-shadow: none;
+      padding: 0 4px;
+      max-width: calc(100vw - 32px);
+      overflow-x: auto;
+      touch-action: pan-x;
+      scrollbar-width: none;
+    }
+
+    editor-toolbar[data-fixed]::-webkit-scrollbar {
+      display: none;
     }
 
     ${unsafeCSS(darkToolbarStyles('editor-toolbar'))}
@@ -396,17 +427,15 @@ export class AffineToolbarWidget extends WidgetComponent {
     }
 
     // Formatting
-    // Selects text in note.
+    // Text caret or selection in note.
+    //
+    // 与上游的差异：不再要求选区非折叠，也不要求编辑器处于事件活跃态。
+    // 工作台要的是「常驻顶部工具栏」：光标落在正文里就显示，
+    // 点侧栏 AI 输入框时不消失；无选区时按钮作用于光标所在块。
     disposables.add(
       std.selection.find$(TextSelection).subscribe(result => {
         const range = std.range.value ?? null;
-        const activated = Boolean(
-          context.activated &&
-          range &&
-          result &&
-          !result.isCollapsed() &&
-          result.from.length + (result.to?.length ?? 0)
-        );
+        const activated = Boolean(!this.store.readonly && result);
 
         batch(() => {
           flags.toggle(Flag.Text, activated);
@@ -434,14 +463,8 @@ export class AffineToolbarWidget extends WidgetComponent {
       }
 
       batch(() => {
-        // Focues outside: `doc-title`
-        if (
-          flags.check(Flag.Text) &&
-          !std.host.contains(range?.commonAncestorContainer ?? null)
-        ) {
-          flags.toggle(Flag.Text, false);
-        }
-
+        // 正文格式条常驻：焦点移到编辑器外（例如点侧栏 AI 输入框）时不再强制关闭，
+        // 否则常驻工具栏会在用户一离开正文就消失。只读与切文档仍由 selection 订阅处理。
         flags.toggle(Flag.Native, activated);
 
         if (!activated) return;
@@ -765,6 +788,101 @@ export class AffineToolbarWidget extends WidgetComponent {
 
     let abortController = new AbortController();
 
+    /**
+     * 找到会让 position: fixed 改以它为包含块的祖先。
+     *
+     * 无限画布的 .widgets-container 带 contain: size layout，layout containment
+     * 会成为 fixed 后代的包含块；此时 left/top 是相对画布控件层的坐标，
+     * 直接写视口坐标会把工具条推到屏幕外。
+     */
+    const findFixedContainingBlock = (start: HTMLElement): HTMLElement | null => {
+      let node: Element | null = start
+      while (node) {
+        const style = getComputedStyle(node)
+        if (
+          style.transform !== 'none' ||
+          style.perspective !== 'none' ||
+          style.filter !== 'none' ||
+          /(layout|paint|strict|content)/.test(style.contain)
+        ) {
+          return node as HTMLElement
+        }
+        node = node.parentElement ?? (node.getRootNode() as ShadowRoot)?.host ?? null
+      }
+      return null
+    }
+
+    /**
+     * 把正文格式工具条固定在编辑区顶部的居中位置。
+     *
+     * 用 fixed 而不是 absolute：工具条在 shadow DOM 里，absolute 的包含块
+     * 由上游布局决定，滚动时可能跟着正文跑；fixed 才能保证「置顶固定」。
+     *
+     * 定位基准不能直接用视口元素或 host 的 rect：
+     *   - host 是滚动内容的一部分，滚动后它的 rect.top 会变成负数；
+     *   - 无限画布的视口带世界坐标变换，rect 会随画布平移/缩放跑偏。
+     * 因此用「视口父容器 + offsetTop」还原顶栏下沿：offsetTop 是布局值，
+     * 不受滚动与画布变换影响，两种模式都能稳定落在预留的顶栏里。
+     */
+    const pinPageTextToolbar = () => {
+      const viewport =
+        (host.closest('.affine-page-viewport') as HTMLElement | null) ??
+        (host.closest('.affine-edgeless-viewport') as HTMLElement | null) ??
+        host
+      const frame = viewport.parentElement
+      const frameRect = frame?.getBoundingClientRect()
+      const viewportRect = viewport.getBoundingClientRect()
+      // offsetTop 是相对定位父容器的布局偏移（工作台里就是顶栏的 52px）。
+      const bandBottom = frameRect ? frameRect.top + viewport.offsetTop : viewportRect.top
+      // clientWidth 不含纵向滚动条，居中时才不会往右偏半个滚动条。
+      const width = viewport.clientWidth || frame?.clientWidth || viewportRect.width
+      let left = (frameRect?.left ?? viewportRect.left) + width / 2
+      let top = bandBottom
+      // 先读高度再统一写入定位：offsetHeight 为 0 说明工具条还没渲染出来，用兜底值。
+      const barHeight = toolbar.offsetHeight || PAGE_TEXT_TOOLBAR_FALLBACK_HEIGHT
+      top -= barHeight + PAGE_TEXT_TOOLBAR_GAP
+
+      // 画布控件层是 fixed 的包含块：换算成它的局部坐标，效果仍然是视口坐标。
+      // 页面模式没有这类祖先（顶层单位矩阵的 rect 是 0,0），减法不影响结果。
+      const containingRect = findFixedContainingBlock(this)?.getBoundingClientRect()
+      if (containingRect) {
+        left -= containingRect.left
+        top -= containingRect.top
+      }
+
+      toolbar.style.position = 'fixed'
+      toolbar.style.left = `${Math.round(left)}px`
+      toolbar.style.top = `${Math.round(top)}px`
+      // 窄屏 / AI 侧栏展开时工具条不能溢出编辑区，超出部分交给自身横向滚动。
+      toolbar.style.maxWidth = `${Math.round(width - 24)}px`
+      toolbar.style.transform = 'translateX(-50%)'
+      toolbar.dataset.fixed = 'true'
+      // 固定模式下没有 hide() middleware 兜底，显隐由 flag 自己负责。
+      toolbar.dataset.open = 'true'
+    };
+
+    /** 离开固定模式时清掉 inline 定位，把控制权交回 autoUpdatePosition。 */
+    const unpinPageTextToolbar = () => {
+      if (!('fixed' in toolbar.dataset)) return;
+      delete toolbar.dataset.fixed;
+      toolbar.style.position = '';
+      toolbar.style.transform = '';
+      // left/top 一并清掉：否则回到 absolute 时会残留 fixed 的坐标，闪一下左上角。
+      toolbar.style.left = '';
+      toolbar.style.top = '';
+      toolbar.style.maxWidth = '';
+    };
+
+    // 编辑区尺寸变化时重算居中位置：AI 侧栏展开/收起、窗口缩放都会改变宽度。
+    // 用 ResizeObserver 而不是 window.resize —— 侧栏开合不改窗口尺寸。
+    const toolbarResizeObserver = new ResizeObserver(() => {
+      if (flags.check(Flag.Text, flags.value$.peek())) {
+        pinPageTextToolbar()
+      }
+    });
+    toolbarResizeObserver.observe(host);
+    disposables.add(() => toolbarResizeObserver.disconnect());
+
     disposables.add(
       effect(() => {
         if (IS_MOBILE) {
@@ -781,8 +899,28 @@ export class AffineToolbarWidget extends WidgetComponent {
 
         const value = flags.value$.value;
 
-        if (!context.activated) return;
-        if (Flag.None === value || flags.contains(Flag.Hiding, value)) return;
+        // 正文文本选区：固定置顶，不再跟随选区浮动。
+        // 只接管 Flag.Text；表格/数据库的 Flag.Native、
+        // 整块选中的 Flag.Block 与画布元素的 Flag.Surface 仍走原定位。
+        // 无限画布里的文本编辑同样固定在顶栏（定位基准已避开画布变换）。
+        //
+        // 固定模式刻意不判 context.activated：常驻工具栏在编辑器未聚焦
+        // （例如刚打开文档、或点过侧栏）时也要停在顶部，否则会闪回左上角。
+        if (flags.check(Flag.Text, value)) {
+          pinPageTextToolbar()
+          return
+        }
+
+        if (!context.activated) {
+          unpinPageTextToolbar();
+          return;
+        }
+        if (Flag.None === value || flags.contains(Flag.Hiding, value)) {
+          unpinPageTextToolbar();
+          return;
+        }
+
+        unpinPageTextToolbar();
 
         const build = referenceElement$.value;
         const referenceElement = build?.();
@@ -814,5 +952,55 @@ export class AffineToolbarWidget extends WidgetComponent {
         };
       })
     );
+
+    /**
+     * 常驻工具栏的初始光标。
+     *
+     * 打开文档时若还没有任何选区，把光标放到正文第一个文本块的开头，
+     * 让格式工具条立刻出现在顶部（否则要先点一下正文才出现）。
+     * 只读、画布模式与已有选区时都不动，避免覆盖用户或上游的初始状态。
+     */
+    const ensureInitialCaret = () => {
+      if (this.store.readonly || context.isEdgelessMode) return;
+      if (std.selection.value.length > 0) return;
+
+      let targetId = '';
+      const walk = (blocks: readonly any[]) => {
+        for (const block of blocks) {
+          if (targetId) return;
+          const flavour = block?.flavour;
+          // 只挑有 text 的块：标题、段落、列表与代码块。
+          if (
+            flavour === 'affine:paragraph' ||
+            flavour === 'affine:list' ||
+            flavour === 'affine:code'
+          ) {
+            targetId = block.id;
+            return;
+          }
+          if (block?.children?.length) walk(block.children);
+        }
+      };
+      for (const note of (this.store.root?.children ?? []) as readonly any[]) {
+        if (note?.flavour !== 'affine:note') continue;
+        walk(note.children ?? []);
+        if (targetId) break;
+      }
+      if (!targetId) return;
+
+      std.selection.setGroup('note', [
+        std.selection.create(TextSelection, {
+          from: { blockId: targetId, index: 0, length: 0 },
+          to: null,
+        }),
+      ]);
+    };
+
+    // 等一帧：note 与首个段落可能还没完成渲染。
+    nextTick()
+      .then(ensureInitialCaret)
+      .catch(() => {
+        // 初始光标失败不影响编辑，忽略。
+      });
   }
 }

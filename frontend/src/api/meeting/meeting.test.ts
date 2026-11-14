@@ -5,47 +5,24 @@ import {
   artifactDownloadUrl, type CreateMeetingInput,
 } from './index';
 
-test('buildCreatePayload 组装创建会议请求体', () => {
+test('buildCreatePayload 只提交名称、补充背景与参会智能体', () => {
   const p = buildCreatePayload({
     title: '  新客服方案评审  ',
     description: '客服机器人选型',
     agentIds: ['a1', 'a2'],
-    knowledgeBaseIds: ['kb1'],
-    broadcastMode: 'sequential',
-    routingMode: 'host-assign',
-    hostEveryNRounds: 3,
-    consensusDetectionEnabled: true,
-    agendaEnabled: true,
-    admissionMode: 'observe',
-    webSearchEnabled: true,
   });
   assert.equal(p.title, '新客服方案评审'); // 标题去首尾空格
   assert.equal(p.description, '客服机器人选型');
   assert.deepEqual(p.agent_ids, ['a1', 'a2']);
-  assert.deepEqual(p.knowledge_base_ids, ['kb1']);
-  assert.equal(p.broadcast_mode, 'sequential');
-  assert.equal(p.routing_mode, 'host-assign');
-  assert.equal(p.host_every_n_rounds, 3); // 主持人介入间隔透传
-  assert.equal(p.consensus_detection_enabled, true); // 共识检测开关透传
-  assert.equal(p.agenda_enabled, true); // 议题拆解开关透传
-  assert.equal(p.admission_mode, 'observe'); // 发言准入模式透传
-  assert.equal(p.web_search_enabled, true); // 会议级联网开关透传
+  // 其余治理参数由后端统一内置，前端不再提交
+  assert.deepEqual(Object.keys(p).sort(), ['agent_ids', 'description', 'title']);
 });
 
 test('buildCreatePayload 拒绝空标题/空智能体', () => {
-  // 显式标注类型而非 as const，避免 readonly 数组无法赋给可变字段类型
-  const base: CreateMeetingInput = {
-    title: 't', description: '', agentIds: ['a1'], knowledgeBaseIds: [],
-    broadcastMode: 'sequential', routingMode: 'free', hostEveryNRounds: 0,
-    consensusDetectionEnabled: false, agendaEnabled: false, admissionMode: 'off', webSearchEnabled: false,
-  };
+  const base: CreateMeetingInput = { title: 't', description: '', agentIds: ['a1'] };
   assert.throws(() => buildCreatePayload({ ...base, title: ' ' }), /title/);
   assert.throws(() => buildCreatePayload({ ...base, agentIds: [] }), /agent/);
-  assert.equal(buildCreatePayload(base).host_every_n_rounds, 0); // 默认不介入
-  assert.equal(buildCreatePayload(base).consensus_detection_enabled, false); // 默认关闭共识检测
-  assert.equal(buildCreatePayload(base).agenda_enabled, false); // 默认关闭议题拆解
-  assert.equal(buildCreatePayload(base).admission_mode, 'off'); // 默认关闭发言准入
-  assert.equal(buildCreatePayload(base).web_search_enabled, false); // 默认关闭联网
+  assert.equal(buildCreatePayload(base).description, '');
 });
 
 test('isModelHomogeneous 判定模型同质（≥2 个且模型标识唯一）', () => {

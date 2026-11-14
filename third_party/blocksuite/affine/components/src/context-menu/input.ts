@@ -32,6 +32,9 @@ export class MenuInput extends MenuFocusable {
       padding: 4px 6px;
       border: 1px solid var(--affine-border-color);
       width: 100%;
+      /* width:100% + padding + border 在 content-box 下会撑出容器，
+         菜单体因此出现横向滚动条。 */
+      box-sizing: border-box;
       color: ${unsafeCSSVarV2('text/primary')};
       background-color: transparent;
     }

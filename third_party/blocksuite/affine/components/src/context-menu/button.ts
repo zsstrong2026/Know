@@ -31,6 +31,9 @@ export class MenuButton extends MenuFocusable {
     .affine-menu-button {
       display: flex;
       width: 100%;
+      /* width:100% + padding 在 content-box 下会比容器宽 8px，
+         菜单体因此出现横向滚动条。 */
+      box-sizing: border-box;
       font-size: 20px;
       cursor: pointer;
       align-items: center;

@@ -114,5 +114,9 @@ blobs/
 ppt-generator/
 ppt-generator.zip
 
+# anydoc 的 Rust 构建产物（约 470MB）：镜像构建会在容器内自行编译，
+# 本地 target 目录只是增量缓存，打进上下文只会拖慢传输。
+third_party/anydoc-go/target/
+
 # 注意:不要排除 docs/ —— 里面的 docs.go / swagger.json 是 Go 代码依赖的 swagger 包
 # 注意:不要用 *.md 通配排除 —— skills/preloaded/**/SKILL.md 会被打进镜像给 agent 用

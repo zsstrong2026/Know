@@ -71,25 +71,137 @@
         </t-button>
       </div>
 
-      <div v-else class="j-editor">
-        <div ref="hostRef" class="j-mount" :class="{ 'is-hidden': !ready }" />
+      <div v-else class="j-editor has-format-bar">
+        <div
+          ref="hostRef"
+          class="j-mount"
+          :class="{ 'is-hidden': !ready }"
+        />
         <div v-if="!ready" class="j-loading">{{ $t('workbench.editor.loading') }}</div>
+
+        <!--
+          空白页起始区（参考 AFFiNE 空白文档）：
+          信息 → 开始（以 AI / 模板 / 无界）→ 双向链接，整体贴在编辑区底部。
+          只在空白文档的文档形态出现，用户开始输入或套用模板后自动消失。
+        -->
+        <div v-if="showBlankStart" class="j-blank">
+          <div class="jb-inner jb-body">
+            <section class="jb-info">
+              <button
+                class="jb-info-head"
+                type="button"
+                :aria-expanded="infoOpen"
+                :aria-label="infoOpen ? t('workbench.journals.blank.collapse') : t('workbench.journals.blank.expand')"
+                @click="infoOpen = !infoOpen"
+              >
+                <span>{{ t('workbench.journals.blank.info') }}</span>
+                <t-icon :name="infoOpen ? 'chevron-up' : 'chevron-down'" size="12px" />
+              </button>
+              <div v-if="infoOpen" class="jb-info-body">
+                <span>{{ t('workbench.journals.blank.updated', { time: updatedLabel }) }}</span>
+                <span class="jb-dot">·</span>
+                <span>{{ t('workbench.journals.blank.words', { count: wordCount }) }}</span>
+                <span class="jb-dot">·</span>
+                <span class="jb-private"><t-icon name="lock-on" size="10px" />{{ t('workbench.journals.blank.private') }}</span>
+              </div>
+            </section>
+
+            <div class="jb-start">
+              <span class="jb-start-label">{{ t('workbench.journals.blank.start') }}</span>
+              <button v-if="canUseAI" class="jb-chip" type="button" @click="openAiPanel">
+                {{ t('workbench.journals.blank.withAi') }}
+                <t-icon name="star" size="12px" />
+              </button>
+              <button v-if="templateEnabled" class="jb-chip" type="button" @click="openTemplatePicker">
+                {{ t('workbench.journals.blank.template') }}
+                <t-icon name="bulb" size="12px" />
+              </button>
+              <button class="jb-chip" type="button" @click="switchMode('edgeless')">
+                {{ t('workbench.journals.blank.edgeless') }}
+                <t-icon name="artboard" size="12px" />
+              </button>
+            </div>
+
+            <div class="jb-links">
+              <span>{{ t('workbench.journals.blank.backlinks') }}</span>
+              <button class="jb-show" type="button" @click="backlinksOpen = true">
+                {{ t('workbench.journals.blank.show') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Page AI：与条目页共用同一条流式管线，开合由右侧面板的标签控制 -->
+        <PageAILayer
+          v-if="ready && canUseAI && currentEntry"
+          ref="aiLayer"
+          :adapter="aiAdapter"
+          :item-id="currentItemId"
+          :editable="true"
+          :agent-id="aiPrefs.defaultAgentId"
+          :confirm-insert="aiPrefs.confirmInsert"
+          :initial-open="false"
+          :show-launcher="false"
+          :panel-target="aiHostRef"
+          @panel-change="onAiPanelChange"
+        />
+
+        <!-- 模板选择器：只在空白页由「模板」模块打开 -->
+        <TemplatePicker v-if="pickerOpen" @apply="onTemplateApply" @blank="closeTemplatePicker" />
       </div>
     </div>
 
-    <JournalMonthPanel
-      v-if="store.journalPanelOpen"
-      :month="store.journalsMonth"
-      :selected-date="selectedDate"
-      :selected-item-id="currentItemId"
-      :entries="store.journals"
-      :truncated="store.journalsTruncated"
-      @select="selectDate"
-      @month-step="stepMonth"
-      @open="openEntry"
-      @create="createJournal"
-      @move="onMoveEntry"
-    />
+    <!--
+      右侧栏：日历 / AI 共用固定宽度，切换标签放在栏内顶部。
+      宽度固定后，切换 AI 时主区的星期切换条与编辑区宽度都不会变化。
+    -->
+    <aside class="j-side">
+      <div class="j-side-tabs" role="tablist" :aria-label="t('workbench.journals.panelSwitch')">
+        <button
+          class="j-side-tab"
+          type="button"
+          role="tab"
+          :aria-selected="sideTab === 'calendar'"
+          :class="{ 'is-active': sideTab === 'calendar' }"
+          @click="selectSide('calendar')"
+        >
+          <t-icon name="calendar" size="14px" />
+          {{ t('workbench.journals.tabCalendar') }}
+        </button>
+        <button
+          class="j-side-tab"
+          type="button"
+          role="tab"
+          :aria-selected="sideTab === 'ai'"
+          :class="{ 'is-active': sideTab === 'ai' }"
+          :disabled="!canUseAI || !currentEntry"
+          @click="selectSide('ai')"
+        >
+          <t-icon name="star" size="14px" />
+          {{ t('workbench.journals.tabAi') }}
+        </button>
+      </div>
+      <div class="j-side-body">
+        <JournalMonthPanel
+          v-if="sideTab === 'calendar'"
+          :month="store.journalsMonth"
+          :selected-date="selectedDate"
+          :selected-item-id="currentItemId"
+          :entries="store.journals"
+          :truncated="store.journalsTruncated"
+          @select="selectDate"
+          @month-step="stepMonth"
+          @open="openEntry"
+          @create="createJournal"
+          @move="onMoveEntry"
+        />
+        <!-- AI 面板的 Teleport 容器：始终在 DOM 中，切换时只控制显隐 -->
+        <div v-show="sideTab === 'ai'" ref="aiHostRef" class="j-ai-host" />
+      </div>
+    </aside>
+
+    <!-- 反向链接：空白页「展示」入口 -->
+    <BacklinksDialog v-model:visible="backlinksOpen" :item-id="currentItemId" />
   </section>
 </template>
 
@@ -108,6 +220,9 @@ import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import ArchiveBadge from './components/ArchiveBadge.vue'
 import JournalDateStrip from './components/JournalDateStrip.vue'
 import JournalMonthPanel from './components/JournalMonthPanel.vue'
+import PageAILayer from './components/PageAILayer.vue'
+import TemplatePicker from './components/TemplatePicker.vue'
+import BacklinksDialog from './components/BacklinksDialog.vue'
 import {
   createArchive,
   getWorkbenchItem,
@@ -118,10 +233,14 @@ import {
 } from '@/api/workbench'
 import { useWorkbenchStore } from '@/stores/workbench'
 import { useEditorSession } from '@/workbench/editor/use-editor-session'
+import { createPageAIAdapter, type PageAIAdapterOptions } from '@/workbench/ai/editor-adapter'
+import { useWorkbenchPrefs } from '@/workbench/use-workbench-prefs'
 import { type ArchiveBadgeAction } from '@/workbench/archive-status'
 import { groupByDate } from '@/workbench/journals/month-cells'
 import { addDays, currentMonth, shiftMonth, todayISO } from '@/workbench/journals/date-only'
 import type { EditorMode } from '@/workbench/editor/blocksuite'
+import type { PreparedTemplateSnapshot } from '@/workbench/templates/apply'
+import type { TemplateCardItem } from '@/workbench/templates/picker'
 import type { WorkbenchItem } from '@/types/workbench'
 
 const props = defineProps<{ date?: string }>()
@@ -146,6 +265,173 @@ const session = useEditorSession({
   onConflict: () => openConflictDialog(),
 })
 const { ready, baseVersion, saveState } = session
+
+// ---- 空白页起始区与右侧面板（参考 AFFiNE 空白文档） ----
+const { aiPrefs } = useWorkbenchPrefs()
+const templateEnabled = computed(() => store.features.templates)
+/** AI 同时受个人偏好与发布门禁控制 */
+const canUseAI = computed(() => aiPrefs.value.enabled && store.features.ai)
+
+/** 右侧面板当前标签：日历 / AI */
+const sideTab = ref<'calendar' | 'ai'>('calendar')
+const aiLayer = ref<InstanceType<typeof PageAILayer> | null>(null)
+/** AI 面板的 Teleport 容器：始终在 DOM 中，保证切换时不会丢挂载点 */
+const aiHostRef = ref<HTMLElement | null>(null)
+
+const pickerOpen = ref(false)
+const infoOpen = ref(false)
+const backlinksOpen = ref(false)
+
+/**
+ * 当前编辑区是否真的为空。
+ *
+ * 不能只看 snapshot_version：空白文档只要保存过一次版本号就 > 0，
+ * 但正文和标题仍然是空的，此时仍应显示起始区。
+ */
+function isEditorBlank(): boolean {
+  const editorStore = session.editor.value?.store
+  if (!editorStore) return false
+  const title = editorStore.root?.props?.title?.toString?.() ?? ''
+  if (title.trim()) return false
+  return session.markdown().trim() === ''
+}
+
+/** saveState / ready / 切换条目都会带来内容变化，作为空白判定的重算信号 */
+const blankDoc = computed(() => {
+  void saveState.value
+  void ready.value
+  void currentItemId.value
+  void mode.value
+  return ready.value && Boolean(currentEntry.value) && isEditorBlank()
+})
+
+/** 只有「空白 + 文档形态 + 未在选模板」才显示起始区 */
+const showBlankStart = computed(() => blankDoc.value && mode.value === 'page' && !pickerOpen.value)
+
+/** 信息区的更新时间：优先本次落盘时间，其次条目 updated_at */
+const updatedLabel = computed(() => {
+  const stamp =
+    session.savedAt.value ??
+    (currentEntry.value?.updated_at ? Date.parse(currentEntry.value.updated_at) : Number.NaN)
+  if (!Number.isFinite(stamp)) return ''
+  const at = new Date(stamp)
+  if (Number.isNaN(at.getTime())) return ''
+  const hh = String(at.getHours()).padStart(2, '0')
+  const mm = String(at.getMinutes()).padStart(2, '0')
+  const now = new Date()
+  const sameDay =
+    at.getFullYear() === now.getFullYear() &&
+    at.getMonth() === now.getMonth() &&
+    at.getDate() === now.getDate()
+  const day = sameDay
+    ? ''
+    : `${t('workbench.journals.dateLabel', { month: at.getMonth() + 1, day: at.getDate() })} `
+  return `${day}${hh}:${mm}`
+})
+
+const wordCount = computed(() => {
+  // 正文变化只通过保存状态体现：显式读取作为依赖，避免首次渲染后不再刷新。
+  void saveState.value
+  void ready.value
+  return session.markdownCount()
+})
+
+const aiAdapterOptions: PageAIAdapterOptions = {
+  handle: () => session.editor.value,
+  itemId: () => currentItemId.value,
+  host: () => hostRef.value,
+}
+const aiAdapter = () => (canUseAI.value ? createPageAIAdapter(aiAdapterOptions) : null)
+
+/** 右侧标签切换：AI 面板停靠到右栏，切换时同步开合 */
+function selectSide(tab: 'calendar' | 'ai') {
+  if (tab === 'ai' && (!canUseAI.value || !currentEntry.value)) return
+  if (sideTab.value === tab) return
+  sideTab.value = tab
+  if (tab === 'ai') {
+    void nextTick(() => aiLayer.value?.openPanel())
+    return
+  }
+  aiLayer.value?.closePanel()
+}
+
+/** 空白页「以 AI」：直接打开右侧 AI 面板 */
+function openAiPanel() {
+  if (!canUseAI.value || !currentEntry.value) return
+  sideTab.value = 'ai'
+  void nextTick(() => aiLayer.value?.openPanel())
+}
+
+/**
+ * AI 面板开合与右侧标签同步。
+ *
+ * 面板也可能被编辑区内的浮动工具条 / 问答命令打开，此时标签要跟着切到 AI，
+ * 否则日历和 AI 会同时占住右侧；关闭时再回到日历。
+ */
+function onAiPanelChange(open: boolean) {
+  if (open) {
+    sideTab.value = 'ai'
+    return
+  }
+  if (sideTab.value === 'ai') sideTab.value = 'calendar'
+}
+
+/**
+ * 标签先于编辑器就绪时（点击「AI」时还在挂载），
+ * 等 PageAILayer 真正渲染出来再打开侧栏，避免标签亮着但面板没开。
+ */
+watch(
+  [sideTab, ready, currentItemId],
+  () => {
+    if (sideTab.value !== 'ai') return
+    void nextTick(() => aiLayer.value?.openPanel())
+  },
+  { flush: 'post' },
+)
+
+/** 空白页「模板」：只对仍为空的文档开放 */
+function openTemplatePicker() {
+  if (!templateEnabled.value || !showBlankStart.value) return
+  pickerOpen.value = true
+}
+
+function closeTemplatePicker() {
+  pickerOpen.value = false
+}
+
+/**
+ * 套用模板：与条目页同一条路径（替换资产块 → 用快照建 session）。
+ * 模板套用后文档不再为空，起始区立即收起。
+ */
+async function onTemplateApply(snapshot: PreparedTemplateSnapshot, card: TemplateCardItem) {
+  const { replaceAssetBlocks } = await import('@/workbench/editor/blocksuite')
+  const { bytes } = replaceAssetBlocks(snapshot.bytes)
+  try {
+    await session.mountFromTemplate({
+      snapshot: bytes,
+      editorSchemaVersion: snapshot.schemaVersion,
+    })
+  } catch (error) {
+    pickerOpen.value = false
+    if (String(error).includes('template-target-not-empty')) {
+      MessagePlugin.warning(t('workbench.templates.targetNotEmpty'))
+      await session.reload()
+      return
+    }
+    MessagePlugin.error(t('workbench.templates.applyFailed'))
+    return
+  }
+
+  pickerOpen.value = false
+  if (currentEntry.value) {
+    currentEntry.value = {
+      ...currentEntry.value,
+      snapshot_version: Math.max(1, currentEntry.value.snapshot_version),
+    }
+  }
+  const name = card.nameKey ? t(card.nameKey) : card.name
+  MessagePlugin.success(t('workbench.templates.applied', { name }))
+}
 
 /** 保存状态文案与条目页保持同一套（§9.7）：草稿暂存不等于归档。 */
 const saveLabel = computed(() => {
@@ -241,6 +527,7 @@ async function resolveDay(date: string) {
   currentItemId.value = ''
   currentEntry.value = null
   session.destroy()
+  if (sideTab.value === 'ai') sideTab.value = 'calendar'
   await syncQuery()
 }
 
@@ -519,13 +806,222 @@ void (async () => {
   overflow: hidden;
 }
 
+/* 常驻格式工具条占位高度：编辑器、空白页起始区、AI 条都据此下移 */
+.j-editor.has-format-bar {
+  --workbench-format-bar-height: 52px;
+}
+
+/* 预留的顶部带子画成真实顶栏，工具条不再像浮在正文上的气泡 */
+.j-editor.has-format-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--workbench-format-bar-height);
+  background: var(--td-bg-color-container);
+  border-bottom: 1px solid var(--td-component-stroke);
+  pointer-events: none;
+}
+
 .j-mount {
   position: absolute;
   inset: 0;
+  top: var(--workbench-format-bar-height, 0px);
   overflow: hidden;
 
   &.is-hidden {
     visibility: hidden;
+  }
+}
+
+/* 与条目页一致：只有文档页面模式由挂载点滚动，无限画布保持 hidden */
+.j-mount.affine-page-viewport {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* ===== 右侧栏：顶部切换标签 + 日历 / AI 面板 ===== */
+.j-side {
+  width: 340px;
+  flex: none;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--td-component-stroke);
+  background: var(--td-bg-color-container);
+}
+
+.j-side-tabs {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  padding: var(--app-space-2);
+  border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.j-side-tab {
+  flex: 1;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-radius: var(--app-radius-sm);
+  font-size: var(--app-text-xs);
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--td-bg-color-container-hover);
+    color: var(--td-text-color-primary);
+  }
+
+  &.is-active {
+    background: var(--td-brand-color-1);
+    color: var(--td-brand-color);
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
+}
+
+.j-side-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* AI 面板由 PageAILayer Teleport 进来，铺满右侧栏剩余高度 */
+.j-ai-host {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* ===== 空白页起始区（信息 / 开始 / 双向链接，贴在编辑区底部） ===== */
+.j-blank {
+  position: absolute;
+  /* 顶部让出常驻格式工具条，起始区不再被压住 */
+  inset: var(--workbench-format-bar-height, 0px) 0 0 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.jb-inner {
+  width: min(var(--affine-editor-width, 720px), calc(100% - 48px));
+  margin: 0 auto;
+  padding: 0 24px;
+  pointer-events: none;
+}
+
+.jb-body {
+  /* 信息 / 开始 / 双向链接整体贴底，顶部留给正文书写 */
+  margin-top: auto;
+  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jb-info {
+  border-bottom: 1px solid var(--td-component-stroke);
+  padding-bottom: 4px;
+}
+
+.jb-info-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 0;
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.jb-info-body {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0 4px;
+  font-size: var(--app-text-2xs);
+  color: var(--td-text-color-placeholder);
+}
+
+.jb-private {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.jb-dot {
+  color: var(--td-component-stroke);
+}
+
+.jb-start {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.jb-start-label {
+  margin-right: 4px;
+  font-size: var(--app-text-sm);
+  color: var(--td-text-color-primary);
+}
+
+.jb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--td-radius-pill, 999px);
+  background: var(--td-bg-color-secondarycontainer);
+  font-size: var(--app-text-xs);
+  color: var(--td-text-color-primary);
+  cursor: pointer;
+  pointer-events: auto;
+
+  :deep(.t-icon) {
+    color: var(--td-brand-color);
+  }
+
+  &:hover {
+    background: var(--td-bg-color-secondarycontainer-hover);
+  }
+}
+
+.jb-links {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--td-component-stroke);
+  font-size: var(--app-text-sm);
+  color: var(--td-text-color-primary);
+}
+
+.jb-show {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--td-radius-pill, 999px);
+  font-size: var(--app-text-2xs);
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  pointer-events: auto;
+
+  &:hover {
+    border-color: var(--td-brand-color);
+    color: var(--td-brand-color);
   }
 }
 

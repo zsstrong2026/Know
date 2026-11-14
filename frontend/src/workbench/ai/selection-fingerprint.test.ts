@@ -76,6 +76,71 @@ test('replace / below 生成带选区范围的计划', () => {
   assert.equal(plan.end, 6)
 })
 
+const multiSnapshot = {
+  blockId: 'b1',
+  start: 1,
+  end: 3,
+  text: '一段\n二段',
+  itemId: 'item-1',
+  spans: [
+    { blockId: 'b1', start: 1, end: 3, text: '一段' },
+    { blockId: 'b2', start: 0, end: 2, text: '二段' },
+  ],
+}
+
+test('跨块指纹记录每块的位置与哈希', () => {
+  const fp = fingerprintOf(multiSnapshot)
+  assert.equal(fp.spans?.length, 2)
+  assert.equal(fp.spans?.[1].blockId, 'b2')
+  assert.equal(fp.spans?.[1].textHash, hashText('二段'))
+})
+
+test('跨块选区：中间块被改 → text-changed', () => {
+  const fp = fingerprintOf(multiSnapshot)
+  const changed = {
+    ...multiSnapshot,
+    spans: [
+      { blockId: 'b1', start: 1, end: 3, text: '一段' },
+      { blockId: 'b2', start: 0, end: 2, text: '被改了' },
+    ],
+  }
+  assert.deepEqual(verifyFingerprint(fp, changed), { ok: false, reason: 'text-changed' })
+})
+
+test('跨块选区：块数量变化 → selection-moved', () => {
+  const fp = fingerprintOf(multiSnapshot)
+  assert.deepEqual(
+    verifyFingerprint(fp, { ...multiSnapshot, spans: [multiSnapshot.spans[0]] }),
+    { ok: false, reason: 'selection-moved' },
+  )
+})
+
+test('跨块写入计划：段数与块数一致时逐块对齐', () => {
+  const fp = fingerprintOf(multiSnapshot)
+  const plan = buildWritePlan(fp, '新一\n\n新二', 'replace')!
+  assert.deepEqual(plan.segments, ['新一', '新二'])
+  assert.equal(plan.spans?.length, 2)
+})
+
+test('跨块写入计划：段数少于块数时缺块清空', () => {
+  const fp = fingerprintOf(multiSnapshot)
+  const plan = buildWritePlan(fp, '只有一段', 'replace')!
+  assert.deepEqual(plan.segments, ['只有一段', ''])
+})
+
+test('跨块写入计划：段数多于块数时多余段并入最后一块', () => {
+  const fp = fingerprintOf(multiSnapshot)
+  const plan = buildWritePlan(fp, '甲\n\n乙\n\n丙', 'replace')!
+  assert.deepEqual(plan.segments, ['甲', '乙\n\n丙'])
+})
+
+test('单块选区不产出 spans', () => {
+  const fp = fingerprintOf(baseSnapshot)
+  const plan = buildWritePlan(fp, '新文本', 'replace')!
+  assert.equal(plan.spans, undefined)
+  assert.equal(plan.segments, undefined)
+})
+
 test('Markdown 转块：标题层级夹到 3 层', () => {
   const blocks = markdownToBlocks('##### 五级标题')
   assert.deepEqual(blocks, [{ kind: 'heading', level: 3, text: '五级标题' }])

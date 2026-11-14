@@ -276,15 +276,23 @@ export class KanbanCard extends SignalWatcher(
     this._disposables.addFromEvent(this, 'contextmenu', e => {
       this.contextMenu(e);
     });
+    this._disposables.addFromEvent(this, 'pointerdown', e => {
+      this.pointerDownAt = { x: e.clientX, y: e.clientY };
+    });
     this._disposables.addFromEvent(this, 'click', e => {
       if (e.shiftKey) {
         this.getSelection()?.shiftClickCard(e);
         return;
       }
+      // 与日历点击事项一致：单击（非拖拽）直接打开右侧详情抽屉。
+      // 上游原实现要求卡片已处于选中态，首次点击只选中，需要点两次才出抽屉。
+      const start = this.pointerDownAt;
+      this.pointerDownAt = null;
+      if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 4) {
+        return;
+      }
       const selection = this.getSelection();
       const preSelection = selection?.selection;
-
-      if (preSelection?.selectionType !== 'card') return;
 
       if (selection) {
         selection.selection = undefined;
@@ -321,6 +329,9 @@ export class KanbanCard extends SignalWatcher(
   accessor groupKey!: string;
 
   isFocus$ = signal(false);
+
+  /** 按下位置：用于区分「单击打开详情」与「拖拽换列」（拖拽结束也会派发 click）。 */
+  private pointerDownAt: { x: number; y: number } | null = null;
 
   @property({ attribute: false })
   accessor kanbanViewLogic!: KanbanViewUILogic;

@@ -15,6 +15,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	secutils "github.com/Tencent/WeKnora/internal/utils"
 )
 
 // MeetingHandler 会议室 API
@@ -115,13 +116,15 @@ func (h *MeetingHandler) GetMeeting(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"room": room, "participants": participants}})
 }
 
-// updateMeetingRequest PATCH 白名单六字段（参会人不可改）
+// updateMeetingRequest PATCH 白名单：标题/描述可改，其余治理字段仅保留给内部调试。
+// 用户侧只暴露标题、描述与参会人；讨论规则由创建时的内置默认统一决定。
 type updateMeetingRequest struct {
-	Title            string `json:"title" binding:"required"`
-	Description      string `json:"description"`
-	BroadcastMode    string `json:"broadcast_mode" binding:"required,oneof=sequential parallel"`
-	RoutingMode      string `json:"routing_mode" binding:"omitempty,oneof=host-assign mention free"`
-	GuardMaxExchange int    `json:"guard_max_exchange" binding:"required,min=1,max=10"`
+	Title         string `json:"title" binding:"required"`
+	Description   string `json:"description"`
+	BroadcastMode string `json:"broadcast_mode" binding:"omitempty,oneof=sequential parallel"`
+	RoutingMode   string `json:"routing_mode" binding:"omitempty,oneof=host-assign mention free"`
+	// 指针类型区分「未传」（nil，保留原值）与显式设置
+	GuardMaxExchange *int `json:"guard_max_exchange" binding:"omitempty,min=1,max=10"`
 	// 指针类型区分「未传」（nil，保留原值）与显式 0（关闭主持人介入）
 	HostEveryNRounds *int `json:"host_every_n_rounds" binding:"omitempty,min=0,max=10"`
 	// 裁判 + 共识检测开关：指针区分「未传」（保留原值）与显式设置
@@ -130,6 +133,8 @@ type updateMeetingRequest struct {
 	AgendaEnabled *bool `json:"agenda_enabled"`
 	// 发言准入模式：off / observe / enforce（空 = 保留原值）
 	AdmissionMode string `json:"admission_mode" binding:"omitempty,oneof=off observe enforce"`
+	// ResetRules 旧会议显式升级：把治理参数重置为当前内置默认（保留标题/描述/成员/状态）
+	ResetRules bool `json:"reset_rules"`
 }
 
 // UpdateMeeting PATCH /api/v1/meetings/:id —— 白名单更新，归档房间只读
@@ -151,15 +156,21 @@ func (h *MeetingHandler) UpdateMeeting(c *gin.Context) {
 		c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
 		return
 	}
-	// 白名单拷贝六字段，其余字段不可改
+	// 白名单拷贝：标题/描述始终可改；治理字段仅在显式传入时覆盖
 	room.Title = req.Title
 	room.Description = req.Description
-	room.BroadcastMode = req.BroadcastMode
-	// 路由模式为可选字段：未传时保留原值
+	if req.ResetRules {
+		service.ApplyMeetingRuleDefaults(room)
+	}
+	if req.BroadcastMode != "" {
+		room.BroadcastMode = req.BroadcastMode
+	}
 	if req.RoutingMode != "" {
 		room.RoutingMode = req.RoutingMode
 	}
-	room.GuardMaxExchange = req.GuardMaxExchange
+	if req.GuardMaxExchange != nil {
+		room.GuardMaxExchange = *req.GuardMaxExchange
+	}
 	// 介入间隔为可选字段：未传（nil）时保留原值，显式 0 表示关闭
 	if req.HostEveryNRounds != nil {
 		room.HostEveryNRounds = *req.HostEveryNRounds
@@ -617,6 +628,59 @@ func (h *MeetingHandler) RollbackSolution(c *gin.Context) {
 			c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
 			return
 		}
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// UploadAttachment POST /api/v1/meetings/:id/attachments —— 上传会议文件（异步解析）
+func (h *MeetingHandler) UploadAttachment(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	// 与聊天附件一致：限制请求体大小，避免超大文件打满内存/磁盘
+	maxBytes := secutils.GetMaxFileSizeMB()*1024*1024 + 1024*1024
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		c.Error(errors.NewBadRequestError(fmt.Sprintf("invalid attachment upload: %v", err)))
+		return
+	}
+	file, err := fileHeader.Open()
+	if err != nil {
+		c.Error(errors.NewBadRequestError("failed to open attachment"))
+		return
+	}
+	defer file.Close()
+
+	doc, err := h.meetingService.UploadAttachment(
+		ctx, tenantID, c.Param("id"),
+		fileHeader.Filename, fileHeader.Header.Get("Content-Type"), fileHeader.Size, file,
+	)
+	if err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": doc})
+}
+
+// ListAttachments GET /api/v1/meetings/:id/attachments —— 本会议文件与解析状态
+func (h *MeetingHandler) ListAttachments(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	docs, err := h.meetingService.ListAttachments(ctx, tenantID, c.Param("id"))
+	if err != nil {
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": docs})
+}
+
+// DeleteAttachment DELETE /api/v1/meetings/:id/attachments/:aid
+func (h *MeetingHandler) DeleteAttachment(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	if err := h.meetingService.DeleteAttachment(ctx, tenantID, c.Param("id"), c.Param("aid")); err != nil {
 		c.Error(errors.NewBadRequestError(err.Error()))
 		return
 	}

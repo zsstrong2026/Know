@@ -14,6 +14,7 @@ import { markdownToBlocks, type MarkdownBlock } from './selection-fingerprint'
 /** BlockSuite store / block 的最小形状；上游类型在 TS6 下无法被检查。 */
 interface TextLike {
   replace(index: number, length: number, content: string): void
+  toString(): string
 }
 
 interface BlockLike {
@@ -40,6 +41,8 @@ interface StoreLike {
     placement?: 'after' | 'before',
   ) => string[]
   getParent?: (target: BlockLike | string) => BlockLike | null
+  /** BlockSuite 的事务入口；跨块写入要靠它保证一次撤销。 */
+  transact?: (fn: () => void) => void
   readonly?: boolean
   readOnly?: boolean
 }
@@ -64,6 +67,12 @@ function findBlock(store: StoreLike, blockId: string): BlockLike | null {
 /** 取可写的 Text；模型上的 text 才是真正的 Y.Text 代理。 */
 function textOf(model: BlockLike | null): TextLike | undefined {
   return model?.model?.text ?? model?.text
+}
+
+/** 块正文长度（纯文本字符数），用于跨块整块替换的区间。 */
+function blockLength(model: BlockLike | null): number {
+  const text = textOf(model)
+  return typeof text?.toString === 'function' ? text.toString().length : 0
 }
 
 /** 动态取 BlockSuite 的 Text：只有真正写入时才加载，首屏不背这份体积。 */
@@ -110,6 +119,30 @@ export async function applyWritePlan(store: StoreLike, plan: WritePlan): Promise
   const model = findModel(store, plan.blockId)
   if (!view || !model) return { applied: false, reason: 'block-missing' }
 
+  // 跨块：按块逐段替换，一次 transact 完成，用户一次 Ctrl+Z 即可整体撤销。
+  if (plan.mode === 'replace' && plan.spans?.length && plan.segments) {
+    const targets = plan.spans.map((span) => ({
+      span,
+      model: findModel(store, span.blockId),
+    }))
+    if (targets.some((target) => !target.model)) return { applied: false, reason: 'block-missing' }
+
+    store.transact?.(() => {
+      targets.forEach((target, index) => {
+        const text = textOf(target.model)
+        if (!text) return
+        // 首尾块只替换选区范围，中间块整块替换（选区覆盖整块）。
+        const isFirst = index === 0
+        const isLast = index === targets.length - 1
+        const start = isFirst ? target.span.start : 0
+        const end = isLast ? target.span.end : blockLength(target.model)
+        const next = plan.segments?.[index] ?? ''
+        text.replace(start, Math.max(0, end - start), next)
+      })
+    })
+    return { applied: true }
+  }
+
   if (plan.mode === 'replace') {
     const text = textOf(model)
     if (!text) return { applied: false, reason: 'block-missing' }
@@ -118,9 +151,24 @@ export async function applyWritePlan(store: StoreLike, plan: WritePlan): Promise
     return { applied: true }
   }
 
+  const makeText = (await loadTextCtor()) ?? ((s: string) => s)
+
+  // 纯文本写入：段落按空行拆分，段内换行原样保留（诗歌/多行创作不丢分行）。
+  if (plan.plain) {
+    const paragraphs = plan.markdown
+      .split(/\n{2,}/)
+      .map((part) => part.replace(/^\n+|\n+$/g, ''))
+      .filter((part) => part.trim())
+    if (paragraphs.length === 0) return { applied: false, reason: 'empty' }
+
+    const plainProps: Array<{ flavour: string } & Record<string, unknown>> = paragraphs.map(
+      (text) => ({ flavour: 'affine:paragraph', text: makeText(text) }),
+    )
+    return insertBlocks(store, model, plainProps)
+  }
+
   const blocks = markdownToBlocks(plan.markdown)
   if (blocks.length === 0) return { applied: false, reason: 'empty' }
-  const makeText = (await loadTextCtor()) ?? ((s: string) => s)
 
   // 列表项要展开成多个块：addSiblingBlocks 一次插入，保持顺序。
   const props: Array<{ flavour: string } & Record<string, unknown>> = []
@@ -141,6 +189,16 @@ export async function applyWritePlan(store: StoreLike, plan: WritePlan): Promise
     })
   }
 
+  if (props.length === 0) return { applied: false, reason: 'empty' }
+  return insertBlocks(store, model, props)
+}
+
+/** 在锚点块之后插入一批块；Markdown / 纯文本两条路径共用同一套兜底。 */
+function insertBlocks(
+  store: StoreLike,
+  model: BlockLike,
+  props: Array<{ flavour: string } & Record<string, unknown>>,
+): ApplyOutcome {
   if (store.addSiblingBlocks) {
     store.addSiblingBlocks(model, props, 'after')
     return { applied: true }

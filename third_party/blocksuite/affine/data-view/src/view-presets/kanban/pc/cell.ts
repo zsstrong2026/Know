@@ -100,9 +100,17 @@ export class KanbanCell extends SignalWatcher(
         return;
       }
       e.stopPropagation();
+      // 标题就是「事项本身」：单击直接打开右侧详情抽屉，与日历点击事项一致。
+      // 其它属性列仍保留自己的内联编辑器（状态下拉、日期选择等）。
+      if (this.column.type$.value === 'title') {
+        this.kanbanViewLogic.root.openDetailPanel({
+          view: this.kanbanViewLogic.view,
+          rowId: this.cardId,
+        });
+        return;
+      }
       const selectionElement = this.kanbanViewLogic.selectionController;
       if (!selectionElement) return;
-      if (e.shiftKey) return;
 
       if (!this.isEditing$.value) {
         this.selectCurrentCell(!this.column.readonly$.value);

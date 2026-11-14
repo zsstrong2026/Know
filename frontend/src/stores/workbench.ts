@@ -13,6 +13,7 @@ import {
   createWorkbenchItem,
   deleteWorkbenchFolder,
   deleteWorkbenchItem,
+  emptyWorkbenchTrash,
   getJournalDay,
   getJournalsMonth,
   getWorkbenchBootstrap,
@@ -386,6 +387,14 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
     return item
   }
 
+  /** 一键清空回收站：服务端硬删全部条目，本地列表直接清空。 */
+  async function emptyTrash() {
+    const purged = await emptyWorkbenchTrash()
+    items.value = []
+    nextCursor.value = ''
+    return purged
+  }
+
   async function addFolder(name: string, parentId: string | null) {
     const folder = await createWorkbenchFolder({ name, parent_id: parentId })
     folders.value = [...folders.value, folder]
@@ -478,6 +487,7 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
     trashItem,
     removeItemPermanently,
     restoreItem,
+    emptyTrash,
     addFolder,
     renameFolder,
     moveFolder,

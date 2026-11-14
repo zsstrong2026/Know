@@ -126,31 +126,7 @@ func TestWorkbenchTrashAndRestore(t *testing.T) {
 // 永久删除要连从属行一起删，且跨 owner 不可执行。
 func TestWorkbenchPurgeItemRemovesChildren(t *testing.T) {
 	db := setupWorkbenchFolderTestDB(t)
-	require.NoError(t, db.Exec(`
-CREATE TABLE IF NOT EXISTS workbench_item_links (
-    id VARCHAR(36) PRIMARY KEY,
-    tenant_id INTEGER NOT NULL,
-    owner_id VARCHAR(36) NOT NULL,
-    source_item_id VARCHAR(36) NOT NULL,
-    target_type VARCHAR(16) NOT NULL,
-    target_id VARCHAR(36) NOT NULL,
-    source_block_id VARCHAR(64),
-    created_at DATETIME NOT NULL
-);
-CREATE TABLE IF NOT EXISTS workbench_item_assets (
-    id VARCHAR(36) PRIMARY KEY,
-    tenant_id INTEGER NOT NULL,
-    owner_id VARCHAR(36) NOT NULL,
-    item_id VARCHAR(36) NOT NULL,
-    storage_path TEXT NOT NULL,
-    original_name TEXT NOT NULL,
-    mime_type TEXT NOT NULL,
-    content_hash TEXT,
-    size_bytes INTEGER NOT NULL DEFAULT 0,
-    last_seen_at DATETIME,
-    created_at DATETIME NOT NULL,
-    deleted_at DATETIME
-);`).Error)
+	ensureWorkbenchChildTables(t, db)
 	repo := &workbenchRepository{db: db}
 	item := newTestItem(t, db, 1, "user-a")
 	ctx := t.Context()
@@ -179,6 +155,66 @@ CREATE TABLE IF NOT EXISTS workbench_item_assets (
 		require.NoError(t, db.Table(table).Where(column+" = ?", item.ID).Count(&count).Error)
 		assert.Zerof(t, count, "%s 的从属行应被一并删除", table)
 	}
+}
+
+// ensureWorkbenchChildTables 建出条目硬删时会连带清理的从属表。
+func ensureWorkbenchChildTables(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	require.NoError(t, db.Exec(`
+CREATE TABLE IF NOT EXISTS workbench_item_links (
+    id VARCHAR(36) PRIMARY KEY,
+    tenant_id INTEGER NOT NULL,
+    owner_id VARCHAR(36) NOT NULL,
+    source_item_id VARCHAR(36) NOT NULL,
+    target_type VARCHAR(16) NOT NULL,
+    target_id VARCHAR(36) NOT NULL,
+    source_block_id VARCHAR(64),
+    created_at DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS workbench_item_assets (
+    id VARCHAR(36) PRIMARY KEY,
+    tenant_id INTEGER NOT NULL,
+    owner_id VARCHAR(36) NOT NULL,
+    item_id VARCHAR(36) NOT NULL,
+    storage_path TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    content_hash TEXT,
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    last_seen_at DATETIME,
+    created_at DATETIME NOT NULL,
+    deleted_at DATETIME
+);`).Error)
+}
+
+// 一键清空回收站：只删当前 owner 的回收站行，活跃条目与别人的条目都不受影响。
+func TestWorkbenchListAndPurgeTrashedItems(t *testing.T) {
+	db := setupWorkbenchFolderTestDB(t)
+	ensureWorkbenchChildTables(t, db)
+	repo := &workbenchRepository{db: db}
+	ctx := t.Context()
+
+	live := newTestItem(t, db, 1, "user-a")
+	trashed := newTestItem(t, db, 1, "user-a")
+	other := newTestItem(t, db, 1, "user-b")
+	require.NoError(t, repo.TrashItem(ctx, 1, "user-a", trashed.ID))
+	require.NoError(t, repo.TrashItem(ctx, 1, "user-b", other.ID))
+
+	items, err := repo.ListTrashedItems(ctx, 1, "user-a", 0)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, trashed.ID, items[0].ID)
+
+	purged, err := repo.PurgeTrashedItems(ctx, 1, "user-a", []string{trashed.ID, live.ID, other.ID})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, purged, "只应删除属于 user-a 的回收站条目")
+
+	_, err = repo.GetItem(ctx, 1, "user-a", live.ID)
+	require.NoError(t, err, "活跃条目不得被清空")
+	_, err = repo.GetTrashedItem(ctx, 1, "user-b", other.ID)
+	require.NoError(t, err, "其他 owner 的回收站不受影响")
+	_, err = repo.GetTrashedItem(ctx, 1, "user-a", trashed.ID)
+	assert.True(t, errors.Is(err, gorm.ErrRecordNotFound), "回收站条目应被硬删")
 }
 
 // 列表分页：cursor 翻页不重不漏，且不含 ydoc。

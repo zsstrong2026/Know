@@ -238,6 +238,42 @@ func (s *Service) RestoreItem(ctx context.Context, id string) (*types.WorkbenchI
 	return item.ToSummary(), nil
 }
 
+// EmptyTrash 永久删除当前用户回收站内的全部条目，返回删除数量。
+//
+// 与定时清理口径一致：只删条目及其从属行，已归档知识保持不动。
+// 分批处理（cleanupBatchSize），避免一次性大 IN 触发 SQLite 变量上限；
+// 每批先回收资产文件再硬删——PurgeTrashedItems 会连带删掉 asset 行。
+func (s *Service) EmptyTrash(ctx context.Context) (int, error) {
+	tenantID, ownerID, err := callerScope(ctx)
+	if err != nil {
+		return 0, err
+	}
+	purged := 0
+	for {
+		items, err := s.repo.ListTrashedItems(ctx, tenantID, ownerID, cleanupBatchSize)
+		if err != nil {
+			return purged, err
+		}
+		if len(items) == 0 {
+			return purged, nil
+		}
+		ids := make([]string, 0, len(items))
+		for _, item := range items {
+			s.purgeItemAssets(ctx, tenantID, ownerID, item.ID)
+			ids = append(ids, item.ID)
+		}
+		removed, err := s.repo.PurgeTrashedItems(ctx, tenantID, ownerID, ids)
+		if err != nil {
+			return purged, err
+		}
+		purged += int(removed)
+		// 没有实际删除（并发恢复/删除）时直接结束，避免死循环。
+		if removed == 0 || len(items) < cleanupBatchSize {
+			return purged, nil
+		}
+	}
+}
+
 // ListItems 分页列表，返回 (items, nextCursor)。
 func (s *Service) ListItems(
 	ctx context.Context, filter types.WorkbenchItemFilter,

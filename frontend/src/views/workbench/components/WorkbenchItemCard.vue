@@ -1,5 +1,5 @@
 <template>
-  <!-- 条目卡片：封面用 CSS 表达 kind，不加载真实缩略图（P3 再做预览图） -->
+  <!-- 条目卡片：封面用 CSS 画出「纸页 / 画布 / 数据表」缩略，不加载真实图片（P3 再做预览图） -->
   <article
     class="item-card"
     :class="{ 'is-trashed': trashed }"
@@ -8,11 +8,41 @@
     @click="emit('open', item)"
     @keydown.enter.prevent="emit('open', item)"
   >
-    <div class="card-cover" :class="`cover-${item.kind}`">
-      <span class="card-kind">
-        <t-icon :name="kindIcon" size="11px" />
-        {{ kindLabel }}
-      </span>
+    <div class="card-cover" :class="`cover-${coverKind}`">
+      <!-- 文档：一张纸的骨架，让空封面也能表达「有内容」 -->
+      <div v-if="coverKind === 'page'" class="cover-paper" aria-hidden="true">
+        <span class="ln ln-title" />
+        <span v-for="width in docLineWidths" :key="width" class="ln" :style="{ width: `${width}%` }" />
+      </div>
+
+      <!-- 画布：点阵画布 + 节点连线 -->
+      <div v-else-if="coverKind === 'canvas'" class="cover-board" aria-hidden="true">
+        <svg class="board-art" viewBox="0 0 240 100" preserveAspectRatio="none">
+          <path class="board-edge" d="M55 33 L110 54 M120 54 L168 29" />
+          <rect class="board-node" x="16" y="19" width="62" height="28" rx="4" />
+          <rect class="board-node" x="104" y="41" width="70" height="28" rx="4" />
+          <rect class="board-node" x="163" y="13" width="60" height="34" rx="4" />
+          <line class="board-line is-strong" x1="26" y1="30" x2="62" y2="30" />
+          <line class="board-line" x1="26" y1="38" x2="52" y2="38" />
+          <line class="board-line is-strong" x1="114" y1="52" x2="150" y2="52" />
+          <line class="board-line" x1="114" y1="60" x2="140" y2="60" />
+          <line class="board-line is-strong" x1="173" y1="25" x2="211" y2="25" />
+          <line class="board-line" x1="173" y1="33" x2="199" y2="33" />
+        </svg>
+      </div>
+
+      <!-- 数据表：表头 + 行列骨架 -->
+      <div v-else class="cover-paper cover-table" aria-hidden="true">
+        <div class="table-grid">
+          <span
+            v-for="cell in 12"
+            :key="cell"
+            class="table-cell"
+            :class="{ 'is-head': cell <= 3 }"
+          />
+        </div>
+      </div>
+
       <button
         class="card-star"
         :class="{ 'is-on': item.is_favorite }"
@@ -29,22 +59,23 @@
 
     <div class="card-body">
       <div class="card-title" :title="item.title">{{ item.title }}</div>
-      <div class="card-desc">{{ describe }}</div>
-
-      <div class="card-archive">
-        <ArchiveBadge
-          :status="item.archive_status"
-          :archived-version="item.archived_version"
-          :readonly="trashed"
-          @action="emit('archive', item, $event)"
-        />
+      <div class="card-desc">
+        <t-icon :name="kindIcon" size="12px" />
+        <span :title="describe">{{ describe }}</span>
       </div>
 
       <div class="card-foot">
-        <span>{{ updatedLabel }}</span>
-        <span class="ft-dot" aria-hidden="true">·</span>
-        <span>v{{ item.snapshot_version }}</span>
+        <!-- 卡片只展示归档状态；归档操作统一走「…」菜单，避免底部信息拥挤 -->
+        <span class="card-badge">
+          <ArchiveBadge
+            :status="item.archive_status"
+            :archived-version="item.archived_version"
+            :readonly="trashed"
+            :show-action="false"
+          />
+        </span>
         <span class="spacer" />
+        <span class="card-time" :title="absoluteTime">{{ updatedLabel }}</span>
         <t-dropdown
           :options="menuOptions"
           trigger="click"
@@ -77,7 +108,6 @@ import {
   resolveItemMenuAction,
   type WorkbenchItemMenuAction,
 } from '@/workbench/item-menu'
-import type { ArchiveBadgeAction } from '@/workbench/archive-status'
 import type { WorkbenchItem } from '@/types/workbench'
 
 const props = withDefaults(
@@ -92,29 +122,35 @@ const props = withDefaults(
 const emit = defineEmits<{
   open: [item: WorkbenchItem]
   favorite: [item: WorkbenchItem]
-  archive: [item: WorkbenchItem, action: ArchiveBadgeAction]
   /** 「…」菜单里的动作统一上抛，由列表页派发，卡片不自己 switch */
   menu: [item: WorkbenchItem, action: WorkbenchItemMenuAction]
 }>()
 
 const { t } = useI18n()
 
-/** 角标：数据库是独立实体；文档与画布按当前查看模式区分，不当作两类条目 */
-const kindIcon = computed(() => {
-  if (props.item.kind === 'database') return 'table'
-  return (props.item.current_mode ?? 'edgeless') === 'page' ? 'file' : 'image'
+/** 封面造型：数据库是独立实体；文档与画布按当前查看模式区分，不当作两类条目 */
+const coverKind = computed(() => {
+  if (props.item.kind === 'database') return 'database'
+  return (props.item.current_mode ?? 'edgeless') === 'page' ? 'page' : 'canvas'
 })
 
-const kindLabel = computed(() => {
-  if (props.item.kind === 'database') return t('workbench.item.database')
-  return t((props.item.current_mode ?? 'edgeless') === 'page'
-    ? 'workbench.item.document'
-    : 'workbench.item.canvas')
+const kindIcon = computed(() => {
+  if (coverKind.value === 'database') return 'table'
+  return coverKind.value === 'page' ? 'file' : 'image'
 })
+
+/** 文档骨架的正文行宽，固定值避免每次渲染抖动 */
+const docLineWidths = [92, 84, 88, 56, 74]
 
 const describe = computed(() => itemCaption(props.item, t))
 const updatedLabel = computed(() => formatRelativeTime(props.item.updated_at))
 const menuOptions = computed(() => buildItemMenuOptions(props.item, props.trashed, t))
+
+/** 悬停提示用绝对时间，相对时间只负责扫读 */
+const absoluteTime = computed(() => {
+  const time = new Date(props.item.updated_at)
+  return Number.isFinite(time.getTime()) ? time.toLocaleString() : ''
+})
 
 function onMenu(data: { value?: string | number }) {
   const action = resolveItemMenuAction(data.value)
@@ -134,11 +170,13 @@ function onMenu(data: { value?: string | number }) {
   cursor: pointer;
   transition:
     border-color var(--app-motion-fast),
-    box-shadow var(--app-motion-fast);
+    box-shadow var(--app-motion-fast),
+    transform var(--app-motion-fast);
 
   &:hover {
-    border-color: var(--td-brand-color-3);
+    border-color: var(--td-component-border);
     box-shadow: var(--td-shadow-1);
+    transform: translateY(-2px);
   }
 
   &:focus-visible {
@@ -147,60 +185,143 @@ function onMenu(data: { value?: string | number }) {
   }
 }
 
+/* 封面底：浅色衬底 + 内嵌缩略，缩略溢出部分由封面裁掉 */
 .card-cover {
+  /* 暗色下 container 比 secondarycontainer 更深，这里统一把「纸」提亮，
+     保证两种主题里纸页都浮在衬底之上 */
+  --card-paper: color-mix(in srgb, var(--td-bg-color-container) 94%, #fff);
+
   position: relative;
-  height: 116px;
+  height: 112px;
   flex: none;
+  padding: 12px 14px 0;
+  overflow: hidden;
   border-bottom: 1px solid var(--td-component-stroke);
   background: var(--td-bg-color-secondarycontainer);
 }
 
-.cover-canvas {
-  background-image:
-    linear-gradient(var(--td-component-stroke) 1px, transparent 1px),
-    linear-gradient(90deg, var(--td-component-stroke) 1px, transparent 1px);
-  background-size: 16px 16px;
-  background-color: var(--td-bg-color-secondarycontainer);
-}
-
-.cover-database {
-  background-image:
-    linear-gradient(var(--td-component-stroke) 1px, transparent 1px),
-    linear-gradient(90deg, var(--td-component-stroke) 1px, transparent 1px);
-  background-size: 100% 20px, 64px 100%;
-  background-color: var(--td-bg-color-secondarycontainer);
-}
-
-.card-kind {
-  position: absolute;
-  left: var(--app-space-2);
-  top: var(--app-space-2);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--app-space-1);
-  height: 20px;
-  padding: 0 6px;
-  border-radius: var(--app-radius-xs);
-  background: var(--td-bg-color-container);
+/* 纸页：文档与数据表共用，贴着封面底边裁切，像从下方抽出来的一张纸 */
+.cover-paper {
+  height: 100%;
+  padding: 12px 12px 0;
+  overflow: hidden;
   border: 1px solid var(--td-component-stroke);
-  font-size: var(--app-text-2xs);
-  color: var(--td-text-color-secondary);
+  border-bottom: 0;
+  border-radius: var(--app-radius-sm) var(--app-radius-sm) 0 0;
+  background: var(--card-paper);
+}
+
+.ln {
+  display: block;
+  height: 4px;
+  margin-top: 7px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--td-text-color-primary) 7%, transparent);
+}
+
+.ln-title {
+  width: 52%;
+  height: 6px;
+  margin-top: 0;
+  background: color-mix(in srgb, var(--td-text-color-primary) 22%, transparent);
+}
+
+/* 画布：点阵 + 节点，节点颜色与卡片背景一致，像贴在画布上的便签 */
+.cover-board {
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--td-component-stroke);
+  border-bottom: 0;
+  border-radius: var(--app-radius-sm) var(--app-radius-sm) 0 0;
+  background-color: var(--card-paper);
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--td-text-color-primary) 13%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 12px 12px;
+}
+
+.board-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.board-edge {
+  fill: none;
+  stroke: var(--td-component-stroke);
+  stroke-width: 1;
+}
+
+.board-node {
+  fill: var(--card-paper);
+  stroke: var(--td-component-stroke);
+}
+
+.board-line {
+  stroke: color-mix(in srgb, var(--td-text-color-primary) 7%, transparent);
+  stroke-width: 3;
+  stroke-linecap: round;
+
+  &.is-strong {
+    stroke: color-mix(in srgb, var(--td-text-color-primary) 22%, transparent);
+  }
+}
+
+/* 数据表：三列网格，首行加深当作表头 */
+.cover-table {
+  padding: 8px 0 0;
+}
+
+.table-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+}
+
+.table-cell {
+  display: flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 8px;
+  border-top: 1px solid var(--td-component-stroke);
+
+  &:nth-child(-n + 3) {
+    border-top: 0;
+  }
+
+  &::after {
+    content: '';
+    display: block;
+    width: 64%;
+    height: 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--td-text-color-primary) 7%, transparent);
+  }
+
+  &.is-head::after {
+    width: 72%;
+    height: 5px;
+    background: color-mix(in srgb, var(--td-text-color-primary) 22%, transparent);
+  }
 }
 
 .card-star {
   position: absolute;
-  right: var(--app-space-2);
-  top: var(--app-space-2);
+  right: 8px;
+  top: 8px;
+  z-index: 2;
   width: 24px;
   height: 24px;
   display: grid;
   place-items: center;
-  border-radius: var(--app-radius-xs);
+  border-radius: var(--app-radius-sm);
   background: var(--td-bg-color-container);
   border: 1px solid var(--td-component-stroke);
   color: var(--td-text-color-placeholder);
   opacity: 0;
-  transition: opacity var(--app-motion-fast);
+  transition:
+    opacity var(--app-motion-fast),
+    color var(--app-motion-fast);
 
   &.is-on {
     opacity: 1;
@@ -208,58 +329,71 @@ function onMenu(data: { value?: string | number }) {
   }
 }
 
-.item-card:hover .card-star {
+.item-card:hover .card-star,
+.item-card:focus-within .card-star {
   opacity: 1;
 }
 
 .card-body {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   flex: 1;
-  padding: var(--app-space-2) var(--app-space-3) var(--app-space-3);
+  padding: 10px 12px 12px;
 }
 
 .card-title {
   font-size: var(--app-text-md);
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 18px;
   color: var(--td-text-color-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 类型与日期合并成一行，图标帮助扫读，不再单独占一行 */
 .card-desc {
-  font-size: var(--app-text-xs);
-  color: var(--td-text-color-placeholder);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-archive {
   display: flex;
   align-items: center;
-  gap: var(--app-space-2);
-  min-height: 20px;
+  gap: var(--app-space-1);
+  min-width: 0;
+  font-size: var(--app-text-xs);
+  line-height: 16px;
+  color: var(--td-text-color-placeholder);
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .card-foot {
   display: flex;
   align-items: center;
-  gap: var(--app-space-1);
+  gap: var(--app-space-2);
   margin-top: auto;
-  font-size: var(--app-text-2xs);
-  color: var(--td-text-color-placeholder);
+  padding-top: 2px;
+  min-height: 20px;
 }
 
-.ft-dot {
-  opacity: 0.6;
+.card-badge {
+  display: flex;
+  align-items: center;
+  min-width: 0;
 }
 
 .spacer {
   flex: 1;
+}
+
+.card-time {
+  flex: none;
+  font-size: var(--app-text-2xs);
+  color: var(--td-text-color-placeholder);
+  white-space: nowrap;
 }
 
 .card-more {
@@ -269,10 +403,20 @@ function onMenu(data: { value?: string | number }) {
   place-items: center;
   border-radius: var(--app-radius-xs);
   color: var(--td-text-color-placeholder);
+  opacity: 0.55;
+  transition:
+    opacity var(--app-motion-fast),
+    background var(--app-motion-fast);
 
   &:hover {
+    opacity: 1;
     background: var(--td-bg-color-container-hover);
     color: var(--td-text-color-primary);
   }
+}
+
+.item-card:hover .card-more,
+.item-card:focus-within .card-more {
+  opacity: 1;
 }
 </style>

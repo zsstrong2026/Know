@@ -115,7 +115,9 @@
       v-if="isDatabase"
       :open="rowDrawerOpen"
       :detail="rowDetail"
+      :readonly="dbState.readonly"
       @close="closeRowDrawer"
+      @delete="onDeleteRow"
     />
 
     <div
@@ -125,6 +127,7 @@
         'is-ready': ready,
         'is-ai-open': aiPanelOpen,
         'is-db-focus': dbFocused || isDatabase,
+        'has-format-bar': !isDatabase,
       }"
     >
       <!-- BlockSuite 挂载点：由 editor-session 注入宿主元素 -->
@@ -362,12 +365,12 @@ function scheduleApplyRowPagination() {
   })
 }
 
-/** 翻页后回到表格第一行，避免停在上一页的滚动位置。 */
+/** 翻页后只保证视图 Tab 栏仍在视口内 —— 直接滚到首行会把顶部 Tab 顶出屏幕。 */
 function onPageChange() {
   applyRowPagination()
   hostRef.value
-    ?.querySelector('.affine-database-block-row:not(.wb-page-hidden)')
-    ?.scrollIntoView({ block: 'start' })
+    ?.querySelector('data-view-header-views')
+    ?.scrollIntoView({ block: 'nearest' })
 }
 
 /** 新建行插在第一行：切回第 1 页，等行渲染后再套用分页。 */
@@ -416,6 +419,8 @@ let stopTextLocale: (() => void) | null = null
 let stopCellDecorator: (() => void) | null = null
 /** 行详情入口（接管行内「查看详情」按钮）的清理函数。 */
 let stopRowDetailTrigger: (() => void) | null = null
+/** 上游行详情抽屉（center-peek）删除入口的清理函数。 */
+let stopPeekDelete: (() => void) | null = null
 
 /** 行详情抽屉的开关与数据。 */
 const rowDrawerOpen = ref(false)
@@ -1333,10 +1338,6 @@ async function setupDatabaseTools(handle: NonNullable<typeof session.editor.valu
       // 数据视图晚于控制器就绪：状态一变就尝试消费「收集事项」暂存。
       void applyPendingCollect(controller)
     })
-    // 新行被当前筛选挡住时表格不会有任何变化，给一句提示，避免看起来像「点了没反应」。
-    controller.onNewRowHidden = () => {
-      MessagePlugin.warning(t('workbench.database.toolbar.newRowHidden'))
-    }
     dbState.value = { ...controller.state }
     dbController.value = controller
     // 首次 derive 可能早于 onUpdate 注册：补一次，避免错过已经就绪的时机。
@@ -1353,6 +1354,8 @@ async function setupDatabaseTools(handle: NonNullable<typeof session.editor.valu
   stopCellDecorator = installDatabaseCellDecorator(host)
   // 行内「查看详情」改走自研抽屉（原型 .db-drawer）。
   stopRowDetailTrigger = installRowDetailTrigger(host)
+  // 上游自己的行详情抽屉（行菜单 / 看板卡片 / 日历事项 / 新建行）也补上删除入口。
+  stopPeekDelete = installPeekDetailDelete()
 }
 
 /**
@@ -1437,6 +1440,110 @@ function closeRowDrawer() {
   rowDetail.value = null
 }
 
+/**
+ * 自研抽屉里删除当前行：删除成功后关掉抽屉。
+ */
+function onDeleteRow() {
+  const detail = rowDetail.value
+  if (!detail) return
+  confirmDeleteRow(detail.rowId, closeRowDrawer)
+}
+
+/**
+ * 删除事项的二次确认（自研抽屉与上游详情抽屉共用）。
+ *
+ * 删除不可逆，因此不直接执行；成功后调用 `onDeleted`，由各入口关闭自己的面板。
+ */
+function confirmDeleteRow(rowId: string, onDeleted: () => void) {
+  const controller = dbController.value
+  if (!controller) return
+  const title = controller.rowDetail(rowId)?.title || t('workbench.item.untitled')
+  const dialog = DialogPlugin({
+    header: t('workbench.database.toolbar.deleteRow'),
+    body: t('workbench.database.toolbar.deleteBody', { title }),
+    theme: 'warning',
+    confirmBtn: t('workbench.database.toolbar.deleteRow'),
+    cancelBtn: t('workbench.database.toolbar.close'),
+    onConfirm: () => {
+      dialog.hide()
+      const removed = controller.deleteRows([rowId])
+      if (!removed) {
+        MessagePlugin.warning(t('workbench.database.toolbar.deleteFailed'))
+        return
+      }
+      onDeleted()
+      MessagePlugin.success(t('workbench.database.toolbar.deleteDone'))
+    },
+    onClose: () => dialog.hide(),
+  })
+}
+
+/**
+ * 给上游行详情抽屉补删除入口。
+ *
+ * 工作台有两套行详情：表格行内「查看详情」走自研抽屉；行菜单「展开行」、
+ * 看板卡片、日历事项、新建行则走上游自己的详情抽屉（center-peek，
+ * 由 editor-popover.css 改造成同样的右侧 352px 面板）。两者外观一致，
+ * 删除能力也必须一致，否则用户会看到「有的抽屉能删、有的不能」。
+ */
+function installPeekDetailDelete(): () => void {
+  const scan = () => {
+    document.body.querySelectorAll('center-peek').forEach((peek) => {
+      // 已注入（或上游重渲染后 footer 仍在）就跳过
+      if (peek.querySelector(':scope > .wb-peek-footer')) return
+      // 详情内容是 lit 渲染的，可能晚一两帧才挂上，短暂重试
+      let frames = 0
+      const tryInject = () => {
+        if (!peek.isConnected) return
+        const record = peek.querySelector('affine-data-view-record-detail') as
+          | (HTMLElement & { rowId?: string; view?: { readonly$?: { value?: boolean } } })
+          | null
+        if (!record) {
+          if (frames++ < 12) requestAnimationFrame(tryInject)
+          return
+        }
+        // 只读时不提供删除入口
+        if (record.view?.readonly$?.value) return
+        const footer = document.createElement('div')
+        footer.className = 'wb-peek-footer'
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = 'wb-peek-delete'
+        button.textContent = t('workbench.database.toolbar.deleteRow')
+        button.addEventListener('click', () => {
+          // 面板内可上下切换行，点击时再读当前行，避免绑到已切换走的行
+          const rowId = String(record.rowId ?? '')
+          if (!rowId) return
+          confirmDeleteRow(rowId, () => {
+            // 上游没有关闭详情抽屉的公开 API，点它自己的关闭按钮等同用户关闭
+            peek.querySelector<HTMLElement>('.close-modal')?.click()
+          })
+        })
+        footer.appendChild(button)
+        peek.appendChild(footer)
+      }
+      tryInject()
+    })
+  }
+  // 抽屉挂在 body 上：只在新增节点是 center-peek（或其容器）时重扫，
+  // 避免编辑器内部的频繁 DOM 变更也触发深查询。
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType !== 1) continue
+        const element = node as Element
+        if (element.matches('center-peek') || element.firstElementChild?.matches('center-peek')) {
+          scan()
+          return
+        }
+      }
+    }
+  })
+  observer.observe(document.body, { childList: true, subtree: true })
+  scan()
+  return () => observer.disconnect()
+}
+
 function teardownDatabaseTools() {
   dbGeneration += 1
   stopEdgeFlip?.()
@@ -1447,6 +1554,8 @@ function teardownDatabaseTools() {
   stopCellDecorator = null
   stopRowDetailTrigger?.()
   stopRowDetailTrigger = null
+  stopPeekDelete?.()
+  stopPeekDelete = null
   closeRowDrawer()
   dbController.value?.destroy()
   dbController.value = null
@@ -1590,6 +1699,54 @@ onBeforeUnmount(() => {
   --workbench-ai-panel-width: 340px;
 }
 
+/**
+ * 常驻格式工具条占位高度。
+ * 宿主与 AI 条都按这个变量下移，工具条才有独立的一条带子，不再压住正文首行。
+ */
+.editor-host.has-format-bar {
+  --workbench-format-bar-height: 52px;
+}
+
+/**
+ * 顶部工具条带：把预留的 52px 画成一条真实的顶栏。
+ * 工具条是 shadow DOM 里的 fixed 元素、本身不占布局，没有这条底边时
+ * 视觉上会像浮在正文上方；补上背景与下边线后它才像「固定在顶部的一栏」。
+ */
+.editor-host.has-format-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--workbench-format-bar-height);
+  background: var(--td-bg-color-container);
+  border-bottom: 1px solid var(--td-component-stroke);
+  pointer-events: none;
+}
+
+/**
+ * 无限画布里的文档卡片边框（方案 B · 卡片浮层）。
+ *
+ * 只命中页面级 note（blocksuite.ts 打的 wb-doc-note 标记），画布上新建的
+ * 便签继续沿用各自的笔记样式。edgeless-note-background 的 box-shadow 由
+ * note 块属性内联写入，这里用 !important 覆盖成统一的 1px 描边 + 轻投影；
+ * 描边颜色取文字主色做低透明度混合，深色主题自动翻成白色描边。
+ * 编辑态交还上游（背景外扩 + activeShadow），避免丢掉编辑反馈。
+ */
+.editor-host :deep(affine-edgeless-note.wb-doc-note:not(:has(.edgeless-note-container[data-editing='true'])) edgeless-note-background) {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--td-text-color-primary) 11%, transparent),
+    0 1px 2px rgba(16, 24, 40, 0.05),
+    0 16px 36px -20px rgba(16, 24, 40, 0.3) !important;
+  transition: box-shadow 0.18s ease;
+}
+
+/* 悬停：描边加深一级，投影略微抬起 */
+.editor-host :deep(affine-edgeless-note.wb-doc-note:hover:not(:has(.edgeless-note-container[data-editing='true'])) edgeless-note-background) {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--td-text-color-primary) 22%, transparent),
+    0 2px 4px rgba(16, 24, 40, 0.07),
+    0 22px 44px -22px rgba(16, 24, 40, 0.38) !important;
+}
+
 .editor-host.is-ai-open .editor-mount {
   right: var(--workbench-ai-panel-width);
 }
@@ -1597,8 +1754,22 @@ onBeforeUnmount(() => {
 .editor-mount {
   position: absolute;
   inset: 0;
+  /* 常驻格式工具条占位：编辑器整体下移，正文不再被工具条压住 */
+  top: var(--workbench-format-bar-height, 0px);
   overflow: hidden;
   transition: right var(--app-motion-base) ease;
+}
+
+/**
+ * 文档页面模式才由挂载点承担纵向滚动。
+ *
+ * 挂载点同时是 BlockSuite 的 .affine-page-viewport / .affine-edgeless-viewport：
+ * 页面模式需要滚动条，无限画布模式必须保持 hidden（画布自己处理平移缩放），
+ * 所以这里按上游加的类名区分，不能把 overflow 全局改成 auto。
+ */
+.editor-mount.affine-page-viewport {
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* 事项表格分页：浮在表格底部居中，不往 BlockSuite 内部插节点（会被 lit 重渲染清掉）。 */

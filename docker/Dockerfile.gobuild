@@ -1,0 +1,65 @@
+# 只构建后端二进制的最小镜像：
+#   1. anydoc-lib 阶段用 Rust 现编 libanydoc_go.a（与 Go binding 严格同版本）；
+#   2. builder 阶段链接该库并编译 cmd/server。
+# 相比 Dockerfile.app，省掉 browserskill 与最终运行镜像，只产出可 cp 进容器的二进制。
+#
+# 为什么不用仓库里已有的 lib/linux_amd64_gnu/libanydoc_go.a：那份产物与本机
+# 运行环境不匹配，链接后进程在 init 阶段直接 SIGSEGV（exit 139）。
+FROM golang:1.26-bookworm AS anydoc-lib
+
+WORKDIR /app
+
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i -e 's@deb.debian.org@mirrors.cloud.tencent.com@g' -e 's@http://@https://@g' /etc/apt/sources.list.d/debian.sources; \
+    fi && \
+    apt-get update && \
+    apt-get install -o Acquire::Retries=5 -y --no-install-recommends \
+        curl ca-certificates build-essential pkg-config cmake libsqlite3-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
+ENV PATH=/usr/local/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf --retry 3 -o /tmp/rustup-init.sh https://rsproxy.cn/rustup-init.sh && \
+    sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain stable && \
+    printf '[source.crates-io]\nreplace-with = "rsproxy-sparse"\n\n[source.rsproxy-sparse]\nregistry = "sparse+https://rsproxy.cn/index/"\n\n[net]\ngit-fetch-with-cli = true\nretry = 5\n' > "$CARGO_HOME/config.toml"
+
+COPY third_party/anydoc-go /app/third_party/anydoc-go
+COPY scripts/build-anydoc-lib.sh /app/scripts/build-anydoc-lib.sh
+
+# 静态库是本阶段唯一的跨阶段产物，必须带 cache mount，否则每次都要重编。
+RUN --mount=type=cache,target=$CARGO_HOME/registry \
+    --mount=type=cache,target=/app/third_party/anydoc-go/target \
+    bash /app/scripts/build-anydoc-lib.sh
+
+FROM golang:1.26-bookworm AS builder
+
+WORKDIR /app
+
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i -e 's@deb.debian.org@mirrors.cloud.tencent.com@g' -e 's@http://@https://@g' /etc/apt/sources.list.d/debian.sources; \
+    fi && \
+    apt-get update && \
+    apt-get install -o Acquire::Retries=5 -y --no-install-recommends libsqlite3-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY go.mod go.sum ./
+COPY third_party/anydoc-go/go.mod third_party/anydoc-go/go.mod
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
+COPY . .
+# 用 anydoc-lib 阶段刚编出的库覆盖仓库里的旧产物。
+COPY --from=anydoc-lib /app/third_party/anydoc-go/lib/linux_amd64_gnu/libanydoc_go.a \
+     /app/third_party/anydoc-go/lib/linux_amd64_gnu/libanydoc_go.a
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=1 \
+    CGO_CFLAGS="-Wno-deprecated-declarations" \
+    go build -tags anydoc \
+      -ldflags="-w -s \
+        -X 'github.com/Tencent/WeKnora/internal/handler.Edition=standard' \
+        -X 'google.golang.org/protobuf/reflect/protoregistry.conflictPolicy=warn'" \
+      -o /app/WeKnora ./cmd/server
+
+FROM scratch
+COPY --from=builder /app/WeKnora /WeKnora

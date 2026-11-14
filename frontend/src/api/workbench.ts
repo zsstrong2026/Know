@@ -138,6 +138,16 @@ export function restoreWorkbenchItem(id: string): Promise<WorkbenchItem> {
   ).then((r) => r.data)
 }
 
+/**
+ * 一键清空回收站：永久删除当前用户回收站里的全部条目。
+ *
+ * 幂等：回收站为空时返回 purged=0；已归档知识不受影响。
+ */
+export function emptyWorkbenchTrash(): Promise<number> {
+  return post<{ success: boolean; data: { purged: number } }>(`${BASE}/trash/empty`, {})
+    .then((r) => r.data.purged)
+}
+
 export function getWorkbenchContent(id: string): Promise<WorkbenchItemContent> {
   return get<{ success: boolean; data: WorkbenchItemContent }>(
     `${BASE}/items/${encodeURIComponent(id)}/content`,

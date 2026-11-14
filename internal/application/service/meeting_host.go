@@ -46,67 +46,36 @@ func (e *meetingEngine) resolveHostChat(ctx context.Context) (chat.Chat, error) 
 	return e.modelService.GetChatModel(ctx, modelID)
 }
 
-// selectSpeakersByLLM 让主持人从候选中挑选本轮发言者；失败/解析失败返回 nil 由调用方回退全员。
-func (e *meetingEngine) selectSpeakersByLLM(ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage, candidates []speakerCandidate) []string {
-	hostChat, err := e.resolveHostChat(ctx)
-	if err != nil {
-		logger.Warnf(ctx, "[meeting] host model unavailable, fallback to all agents: %v", err)
-		return nil
-	}
-	prompt := buildSpeakerSelectionPrompt(effectiveTopic(room), room.Description, trigger.Content, candidates)
-	resp, err := hostChat.Chat(ctx, []chat.Message{
-		{Role: "user", Content: prompt},
-	}, &chat.ChatOptions{Temperature: 0})
-	if err != nil {
-		logger.Warnf(ctx, "[meeting] host speaker selection failed, fallback to all agents: %v", err)
-		return nil
-	}
-	if resp == nil {
-		return nil
-	}
-	return parseSpeakerSelection(resp.Content, candidateIDs(candidates))
+// speakerChoice 主持人点名下一位发言者的结果。
+// 不只给"谁"，还给"请他回答什么"，避免点名后仍是无目的的自由发挥。
+type speakerChoice struct {
+	AgentID  string `json:"next_speaker_id"`
+	Question string `json:"question"`
 }
 
-var jsonBlockRe = regexp.MustCompile("(?s)```(?:json)?\\s*(\\[.*?\\])\\s*```")
+var speakerChoiceJSONRe = regexp.MustCompile(`(?s)\{.*\}`)
 
-// parseSpeakerSelection 从模型输出中提取 JSON 字符串数组并过滤非法 id。
-func parseSpeakerSelection(output string, validIDs []string) []string {
-	text := strings.TrimSpace(output)
-	if m := jsonBlockRe.FindStringSubmatch(text); m != nil {
-		text = m[1]
-	}
-	var picked []string
-	if err := json.Unmarshal([]byte(text), &picked); err != nil {
-		return nil
-	}
-	valid := make(map[string]bool, len(validIDs))
-	for _, id := range validIDs {
-		valid[id] = true
-	}
-	out := make([]string, 0, len(picked))
-	seen := make(map[string]bool, len(picked))
-	for _, id := range picked {
-		if valid[id] && !seen[id] {
-			out = append(out, id)
-			seen[id] = true
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// buildSpeakerSelectionPrompt 主持人挑选发言者的提示词。
-// candidates 携带技能与知识库范围，用于判断"谁最适合回答当前子议题"，而不只看描述。
-func buildSpeakerSelectionPrompt(topic, meetingDescription, userMessage string, candidates []speakerCandidate) string {
+// buildNextSpeakerPrompt 组装"选下一位发言人"的提示词（纯函数，单测覆盖）。
+// 规则只保留三条：不选上一位、优先未发言且与当前分歧相关、必须附一个具体问题。
+func buildNextSpeakerPrompt(
+	room *types.MeetingRoom, triggerContent, recentText, lastSpeakerName string, candidates []speakerCandidate,
+) string {
 	var b strings.Builder
-	b.WriteString("你是会议室主持人。会议主题：" + topic + "\n")
-	if d := strings.TrimSpace(meetingDescription); d != "" {
+	b.WriteString("你是会议主持人，只决定下一位由谁发言，不发表观点、不做总结。\n")
+	b.WriteString("会议主题：" + effectiveTopic(room) + "\n")
+	if d := strings.TrimSpace(room.Description); d != "" {
 		b.WriteString("会议描述：" + d + "\n")
 	}
-	b.WriteString("用户最新发言：" + userMessage + "\n\n")
-	b.WriteString("参会智能体列表：\n")
+	if recentText != "" {
+		b.WriteString("最近讨论：\n" + recentText)
+	}
+	if t := strings.TrimSpace(triggerContent); t != "" {
+		b.WriteString("最新待回应的发言：" + truncate(t, 300) + "\n")
+	}
+	if lastSpeakerName != "" {
+		b.WriteString("上一位发言者：" + lastSpeakerName + "（本轮不要再选他）\n")
+	}
+	b.WriteString("\n可选智能体：\n")
 	for _, c := range candidates {
 		fmt.Fprintf(&b, "- id=%q 名称=%q 专长=%q", c.ID, c.Name, c.Description)
 		if len(c.Skills) > 0 {
@@ -117,8 +86,141 @@ func buildSpeakerSelectionPrompt(topic, meetingDescription, userMessage string, 
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("\n请挑选最需要对这条发言表态的 1-3 个智能体（优先选技能与知识库最能支撑该议题的），只输出 JSON 数组（元素为 id），不要输出其他内容。")
+	b.WriteString("\n选择规则：\n")
+	b.WriteString("1. 不要选择上一位发言者；\n")
+	b.WriteString("2. 优先选择尚未发言、且其专长/知识库最能回应当前未解决问题的人；\n")
+	b.WriteString("3. 只选一人，并给出你想请他回答的一个具体问题（不超过 30 字）。\n")
+	b.WriteString("只输出如下 JSON，不要输出其他任何内容：\n")
+	b.WriteString(`{"next_speaker_id": "候选人 id", "question": "想请他回答的具体问题"}`)
 	return b.String()
+}
+
+// parseNextSpeakerChoice 容错解析主持人选择结果（裸 JSON 或 ```json 围栏）。
+// 非法 id、缺失 id、选中上一位发言者均视为失败，由调用方按规则回退。
+func parseNextSpeakerChoice(output string, validIDs []string, lastSpeakerID string) (string, string, bool) {
+	text := strings.TrimSpace(output)
+	if m := speakerChoiceJSONRe.FindString(text); m != "" {
+		text = m
+	}
+	var choice speakerChoice
+	if err := json.Unmarshal([]byte(text), &choice); err != nil {
+		return "", "", false
+	}
+	id := strings.TrimSpace(choice.AgentID)
+	if id == "" {
+		return "", "", false
+	}
+	valid := false
+	for _, v := range validIDs {
+		if v == id {
+			valid = true
+			break
+		}
+	}
+	if !valid || (lastSpeakerID != "" && id == lastSpeakerID) {
+		return "", "", false
+	}
+	return id, strings.TrimSpace(choice.Question), true
+}
+
+// selectNextSpeakerByLLM 调用主持人模型选出下一位发言人；失败返回 ok=false。
+func (e *meetingEngine) selectNextSpeakerByLLM(
+	ctx context.Context, room *types.MeetingRoom, triggerContent, recentText, lastSpeakerID, lastSpeakerName string,
+	candidates []speakerCandidate,
+) (string, string, bool) {
+	hostChat, err := e.resolveHostChat(ctx)
+	if err != nil {
+		logger.Warnf(ctx, "[meeting] host model unavailable for next speaker: %v", err)
+		return "", "", false
+	}
+	prompt := buildNextSpeakerPrompt(room, triggerContent, recentText, lastSpeakerName, candidates)
+	resp, err := hostChat.Chat(ctx, []chat.Message{{Role: "user", Content: prompt}}, &chat.ChatOptions{Temperature: 0})
+	if err != nil || resp == nil {
+		logger.Warnf(ctx, "[meeting] host next speaker selection failed: %v", err)
+		return "", "", false
+	}
+	return parseNextSpeakerChoice(resp.Content, candidateIDs(candidates), lastSpeakerID)
+}
+
+// chooseNextSpeaker 规则筛候选 + 小模型选一人：
+//   - 规则先排除上一位发言者，并优先选择本轮尚未发言的人；
+//   - 候选只剩一人时不再调用模型；
+//   - 模型不可用或输出非法时按参会顺序回退第一位。
+//
+// spoken 可为 nil（首轮/用户插话后重置），此时只排除上一位发言者。
+func (e *meetingEngine) chooseNextSpeaker(
+	ctx context.Context, room *types.MeetingRoom, trigger *types.MeetingMessage,
+	agents []*types.CustomAgent, spoken map[string]bool, lastSpeakerID string,
+) (*types.CustomAgent, string) {
+	if len(agents) == 0 {
+		return nil, ""
+	}
+	// 规则层：先排除上一位发言者；再优先未发言者
+	candidates := make([]*types.CustomAgent, 0, len(agents))
+	for _, a := range agents {
+		if a.ID != lastSpeakerID {
+			candidates = append(candidates, a)
+		}
+	}
+	if len(candidates) == 0 {
+		candidates = agents
+	}
+	preferred := make([]*types.CustomAgent, 0, len(candidates))
+	for _, a := range candidates {
+		if spoken == nil || !spoken[a.ID] {
+			preferred = append(preferred, a)
+		}
+	}
+	if len(preferred) > 0 {
+		candidates = preferred
+	}
+	if len(candidates) == 1 {
+		return candidates[0], ""
+	}
+
+	// 模型层：在 2~3 个候选里选一人，并给出具体问题
+	views := make([]speakerCandidate, len(candidates))
+	for i, a := range candidates {
+		views[i] = speakerCandidate{
+			ID: a.ID, Name: a.Name, Description: a.Description,
+			Skills: agentSkillNames(a), KnowledgeScope: describeKnowledgeScope(a.Config),
+		}
+	}
+	triggerContent := ""
+	if trigger != nil {
+		triggerContent = trigger.Content
+	}
+	lastSpeakerName := ""
+	if lastSpeakerID != "" {
+		lastSpeakerName = e.agentDisplayName(ctx, room.ID, lastSpeakerID)
+	}
+	if id, question, ok := e.selectNextSpeakerByLLM(
+		ctx, room, triggerContent, e.recentContextForSelection(ctx, room), lastSpeakerID, lastSpeakerName, views,
+	); ok {
+		picked := filterByIDs(agents, []string{id})
+		if len(picked) == 1 {
+			return picked[0], question
+		}
+	}
+	return candidates[0], ""
+}
+
+// recentContextForSelection 取选人所需的最近讨论：启用议题时只看本议题，避免跨议题误选。
+// 议题记录为空时回退到房间最近消息，兼容历史数据与精简测试仓储。
+func (e *meetingEngine) recentContextForSelection(ctx context.Context, room *types.MeetingRoom) string {
+	if e.messageRepo == nil {
+		return ""
+	}
+	var recent []*types.MeetingMessage
+	if room.AgendaEnabled && e.agendaRepo != nil {
+		if _, active := e.ensureActiveAgenda(ctx, room); active != nil {
+			recent, _ = e.messageRepo.ListByAgendaItem(ctx, room.ID, active.ID, meetingAgendaContextMax)
+		}
+	}
+	if len(recent) == 0 {
+		recent, _ = e.messageRepo.ListByRoom(ctx, room.ID, "", 8)
+	}
+	return e.renderRecentForHost(ctx, room.ID, recent, 6)
 }
 
 // agentSkillNames 返回智能体的已选技能名（all 模式返回空，避免把全量技能塞进选人提示词）

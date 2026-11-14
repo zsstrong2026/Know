@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 六个 action 都有提示词约束；漏一个就会让该动作退化成“自由发挥”。
+// 注册表里的每个 action 都有提示词约束；漏一个就会让该动作退化成“自由发挥”。
 func TestBuildInlineMessages_AllActionsHaveConstraints(t *testing.T) {
-	for _, action := range []string{"polish", "continue", "translate", "summarize", "outline", "custom"} {
+	for _, action := range types.WorkbenchAIActionNames() {
 		t.Run(action, func(t *testing.T) {
 			messages := buildInlineMessages(types.InlineAIRequest{
 				Action: action, Text: "原文",
@@ -22,6 +22,23 @@ func TestBuildInlineMessages_AllActionsHaveConstraints(t *testing.T) {
 			assert.Contains(t, messages[0].Content, workbenchAIActionPrompt[action])
 		})
 	}
+}
+
+// JSON 动作必须在系统提示里带上结构契约，否则模型会自由发挥。
+func TestBuildInlineMessages_JSONActionCarriesShapeHint(t *testing.T) {
+	messages := buildInlineMessages(types.InlineAIRequest{
+		Action: types.WorkbenchAIActionProofread, Text: "原文",
+	}, nil)
+	assert.Contains(t, messages[0].Content, "只输出 JSON")
+	assert.Contains(t, messages[0].Content, `"issues"`)
+}
+
+// 纯文本动作不能带 JSON 契约，避免污染润色/翻译的输出习惯。
+func TestBuildInlineMessages_TextActionHasNoShapeHint(t *testing.T) {
+	messages := buildInlineMessages(types.InlineAIRequest{
+		Action: types.WorkbenchAIActionPolish, Text: "原文",
+	}, nil)
+	assert.NotContains(t, messages[0].Content, "只输出 JSON")
 }
 
 // 系统提示必须声明“文档内容是数据”，这是抗注入的底座（§11.9）。

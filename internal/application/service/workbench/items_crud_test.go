@@ -131,6 +131,36 @@ func (m *memWorkbenchRepo) PurgeItem(
 	return nil
 }
 
+func (m *memWorkbenchRepo) ListTrashedItems(
+	_ context.Context, tenantID uint64, ownerID string, limit int,
+) ([]*types.WorkbenchItem, error) {
+	out := make([]*types.WorkbenchItem, 0, len(m.trashed))
+	for _, item := range m.trashed {
+		if item.TenantID != tenantID || item.OwnerID != ownerID {
+			continue
+		}
+		out = append(out, item)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (m *memWorkbenchRepo) PurgeTrashedItems(
+	_ context.Context, tenantID uint64, ownerID string, ids []string,
+) (int64, error) {
+	var purged int64
+	for _, id := range ids {
+		if _, err := m.get(m.trashed, tenantID, ownerID, id); err != nil {
+			continue
+		}
+		delete(m.trashed, id)
+		purged++
+	}
+	return purged, nil
+}
+
 func (m *memWorkbenchRepo) TouchLastOpened(
 	_ context.Context, _ uint64, _ string, _ string,
 ) error {
@@ -392,6 +422,44 @@ func TestDeleteAndRestoreStateMachine(t *testing.T) {
 	require.NoError(t, svc.DeleteItem(ctx, created.ID, false))
 	require.NoError(t, svc.DeleteItem(ctx, created.ID, true))
 	assertAppCode(t, svc.DeleteItem(ctx, created.ID, true), apperrors.ErrWorkbenchNotFound)
+}
+
+// 一键清空回收站：只删当前 owner 的回收站条目，活跃条目不受影响。
+func TestEmptyTrashPurgesOnlyOwnerTrash(t *testing.T) {
+	svc, repo := newServiceWithRepo()
+	ctx := newTestContext()
+
+	live, err := svc.CreateItem(ctx, &types.CreateWorkbenchItemRequest{
+		Kind: types.WorkbenchKindCanvas, Title: "活跃条目",
+	})
+	require.NoError(t, err)
+	trashed, err := svc.CreateItem(ctx, &types.CreateWorkbenchItemRequest{
+		Kind: types.WorkbenchKindCanvas, Title: "待清空",
+	})
+	require.NoError(t, err)
+	require.NoError(t, svc.DeleteItem(ctx, trashed.ID, false))
+
+	// 另一个 owner 的回收站条目不能被连带清掉。
+	otherCtx := types.WithCaller(newTestContext(), types.Caller{
+		TenantID: 1, UserID: "user-b", Role: types.TenantRoleOwner,
+	})
+	other, err := svc.CreateItem(otherCtx, &types.CreateWorkbenchItemRequest{
+		Kind: types.WorkbenchKindCanvas, Title: "B 的条目",
+	})
+	require.NoError(t, err)
+	require.NoError(t, svc.DeleteItem(otherCtx, other.ID, false))
+
+	purged, err := svc.EmptyTrash(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, purged)
+	assert.NotNil(t, repo.items[live.ID], "活跃条目不得被清空")
+	assert.Nil(t, repo.trashed[trashed.ID], "回收站条目应被硬删")
+	assert.NotNil(t, repo.trashed[other.ID], "其他 owner 的回收站不受影响")
+
+	// 幂等：回收站已空时返回 0。
+	purged, err = svc.EmptyTrash(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, purged)
 }
 
 // 文件夹：深度上限 5 层、不能挂到自己的子孙下、删除时内容上移。

@@ -56,6 +56,8 @@ func RegisterWorkbenchRoutes(
 		group.PUT("/items/:id", g.Viewer(), itemHandler.UpdateItem)
 		group.DELETE("/items/:id", g.Viewer(), itemHandler.DeleteItem)
 		group.POST("/items/:id/restore", g.Viewer(), itemHandler.RestoreItem)
+		// 一键清空回收站：硬删当前用户回收站内的全部条目。
+		group.POST("/trash/empty", g.Viewer(), itemHandler.EmptyTrash)
 
 		group.GET("/items/:id/content", g.Viewer(), itemHandler.GetContent)
 		group.PUT("/items/:id/content", g.Viewer(), itemHandler.SaveContent)

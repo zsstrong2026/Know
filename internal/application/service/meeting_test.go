@@ -18,13 +18,43 @@ func TestValidateMeetingCreate(t *testing.T) {
 	// 至少 1 个智能体
 	err = validateMeetingCreate(&types.MeetingRoom{Title: "x"}, nil)
 	assert.Error(t, err)
-	// 合法
-	err = validateMeetingCreate(&types.MeetingRoom{Title: "x"}, []string{"a1"})
+	// 合法：无论请求里填了什么治理参数，一律套用内置默认
+	room := &types.MeetingRoom{
+		Title: "x", BroadcastMode: "bogus", RoutingMode: types.MeetingRoutingFree,
+		HostEveryNRounds: 5, ConsensusDetectionEnabled: false, AgendaEnabled: false,
+		AdmissionMode: types.MeetingAdmissionOff, WebSearchEnabled: false,
+		KnowledgeBaseIDs: []string{"kb1"},
+	}
+	err = validateMeetingCreate(room, []string{"a1"})
 	assert.NoError(t, err)
-	// 广播模式非法时回退默认
-	room := &types.MeetingRoom{Title: "x", BroadcastMode: "bogus"}
-	_ = validateMeetingCreate(room, []string{"a1"})
 	assert.Equal(t, types.MeetingBroadcastSequential, room.BroadcastMode)
+	assert.Equal(t, types.MeetingRoutingHostAssign, room.RoutingMode)
+	assert.Equal(t, 3, room.GuardMaxExchange)
+	assert.Equal(t, 0, room.HostEveryNRounds)
+	assert.True(t, room.ConsensusDetectionEnabled)
+	assert.True(t, room.AgendaEnabled)
+	assert.Equal(t, types.MeetingAdmissionObserve, room.AdmissionMode)
+	assert.True(t, room.WebSearchEnabled)
+	assert.Nil(t, room.KnowledgeBaseIDs) // 会议级知识库下线
+	assert.Equal(t, types.MeetingStatusAwaitingConfirmation, room.Status)
+}
+
+// TestApplyMeetingRuleDefaultsPreservesStatus 旧会议升级只重置治理规则，不改变状态/标题
+func TestApplyMeetingRuleDefaultsPreservesStatus(t *testing.T) {
+	room := &types.MeetingRoom{
+		Title: "旧会议", Status: types.MeetingStatusActive,
+		ConsensusDetectionEnabled: false, AgendaEnabled: false,
+		AdmissionMode: types.MeetingAdmissionOff, WebSearchEnabled: false,
+		KnowledgeBaseIDs: []string{"kb1"},
+	}
+	ApplyMeetingRuleDefaults(room)
+	assert.Equal(t, "旧会议", room.Title)
+	assert.Equal(t, types.MeetingStatusActive, room.Status)
+	assert.True(t, room.ConsensusDetectionEnabled)
+	assert.True(t, room.AgendaEnabled)
+	assert.True(t, room.WebSearchEnabled)
+	assert.Equal(t, types.MeetingAdmissionObserve, room.AdmissionMode)
+	assert.Nil(t, room.KnowledgeBaseIDs)
 }
 
 // stubRoomRepo 仅覆写 GetByID；其余方法由嵌入接口提供（本测试不会调用）

@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作台文档卡片 · 四套样式方案</title>
+<style>
+  /* ========== 设计稿页面基础 ========== */
+  * { box-sizing: border-box; }
+  html { -webkit-font-smoothing: antialiased; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: var(--p-ink);
+    background:
+      radial-gradient(900px 420px at 8% -6%, rgba(7, 192, 95, .10), transparent 62%),
+      radial-gradient(700px 380px at 96% 4%, rgba(9, 244, 121, .07), transparent 60%),
+      var(--p-bg);
+    transition: background-color .2s ease, color .2s ease;
+  }
+  body[data-theme="light"] {
+    --p-bg: #f1f3f1;
+    --p-ink: #16201a;
+    --p-ink2: rgba(22, 32, 26, .62);
+    --p-ink3: rgba(22, 32, 26, .42);
+    --p-line: rgba(18, 40, 26, .10);
+    --p-surface: rgba(255, 255, 255, .78);
+    --p-surface-2: rgba(255, 255, 255, .66);
+    --p-accent: #07a94f;
+    --p-accent-soft: #e9f8ec;
+    --p-shadow: 0 1px 2px rgba(18, 40, 26, .03), 0 18px 40px -30px rgba(18, 40, 26, .28);
+  }
+  body[data-theme="dark"] {
+    --p-bg: #121512;
+    --p-ink: rgba(255, 255, 255, .9);
+    --p-ink2: rgba(255, 255, 255, .56);
+    --p-ink3: rgba(255, 255, 255, .38);
+    --p-line: rgba(255, 255, 255, .09);
+    --p-surface: rgba(255, 255, 255, .045);
+    --p-surface-2: rgba(255, 255, 255, .025);
+    --p-accent: #08dd6e;
+    --p-accent-soft: rgba(6, 176, 77, .16);
+    --p-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 22px 44px -30px rgba(0, 0, 0, .9);
+  }
+  .doc { max-width: 1260px; margin: 0 auto; padding: 56px 28px 88px; }
+
+  /* ========== 顶部标题区 ========== */
+  .doc-head { margin-bottom: 30px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 11px; font-weight: 600; letter-spacing: .16em;
+    color: var(--p-accent); text-transform: uppercase;
+  }
+  .eyebrow::before { content: ""; width: 22px; height: 1px; background: #07c05f; }
+  .head-row { display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap; }
+  h1 { margin: 14px 0 0; font-size: 38px; line-height: 1.18; letter-spacing: -.02em; font-weight: 650; }
+  h1 em { font-style: normal; color: var(--p-accent); }
+  .lead { margin: 14px 0 0; max-width: 800px; font-size: 14px; line-height: 1.8; color: var(--p-ink2); }
+  .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 20px; }
+  .fact {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 30px; padding: 0 12px;
+    border: 1px solid var(--p-line); border-radius: 999px;
+    background: var(--p-surface-2);
+    font-size: 12px; color: var(--p-ink2);
+  }
+  .fact .dot { width: 8px; height: 8px; border-radius: 50%; background: #07c05f; box-shadow: 0 0 0 3px rgba(7, 192, 95, .14); }
+  .theme-switch {
+    margin-left: auto;
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px; border-radius: 999px;
+    border: 1px solid var(--p-line); background: var(--p-surface-2);
+  }
+  .theme-switch span { padding: 0 8px; font-size: 11px; color: var(--p-ink3); }
+  .mode-btn {
+    height: 28px; padding: 0 14px; border: 0; border-radius: 999px;
+    background: transparent; color: var(--p-ink2);
+    font-size: 12px; font-family: inherit; cursor: pointer;
+  }
+  .mode-btn.is-on { background: var(--p-ink); color: var(--p-bg); }
+
+  /* ========== 现状问题 ========== */
+  .issues {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px; margin-top: 26px;
+  }
+  .issue {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 14px 16px; border-radius: 14px;
+    border: 1px solid var(--p-line); background: var(--p-surface);
+    font-size: 12.5px; line-height: 1.7; color: var(--p-ink2);
+  }
+  .issue b {
+    flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; color: var(--p-accent); padding-top: 2px;
+  }
+  .issue strong { color: var(--p-ink); font-weight: 600; }
+
+  /* ========== 方案卡 ========== */
+  .proposal {
+    margin-top: 26px; padding: 26px 26px 22px;
+    border: 1px solid var(--p-line); border-radius: 24px;
+    background: var(--p-surface);
+    box-shadow: var(--p-shadow);
+  }
+  .proposal-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 18px; margin-bottom: 18px; }
+  .proposal-title { display: flex; align-items: center; gap: 10px; }
+  .proposal-title h2 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -.01em; }
+  .badge {
+    display: inline-flex; align-items: center; height: 24px; padding: 0 10px;
+    border-radius: 999px; font-size: 11px; font-weight: 600;
+    background: var(--p-line); color: var(--p-ink2);
+  }
+  .badge.rec { background: var(--p-accent-soft); color: var(--p-accent); }
+  .proposal-desc { flex-basis: 100%; margin: 0; max-width: 900px; font-size: 13px; line-height: 1.75; color: var(--p-ink2); }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+  .tag {
+    height: 24px; display: inline-flex; align-items: center; padding: 0 10px;
+    border-radius: 999px; font-size: 11px; color: var(--p-ink2);
+    background: var(--p-line);
+  }
+  .tag.good { color: var(--p-accent); background: var(--p-accent-soft); }
+  .tag.warn { color: #8a5a11; background: rgba(242, 153, 95, .16); }
+  body[data-theme="dark"] .tag.warn { color: #f0b47c; }
+
+  /* ========== Mock 窗口 ========== */
+  .mock {
+    --m-bg: #ffffff;
+    --m-bg-soft: #fafbfa;
+    --m-fill: #f3f4f3;
+    --m-fill-soft: #f6f7f6;
+    --m-line: #e7e9e7;
+    --m-line-soft: #eef0ee;
+    --m-line-strong: #cfd6cf;
+    --m-ink: rgba(0, 0, 0, .90);
+    --m-ink2: rgba(0, 0, 0, .60);
+    --m-ink3: rgba(0, 0, 0, .40);
+    --m-paper: #ffffff;
+    --m-skel: rgba(0, 0, 0, .07);
+    --m-skel-strong: rgba(0, 0, 0, .22);
+    --m-dot: rgba(0, 0, 0, .13);
+    --m-brand: #07c05f;
+    --m-brand-soft: #e9f8ec;
+    --m-brand-ink: #049b38;
+    --m-warn-soft: #fef3e6;
+    --m-warn-ink: #ed7b2f;
+    --m-card-shadow: 0 1px 2px rgba(18, 40, 26, .05), 0 10px 22px -20px rgba(18, 40, 26, .45);
+    --m-card-shadow-hover: 0 2px 6px rgba(18, 40, 26, .06), 0 20px 36px -24px rgba(18, 40, 26, .55);
+
+    border: 1px solid var(--p-line); border-radius: 16px; overflow: hidden;
+    background: var(--m-bg);
+    box-shadow: 0 30px 60px -34px rgba(18, 40, 26, .38), 0 2px 4px rgba(18, 40, 26, .04);
+  }
+  body[data-theme="dark"] .mock {
+    --m-bg: #242424;
+    --m-bg-soft: #1e201e;
+    --m-fill: #2c2c2c;
+    --m-fill-soft: #242624;
+    --m-line: #383838;
+    --m-line-soft: #2e302e;
+    --m-line-strong: #5e615e;
+    --m-ink: rgba(255, 255, 255, .90);
+    --m-ink2: rgba(255, 255, 255, .55);
+    --m-ink3: rgba(255, 255, 255, .35);
+    --m-paper: #2c2e2c;
+    --m-skel: rgba(255, 255, 255, .08);
+    --m-skel-strong: rgba(255, 255, 255, .26);
+    --m-dot: rgba(255, 255, 255, .16);
+    --m-brand: #06b04d;
+    --m-brand-soft: rgba(6, 176, 77, .16);
+    --m-brand-ink: #08dd6e;
+    --m-warn-soft: rgba(237, 123, 47, .16);
+    --m-warn-ink: #f2995f;
+    --m-card-shadow: 0 1px 2px rgba(0, 0, 0, .40), 0 12px 24px -18px rgba(0, 0, 0, .90);
+    --m-card-shadow-hover: 0 3px 8px rgba(0, 0, 0, .45), 0 22px 38px -22px rgba(0, 0, 0, 1);
+  }
+  .mock-bar {
+    display: flex; align-items: center; gap: 12px;
+    height: 46px; padding: 0 20px;
+    border-bottom: 1px solid var(--m-line);
+    background: var(--m-bg);
+  }
+  .mb-title { font-size: 13px; font-weight: 600; color: var(--m-ink); }
+  .mb-count { font-size: 11px; color: var(--m-ink3); }
+  .mb-gap { flex: 1; }
+  .seg {
+    display: inline-flex; align-items: center; gap: 2px;
+    padding: 2px; border: 1px solid var(--m-line); border-radius: 6px;
+  }
+  .seg span { padding: 3px 9px; border-radius: 4px; font-size: 11px; color: var(--m-ink3); }
+  .seg .on { background: var(--m-fill); color: var(--m-ink2); }
+  .mock-body { padding: 20px; background: var(--m-bg); }
+  .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .mock-note { margin: 10px 2px 0; font-size: 11px; color: var(--p-ink3); }
+
+  /* ========== 卡片通用件 ========== */
+  .ic { width: 14px; height: 14px; display: block; }
+  .ic-sm { width: 12px; height: 12px; }
+  .card { position: relative; }
+  .title {
+    font-size: 13px; font-weight: 600; line-height: 18px;
+    color: var(--m-ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .meta { display: flex; align-items: center; gap: 5px; font-size: 11px; line-height: 16px; color: var(--m-ink3); }
+  .meta .sep { opacity: .55; }
+  .foot { display: flex; align-items: center; gap: 8px; }
+  .foot .spacer { flex: 1; }
+  .time { font-size: 10px; color: var(--m-ink3); }
+  .more {
+    width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px;
+    background: transparent; color: var(--m-ink3); cursor: pointer;
+    display: grid; place-items: center; opacity: .55;
+    transition: opacity .15s ease, background-color .15s ease;
+  }
+  .card:hover .more, .card.is-hover .more { opacity: 1; background: var(--m-fill); color: var(--m-ink2); }
+  .star {
+    width: 24px; height: 24px; padding: 0; border-radius: 6px;
+    border: 1px solid var(--m-line); background: var(--m-bg);
+    color: var(--m-ink3); cursor: pointer;
+    display: grid; place-items: center; opacity: 0;
+    transition: opacity .15s ease, color .15s ease;
+  }
+  .star.on { opacity: 1; color: var(--m-warn-ink); }
+  .card:hover .star, .card.is-hover .star { opacity: 1; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 18px; padding: 0 6px; border-radius: 4px;
+    border: 1px dashed var(--m-line-strong);
+    font-size: 10px; line-height: 1; color: var(--m-ink3); white-space: nowrap;
+  }
+  .chip i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+  .chip-ok { border-style: solid; border-color: rgba(7, 192, 95, .35); background: var(--m-brand-soft); color: var(--m-brand-ink); }
+  .chip-warn { border-style: solid; border-color: rgba(237, 123, 47, .35); background: var(--m-warn-soft); color: var(--m-warn-ink); }
+
+  /* ========== 缩略预览：纸页 / 画布 / 数据表 ========== */
+  .preview { height: 100%; position: relative; overflow: hidden; }
+  .paper {
+    height: 100%; padding: 12px 12px 0;
+    border: 1px solid var(--m-line-soft); border-bottom: 0; border-radius: 6px 6px 0 0;
+    background: var(--m-paper);
+  }
+  .ln { display: block; height: 4px; border-radius: 2px; background: var(--m-skel); margin-top: 7px; }
+  .ln-title { width: 52%; height: 6px; margin-top: 0; background: var(--m-skel-strong); }
+  .pv-canvas {
+    border-radius: 6px 6px 0 0;
+    background-color: var(--m-bg-soft);
+    background-image: radial-gradient(var(--m-dot) 1px, transparent 1px);
+    background-size: 12px 12px;
+  }
+  .canvas-svg { width: 100%; height: 100%; display: block; }
+  .db-paper { padding: 10px 10px 0; }
+  .db-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr; }
+  .db-cell { height: 17px; display: flex; align-items: center; padding: 0 6px; border-top: 1px solid var(--m-line-soft); }
+  .db-grid .db-cell:nth-child(-n+3) { border-top: 0; }
+  .db-cell span { display: block; width: 70%; height: 4px; border-radius: 2px; background: var(--m-skel); }
+  .db-cell:first-child span { background: var(--m-skel-strong); height: 5px; }
+
+  /* ========== 方案 A：纸页预览 ========== */
+  .opt-a .card {
+    display: flex; flex-direction: column;
+    border: 1px solid var(--m-line); border-radius: 12px;
+    background: var(--m-bg); overflow: hidden; cursor: pointer;
+    transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+  }
+  .opt-a .card:hover, .opt-a .card.is-hover {
+    border-color: var(--m-line-strong);
+    box-shadow: var(--m-card-shadow);
+    transform: translateY(-2px);
+  }
+  .a-cover {
+    position: relative; flex: none; height: 112px;
+    padding: 12px 14px 0;
+    background: var(--m-fill-soft);
+    border-bottom: 1px solid var(--m-line-soft);
+  }
+  .a-cover .star { position: absolute; top: 8px; right: 8px; z-index: 2; }
+  .a-body { display: flex; flex-direction: column; gap: 6px; flex: 1; padding: 10px 12px 12px; }
+  .a-body .foot { margin-top: auto; padding-top: 2px; }
+
+  /* ========== 方案 B：极简紧凑 ========== */
+  .opt-b .card {
+    display: flex; flex-direction: column; gap: 12px;
+    min-height: 106px; padding: 12px;
+    border: 1px solid var(--m-line); border-radius: 10px;
+    background: var(--m-bg); cursor: pointer;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  .opt-b .card:hover, .opt-b .card.is-hover {
+    border-color: var(--m-line-strong);
+    box-shadow: 0 6px 16px -14px rgba(18, 40, 26, .5);
+  }
+  .b-top { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+  .b-icon {
+    flex: none; width: 34px; height: 34px; border-radius: 8px;
+    background: var(--m-fill); color: var(--m-ink2);
+    display: grid; place-items: center;
+  }
+  .b-icon .ic { width: 16px; height: 16px; }
+  .b-head { min-width: 0; flex: 1; }
+  .b-head .meta { margin-top: 3px; }
+  .b-body .star { position: absolute; top: 10px; right: 10px; border: 0; background: transparent; }
+  .opt-b .foot { margin-top: auto; }
+  .opt-b .card:hover .b-icon, .opt-b .card.is-hover .b-icon { color: var(--m-ink); }
+
+  /* ========== 方案 C：类型色封面 ========== */
+  .opt-c .card {
+    display: flex; flex-direction: column;
+    border-radius: 14px; background: var(--m-bg); overflow: hidden; cursor: pointer;
+    box-shadow: var(--m-card-shadow);
+    transition: box-shadow .2s ease, transform .2s ease;
+  }
+  .opt-c .card:hover, .opt-c .card.is-hover {
+    transform: translateY(-3px);
+    box-shadow: var(--m-card-shadow-hover);
+  }
+  .opt-c .k-page { --c1: #eef4fc; --c2: #e2ecfa; --c-ink: #5b7fae; }
+  .opt-c .k-canvas { --c1: #f5f0fd; --c2: #ece4fb; --c-ink: #8a6fc4; }
+  .opt-c .k-database { --c1: #eaf6f1; --c2: #dff0e8; --c-ink: #558f78; }
+  body[data-theme="dark"] .opt-c .k-page { --c1: #1d2a3c; --c2: #22334a; --c-ink: #8fb0dc; }
+  body[data-theme="dark"] .opt-c .k-canvas { --c1: #291f3d; --c2: #322647; --c-ink: #b09ae2; }
+  body[data-theme="dark"] .opt-c .k-database { --c1: #17312a; --c2: #1b3a31; --c-ink: #7cc4a8; }
+  .c-cover {
+    position: relative; flex: none; height: 104px; overflow: hidden;
+    background: linear-gradient(135deg, var(--c1), var(--c2));
+  }
+  .c-pill {
+    position: absolute; left: 12px; top: 12px; z-index: 2;
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 20px; padding: 0 8px; border-radius: 999px;
+    background: rgba(255, 255, 255, .66); color: var(--c-ink);
+    font-size: 10px;
+  }
+  body[data-theme="dark"] .c-pill { background: rgba(0, 0, 0, .26); }
+  .c-ghost {
+    position: absolute; right: -14px; bottom: -22px;
+    width: 104px; height: 104px; color: var(--c-ink);
+    opacity: .16; transform: rotate(-8deg);
+  }
+  body[data-theme="dark"] .c-ghost { opacity: .24; }
+  .c-cover .star { position: absolute; top: 10px; right: 10px; z-index: 2; border-color: rgba(255, 255, 255, .6); background: rgba(255, 255, 255, .7); }
+  body[data-theme="dark"] .c-cover .star { border-color: rgba(255, 255, 255, .18); background: rgba(0, 0, 0, .3); }
+  .c-body { display: flex; flex-direction: column; gap: 6px; flex: 1; padding: 11px 12px 12px; }
+  .c-body .foot { margin-top: auto; padding-top: 2px; }
+
+  /* ========== 方案 D：无边封面流 ========== */
+  .opt-d .grid { row-gap: 22px; }
+  .opt-d .card { background: transparent; cursor: pointer; }
+  .d-cover {
+    position: relative; height: 148px;
+    padding: 14px 16px 0;
+    border: 1px solid transparent; border-radius: 12px;
+    background: var(--m-fill-soft); overflow: hidden;
+    transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+  }
+  .opt-d .card:hover .d-cover, .opt-d .card.is-hover .d-cover {
+    border-color: var(--m-line);
+    box-shadow: var(--m-card-shadow);
+    transform: translateY(-2px);
+  }
+  .d-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; opacity: 0; transition: opacity .15s ease; }
+  .opt-d .card:hover .d-actions, .opt-d .card.is-hover .d-actions { opacity: 1; }
+  .d-body { padding: 10px 2px 0; }
+  .d-body .meta { margin-top: 4px; }
+  .d-body .foot { margin-top: 7px; }
+  .d-body .star { position: static; }
+
+  /* ========== 对比表 ========== */
+  .section-title { margin: 34px 2px 12px; }
+  .section-title h2 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -.01em; }
+  .compare {
+    width: 100%; border-collapse: separate; border-spacing: 0;
+    border: 1px solid var(--p-line); border-radius: 16px; overflow: hidden;
+    background: var(--p-surface-2); font-size: 12.5px;
+  }
+  .compare th, .compare td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--p-line); vertical-align: top; }
+  .compare thead th { font-size: 11px; font-weight: 600; color: var(--p-ink3); background: var(--p-line); }
+  .compare tbody tr:last-child td { border-bottom: 0; }
+  .compare td:first-child { font-weight: 600; color: var(--p-ink); white-space: nowrap; }
+  .compare td { color: var(--p-ink2); line-height: 1.65; }
+  .compare .up { color: var(--p-accent); }
+
+  /* ========== 结论 ========== */
+  .decision {
+    margin-top: 20px; padding: 22px 24px;
+    border: 1px solid var(--p-line); border-radius: 18px;
+    background: var(--p-surface);
+    font-size: 13px; line-height: 1.85; color: var(--p-ink2);
+  }
+  .decision b { color: var(--p-ink); }
+  .decision .k { color: var(--p-accent); font-weight: 600; }
+  .decision ul { margin: 8px 0 0; padding-left: 18px; }
+  .decision li { margin-top: 4px; }
+  .foot-note { margin-top: 28px; font-size: 11px; color: var(--p-ink3); text-align: center; }
+
+  @media (max-width: 1080px) {
+    .issues { grid-template-columns: 1fr; }
+    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tags { margin-left: 0; }
+  }
+</style>
+</head>
+<body data-theme="light">
+
+<!-- 图标 sprite -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-file" viewBox="0 0 16 16">
+    <path d="M4 1.5h5l3 3v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-12a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <path d="M9 1.5v3h3" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <path d="M5.5 8h5M5.5 10.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="i-image" viewBox="0 0 16 16">
+    <rect x="2" y="2.5" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <circle cx="5.8" cy="6.2" r="1.1" fill="currentColor"/>
+    <path d="M2.6 12l3.2-3.2 2.4 2.4 2-2 3.2 3.2" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="i-table" viewBox="0 0 16 16">
+    <rect x="2" y="2.5" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <path d="M2 6h12M6.2 6v7.5M10.4 6v7.5" stroke="currentColor" stroke-width="1.2"/>
+  </symbol>
+  <symbol id="i-star" viewBox="0 0 16 16">
+    <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6L8 1.8Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="i-more" viewBox="0 0 16 16">
+    <circle cx="3.2" cy="8" r="1.15" fill="currentColor"/>
+    <circle cx="8" cy="8" r="1.15" fill="currentColor"/>
+    <circle cx="12.8" cy="8" r="1.15" fill="currentColor"/>
+  </symbol>
+</svg>
+
+<div class="doc">
+  <header class="doc-head">
+    <span class="eyebrow">WORKBENCH · ITEM CARDS</span>
+    <div class="head-row">
+      <h1>工作台卡片样式 <em>四套方向</em></h1>
+      <div class="theme-switch">
+        <span>预览</span>
+        <button class="mode-btn is-on" type="button" data-mode="light">亮色</button>
+        <button class="mode-btn" type="button" data-mode="dark">暗色</button>
+      </div>
+    </div>
+    <p class="lead">
+      四套方案都保留现有功能（打开、收藏、归档、更多、选择模式），只重排视觉层级。
+      主要解决截图里的四个问题：封面空洞、信息分散、版本号重复、卡片高度参差。
+      每一套都可以只改 <b>WorkbenchItemCard.vue</b> 落地。
+    </p>
+    <div class="facts">
+      <span class="fact"><i class="dot"></i>沿用现有设计令牌</span>
+      <span class="fact">缩略图由 CSS 绘制，无需新增资源</span>
+      <span class="fact">亮 / 暗色同步可看</span>
+    </div>
+
+    <div class="issues">
+      <div class="issue"><b>01</b><span><strong>封面是 116px 的空网格</strong>——一屏十几张卡，同样的网格重复十几遍，只有纹理没有信息。</span></div>
+      <div class="issue"><b>02</b><span><strong>信息分散在四行</strong>——类型/日期、归档状态、时间、版本各占一行，扫读时视线来回跳。</span></div>
+      <div class="issue"><b>03</b><span><strong>版本号重复</strong>——已归档时，徽标里的「· v3」和底部「v3」同时出现。</span></div>
+      <div class="issue"><b>04</b><span><strong>卡片高度参差</strong>——归档按钮出现时正文被顶高，网格行高不齐（截图第一、二行可见）。</span></div>
+    </div>
+  </header>
+
+  <!-- 方案 A -->
+  <section class="proposal">
+    <div class="proposal-head">
+      <div class="proposal-title">
+        <span class="badge rec">推荐 · 平衡</span>
+        <h2>方案 A · 纸页预览</h2>
+      </div>
+      <div class="tags">
+        <span class="tag good">识别强</span>
+        <span class="tag">密度中</span>
+        <span class="tag">改动最小</span>
+      </div>
+      <p class="proposal-desc">
+        保留封面，但把空网格换成「一张纸」的缩略：白色纸页 + 标题与正文骨架线；画布显示点阵与节点，数据表显示行列。
+        封面从装饰变成内容预告。类型、日期合并成一行，时间和归档状态收进底栏，卡片高度统一为 190px 左右。
+      </p>
+    </div>
+    <div class="mock">
+      <div class="mock-bar">
+        <span class="mb-title">最近</span>
+        <span class="mb-count">共 71 个条目</span>
+        <span class="mb-gap"></span>
+        <span class="seg"><span class="on">卡片视图</span><span>列表视图</span></span>
+      </div>
+      <div class="mock-body"><div class="grid" data-opt="a"></div></div>
+    </div>
+    <p class="mock-note">第二张卡为悬停态：卡片轻微上浮，星标与更多操作出现。</p>
+  </section>
+
+  <!-- 方案 B -->
+  <section class="proposal">
+    <div class="proposal-head">
+      <div class="proposal-title">
+        <span class="badge">密度优先</span>
+        <h2>方案 B · 极简紧凑</h2>
+      </div>
+      <div class="tags">
+        <span class="tag good">一屏更多</span>
+        <span class="tag">最安静</span>
+        <span class="tag">成本最低</span>
+      </div>
+      <p class="proposal-desc">
+        直接去掉封面：34px 类型图标 + 标题 + 元信息，卡片高度约 106px，同等空间可多看 40% 左右的条目。
+        类型只靠图标和文字区分，不用颜色，长期使用不疲劳，适合条目上百后的知识库。
+      </p>
+    </div>
+    <div class="mock">
+      <div class="mock-bar">
+        <span class="mb-title">最近</span>
+        <span class="mb-count">共 71 个条目</span>
+        <span class="mb-gap"></span>
+        <span class="seg"><span class="on">卡片视图</span><span>列表视图</span></span>
+      </div>
+      <div class="mock-body"><div class="grid" data-opt="b"></div></div>
+    </div>
+    <p class="mock-note">第二张卡为悬停态：仅描边加深，不位移，避免密集网格里跳动。</p>
+  </section>
+
+  <!-- 方案 C -->
+  <section class="proposal">
+    <div class="proposal-head">
+      <div class="proposal-title">
+        <span class="badge">视觉优先</span>
+        <h2>方案 C · 类型色封面</h2>
+      </div>
+      <div class="tags">
+        <span class="tag good">识别最快</span>
+        <span class="tag warn">需调暗色</span>
+        <span class="tag">新增类型色令牌</span>
+      </div>
+      <p class="proposal-desc">
+        封面用低饱和的类型色渐变 + 大号水印图标，文档、画布、数据表一眼可分；卡片无描边、靠柔和投影浮起，圆角 14px。
+        视觉记忆点最强，但类型色要和品牌绿保持距离，暗色模式需要单独调一组低亮度色。
+      </p>
+    </div>
+    <div class="mock">
+      <div class="mock-bar">
+        <span class="mb-title">最近</span>
+        <span class="mb-count">共 71 个条目</span>
+        <span class="mb-gap"></span>
+        <span class="seg"><span class="on">卡片视图</span><span>列表视图</span></span>
+      </div>
+      <div class="mock-body"><div class="grid" data-opt="c"></div></div>
+    </div>
+    <p class="mock-note">第二张卡为悬停态：投影加深并上浮 3px；可切换右上角暗色预览查看配色的暗色版本。</p>
+  </section>
+
+  <!-- 方案 D -->
+  <section class="proposal">
+    <div class="proposal-head">
+      <div class="proposal-title">
+        <span class="badge">轻量</span>
+        <h2>方案 D · 无边封面流</h2>
+      </div>
+      <div class="tags">
+        <span class="tag good">最干净</span>
+        <span class="tag warn">边界感弱</span>
+        <span class="tag">操作靠悬停</span>
+      </div>
+      <p class="proposal-desc">
+        去掉卡片盒子，只保留 4:3 圆角封面和两行文字，像浏览图片流；悬停时封面浮起并出现星标与更多。
+        页面最轻，注意力集中在封面内容上，但条目边界弱，选择模式需要补一层选中描边。
+      </p>
+    </div>
+    <div class="mock">
+      <div class="mock-bar">
+        <span class="mb-title">最近</span>
+        <span class="mb-count">共 71 个条目</span>
+        <span class="mb-gap"></span>
+        <span class="seg"><span class="on">卡片视图</span><span>列表视图</span></span>
+      </div>
+      <div class="mock-body"><div class="grid" data-opt="d"></div></div>
+    </div>
+    <p class="mock-note">第二张卡为悬停态：封面浮起，右上角出现收藏与更多。</p>
+  </section>
+
+  <!-- 对比 -->
+  <div class="section-title"><h2>方案对比</h2></div>
+  <table class="compare">
+    <thead>
+      <tr>
+        <th>方案</th><th>封面</th><th>卡片高度</th><th>密度</th><th>类型识别</th><th>视觉重量</th><th>暗色适配</th><th>改动范围</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>A · 纸页预览</td>
+        <td>纸页骨架，三种类型各有造型</td>
+        <td>约 190px</td>
+        <td>中</td>
+        <td class="up">强（内容造型）</td>
+        <td>中</td>
+        <td>直接复用令牌</td>
+        <td>仅 WorkbenchItemCard.vue</td>
+      </tr>
+      <tr>
+        <td>B · 极简紧凑</td>
+        <td>无</td>
+        <td>约 106px</td>
+        <td class="up">高</td>
+        <td>中（图标 + 文字）</td>
+        <td>轻</td>
+        <td>直接复用令牌</td>
+        <td>卡片组件 + 网格间距微调</td>
+      </tr>
+      <tr>
+        <td>C · 类型色封面</td>
+        <td>低饱和渐变 + 水印图标</td>
+        <td>约 182px</td>
+        <td>中</td>
+        <td class="up">最强（颜色）</td>
+        <td>重</td>
+        <td>需新增 3 组类型色</td>
+        <td>卡片组件 + 主题令牌</td>
+      </tr>
+      <tr>
+        <td>D · 无边封面流</td>
+        <td>纸页骨架，无卡片容器</td>
+        <td>约 196px</td>
+        <td>低</td>
+        <td>中强</td>
+        <td class="up">最轻</td>
+        <td>直接复用令牌</td>
+        <td>卡片组件 + 网格留白</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="decision">
+    <b>落地建议</b>
+    <ul>
+      <li><span class="k">首选 A</span>：在现有结构上改动最小，保留封面带来的辨识度，同时解决「空网格 + 信息分散」两个主要问题；高度统一后网格也会变整齐。</li>
+      <li><span class="k">条目很多选 B</span>：如果目标是把「最近」当检索入口而不是展示页，B 的密度优势最明显，可以把归档操作收进悬停区。</li>
+      <li><span class="k">要记忆点选 C</span>：类型色能让人第一眼分清洗文档、画布和数据表，但需要多一组暗色配色，视觉也更抢。</li>
+      <li><span class="k">要呼吸感选 D</span>：最接近内容流，适合以后接入真实缩略图；现阶段纸页骨架已经能撑住空封面，不会显得空。</li>
+    </ul>
+  </div>
+
+  <p class="foot-note">选好方案后，我按该方向直接修改 WorkbenchItemCard.vue，并同步核对亮 / 暗色与选择模式。</p>
+</div>
+
+<script>
+/* ================= 共享数据 ================= */
+const KIND = {
+  page:     { label: '文档',   icon: 'i-file'  },
+  canvas:   { label: '画布',   icon: 'i-image' },
+  database: { label: '数据表', icon: 'i-table' }
+};
+
+/* 真实条目示例：标题、日期、相对时间与归档状态都取自截图语境 */
+const ITEMS = [
+  { kind: 'page',     title: '2026 年 11 月 12 日', date: '2026-11-12', time: '刚刚',     status: 'none',   star: false },
+  { kind: 'canvas',   title: '未命名画布',           date: '2026-11-06', time: '1 天前',   status: 'none',   star: false, hover: true },
+  { kind: 'page',     title: '会议纪要',             date: '2026-11-02', time: '4 天前',   status: 'none',   star: false },
+  { kind: 'database', title: '知识图谱数据表',       date: '2026-10-28', time: '1 周前',   status: 'active', version: 4, star: true },
+  { kind: 'page',     title: '789',                  date: '2026-10-22', time: '3 周前',   status: 'none',   star: false },
+  { kind: 'canvas',   title: '产品架构图',           date: '2026-10-19', time: '1 个月前', status: 'none',   star: false },
+  { kind: 'page',     title: 'AI 检索评测记录',      date: '2026-10-12', time: '1 个月前', status: 'stale',  version: 3, star: false },
+  { kind: 'page',     title: '未命名文档',           date: '2026-10-08', time: '2 个月前', status: 'none',   star: false }
+];
+
+/* ================= 通用片段 ================= */
+const icon = (name, cls = 'ic') => `<svg class="${cls}"><use href="#${name}"/></svg>`;
+
+const starBtn = (item) =>
+  `<button class="star ${item.star ? 'on' : ''}" type="button" aria-label="收藏">${icon('i-star')}</button>`;
+
+const moreBtn = () =>
+  `<button class="more" type="button" aria-label="更多">${icon('i-more')}</button>`;
+
+const chip = (item) => {
+  if (item.status === 'active') {
+    return `<span class="chip chip-ok"><i></i>已归档${item.version ? ` · v${item.version}` : ''}</span>`;
+  }
+  if (item.status === 'stale') {
+    return `<span class="chip chip-warn"><i></i>待更新${item.version ? ` · v${item.version}` : ''}</span>`;
+  }
+  return `<span class="chip"><i></i>未归档</span>`;
+};
+
+const metaLine = (item) =>
+  `<div class="meta">${icon(KIND[item.kind].icon, 'ic ic-sm')}<span>${KIND[item.kind].label}</span>` +
+  `<span class="sep">·</span><span>${item.date}</span></div>`;
+
+const footLine = (item) =>
+  `${chip(item)}<span class="spacer"></span><span class="time">${item.time}</span>${moreBtn()}`;
+
+/* ================= 缩略预览 ================= */
+function canvasPreview() {
+  return `
+    <div class="preview pv-canvas">
+      <svg class="canvas-svg" viewBox="0 0 240 100" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M55 33 L110 54 M120 54 L168 29" stroke="var(--m-line-strong)" stroke-width="1" fill="none"/>
+        <rect x="16" y="19" width="62" height="28" rx="4" fill="var(--m-paper)" stroke="var(--m-line-strong)"/>
+        <rect x="104" y="41" width="70" height="28" rx="4" fill="var(--m-paper)" stroke="var(--m-line-strong)"/>
+        <rect x="163" y="13" width="60" height="34" rx="4" fill="var(--m-paper)" stroke="var(--m-line-strong)"/>
+        <line x1="26" y1="30" x2="62" y2="30" stroke="var(--m-skel-strong)" stroke-width="3" stroke-linecap="round"/>
+        <line x1="26" y1="38" x2="52" y2="38" stroke="var(--m-skel)" stroke-width="3" stroke-linecap="round"/>
+        <line x1="114" y1="52" x2="150" y2="52" stroke="var(--m-skel-strong)" stroke-width="3" stroke-linecap="round"/>
+        <line x1="114" y1="60" x2="140" y2="60" stroke="var(--m-skel)" stroke-width="3" stroke-linecap="round"/>
+        <line x1="173" y1="25" x2="211" y2="25" stroke="var(--m-skel-strong)" stroke-width="3" stroke-linecap="round"/>
+        <line x1="173" y1="33" x2="199" y2="33" stroke="var(--m-skel)" stroke-width="3" stroke-linecap="round"/>
+      </svg>
+    </div>`;
+}
+
+function dbPreview() {
+  const row = `<div class="db-cell"><span></span></div><div class="db-cell"><span></span></div><div class="db-cell"><span></span></div>`;
+  return `
+    <div class="preview pv-db">
+      <div class="paper db-paper">
+        <div class="db-grid">${row}${row}${row}${row}</div>
+      </div>
+    </div>`;
+}
+
+function pagePreview(lines) {
+  const widths = [92, 84, 88, 56, 74, 62];
+  const body = widths.slice(0, lines).map((w) => `<span class="ln" style="width:${w}%"></span>`).join('');
+  return `
+    <div class="preview pv-page">
+      <div class="paper"><span class="ln ln-title"></span>${body}</div>
+    </div>`;
+}
+
+function preview(item, lines = 4) {
+  if (item.kind === 'canvas') return canvasPreview();
+  if (item.kind === 'database') return dbPreview();
+  return pagePreview(lines);
+}
+
+/* ================= 四套卡片 ================= */
+function cardA(item) {
+  return `
+    <article class="card ${item.hover ? 'is-hover' : ''}">
+      <div class="a-cover">${preview(item)}${starBtn(item)}</div>
+      <div class="a-body">
+        <div class="title">${item.title}</div>
+        ${metaLine(item)}
+        <div class="foot">${footLine(item)}</div>
+      </div>
+    </article>`;
+}
+
+function cardB(item) {
+  return `
+    <article class="card ${item.hover ? 'is-hover' : ''}">
+      <div class="b-top">
+        <span class="b-icon">${icon(KIND[item.kind].icon)}</span>
+        <div class="b-head">
+          <div class="title">${item.title}</div>
+          ${metaLine(item)}
+        </div>
+      </div>
+      <div class="foot">${footLine(item)}</div>
+    </article>`;
+}
+
+function cardC(item) {
+  return `
+    <article class="card k-${item.kind} ${item.hover ? 'is-hover' : ''}">
+      <div class="c-cover">
+        <span class="c-pill">${icon(KIND[item.kind].icon, 'ic ic-sm')}${KIND[item.kind].label}</span>
+        ${starBtn(item)}
+        <svg class="c-ghost" aria-hidden="true"><use href="#${KIND[item.kind].icon}"/></svg>
+      </div>
+      <div class="c-body">
+        <div class="title">${item.title}</div>
+        ${metaLine(item)}
+        <div class="foot">${footLine(item)}</div>
+      </div>
+    </article>`;
+}
+
+function cardD(item) {
+  return `
+    <article class="card ${item.hover ? 'is-hover' : ''}">
+      <div class="d-cover">
+        ${preview(item, 5)}
+        <div class="d-actions">${starBtn(item)}${moreBtn()}</div>
+      </div>
+      <div class="d-body">
+        <div class="title">${item.title}</div>
+        <div class="meta">${icon(KIND[item.kind].icon, 'ic ic-sm')}<span>${KIND[item.kind].label}</span><span class="sep">·</span><span>${item.date}</span><span class="sep">·</span><span>${item.time}</span></div>
+        <div class="foot">${chip(item)}</div>
+      </div>
+    </article>`;
+}
+
+/* ================= 渲染 ================= */
+const BUILDERS = { a: cardA, b: cardB, c: cardC, d: cardD };
+document.querySelectorAll('.grid[data-opt]').forEach((grid) => {
+  const build = BUILDERS[grid.dataset.opt];
+  grid.innerHTML = ITEMS.map(build).join('');
+});
+
+/* 亮 / 暗色切换 */
+document.querySelectorAll('.mode-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.body.dataset.theme = btn.dataset.mode;
+    document.querySelectorAll('.mode-btn').forEach((b) => b.classList.toggle('is-on', b === btn));
+  });
+});
+</script>
+</body>
+</html>

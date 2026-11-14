@@ -55,4 +55,13 @@ for (const file of ['index.html', 'embed.html']) {
 const assetsSource = `${resolve(dist, 'assets')}${process.platform === 'win32' ? '\\.' : '/.'}`
 docker(['cp', assetsSource, `${container}:${target}/assets/`])
 
+// public 下的媒体资源（如登录页背景视频）同样不会打进 assets，需单独同步，
+// 否则容器内 404 会落进 SPA 回退返回 index.html，<video> 无法播放。
+const mediaDir = resolve(dist, 'media')
+if (existsSync(mediaDir)) {
+  docker(['exec', container, 'mkdir', '-p', `${target}/media`])
+  const mediaSource = `${mediaDir}${process.platform === 'win32' ? '\\.' : '/.'}`
+  docker(['cp', mediaSource, `${container}:${target}/media/`])
+}
+
 console.log(`[deploy] dist 已同步到 ${container}:${target}（config.js 未覆盖）`)

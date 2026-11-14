@@ -68,6 +68,36 @@ func TestJudgeConsensusFailsSafe(t *testing.T) {
 	assert.False(t, e2.judgeConsensus(context.Background(), room, nil, nil, 1).Converged)
 }
 
+// TestBuildMeetingConclusion 会议结论只汇总已完成议题，并显式带出未解决分歧与证据缺口
+func TestBuildMeetingConclusion(t *testing.T) {
+	items := []*types.MeetingAgendaItem{
+		{ID: "i0", Title: "成本", Status: types.MeetingAgendaDone, Summary: "预算控制在 20 万内"},
+		{ID: "i1", Title: "兼容性", Status: types.MeetingAgendaActive},
+		{ID: "i2", Title: "尚未讨论", Status: types.MeetingAgendaPending},
+	}
+	got := buildMeetingConclusion(items, items[1], refereeVerdict{
+		Status: "partial", Consensus: "兼容旧版接口", Unresolved: []string{"是否支持 IE"},
+		EvidenceGaps: []string{"缺少实测数据"},
+	})
+	assert.Contains(t, got, "【会议结论】")
+	assert.Contains(t, got, "成本：预算控制在 20 万内")
+	assert.Contains(t, got, "兼容性：兼容旧版接口")
+	assert.Contains(t, got, "未解决分歧：是否支持 IE")
+	assert.Contains(t, got, "待补证据：缺少实测数据")
+	assert.NotContains(t, got, "尚未讨论")
+}
+
+// TestAgendaRoundsPerTopic 每个议题的轮次随人数自适应，并限制在 3~6 轮
+func TestAgendaRoundsPerTopic(t *testing.T) {
+	assert.Equal(t, 3, agendaRoundsPerTopic(1))
+	assert.Equal(t, 3, agendaRoundsPerTopic(2))
+	assert.Equal(t, 3, agendaRoundsPerTopic(3))
+	assert.Equal(t, 4, agendaRoundsPerTopic(4))
+	assert.Equal(t, 5, agendaRoundsPerTopic(5))
+	assert.Equal(t, 6, agendaRoundsPerTopic(6))
+	assert.Equal(t, 6, agendaRoundsPerTopic(9))
+}
+
 // TestConsensusMessageContent 共识正文优先用裁判结论，缺失时回退判定依据/主题
 func TestConsensusMessageContent(t *testing.T) {
 	room := &types.MeetingRoom{Title: "发布方案评审"}

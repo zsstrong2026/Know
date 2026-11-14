@@ -8,9 +8,13 @@
  * std（视图作用域）而不是 store 上，且切 mode 时 std 会被重建，所以只有
  * 编辑器模块能给出“当前那一份”。文本读 `getModelById().text`，
  * `getBlock()` 返回的是视图对象，没有 text。
+ *
+ * 跨块选区：BlockSuite 的 TextSelection 天然带 from/to 两个 range point，
+ * 这里按文档顺序把首块、中间块、尾块串成 spans，供上层合并处理并逐块回写。
+ * 只收「有 text 字段的块」，图片/分割线等无文本块直接跳过。
  */
 import type { PageAIEditorAdapter } from './use-page-ai'
-import type { SelectionSnapshot } from './selection-fingerprint'
+import type { BlockSpan, SelectionSnapshot } from './selection-fingerprint'
 import type { WritePlan } from './selection-fingerprint'
 import { applyWritePlan } from './apply-write-plan'
 
@@ -28,14 +32,10 @@ export interface PageAIAdapterOptions {
   host?: () => HTMLElement | null
 }
 
-/** 取当前的文本选区；多选/非文本/跨块一律返回 null。 */
+/** 取当前的文本选区；多选/非文本一律返回 null。 */
 export function currentTextSelection(handle: CanvasHandleLike | null): any {
   const selections = handle?.getSelections?.() ?? []
-  const text = selections.find((item: any) => item?.type === 'text') as any
-  if (!text?.from?.blockId) return null
-  // 跨块选区不支持：AI 替换只针对单块（§9.15.3）。
-  if (text.to && text.to.blockId !== text.from.blockId) return null
-  return text
+  return (selections.find((item: any) => item?.type === 'text') as any) ?? null
 }
 
 /** 取块正文；store.getModelById 才带 text，getBlock 只是视图。 */
@@ -43,6 +43,72 @@ function blockText(store: any, blockId: string): string {
   const model = store?.getModelById?.(blockId)
   const text = model?.text
   return typeof text?.toString === 'function' ? text.toString() : ''
+}
+
+/** 有正文的块（段落/标题/列表/代码）；其余块不参与文本选区。 */
+const TEXT_FLAVOURS = new Set([
+  'affine:paragraph',
+  'affine:list',
+  'affine:code',
+  'affine:edgeless-text',
+])
+
+/** 按文档顺序列出所有可写文本块；只走 note 下的正文，跳过画布元素。 */
+function orderedTextBlocks(
+  store: any,
+): Array<{ blockId: string; text: string; flavour: string }> {
+  const result: Array<{ blockId: string; text: string; flavour: string }> = []
+  const walk = (blocks: any[]) => {
+    for (const block of blocks ?? []) {
+      if (!block) continue
+      if (TEXT_FLAVOURS.has(block.flavour)) {
+        const text = (block.model?.text ?? block.text)?.toString?.() ?? ''
+        result.push({ blockId: block.id, text, flavour: block.flavour })
+      }
+      if (block.children?.length) walk(block.children)
+    }
+  }
+  const root = store?.root
+  for (const note of root?.children ?? []) {
+    if (note?.flavour !== 'affine:note') continue
+    walk(note.children ?? [])
+  }
+  return result
+}
+
+/**
+ * 由 TextSelection 还原成跨块 spans。
+ *
+ * 首块只取 index 之后、尾块只取到 index+length，中间块整块入选。
+ * 端点块本身没有文本时返回 null（结构异常，宁可当作无选区）。
+ */
+export function selectionToSpans(store: any, selection: any): BlockSpan[] | null {
+  if (!selection?.from?.blockId) return null
+  const startPoint = selection.reverse ? (selection.to ?? selection.from) : selection.from
+  const endPoint = selection.reverse ? selection.from : (selection.to ?? selection.from)
+
+  const ordered = orderedTextBlocks(store)
+  const startIndex = ordered.findIndex((block) => block.blockId === startPoint.blockId)
+  const endIndex = ordered.findIndex((block) => block.blockId === endPoint.blockId)
+  if (startIndex < 0 || endIndex < 0 || endIndex < startIndex) return null
+
+  const spans: BlockSpan[] = []
+  for (let i = startIndex; i <= endIndex; i += 1) {
+    const block = ordered[i]
+    const isFirst = i === startIndex
+    const isLast = i === endIndex
+    const from = isFirst ? Number(startPoint.index ?? 0) : 0
+    const to = isLast
+      ? Number(endPoint.index ?? 0) + Number(endPoint.length ?? 0)
+      : block.text.length
+    // 反向选择时首尾倒置：以 min/max 兜底，保证 start <= end。
+    const start = Math.max(0, Math.min(from, to))
+    const end = Math.max(0, Math.max(from, to))
+    if (end <= start) continue
+    if (end > block.text.length) return null
+    spans.push({ blockId: block.blockId, start, end, text: block.text.slice(start, end) })
+  }
+  return spans.length ? spans : null
 }
 
 /**
@@ -70,24 +136,19 @@ export function createPageAIAdapter(options: PageAIAdapterOptions): PageAIEditor
       const selection = currentTextSelection(handle)
       if (!selection) return null
 
-      const from = selection.from
-      const to = selection.to ?? selection.from
-      // 反向选择：把起止点对调，保证 start <= end。
-      const start = selection.reverse ? to : from
-      const end = selection.reverse ? from : to
-      const startIndex = Number(start.index ?? 0)
-      const endIndex = Number(end.index ?? 0) + Number(end.length ?? 0)
-      if (endIndex <= startIndex) return null
+      const spans = selectionToSpans(store, selection)
+      if (!spans?.length) return null
 
-      const content = blockText(store, from.blockId)
-      // BlockSuite 的 index 是纯文本偏移；越界说明结构已变，宁可当作无选区。
-      if (endIndex > content.length) return null
+      // 单块与跨块共用同一个快照结构：text 是各块按顺序拼接的结果。
+      const first = spans[0]
+      const last = spans[spans.length - 1]
       return {
-        blockId: from.blockId,
-        start: startIndex,
-        end: endIndex,
-        text: content.slice(startIndex, endIndex),
+        blockId: first.blockId,
+        start: first.start,
+        end: last.end,
+        text: spans.map((span) => span.text).join('\n'),
         itemId: options.itemId(),
+        spans: spans.length > 1 ? spans : undefined,
       }
     },
 
@@ -100,23 +161,22 @@ export function createPageAIAdapter(options: PageAIAdapterOptions): PageAIEditor
     },
 
     getPageText(): string {
+      // 页面级命令只需要正文纯文本：跳过代码块与画布元素，避免把代码当段落喂给模型。
+      return orderedTextBlocks(options.handle()?.store)
+        .filter((block) => block.flavour !== 'affine:code')
+        .map((block) => block.text.trim())
+        .filter(Boolean)
+        .join('\n')
+    },
+
+    getAnchorBlockId(): string | null {
+      // 有选区时以选区首块为锚点；无选区时用正文最后一块，实现「追加到文末」。
       const store = options.handle()?.store
-      if (!store) return ''
-      // 侧栏页面级命令需要纯文本：只取 note 下的段落与列表，跳过画布元素。
-      const lines: string[] = []
-      const walk = (blocks: any[]) => {
-        for (const block of blocks ?? []) {
-          if (block.flavour === 'affine:paragraph' || block.flavour === 'affine:list') {
-            const body = (block.model?.text ?? block.text)?.toString?.() ?? ''
-            if (body.trim()) lines.push(body.trim())
-          }
-          if (block.children?.length) walk(block.children)
-        }
-      }
-      const root = store.root
-      const notes = (root?.children ?? []).filter((child: any) => child.flavour === 'affine:note')
-      notes.forEach((note: any) => walk(note.children ?? []))
-      return lines.join('\n')
+      if (!store) return null
+      const selection = currentTextSelection(options.handle())
+      if (selection?.from?.blockId) return String(selection.from.blockId)
+      const blocks = orderedTextBlocks(store)
+      return blocks.length ? blocks[blocks.length - 1].blockId : null
     },
 
     async applyWrite(plan: WritePlan): Promise<boolean> {

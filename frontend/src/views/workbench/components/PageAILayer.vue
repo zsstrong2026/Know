@@ -1,9 +1,10 @@
 <template>
   <!-- Page AI 层：浮动工具条 + 五组菜单 + 结果预览 + 右侧 AI 侧栏（§9.15） -->
-  <div class="page-ai" :class="{ 'is-collapsed': !panelOpen }">
-    <!-- 常驻 AI 入口：无选区也能打开侧栏（改写/问答都从这里进） -->
+  <div class="page-ai" :class="{ 'is-collapsed': !panelOpen, 'is-docked': Boolean(panelTarget) }">
+    <!-- 常驻 AI 入口：无选区也能打开侧栏（改写/问答都从这里进）。
+         嵌入到自带右侧面板的页面（如 Journals）时可关闭，由外层标签切换。 -->
     <button
-      v-if="editable && !panelOpen"
+      v-if="editable && !panelOpen && showLauncher !== false"
       class="pai-launcher"
       type="button"
       :aria-label="t('workbench.pageAi.bar.open')"
@@ -44,19 +45,40 @@
       @close="menuOpen = false"
     />
     <PageAIResult
-      v-if="visible"
+      v-if="visible && !silentApply"
       :text="text"
       :mode="mode"
       :title="title"
       :streaming="streaming"
+      :candidates="candidates"
+      :active-index="activeIndex"
+      :has-alternatives="hasAlternatives"
+      :retryable="retryable"
+      :issues="issues"
+      :rejected-issues="rejectedIssues"
+      :is-proofread="activeAction === 'proofread'"
+      :original-text="originalText"
       class="pai-result-host"
       @apply="onApply"
       @retry="retry"
       @cancel="cancel"
+      @alternatives="alternatives"
+      @select-candidate="selectCandidate"
+      @toggle-issue="toggleIssue"
     />
 
-    <!-- 右侧 AI 侧栏：斜杠命令 + 内联命令共用同一条流式管线 -->
-    <aside v-if="panelOpen" class="pai-panel" :aria-label="t('workbench.pageAi.panel.title')">
+    <!--
+      右侧 AI 侧栏：斜杠命令 + 内联命令共用同一条流式管线。
+      传入 panelTarget 时用 Teleport 停靠到页面自己的右侧栏（例如 Journals），
+      浮动工具条与结果预览仍留在编辑区内。
+    -->
+    <Teleport :to="panelTarget || 'body'" :disabled="!panelTarget">
+    <aside
+      v-if="panelOpen"
+      class="pai-panel"
+      :class="{ 'is-docked': Boolean(panelTarget) }"
+      :aria-label="t('workbench.pageAi.panel.title')"
+    >
       <header class="pp-head">
         <span class="pp-title">{{ t('workbench.pageAi.panel.title') }}</span>
         <span class="spacer" />
@@ -90,15 +112,58 @@
         </button>
       </div>
 
-      <!-- 问答结果：只读展示，不提供插入（§9.15.4） -->
-      <div v-if="askAnswer || asking" class="pp-answer" aria-live="polite">
-        <div class="pp-answer-meta">{{ asking ? t('workbench.pageAi.state.generating') : '' }}</div>
-        <p class="pp-answer-body">{{ askAnswer }}</p>
-        <div v-if="askReferences.length" class="pp-refs">
-          <span class="pp-refs-title">{{ t('workbench.pageAi.slash.askKb') }}</span>
-          <span v-for="ref in askReferences" :key="ref.knowledge_id" class="pp-ref">
-            {{ ref.knowledge_title || ref.knowledge_id }}
-          </span>
+      <!-- 对话流：用户提问与 AI 回答都留在侧栏内，回答按 Markdown 渲染 -->
+      <div ref="chatScrollEl" class="pp-chat" aria-live="polite">
+        <p v-if="!chats.length" class="pp-chat-empty">{{ t('workbench.pageAi.panel.empty') }}</p>
+        <div
+          v-for="chat in chats"
+          :key="chat.id"
+          class="pp-msg"
+          :class="chat.role === 'user' ? 'is-user' : 'is-assistant'"
+        >
+          <div v-if="chat.role === 'assistant'" class="pp-msg-role">
+            <t-icon name="star" size="11px" />
+            {{ t('workbench.pageAi.panel.title') }}
+          </div>
+          <div class="pp-msg-body">
+            <AiMarkdown v-if="chat.role === 'assistant' && chat.text" :content="chat.text" />
+            <span v-else-if="chat.role === 'assistant'" class="pp-msg-pending">
+              {{ t('workbench.pageAi.state.generating') }}
+            </span>
+            <p v-else class="pp-msg-plain">{{ chat.text }}</p>
+          </div>
+
+          <!--
+            生成结果的操作直接贴在回答下方：替换选中 / 插入下方 / 复制。
+            不再提供「应用到文档」入口，也不再走编辑区里的预览弹窗。
+          -->
+          <div
+            v-if="chat.role === 'assistant' && chat.text && !chat.streaming && !props.codeOnly"
+            class="pp-actions"
+          >
+            <button
+              type="button"
+              class="pp-action is-primary"
+              :disabled="!hasSelection"
+              @click="applyChatToDoc(chat, 'replace')"
+            >
+              {{ t('workbench.pageAi.preview.replace') }}
+            </button>
+            <button type="button" class="pp-action" @click="applyChatToDoc(chat, 'below')">
+              {{ t('workbench.pageAi.preview.insertBelow') }}
+            </button>
+            <button type="button" class="pp-action" @click="copyChat(chat)">
+              {{ copiedChatId === chat.id ? t('workbench.pageAi.preview.copyDone') : t('workbench.pageAi.preview.copy') }}
+            </button>
+          </div>
+
+          <!-- 检索来源：只有问答车道会带 -->
+          <div v-if="chat.references?.length" class="pp-refs">
+            <span class="pp-refs-title">{{ t('workbench.pageAi.slash.askKb') }}</span>
+            <span v-for="ref in chat.references" :key="ref.knowledge_id" class="pp-ref">
+              {{ ref.knowledge_title || ref.knowledge_id }}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -144,6 +209,7 @@
         <p class="pp-disclaimer">{{ t('workbench.pageAi.panel.disclaimer') }}</p>
       </div>
     </aside>
+    </Teleport>
   </div>
 </template>
 
@@ -156,17 +222,25 @@
  *   - 生成、预览、指纹校验与写入全部在 usePageAI 里；
  *   - 编辑器读写通过 createPageAIAdapter 注入，组件不直接碰 store。
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import PageAIMenu from './PageAIMenu.vue'
 import PageAIResult from './PageAIResult.vue'
+import AiMarkdown from './AiMarkdown.vue'
 import { usePageAI, type PageAIEditorAdapter } from '@/workbench/ai/use-page-ai'
-import { streamAskAI, WorkbenchAIError, type AskAIReference } from '@/workbench/ai/use-inline-ai'
+import { toPlainDocumentText } from '@/workbench/ai/text-diff'
+import {
+  streamAskAI,
+  streamInlineAI,
+  WorkbenchAIError,
+  type AskAIReference,
+} from '@/workbench/ai/use-inline-ai'
 import { WORKBENCH_ERROR } from '@/workbench/error-code'
 import { listAgents, type CustomAgent } from '@/api/agent'
 import { useWorkbenchPrefs } from '@/workbench/use-workbench-prefs'
 import { resolveDefaultAgent } from '@/workbench/ai/prefs'
+import { shouldChunk } from '@/workbench/ai/long-doc'
 import {
   INLINE_AI_TEXT_LIMIT,
   type InlineAIRequest,
@@ -192,6 +266,15 @@ const props = defineProps<{
   agentId?: string
   /** 是否先预览再写入（confirmInsert） */
   confirmInsert?: boolean
+  /** 首次渲染时侧栏是否展开；外层有面板切换器时传 false */
+  initialOpen?: boolean
+  /** 是否显示右侧常驻 AI 启动按钮 */
+  showLauncher?: boolean
+  /**
+   * 侧栏的停靠容器：传入时把侧栏 Teleport 到该元素（如页面自带的右侧栏），
+   * 不传则保持原来的编辑区右侧浮层行为。
+   */
+  panelTarget?: HTMLElement | null
 }>()
 
 const emit = defineEmits<{
@@ -202,7 +285,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const menuOpen = ref(false)
 /** 侧栏默认展开：编辑页进入即可看到 AI 对话与改写入口 */
-const panelOpen = ref(true)
+const panelOpen = ref(props.initialOpen !== false)
 const draft = ref('')
 const slashOpen = ref(false)
 const slashIndex = ref(0)
@@ -211,10 +294,55 @@ const targetLang = ref<TranslateLang>('en')
 const selectionLength = ref(0)
 /** 选区是否在代码块内；由编辑器实际块类型决定 */
 const inCodeBlock = ref(false)
-/** 问答车道的输出（与内联预览分开：问答不写入文档） */
-const askAnswer = ref('')
-const askReferences = ref<AskAIReference[]>([])
-const asking = ref(false)
+/**
+ * 侧栏对话的一条消息。
+ *
+ * 侧栏是完整的对话框：用户的输入与 AI 的回答都留在这里，
+ * 只有用户点「应用到文档」才会进入编辑区的 diff 预览。
+ */
+interface WorkbenchChat {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  streaming?: boolean
+  /** 问答车道命中的工作知识库来源 */
+  references?: AskAIReference[]
+}
+
+const chats = ref<WorkbenchChat[]>([])
+const chatScrollEl = ref<HTMLElement | null>(null)
+/** 对话结果直接写入期间置 true：预览卡片不再出现，避免「应用到文档」弹窗。 */
+const silentApply = ref(false)
+/** 刚复制过的消息 id，用于「复制 → 已复制」的短暂反馈。 */
+const copiedChatId = ref('')
+/** 当前对话请求；新提问会中止上一条，避免两段回答交错。 */
+let chatController: AbortController | null = null
+let chatSeq = 0
+
+/** 追加一条消息并滚到底部。 */
+function pushChat(
+  role: WorkbenchChat['role'],
+  text: string,
+  extra: Partial<WorkbenchChat> = {},
+): WorkbenchChat {
+  chatSeq += 1
+  // 用 reactive 创建：流式更新 text 时只重渲染这一条，不用整列表替换。
+  const chat = reactive<WorkbenchChat>({ id: `chat-${chatSeq}`, role, text, ...extra })
+  chats.value.push(chat)
+  // 只保留最近 100 条：侧栏对话会跨条目累积，不裁剪会让 DOM 与内存无限增长。
+  if (chats.value.length > 100) chats.value.splice(0, chats.value.length - 100)
+  scrollChat()
+  return chat
+}
+
+/** 滚到底部：新消息与流式增量都要跟住。 */
+function scrollChat() {
+  void nextTick(() => {
+    const el = chatScrollEl.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}
+
 const hasSelection = computed(() => selectionLength.value > 0)
 const tooLong = computed(() => selectionLength.value > INLINE_AI_TEXT_LIMIT)
 const barVisible = computed(() => props.editable && hasSelection.value)
@@ -288,7 +416,30 @@ const ai = usePageAI({
   },
 })
 
-const { text, title, mode, streaming, visible, lastLang, run, apply, retry, cancel } = ai
+const {
+  text,
+  title,
+  mode,
+  streaming,
+  visible,
+  lastLang,
+  candidates,
+  activeIndex,
+  hasAlternatives,
+  retryable,
+  issues,
+  rejectedIssues,
+  activeAction,
+  originalText,
+  run,
+  apply,
+  retry,
+  cancel,
+  alternatives,
+  selectCandidate,
+  toggleIssue,
+  adopt,
+} = ai
 
 /** 斜杠命令表：前四个是内联车道，最后一个是问答车道（§9.15.4）。 */
 const SLASH_COMMANDS = [
@@ -465,7 +616,8 @@ async function runSlash(id: string) {
     MessagePlugin.warning(t('workbench.pageAi.state.needSelection'))
     return
   }
-  if (text.length > INLINE_AI_TEXT_LIMIT) {
+  // 总结/大纲支持分块，超长不拦；其余动作仍按单次上限提示分段。
+  if (text.length > INLINE_AI_TEXT_LIMIT && !shouldChunk(cmd.action ?? '', text)) {
     MessagePlugin.warning(t('workbench.pageAi.state.tooLong'))
     return
   }
@@ -485,64 +637,170 @@ function pageTextOrSelection(): string {
   return snapshot?.text || (props.adapter()?.getPageText() ?? '')
 }
 
-/** 问答结果：只在侧栏展示，不提供插入（避免把问答摘要当文档事实）。 */
+/** 问答车道：检索工作知识库后回答，来源随消息一起展示。 */
 async function runAsk(question: string) {
   if (!question.trim()) {
     MessagePlugin.warning(t('workbench.pageAi.state.needSelection'))
     return
   }
   panelOpen.value = true
-  ai.abort()
-  askAnswer.value = ''
-  askReferences.value = []
-  asking.value = true
+  chatController?.abort()
+  pushChat('user', question)
+  const reply = pushChat('assistant', '', { streaming: true, references: [] })
+
+  chatController = new AbortController()
+  const signal = chatController.signal
   try {
     await streamAskAI(
       {
         question: question.slice(0, INLINE_AI_TEXT_LIMIT),
         item_id: props.itemId,
-        agent_id: props.agentId,
+        agent_id: activeAgentId.value || props.agentId,
       },
       {
         onDelta: (delta) => {
-          askAnswer.value += delta
+          reply.text += delta
+          scrollChat()
         },
         onReferences: (refs) => {
-          askReferences.value = refs
+          reply.references = refs
         },
       },
+      signal,
     )
   } catch (err) {
-    MessagePlugin.warning(
-      err instanceof WorkbenchAIError && err.code === WORKBENCH_ERROR.noModel
-        ? t('workbench.pageAi.state.noModel')
-        : t('workbench.pageAi.panel.askFailed'),
-    )
+    if (!isAbortError(err)) {
+      MessagePlugin.warning(
+        err instanceof WorkbenchAIError && err.code === WORKBENCH_ERROR.noModel
+          ? t('workbench.pageAi.state.noModel')
+          : t('workbench.pageAi.panel.askFailed'),
+      )
+    }
   } finally {
-    asking.value = false
+    reply.streaming = false
+    if (chatController?.signal === signal) chatController = null
+    scrollChat()
   }
 }
 
-/** 自由输入：把整段文字当作 custom 动作的素材，结果插到下方。 */
-async function sendFreeText() {
-  const instruction = draft.value.trim()
-  if (!instruction) return
-  const pageText = props.adapter()?.getPageText() ?? ''
-  const snapshot = props.adapter()?.getSelection() ?? null
-  const text = snapshot?.text || pageText
-  if (!text.trim()) {
+/**
+ * 把当前问答结果直接写入文档。
+ *
+ * 与内联动作不同，侧栏对话不再经过预览弹窗：
+ *   - 先整理成纯文本（去 Markdown 标记、去说明/分析段落），只写创作内容本身；
+ *   - adopt 只用来登记一次待写入内容，随后立刻 apply；期间 silentApply 保证结果卡片不出现。
+ * 写入仍然走指纹校验，选区变了就只提示、不落笔。
+ */
+async function applyChatToDoc(chat: WorkbenchChat, writeMode: 'replace' | 'below') {
+  const content = toPlainDocumentText(chat.text)
+  if (!content) return
+  if (writeMode === 'replace' && !hasSelection.value) {
     MessagePlugin.warning(t('workbench.pageAi.state.needSelection'))
     return
   }
-  if (text.length > INLINE_AI_TEXT_LIMIT) {
+
+  silentApply.value = true
+  try {
+    const ok = adopt(content, t('workbench.pageAi.slash.applyToDoc'), writeMode, true)
+    if (!ok) {
+      MessagePlugin.warning(t('workbench.pageAi.state.needSelection'))
+      return
+    }
+    const applied = await apply(writeMode)
+    if (applied) MessagePlugin.success(t('workbench.pageAi.state.applied'))
+  } finally {
+    // 无论成功失败都清掉预览状态：侧栏对话不保留编辑区浮层。
+    cancel()
+    silentApply.value = false
+  }
+}
+
+/** 复制对话结果为纯文本（与预览卡片同口径，不渲染 Markdown）。 */
+async function copyChat(chat: WorkbenchChat) {
+  if (!chat.text) return
+  try {
+    await navigator.clipboard.writeText(chat.text)
+    copiedChatId.value = chat.id
+    window.setTimeout(() => {
+      if (copiedChatId.value === chat.id) copiedChatId.value = ''
+    }, 1500)
+  } catch {
+    // 剪贴板不可用时静默失败，不打断写作。
+  }
+}
+
+/** 中止判定：用户主动打断不弹错误提示。 */
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError'
+}
+
+/** 自由输入 = 对话：用户提问与回答都留在侧栏，不直接写文档。 */
+async function sendFreeText() {
+  const instruction = draft.value.trim()
+  if (!instruction) return
+  const source = pageTextOrSelection()
+  if (!source.trim()) {
+    MessagePlugin.warning(t('workbench.pageAi.state.needSelection'))
+    return
+  }
+  if (source.length > INLINE_AI_TEXT_LIMIT) {
     MessagePlugin.warning(t('workbench.pageAi.state.tooLong'))
     return
   }
   draft.value = ''
-  await run(
-    { action: 'custom', text, instruction, writeMode: 'below' },
-    instruction.slice(0, 24),
-  )
+  slashOpen.value = false
+  await runChat(instruction, source)
+}
+
+/** 发起一轮对话：用户消息先落位，回答按增量写入同一条助手消息。 */
+async function runChat(instruction: string, source: string) {
+  chatController?.abort()
+  pushChat('user', instruction)
+  const reply = pushChat('assistant', '', { streaming: true })
+
+  chatController = new AbortController()
+  const signal = chatController.signal
+  /** 流式增量先攒着，80ms 刷一次：Markdown 重解析不必每帧都做。 */
+  let pending = ''
+  let flushTimer: number | null = null
+  const flush = () => {
+    if (flushTimer !== null) {
+      window.clearTimeout(flushTimer)
+      flushTimer = null
+    }
+    if (!pending) return
+    reply.text += pending
+    pending = ''
+    scrollChat()
+  }
+
+  try {
+    await streamInlineAI(
+      {
+        action: 'custom',
+        text: source,
+        instruction,
+        item_id: props.itemId,
+        agent_id: activeAgentId.value || props.agentId,
+        stream: true,
+      },
+      (delta) => {
+        pending += delta
+        if (flushTimer === null) flushTimer = window.setTimeout(flush, 80)
+      },
+      signal,
+    )
+    flush()
+  } catch (err) {
+    flush()
+    if (!isAbortError(err)) {
+      reply.text ||= t('workbench.pageAi.panel.askFailed')
+    }
+  } finally {
+    reply.streaming = false
+    if (chatController?.signal === signal) chatController = null
+    scrollChat()
+  }
 }
 
 function openPanel() {
@@ -551,19 +809,30 @@ function openPanel() {
 
 onBeforeUnmount(() => {
   document.removeEventListener('selectionchange', onDocumentSelectionChange)
+  chatController?.abort()
   ai.abort()
 })
 
-/** 侧栏关闭时清掉问答输出，下次打开不残留上一次的答案。 */
+/** 侧栏开合只上报布局；对话记录保留，关掉再打开能看到之前的提问与回答。 */
 watch(panelOpen, (open) => {
   emit('panel-change', open)
-  if (open) return
-  askAnswer.value = ''
-  askReferences.value = []
-  slashOpen.value = false
+  if (!open) {
+    slashOpen.value = false
+    // 收起侧栏时中止进行中的回答，避免用户看不到却继续烧 token。
+    chatController?.abort()
+  }
 }, { immediate: true })
 
-defineExpose({ refreshSelection })
+defineExpose({
+  refreshSelection,
+  /** 供外层右侧面板切换器控制开合 */
+  openPanel: () => {
+    panelOpen.value = true
+  },
+  closePanel: () => {
+    panelOpen.value = false
+  },
+})
 </script>
 
 <style lang="less" scoped>
@@ -582,7 +851,8 @@ defineExpose({ refreshSelection })
 
 .pai-bar {
   position: absolute;
-  top: var(--app-space-3);
+  /* 让出常驻的格式工具条：编辑器已按该变量下移，AI 条跟着下移同样的距离 */
+  top: calc(var(--workbench-format-bar-height, 0px) + var(--app-space-3) + 34px);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -634,7 +904,8 @@ defineExpose({ refreshSelection })
 
 .pai-menu-host {
   position: absolute;
-  top: calc(var(--app-space-3) + 34px);
+  /* 让出常驻格式条与 AI 条，菜单排到它们下面 */
+  top: calc(var(--workbench-format-bar-height, 0px) + var(--app-space-3) + 112px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 20;
@@ -648,8 +919,9 @@ defineExpose({ refreshSelection })
 }
 
 /* 侧栏展开时，预览卡片让出右栏宽度：320px 的卡片贴在 right:16px 上会正好
-   压住 AI 输入区，导致输入框点不到。这里把它移到编辑区右下角。 */
-.page-ai:not(.is-collapsed) .pai-result-host {
+   压住 AI 输入区，导致输入框点不到。这里把它移到编辑区右下角。
+   停靠模式下侧栏不在编辑区内，预览卡片不需要再让位。 */
+.page-ai:not(.is-collapsed):not(.is-docked) .pai-result-host {
   right: calc(var(--workbench-ai-panel-width, 340px) + var(--app-space-4));
 }
 
@@ -665,6 +937,13 @@ defineExpose({ refreshSelection })
   z-index: 30;
   border-left: 1px solid var(--td-component-stroke);
   background: var(--td-bg-color-container);
+}
+
+/* 停靠到页面右侧栏时铺满容器，分隔线由外层栏提供 */
+.pai-panel.is-docked {
+  width: 100%;
+  height: 100%;
+  border-left: 0;
 }
 
 /* 常驻 AI 启动按钮：侧栏收起时贴在编辑区右侧，任何时刻都能唤起 AI */
@@ -756,26 +1035,68 @@ defineExpose({ refreshSelection })
   border-top: 1px solid var(--td-component-stroke);
 }
 
-.pp-answer {
+.pp-chat {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: var(--app-space-2);
   border-bottom: 1px solid var(--td-component-stroke);
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-3);
 }
 
-.pp-answer-meta {
+.pp-chat-empty {
+  margin: 0;
+  padding: var(--app-space-4) 0;
+  text-align: center;
   font-size: var(--app-text-2xs);
   color: var(--td-text-color-placeholder);
 }
 
-.pp-answer-body {
-  margin: var(--app-space-1) 0 0;
+.pp-msg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-1);
+
+  &.is-user {
+    align-items: flex-end;
+  }
+}
+
+.pp-msg-role {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--app-text-2xs);
+  color: var(--td-brand-color);
+}
+
+.pp-msg-body {
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* 用户消息用气泡区分；AI 回答保持通栏，便于阅读长文与表格 */
+.pp-msg.is-user .pp-msg-body {
+  max-width: 88%;
+  padding: var(--app-space-2);
+  border-radius: var(--app-radius-md);
+  background: var(--td-brand-color-1);
+}
+
+.pp-msg-plain {
+  margin: 0;
   font-size: var(--app-text-sm);
-  line-height: 1.65;
-  color: var(--td-text-color-primary);
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+  color: var(--td-text-color-primary);
+}
+
+.pp-msg-pending {
+  font-size: var(--app-text-2xs);
+  color: var(--td-text-color-placeholder);
 }
 
 .pp-refs {
@@ -797,6 +1118,45 @@ defineExpose({ refreshSelection })
   border-radius: var(--app-radius-pill);
   font-size: var(--app-text-2xs);
   color: var(--td-text-color-secondary);
+}
+
+/* 回答下方的写入动作：一排小按钮，紧贴生成内容 */
+.pp-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--app-space-1);
+  margin-top: var(--app-space-2);
+}
+
+.pp-action {
+  padding: 2px var(--app-space-2);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-xs);
+  font-size: var(--app-text-2xs);
+  color: var(--td-text-color-secondary);
+  background: transparent;
+
+  &:hover:not(:disabled) {
+    color: var(--td-text-color-primary);
+    background: var(--td-bg-color-container-hover);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  /* 主操作：替换选中，与预览卡片的主题按钮同色 */
+  &.is-primary {
+    border-color: var(--td-brand-color);
+    color: var(--td-brand-color);
+
+    &:hover:not(:disabled) {
+      color: var(--td-brand-color);
+      background: var(--td-brand-color-1);
+    }
+  }
 }
 
 .pp-input {

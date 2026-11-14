@@ -159,6 +159,19 @@ func (h *WorkbenchItemHandler) RestoreItem(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
 }
 
+// EmptyTrash POST /api/v1/workbench/trash/empty
+//
+// 一键清空：硬删当前用户回收站里的全部条目，已归档知识保持不动。
+// 幂等：回收站为空时返回 purged=0。
+func (h *WorkbenchItemHandler) EmptyTrash(c *gin.Context) {
+	purged, err := h.service.EmptyTrash(c.Request.Context())
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"purged": purged}})
+}
+
 // GetContent GET /api/v1/workbench/items/:id/content
 func (h *WorkbenchItemHandler) GetContent(c *gin.Context) {
 	content, err := h.service.GetContent(c.Request.Context(), c.Param("id"))

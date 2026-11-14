@@ -22,6 +22,16 @@
     >
       {{ t('workbench.batchArchive.archiveSelected') }}
     </t-button>
+    <!-- 批量移入回收站：对选中项整体可逆删除，不区分归档状态 -->
+    <t-button
+      v-if="trashableCount > 0"
+      theme="danger"
+      variant="outline"
+      size="small"
+      @click="emit('trash')"
+    >
+      {{ t('workbench.batchArchive.trashSelected') }}
+    </t-button>
     <t-button variant="outline" size="small" @click="emit('cancel')">
       {{ t('workbench.batchArchive.cancel') }}
     </t-button>
@@ -37,15 +47,18 @@
  */
 import { useI18n } from 'vue-i18n'
 
-defineProps<{
+withDefaults(defineProps<{
   selectedCount: number
   actionableCount: number
   skippedCount: number
-}>()
+  /** 可移入回收站的条目数（通常等于已选数）；不传表示当前列表不支持批量删除 */
+  trashableCount?: number
+}>(), { trashableCount: 0 })
 
 const emit = defineEmits<{
   selectAllActionable: []
   archive: []
+  trash: []
   cancel: []
 }>()
 
