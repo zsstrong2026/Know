@@ -11,7 +11,7 @@ import (
 
 func TestDingtalkStreamMigrationPreservesOtherChannels(t *testing.T) {
 	for _, migration := range []string{
-		"sqlite/000017_dingtalk_stream_only.up.sql",
+		"sqlite/000035_dingtalk_stream_only.up.sql",
 		"versioned/000096_dingtalk_stream_only.up.sql",
 	} {
 		t.Run(migration, func(t *testing.T) {
