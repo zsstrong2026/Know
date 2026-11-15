@@ -82,7 +82,7 @@
 | [跨会话长期记忆](../website-docs/03-features/23-memory.md) | 保留 | 未发现需要本轮迁移的内容；保留并纳入全站校验 |
 | [飞书云盘接入](../website-docs/03-features/24-feishu-drive.md) | 保留已有更新 | 本发布周期已有补充；纳入链接、构建和关联变更核对 |
 | [Seafile 接入](../website-docs/03-features/25-seafile.md) | 保留 | 未发现需要本轮迁移的内容；保留并纳入全站校验 |
-| [WeKnora 助手](../website-docs/03-features/26-weknora-assistant.md) | 新增 | 新建完整助手与协作指南 |
+| [天禄](../website-docs/03-features/26-weknora-assistant.md) | 新增 | 新建完整助手与协作指南 |
 | [自动化](../website-docs/03-features/27-automations.md) | 新增 | 新建自动化任务指南 |
 | [执行权限与审批](../website-docs/03-features/28-agent-permissions.md) | 新增 | 新建执行权限与授权指南 |
 | [API 总览](../website-docs/04-api/01-api-overview.md) | 更新 / 重写部分章节 | 加入自动化 API 与认证边界 |
@@ -127,7 +127,7 @@
 
 ## 文案修订
 
-版本说明围绕「WeKnora 工作助手」介绍用途；首页重点章节标题调整为「WeKnora 助手、多智能体协作与自动化」。四项重点为「了解 WeKnora，也帮你处理任务」「多个智能体同时处理任务」「一句话安排，也能手动设置」「决定哪些操作需要确认」。首项同时说明产品问答、页面上下文和当前用户身份；助手与自动化各使用两张可切换的截图。首页、指南、版本说明、四种语言 README、CHANGELOG 和通知正文已同步；视频开场使用英文「Your WeKnora assistant.」，结尾使用「Ask. Create. Work together.」。
+版本说明围绕「天禄（工作助手）」介绍用途；首页重点章节标题调整为「天禄、多智能体协作与自动化」。四项重点为「了解 WeKnora，也帮你处理任务」「多个智能体同时处理任务」「一句话安排，也能手动设置」「决定哪些操作需要确认」。首项同时说明产品问答、页面上下文和当前用户身份；助手与自动化各使用两张可切换的截图。首页、指南、版本说明、四种语言 README、CHANGELOG 和通知正文已同步；视频开场使用英文「Your WeKnora assistant.」，结尾使用「Ask. Create. Work together.」。
 
 首页将 v0.8.3 的长期能力归回对应章节：多模态检索与原文定位归入 RAG，附件按需读取归入 Agent，Wiki 图谱与历史保留在 Wiki，Docker 终端与本机技能保留在技能与沙箱，目录同步归入数据源，平台用户管理归入企业管理。按用户后续要求，删除新增的「模型接入与管理」段落，保留原有厂商展示。移除顶部跨主题的「继续了解」链接，四项 v0.9.0 重点独立保留。画廊作为知识库的浏览方式单独展示，放在 Wiki 前；按用户要求沿用上一版两张画廊截图，未替换素材。
 

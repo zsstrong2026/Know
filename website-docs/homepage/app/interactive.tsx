@@ -10,7 +10,7 @@ const productFilms = [
     id: "v090",
     label: "v0.9.0 发布",
     title: "v0.9.0 工作助手",
-    summary: "WeKnora 助手、多智能体协作、自动化与执行权限",
+    summary: "天禄、多智能体协作、自动化与执行权限",
     duration: "02:45",
     durationLabel: "2 分 45 秒",
     quality: "1080P · 60 FPS",

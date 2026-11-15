@@ -20,7 +20,11 @@ test('unresolved desktop URLs use an explicit server placeholder', () => {
   assert.ok(buildCLIConnectCommand('/api/v1', 'wails://wails.localhost').includes("--host 'https://your-server.com'"))
 })
 
-test('copyable host arguments remain literal in a POSIX shell', () => {
+// POSIX 用例依赖 /bin/sh，Windows 上不存在时跳过
+const posixShell = spawnSync('/bin/sh', ['-c', 'exit 0'])
+const posixShellAvailable = posixShell.error === undefined && posixShell.status === 0
+
+test('copyable host arguments remain literal in a POSIX shell', { skip: !posixShellAvailable && 'POSIX /bin/sh is unavailable' }, () => {
   const host = "https://kb.example.com/team'/$HOME/`printf-injected`/$(printf-injected)"
   const command = buildCLIConnectCommand(`${host}/api/v1`, 'https://kb.example.com')
   const argument = command.split(' --host ')[1]!.split(' --use')[0]!

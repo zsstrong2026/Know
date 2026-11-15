@@ -77,6 +77,7 @@ async function setup(t: TestContext, tree: unknown) {
     '@/stores/editorResources': { useEditorResourcesStore: () => ({ parserEngines: [], async ensureParserEngines() {} }) },
     '@/stores/uploadConfirm': { useUploadConfirmStore: () => ({}) },
     '@/stores/uploadTasks': { useUploadTasksStore: () => ({}) },
+    '@/stores/workbench': { useWorkbenchStore: () => ({ bootstrap: { counts: { documents: 0 } } }) },
     '@/hooks/useMarqueeSelect': { useMarqueeSelect: () => ({}) },
     '@/composables/useAssistantPageContext': { useAssistantPageContext() {} },
     '@/utils/kbPermission': {}, '@/utils/knowledgeDeletion': {}, '@/utils/knowledgeTrace': {},

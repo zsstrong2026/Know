@@ -2496,7 +2496,7 @@ const downloadExportBlob = (blob: Blob, ext: 'csv' | 'json') => {
 }
 const handleExportFAQ = async (format: 'csv' | 'json') => {
   if (!props.kbId) {
-    MessagePlugin.warning(t('knowledgeBase.selectKnowledgeBase'))
+    MessagePlugin.warning(t('manualEditor.warning.selectKnowledgeBase'))
     return
   }
 

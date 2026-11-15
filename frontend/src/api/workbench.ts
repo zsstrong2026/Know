@@ -504,6 +504,48 @@ export function requestCanvasPatch(payload: CanvasAIPayload): Promise<{
   ).then((r) => r.data)
 }
 
+// ---- 智能关联（P3） ----
+// 与画布 AI 的区别：候选文档的正文只在服务端可见（列表 DTO 不返回 text_content），
+// 因此召回必须由服务端做，前端只提交「我是谁 / 要几条 / 已忽略哪些」。
+
+/** 一条关联结果：quote / target_quote 是原文句，用于卡片高亮与原文定位。 */
+export interface WorkbenchRelation {
+  item_id: string
+  title: string
+  reason: string
+  strength: 'strong' | 'weak'
+  quote: string
+  target_quote: string
+  label: string
+  source: string
+}
+
+export interface WorkbenchRelationsPayload {
+  item_id: string
+  agent_id?: string
+  limit?: number
+  /** 已应用 / 已忽略的条目，召回时直接剔除 */
+  exclude_item_ids?: string[]
+}
+
+export interface WorkbenchRelationsResult {
+  relations: WorkbenchRelation[]
+  /** 非空表示没走模型（如 no_model），语义关联不可用 */
+  degraded_reason?: string
+  truncated?: boolean
+  model_id?: string
+  agent_id?: string
+}
+
+export function requestWorkbenchRelations(
+  payload: WorkbenchRelationsPayload,
+): Promise<WorkbenchRelationsResult> {
+  return post<{ success: boolean; data: WorkbenchRelationsResult }>(
+    `${BASE}/ai/relations`,
+    payload,
+  ).then((r) => r.data)
+}
+
 /** 月历数据：只返回 kind='canvas' 且 journal_date 落在该月的条目（§7.11）。 */
 export function getJournalsMonth(month?: string): Promise<WorkbenchJournalMonth> {
   const query = month ? `?month=${encodeURIComponent(month)}` : ''

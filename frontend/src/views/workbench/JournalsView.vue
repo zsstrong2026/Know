@@ -14,6 +14,22 @@
         <span class="j-title">{{ currentEntry?.title ?? dateLabel(selectedDate) }}</span>
         <span v-if="currentEntry" class="j-save-state" :class="`is-${saveState}`">{{ saveLabel }}</span>
         <span class="spacer" />
+        <!-- 智能关联：与条目页画布同一套入口，发现结果只显示角标，绝不自动改画布 -->
+        <t-button
+          v-if="canShowRelations"
+          variant="text"
+          size="small"
+          class="relation-entry"
+          @click="relationsOpen = true"
+        >
+          <t-icon name="link" size="14px" />
+          <span>{{ $t('workbench.relation.entry') }}</span>
+          <span v-if="relationBadge > 0" class="relation-badge">{{ relationBadge }}</span>
+        </t-button>
+        <!-- 识别事项：抽取正文待办，预览确认后同步到「事项」库（AI 非必需） -->
+        <t-button v-if="currentEntry && ready" variant="text" size="small" @click="openCollect">
+          {{ $t('workbench.collect.entry') }}
+        </t-button>
         <div class="mode-switch" role="group" :aria-label="$t('workbench.journals.modeSwitch')">
           <button
             v-for="option in modeOptions"
@@ -78,6 +94,18 @@
           :class="{ 'is-hidden': !ready }"
         />
         <div v-if="!ready" class="j-loading">{{ $t('workbench.editor.loading') }}</div>
+
+        <!--
+          关联卡片文字层：画布上只建了空 frame，文字在这里画。
+          定位基准与画布视口一致，必须放在 .j-editor 内、盖住 .j-mount。
+        -->
+        <RelationCardLayer
+          v-if="showRelationLayer"
+          :cards="relationState?.cards ?? []"
+          :rects="relationRects"
+          :view="relationView"
+          @open="openRelatedItem"
+        />
 
         <!--
           空白页起始区（参考 AFFiNE 空白文档）：
@@ -202,6 +230,39 @@
 
     <!-- 反向链接：空白页「展示」入口 -->
     <BacklinksDialog v-model:visible="backlinksOpen" :item-id="currentItemId" />
+
+    <!-- 画布文档卡片详情：点击卡片标题栏打开，只读预览全文（与条目页一致） -->
+    <NoteDetailDrawer
+      v-if="currentEntry"
+      :open="noteDrawerOpen"
+      :title="noteDetailTitle"
+      :markdown="noteDetailMarkdown"
+      :word-count="wordCount"
+      :updated-label="updatedLabel"
+      @close="noteDrawerOpen = false"
+    />
+
+    <!-- 智能关联（P3）：召回结果预览勾选 → 写入锚点 / 引用卡片 / 连线 -->
+    <CanvasRelationsDialog
+      v-if="currentEntry"
+      v-model:visible="relationsOpen"
+      :item-id="currentItemId"
+      :agent-id="aiPrefs.defaultAgentId"
+      :applied-item-ids="appliedRelationIds"
+      :ignored-item-ids="relationState?.ignoredItemIds ?? []"
+      :apply="applyRelationsFromAI"
+      @applied="onRelationsApplied"
+      @ignored="onRelationsIgnored"
+    />
+
+    <!-- 识别事项：AI 识别（不可用时降级为正文待办规则路径）→ 预览勾选 → 确认后同步到「事项」库 -->
+    <CollectDialog
+      v-model:visible="collectOpen"
+      :candidates="collectCandidates"
+      :loading="collectLoading"
+      :origin="collectOrigin"
+      @confirm="onCollectConfirm"
+    />
   </section>
 </template>
 
@@ -213,7 +274,7 @@
  * journalsMonth（月历浏览月，单独翻页不切正文）。
  * 日期与月份只传 YYYY-MM-DD / YYYY-MM 字符串，不做时区换算。
  */
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
@@ -223,22 +284,32 @@ import JournalMonthPanel from './components/JournalMonthPanel.vue'
 import PageAILayer from './components/PageAILayer.vue'
 import TemplatePicker from './components/TemplatePicker.vue'
 import BacklinksDialog from './components/BacklinksDialog.vue'
+import NoteDetailDrawer from './components/NoteDetailDrawer.vue'
+import CanvasRelationsDialog from './components/CanvasRelationsDialog.vue'
+import RelationCardLayer from './components/RelationCardLayer.vue'
+import CollectDialog from './components/CollectDialog.vue'
 import {
   createArchive,
   getWorkbenchItem,
   refreshArchive,
+  requestItemCandidates,
+  requestWorkbenchRelations,
   updateWorkbenchItem,
   workbenchErrorCode,
   WORKBENCH_ERROR,
+  type WorkbenchRelation,
 } from '@/api/workbench'
 import { useWorkbenchStore } from '@/stores/workbench'
 import { useEditorSession } from '@/workbench/editor/use-editor-session'
+import { WB_NOTE_DETAIL_EVENT, noteCardTitle } from '@/workbench/editor/note-events'
 import { createPageAIAdapter, type PageAIAdapterOptions } from '@/workbench/ai/editor-adapter'
 import { useWorkbenchPrefs } from '@/workbench/use-workbench-prefs'
 import { type ArchiveBadgeAction } from '@/workbench/archive-status'
 import { groupByDate } from '@/workbench/journals/month-cells'
 import { addDays, currentMonth, shiftMonth, todayISO } from '@/workbench/journals/date-only'
-import type { EditorMode } from '@/workbench/editor/blocksuite'
+import { dedupeCandidates, type ItemCandidate, type ItemCandidateOrigin } from '@/workbench/ai/item-candidates'
+import type { RelationCardState, RelationRect, RelationsState } from '@/workbench/editor/canvas-relations'
+import type { CanvasViewState, EditorMode } from '@/workbench/editor/blocksuite'
 import type { PreparedTemplateSnapshot } from '@/workbench/templates/apply'
 import type { TemplateCardItem } from '@/workbench/templates/picker'
 import type { WorkbenchItem } from '@/types/workbench'
@@ -281,6 +352,243 @@ const aiHostRef = ref<HTMLElement | null>(null)
 const pickerOpen = ref(false)
 const infoOpen = ref(false)
 const backlinksOpen = ref(false)
+
+// ---- 画布文档卡片详情（右侧抽屉） ----
+const noteDrawerOpen = ref(false)
+/** 打开时快照一次正文投影，避免抽屉开着时内容变化导致预览跳动 */
+const noteDetailMarkdown = ref('')
+const noteDetailTitle = computed(() => currentEntry.value?.title ?? '')
+
+/** 画布卡片标题栏点击 → 打开只读详情抽屉（由 blocksuite 的卡片配置派发事件）。 */
+function openNoteDetail() {
+  noteDetailMarkdown.value = session.markdown()
+  noteDrawerOpen.value = true
+}
+
+/** 画布卡片标题栏与日记标题保持一致（两份数据源，改标题后立即同步）。 */
+watch(
+  noteDetailTitle,
+  (value) => {
+    noteCardTitle.value = value
+  },
+  { immediate: true },
+)
+
+// ---- 智能关联（P3）：与条目页画布完全同一套逻辑 ----
+// 三份状态各自独立：落盘卡片与忽略历史（Y.Doc）、frame 实时位置、视图矩阵。
+const relationsOpen = ref(false)
+const relationState = shallowRef<RelationsState | null>(null)
+const relationRects = shallowRef<Map<string, RelationRect>>(new Map())
+const relationView = shallowRef<CanvasViewState | null>(null)
+/** 自动扫描到的待处理条数：只做角标提示，绝不自动写画布 */
+const relationBadge = ref(0)
+/** 当前编辑器的内容/视口订阅取消函数；编辑器重建时重绑 */
+let stopRelationWatch: (() => void) | null = null
+
+/** 只在无限画布、有 AI 时出现入口（日记条目不会是数据库） */
+const canShowRelations = computed(
+  () => mode.value === 'edgeless' && canUseAI.value && ready.value,
+)
+
+/** 覆盖层只在画布形态渲染：Page 形态没有坐标可用。 */
+const showRelationLayer = computed(
+  () => mode.value === 'edgeless' && (relationState.value?.cards.length ?? 0) > 0,
+)
+
+/** 已落盘卡片对应的条目 id：召回时排除，避免推荐重复。 */
+const appliedRelationIds = computed(
+  () => relationState.value?.cards.map((card: RelationCardState) => card.itemId) ?? [],
+)
+
+/** 重读落盘状态与 frame 位置，并清理已被用户删掉 frame 的失效记录。 */
+function refreshRelationState() {
+  const handle = session.editor.value
+  if (!handle) return
+  const state = handle.readRelations()
+  const rects = handle.readRelationRects(state?.cards ?? [])
+  if (state && rects.size < state.cards.length) {
+    const next = { ...state, cards: state.cards.filter((card) => rects.has(card.frameId)) }
+    handle.saveRelations(next)
+    relationState.value = next
+    relationRects.value = rects
+    return
+  }
+  relationState.value = state
+  relationRects.value = rects
+}
+
+/** 一次性修复早期占位锚点布局：每个编辑器实例最多跑一次。 */
+let relationsMigrated = false
+
+function migrateLegacyRelations() {
+  const handle = session.editor.value
+  const state = relationState.value
+  if (!handle || !state || relationsMigrated) return
+  if (!state.anchorFrameId || !state.cards.length) return
+  relationsMigrated = true
+  const outcome = handle.applyRelations({ prevAnchorId: state.anchorFrameId, existing: state.cards, relations: [] })
+  if (!outcome.anchorId || outcome.anchorId === state.anchorFrameId) return
+  if (outcome.created !== state.cards.length) return
+  handle.saveRelations({
+    version: 1,
+    anchorFrameId: outcome.anchorId,
+    anchor: outcome.anchor,
+    cards: outcome.cards,
+    ignoredItemIds: state.ignoredItemIds,
+    computedAt: Date.now(),
+  })
+  refreshRelationState()
+}
+
+/** 写入勾选的关联，并同步落盘状态。 */
+function applyRelationsFromAI(relations: WorkbenchRelation[]): number {
+  const handle = session.editor.value
+  if (!handle) return 0
+  const previous = relationState.value
+  const outcome = handle.applyRelations({
+    prevAnchorId: previous?.anchorFrameId,
+    existing: previous?.cards ?? [],
+    relations: relations.map((relation) => ({
+      itemId: relation.item_id,
+      title: relation.title,
+      reason: relation.reason,
+      strength: relation.strength === 'strong' ? 'strong' : 'weak',
+      quote: relation.quote,
+      targetQuote: relation.target_quote,
+      label: relation.label,
+      source: relation.source,
+    })),
+  })
+  if (outcome.anchorId) {
+    handle.saveRelations({
+      version: 1,
+      anchorFrameId: outcome.anchorId,
+      anchor: outcome.anchor,
+      cards: outcome.cards,
+      ignoredItemIds: previous?.ignoredItemIds ?? [],
+      computedAt: Date.now(),
+    })
+    refreshRelationState()
+  }
+  return outcome.created
+}
+
+function onRelationsApplied(count: number) {
+  relationBadge.value = 0
+  if (count > 0) MessagePlugin.success(t('workbench.relation.done', { count }))
+  else MessagePlugin.warning(t('workbench.relation.failed'))
+}
+
+/** 忽略：只记进状态，不动画布——用户随时可以再点进来重新发现。 */
+function onRelationsIgnored(itemIds: string[]) {
+  const handle = session.editor.value
+  const previous = relationState.value
+  if (!handle || !previous || itemIds.length === 0) return
+  const merged = [...new Set([...previous.ignoredItemIds, ...itemIds])]
+  handle.saveRelations({ ...previous, ignoredItemIds: merged, computedAt: Date.now() })
+  refreshRelationState()
+}
+
+/** 点开关联卡片：跳到目标条目，并把「要定位的那句原文」带在 query 上。 */
+function openRelatedItem(card: RelationCardState) {
+  if (!card.itemId) return
+  const query = card.targetQuote ? { locate: card.targetQuote } : {}
+  void router.push({ name: 'workbenchItem', params: { itemId: card.itemId }, query })
+}
+
+/** 打开画布后延迟自动发现一次（5s），只亮角标、不落盘。 */
+const RELATION_AUTO_DELAY_MS = 5_000
+let relationTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleRelationScan() {
+  if (relationTimer) clearTimeout(relationTimer)
+  if (!canShowRelations.value || relationsOpen.value) return
+  relationTimer = setTimeout(() => {
+    relationTimer = null
+    void scanRelationsSilently()
+  }, RELATION_AUTO_DELAY_MS)
+}
+
+async function scanRelationsSilently() {
+  if (!canShowRelations.value) return
+  const handle = session.editor.value
+  if (!handle) return
+  const state = handle.readRelations()
+  const exclude = [...(state?.cards.map((card) => card.itemId) ?? []), ...(state?.ignoredItemIds ?? [])]
+  try {
+    const result = await requestWorkbenchRelations({
+      item_id: currentItemId.value,
+      agent_id: aiPrefs.value.defaultAgentId || undefined,
+      exclude_item_ids: exclude,
+    })
+    relationBadge.value = result.relations.filter((relation) => relation.strength === 'strong').length
+  } catch {
+    relationBadge.value = 0
+  }
+}
+
+// ---- 识别事项：AI 识别（不可用时降级为正文待办规则路径） ----
+const collectOpen = ref(false)
+const collectCandidates = ref<ItemCandidate[]>([])
+const collectLoading = ref(false)
+const collectOrigin = ref<ItemCandidateOrigin>('ai')
+
+async function openCollect() {
+  collectOrigin.value = canUseAI.value ? 'ai' : 'todo'
+  collectCandidates.value = []
+  collectOpen.value = true
+  const markdown = session.markdown()
+  if (canUseAI.value && markdown.trim()) {
+    collectLoading.value = true
+    try {
+      const result = await requestItemCandidates({
+        item_id: currentItemId.value,
+        markdown,
+        agent_id: aiPrefs.value.defaultAgentId || undefined,
+        source_title: noteDetailTitle.value,
+        limit: 30,
+      })
+      const { kept } = dedupeCandidates(result.items ?? [])
+      collectCandidates.value = kept
+      collectOrigin.value = 'ai'
+      if (!kept.length) MessagePlugin.info(t('workbench.collect.aiNotFound'))
+      return
+    } catch {
+      // AI 失败不阻断：继续走规则路径，用户仍能把正文待办收集进事项。
+      MessagePlugin.warning(t('workbench.collect.aiFailed'))
+    } finally {
+      collectLoading.value = false
+    }
+  }
+  collectOrigin.value = 'todo'
+  const { collectTodos: extractTodos } = await import('@/workbench/editor/collect-todos')
+  collectCandidates.value = extractTodos(session.editor.value?.store).map((todo) => ({
+    title: todo.title,
+    done: todo.done,
+  }))
+}
+
+async function onCollectConfirm(picked: ItemCandidate[]) {
+  if (picked.length === 0) return
+  collectOpen.value = false
+  try {
+    await session.flush()
+    const things = await store.ensureThingsItem()
+    store.setPendingCollect({
+      itemId: things.id,
+      candidates: picked,
+      origin: collectOrigin.value,
+      sourceTitle: noteDetailTitle.value,
+    })
+    await router.push({
+      name: 'workbenchItem',
+      params: { itemId: things.id },
+      query: { focus: 'database' },
+    })
+  } catch {
+    MessagePlugin.error(t('workbench.collect.failed'))
+  }
+}
 
 /**
  * 当前编辑区是否真的为空。
@@ -699,7 +1007,71 @@ watch(
   },
 )
 
+/**
+ * 关联覆盖层的三路订阅（与条目页一致）。
+ *
+ * 编辑器重建（切换条目/版本恢复/冲突重载/切模板）后旧 handle 已失效，
+ * 必须重新绑定，否则覆盖层停在旧视图上。
+ */
+watch(
+  () => session.editor.value,
+  (handle) => {
+    stopRelationWatch?.()
+    stopRelationWatch = null
+    relationState.value = null
+    relationRects.value = new Map()
+    relationView.value = null
+    relationBadge.value = 0
+    // 换条目后允许对新文档再迁一次
+    relationsMigrated = false
+    if (!handle) return
+
+    refreshRelationState()
+    migrateLegacyRelations()
+    relationView.value = handle.getViewState()
+    const stopView = handle.onViewChange((state) => {
+      relationView.value = state
+    })
+    // 拖动 frame 改的是 xywh，不会触发视口信号，必须单独订阅内容变更
+    const stopContent = handle.onContentChange(() => {
+      refreshRelationState()
+    })
+    stopRelationWatch = () => {
+      stopView()
+      stopContent()
+    }
+    scheduleRelationScan()
+  },
+  { flush: 'post' },
+)
+
+/** 切回无限画布时补一次刷新：Page 形态下 frame 位置可能已被改过。 */
+watch(
+  () => mode.value,
+  (next) => {
+    if (next !== 'edgeless') {
+      relationRects.value = new Map()
+      return
+    }
+    refreshRelationState()
+    scheduleRelationScan()
+  },
+  { flush: 'post' },
+)
+
+onMounted(() => {
+  window.addEventListener(WB_NOTE_DETAIL_EVENT, openNoteDetail)
+})
+
 onBeforeUnmount(() => {
+  window.removeEventListener(WB_NOTE_DETAIL_EVENT, openNoteDetail)
+  if (relationTimer) {
+    clearTimeout(relationTimer)
+    relationTimer = null
+  }
+  stopRelationWatch?.()
+  stopRelationWatch = null
+  noteCardTitle.value = ''
   void session.flush()
   session.destroy()
 })
@@ -1087,5 +1459,105 @@ void (async () => {
   gap: var(--app-space-3);
   font-size: var(--app-text-md);
   color: var(--td-text-color-placeholder);
+}
+
+/* 关联入口：有角标时带一个圆点数字，没有则只是一枚普通文字按钮 */
+.relation-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  :deep(.t-button__text) {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+}
+
+.relation-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--app-radius-pill);
+  background: #0052d9;
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+/**
+ * 无限画布里的文档卡片样式（与条目页画布保持一致）。
+ *
+ * 只命中页面级 note（blocksuite.ts 打的 wb-doc-note 标记），
+ * 画布上新建的便签继续沿用各自的笔记样式。
+ */
+.j-editor :deep(affine-edgeless-note.wb-doc-note:not(:has(.edgeless-note-container[data-editing='true'])) edgeless-note-background) {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--td-text-color-primary) 11%, transparent),
+    0 1px 2px rgba(16, 24, 40, 0.05),
+    0 16px 36px -20px rgba(16, 24, 40, 0.3) !important;
+  transition: box-shadow 0.18s ease;
+}
+
+.j-editor :deep(affine-edgeless-note.wb-doc-note:hover:not(:has(.edgeless-note-container[data-editing='true'])) edgeless-note-background) {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--td-text-color-primary) 22%, transparent),
+    0 2px 4px rgba(16, 24, 40, 0.07),
+    0 22px 44px -22px rgba(16, 24, 40, 0.38) !important;
+}
+
+/* 卡片标题栏：图标 + 标题 + 详情入口；必须抬到 note 遮罩之上才可点击 */
+.j-editor :deep(affine-edgeless-note.wb-doc-note edgeless-page-block-title) {
+  position: relative;
+  z-index: 2;
+  display: block;
+  margin: 0 0 12px;
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.j-editor :deep(affine-edgeless-note.wb-doc-note .wb-note-head) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.j-editor :deep(affine-edgeless-note.wb-doc-note .wb-note-head-icon) {
+  display: inline-flex;
+  flex: none;
+  color: var(--td-text-color-placeholder);
+}
+
+.j-editor :deep(affine-edgeless-note.wb-doc-note .wb-note-head-title) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.j-editor :deep(affine-edgeless-note.wb-doc-note .wb-note-head-detail) {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--app-radius-xs);
+  color: var(--td-text-color-placeholder);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--td-bg-color-container-hover);
+    color: var(--td-brand-color);
+  }
 }
 </style>

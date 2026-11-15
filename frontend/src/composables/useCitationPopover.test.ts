@@ -147,17 +147,21 @@ for (const mode of ['chat', 'embed'] as const) {
   test(`${mode}: late responses cannot overwrite newer citations or cached results`, async t => {
     const f = fixture(mode); t.after(f.close)
     f.fire('click', kb('a')); f.fire('click', kb('b'))
+    // 点击先尝试解析引用抽屉，回退到浮层发生在下一个微任务里
+    await flush()
     f.requests[0]!.pending.resolve('old'); await flush()
     assert.equal(f.state.float.value.loading, true)
     assert.equal(f.state.float.value.content, '')
     f.requests[1]!.pending.resolve('new'); await flush()
     assert.equal(f.state.float.value.content, 'new')
     f.fire('click', kb('c')); f.fire('click', web())
+    await flush()
     f.requests[2]!.pending.reject(new Error('late failure')); await flush()
     assert.equal(f.state.float.value.type, 'web')
     assert.equal(f.state.float.value.error, '')
     assert.equal(f.state.float.value.loading, false)
     f.fire('click', kb('d')); f.fire('click', kb('b'))
+    await flush()
     f.requests[3]!.pending.resolve('late success'); await flush()
     assert.equal(f.state.float.value.content, 'new')
   })
@@ -167,7 +171,7 @@ for (const mode of ['chat', 'embed'] as const) {
     const oldRoot = f.root.value as unknown as Element
     f.fire('click', kb()); f.fire('mouseover', web())
     f.root.value = new Element() as unknown as HTMLElement
-    await vue.nextTick()
+    await flush()
     assert.equal(oldRoot.listenerCount, 0)
     assert.equal(f.state.float.value.visible, false)
     f.tick(200); f.requests[0]!.pending.resolve('old root'); await flush()
@@ -175,6 +179,7 @@ for (const mode of ['chat', 'embed'] as const) {
     oldRoot.fire('click', kb('old'))
     assert.equal(f.requests.length, 1)
     f.state.rebind(); f.state.rebind(); f.fire('click', web())
+    await flush()
     assert.equal((f.root.value as unknown as Element).listenerCount, 3)
     f.state.rebind()
     assert.equal(f.state.float.value.visible, true, 'streaming rebind preserves the popup')
@@ -184,7 +189,9 @@ for (const mode of ['chat', 'embed'] as const) {
 
   test(`${mode}: unmount clears timers and listeners and ignores late responses`, async () => {
     const f = fixture(mode), root = f.root.value as unknown as Element
-    f.fire('click', kb()); f.fire('mouseover', web()); f.state.scheduleClose(); f.close()
+    f.fire('click', kb()); f.fire('mouseover', web())
+    await flush() // 等点击的回退请求真正发出，再验证卸载时清理
+    f.state.scheduleClose(); f.close()
     assert.equal(f.timers.size, 0)
     assert.equal(root.listenerCount, 0)
     assert.equal(f.win.listenerCount, 0)
@@ -195,7 +202,7 @@ for (const mode of ['chat', 'embed'] as const) {
     assert.equal(root.listenerCount, 0)
   })
 
-  test(`${mode}: drawer resolves aliases and web highlights while preserving wiki policy`, t => {
+  test(`${mode}: drawer resolves aliases and web highlights while preserving wiki policy`, async t => {
     const f = fixture(mode, { drawer: true, refs: [{ id: 'resolved-chunk', knowledge_title: 'Document' }] }); t.after(f.close)
     const event = f.fire('click', kb('DOC-1'))
     assert.equal(event.prevented && event.stopped, true)
@@ -208,6 +215,7 @@ for (const mode of ['chat', 'embed'] as const) {
     assert.equal(wiki.prevented, mode === 'embed')
     assert.equal(wiki.stopped, mode === 'embed')
     f.refs.value = []; f.fire('click', kb())
+    await flush()
     assert.equal(f.requests.length, 1, 'empty reference lists fall back to the popup')
   })
 
@@ -217,9 +225,10 @@ for (const mode of ['chat', 'embed'] as const) {
     assert.equal(f.requests[0]!.args.at(-1), mode === 'chat' ? 'resolved-chunk' : 'DOC-1')
     f.requests[0]!.pending.resolve('  '); await flush()
     assert.equal(f.state.float.value.error, mode === 'chat' ? 'agentStream.citation.notFound' : '')
-    f.fire('click', kb('DOC-1'))
+    f.fire('click', kb('DOC-1')); await flush()
     assert.equal(f.requests.length, 1, 'empty results are cached')
     f.refs.value = []; f.fire('click', kb('failed'))
+    await flush()
     f.requests[1]!.pending.reject(new Error('failure')); await flush()
     assert.equal(f.state.float.value.error, mode === 'chat' ? 'agentStream.citation.loadFailed' : 'Failed to load')
     f.fire('click', kb('failed'))
@@ -229,19 +238,22 @@ for (const mode of ['chat', 'embed'] as const) {
 
 test('chat sessions isolate cached content and invalidate in-flight requests on scope change', async t => {
   const f = fixture('chat'); t.after(f.close)
-  f.fire('click', kb()); f.requests[0]!.pending.resolve('session a'); await flush()
+  f.fire('click', kb()); await flush()
+  f.requests[0]!.pending.resolve('session a'); await flush()
   assert.deepEqual(f.requests[0]!.args, ['chunk'])
   assert.equal(f.requests[0]!.route, 'chat')
   f.session.value = 'session-b'
   assert.equal(f.state.float.value.visible, false)
   assert.equal(f.state.float.value.content, '')
-  f.fire('click', kb()); f.session.value = 'session-a'
+  f.fire('click', kb()); await flush()
+  f.session.value = 'session-a'
   f.requests[1]!.pending.resolve('stale session b'); await flush()
   assert.equal(f.cache.getCitationChunkCache('session-b', 'chunk'), undefined)
-  f.fire('click', kb())
+  f.fire('click', kb()); await flush()
   assert.equal(f.requests.length, 2)
   assert.equal(f.state.float.value.content, 'session a')
-  f.session.value = ''; f.fire('click', kb()); f.requests[2]!.pending.resolve('default'); await flush()
+  f.session.value = ''; f.fire('click', kb()); await flush()
+  f.requests[2]!.pending.resolve('default'); await flush()
   assert.equal(f.cache.getCitationChunkCache('default', 'chunk').content, 'default')
 })
 
@@ -249,30 +261,35 @@ test('embed scopes include channel and token for both entry points and preserve 
   for (const mode of ['chat', 'embed'] as const) {
     const f = fixture(mode); t.after(f.close)
     f.channel.value = 'channel-a'; f.token.value = 'token-a'
-    f.fire('click', kb()); f.requests[0]!.pending.resolve('a'); await flush()
+    f.fire('click', kb()); await flush()
+    f.requests[0]!.pending.resolve('a'); await flush()
     assert.equal(f.requests[0]!.route, 'embed')
     assert.deepEqual(f.requests[0]!.args, ['channel-a', 'token-a', 'chunk'])
     f.token.value = 'token-b'; f.fire('click', kb())
     f.channel.value = 'channel-b'; f.fire('click', kb())
+    await flush()
     f.requests[1]!.pending.resolve('old token'); await flush()
     assert.equal(f.state.float.value.loading, true)
     f.requests[2]!.pending.resolve('b'); await flush()
     assert.equal(f.cache.getCitationChunkCache('embed:channel-b:token-b', 'chunk').content, 'b')
     f.channel.value = 'channel-a'; f.token.value = 'token-a'; f.fire('click', kb())
+    await flush()
     assert.equal(f.requests.length, 3)
     assert.equal(f.state.float.value.content, 'a')
-    f.token.value = ''; f.fire('click', kb())
+    f.token.value = ''; f.fire('click', kb()); await flush()
     assert.equal(f.requests[3]!.route, mode, 'standalone embed never falls back to the normal API')
     if (mode === 'embed') assert.deepEqual(f.requests[3]!.args, ['channel-a', '', 'chunk'])
   }
 })
 
-test('only chat observes viewport changes and keeps hovered popups open', t => {
+test('only chat observes viewport changes and keeps hovered popups open', async t => {
   for (const mode of ['chat', 'embed'] as const) {
     const f = fixture(mode); t.after(f.close)
-    f.fire('click', web()); f.win.fire('scroll'); f.tick(120)
+    f.fire('click', web()); await flush()
+    f.win.fire('scroll'); f.tick(120)
     assert.equal(f.state.float.value.visible, mode === 'embed')
-    f.fire('click', web()); f.setHovered(true); f.state.scheduleClose(); f.tick(120)
+    f.fire('click', web()); await flush()
+    f.setHovered(true); f.state.scheduleClose(); f.tick(120)
     assert.equal(f.state.float.value.visible, mode === 'chat')
     f.setHovered(false); f.win.fire('resize'); f.tick(120)
     assert.equal(f.state.float.value.visible, false)

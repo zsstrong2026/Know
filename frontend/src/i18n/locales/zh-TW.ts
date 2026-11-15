@@ -127,9 +127,9 @@
   automation: {
     conversationNotice: "此對話由自動化任務執行，無法手動傳送訊息。請在上方處理待審批事項。",
     title: '自動化',
-    description: '讓 WeKnora 助手按排程以你的身分執行任務，結果與待審批事項會通知你。',
+    description: '讓天祿按排程以你的身分執行任務，結果與待審批事項會通知你。',
     add: '新增自動化',
-    addHint: '也可以直接請 WeKnora 助手幫你建立',
+    addHint: '也可以直接請天祿幫你建立',
     paused: '已暫停',
     scheduleEnded: '已結束',
     scheduleEndedHint: '一次性排程已結束。可立即執行，或修改執行時間後恢復。',
@@ -181,7 +181,7 @@
       sections: {
         basic: {
           title: '基本資訊',
-          desc: '任務由 WeKnora 助手執行。需要其他智慧代理時，請在任務中寫明委派對象與工作。',
+          desc: '任務由天祿執行。需要其他智慧代理時，請在任務中寫明委派對象與工作。',
         },
         schedule: {
           title: '執行時間',
@@ -1184,6 +1184,7 @@
     syncFailed: '同步觸發失敗',
     pause: '暫停',
     resume: '復原',
+    resumeFailed: '恢復執行失敗，請重試',
     paused: '已暫停',
     resumed: '已復原',
     pauseFailed: '暫停失敗',
@@ -2657,7 +2658,7 @@
     askUser: '向使用者提問'
   },
   assistant: {
-    title: 'WeKnora 助手',
+    title: '天祿',
     newConversation: '新對話',
     history: '歷史對話',
     untitledConversation: '未命名對話',
@@ -2674,7 +2675,7 @@
     welcomeDesc: '我可以解答 WeKnora 的使用問題，整理知識與文件，幫你設定智慧代理、工具和自動化。',
     help: {
       label: '助手說明',
-      title: 'WeKnora 助手能做什麼',
+      title: '天祿能做什麼',
       identity: '助手以你的身份工作。它能看到和修改的範圍，與你在這個空間裡的角色一致，不會超出你的權限。',
       page: '打開後會附帶目前頁面，可以據此梳理內容、設定智慧代理和自動化，或代為填寫表單。它不會替你點擊按鈕或儲存。',
       access: '輸入框下方可以切換權限：唯讀、修改前確認、自動執行。刪除始終需要你確認。管理員限制的最高等級無法突破。',
@@ -3189,7 +3190,7 @@
       commands: '命令',
       recent: '最近搜尋',
       quickActions: '快捷操作',
-      workbench: '工作台'
+      workbench: '墨匣'
     },
     workbench: {
       item: '畫布 / 資料庫條目',
@@ -4338,6 +4339,10 @@
       getApiPrincipalConfigFailed: '獲取 API 使用者身份設定失敗',
       updateApiPrincipalConfigFailed: '更新 API 使用者身份設定失敗',
       createApiPrincipalTestTokenFailed: '生成 API 測試 Token 失敗',
+      createApiKeyFailed: '建立 API Key 失敗',
+      deleteApiKeyFailed: '刪除 API Key 失敗',
+      listApiKeysFailed: '取得 API Key 列表失敗',
+      createFailed: '建立空間失敗',
       updateFailed: '更新空間資訊失敗',
       deleteFailed: '刪除空間失敗'
     },
@@ -5065,6 +5070,7 @@
     }
   },
   chat: {
+    imageReadFailed: '附件讀取失敗，請重試',
     memoryUsedCount: '本次使用了 {count} 條記憶',
     memoryForget: '刪除這條記憶',
     memoryForgotten: '已刪除這條記憶',
@@ -6011,7 +6017,7 @@
       systemActor: '系統觸發',
       actorWithAPIKey: '{actor} · API Key · {name}',
       actorAPIKey: 'API Key · {name}',
-      viaAssistant: '經 WeKnora 助手',
+      viaAssistant: '經天祿',
       knowledgeBase: '知識庫',
       countItems: '共 {count} 項',
       titleWithCount: '{title} 等 {count} 項',
@@ -6337,6 +6343,16 @@
     }
   },
   input: {
+    imageUpload: {
+      label: '上傳圖片',
+      tooltip: '上傳圖片（支援貼上/拖曳）'
+    },
+    fileUpload: {
+      label: '上傳附件',
+      tooltip: '上傳附件（文件、音訊等）',
+      tooMany: '最多只能上傳 5 個附件',
+      tooLarge: '附件大小不能超過 20 MB'
+    },
     addModel: '新增模型',
     placeholder: '輸入問題或描述任務…',
     agentMode: '智慧推論',
@@ -6397,6 +6413,7 @@
       stopFailed: '停止失敗，請重試'
     },
     webSearch: {
+      label: '網路搜尋',
       toggleOn: '開啟網路搜尋',
       toggleOff: '關閉網路搜尋',
       notConfigured: '未設定網路搜尋引擎'
@@ -6521,7 +6538,8 @@
     }
   },
   file: {
-    upload: '上傳檔案'
+    upload: '上傳檔案',
+    downloadFailed: '下載失敗，請稍後再試'
   },
   mentionDetail: {
     readOnlyFromAgent: '僅在此對話中唯讀，不顯示在知識庫清單中',
@@ -7860,6 +7878,7 @@
       loadFailed: '載入解析引擎清單失敗',
       ensureDocreaderConnected: '請先確保 DocReader 服務已透過環境變數設定並已連結',
       checkDoneStatusUpdated: '已使用當前填寫參數檢測，上方狀態已更新',
+      checking: '檢測中…',
       checkSuccess: '測試連結成功',
       checkFailed: '檢測失敗',
       saveSuccess: '已儲存',
@@ -9129,7 +9148,7 @@
     reopen: '新手引導',
     steps: {
       assistant: {
-        title: '認識 WeKnora 助手',
+        title: '認識天祿',
         desc: '可以詢問 WeKnora 的版本、功能與設定，也可以結合目前頁面，以你的身分建立智慧代理、設定定時任務或整理知識。'
       },
       done: {
@@ -9296,12 +9315,12 @@
     meetings: '會議室',
     docAssistant: '方案助手',
     pm: 'PM 工作站',
-    workbench: '工作台'
+    workbench: '墨匣'
   },
-  // 工作台：最近 / 資料庫 / 收藏 / 回收站 / 條目編輯 / 歸檔
+  // 墨匣：最近 / 資料庫 / 收藏 / 回收站 / 條目編輯 / 歸檔
   workbench: {
     nav: {
-      title: '工作台',
+      title: '墨匣',
       beta: 'BETA',
       recent: '最近',
       databases: '事項',
@@ -9351,7 +9370,7 @@
       database: '新增資料庫',
       databaseHint: '表格、看板與日曆檢視',
       folder: '新增資料夾',
-      folderHint: '在工作台內整理條目'
+      folderHint: '在墨匣內整理條目'
     },
     import: {
       entry: '匯入資料',
@@ -9412,7 +9431,7 @@
       emptyTrashFailed: '清空回收站失敗，請重試',
       clearSearch: '清空搜尋',
       loadMore: '載入更多',
-      loadFailed: '工作台載入失敗，請重新整理'
+      loadFailed: '墨匣載入失敗，請重新整理'
     },
     item: {
       untitled: '未命名',
@@ -9425,6 +9444,7 @@
       rename: '重新命名',
       move: '移動到資料夾',
       pin: '釘到某天',
+      pinHint: '清空日期並確認可取消釘（恢復為一般條目）。',
       favorite: '收藏',
       unfavorite: '取消收藏',
       delete: '刪除（移至回收站）',
@@ -9437,6 +9457,14 @@
       restoreFailed: '還原失敗',
       favoriteFailed: '更新收藏失敗',
       more: '更多操作'
+    },
+    noteDetail: {
+      title: '文件詳情',
+      open: '查看詳情',
+      close: '關閉',
+      updated: '更新於 {time}',
+      words: '{count} 字',
+      empty: '暫無內容預覽'
     },
     backlinks: {
       title: '被引用',
@@ -9481,6 +9509,26 @@
       done: '已產生 {frames} 個群組，移動 {moves} 個元素',
       failed: '產生失敗，請重試'
     },
+    relation: {
+      entry: '發現關聯',
+      title: '智慧關聯',
+      hint: 'AI 會比對本文與其他文件的內容。勾選後才會寫入畫布，不會自動修改任何內容。',
+      loading: '正在尋找關聯文件…',
+      empty: '暫時沒有發現關聯文件',
+      degraded: '目前沒有可用的對話模型，只顯示基於標籤與提及的粗篩結果',
+      count: '已選 {selected} / {total}',
+      selectAll: '全選',
+      strong: '強關聯',
+      weak: '弱關聯',
+      moreWeak: '還有 {count} 條弱關聯（預設不選）',
+      ignore: '忽略',
+      apply: '加入畫布',
+      cancel: '取消',
+      done: '已加入 {count} 個關聯文件',
+      failed: '未能寫入畫布，請確認目前處於無限畫布形態且文件可編輯',
+      untitled: '未命名文件',
+      open: '開啟原文件'
+    },
     export: {
       entry: '匯出畫布包',
       running: '正在匯出…',
@@ -9518,7 +9566,7 @@
         ai: 'AI 識別',
         archive: '文件歸檔'
       },
-      /** 視圖設定彈層（上游寫死英文，工作台就地替換）。 */
+      /** 視圖設定彈層（上游寫死英文，墨匣就地替換）。 */
       menu: {
         viewSettings: '視圖設定',
         viewName: '視圖名稱',
@@ -9551,7 +9599,7 @@
         calendarEmptyHint: '在任意日期新增列，它會出現在這裡。',
         addDateProperty: '新增日期屬性',
         selectDateProperty: '選擇日期屬性',
-        /** 欄位右鍵選單（上游寫死英文，工作台就地替換）。 */
+        /** 欄位右鍵選單（上游寫死英文，墨匣就地替換）。 */
         columnType: '類型',
         propertyType: '屬性類型',
         propertyName: '屬性名稱',
@@ -9712,26 +9760,6 @@
           failed: '生成失敗，請稍後再試'
         }
       },
-      collect: {
-        entry: '識別事項',
-        title: '識別事項',
-        hint: '從正文識別需要人去做的事，確認後同步到「事項」庫',
-        hintTodo: '從正文待辦中提取事項，確認後同步到「事項」庫',
-        empty: '正文裡還沒有待辦事項',
-        emptyAi: '正文裡沒有識別到可執行的事項',
-        recognizing: '正在識別正文裡的事項…',
-        titleField: '事項標題',
-        count: '已選 {selected} / {total}',
-        selectAll: '全選',
-        selectNone: '全不選',
-        done: '已完成',
-        cancel: '取消',
-        confirm: '同步到事項',
-        applied: '已收集 {count} 條事項',
-        failed: '收集失敗，請稍後再試',
-        aiNotFound: '未識別到可執行的事項',
-        aiFailed: '識別失敗，請稍後再試'
-      },
       /** 歸檔後自動抽取事項 */
       itemExtract: {
         applied: '已從《{title}》同步 {count} 條事項',
@@ -9755,6 +9783,26 @@
         isChecked: '已勾選',
         isUnchecked: '未勾選'
       }
+    },
+    collect: {
+      entry: '識別事項',
+      title: '識別事項',
+      hint: '從正文識別需要人去做的事，確認後同步到「事項」庫',
+      hintTodo: '從正文待辦中提取事項，確認後同步到「事項」庫',
+      empty: '正文裡還沒有待辦事項',
+      emptyAi: '正文裡沒有識別到可執行的事項',
+      recognizing: '正在識別正文裡的事項…',
+      titleField: '事項標題',
+      count: '已選 {selected} / {total}',
+      selectAll: '全選',
+      selectNone: '全不選',
+      done: '已完成',
+      cancel: '取消',
+      confirm: '同步到事項',
+      applied: '已收集 {count} 條事項',
+      failed: '收集失敗，請稍後再試',
+      aiNotFound: '未識別到可執行的事項',
+      aiFailed: '識別失敗，請稍後再試'
     },
     archive: {
       status: {
@@ -9824,10 +9872,11 @@
       }
     },
     editor: {
-      back: '返回工作台',
+      back: '返回墨匣',
       loading: '正在載入畫布…',
       loadFailed: '畫布載入失敗',
       notFound: '條目不存在或已被刪除',
+      leaveBlocked: '目前文件還有未儲存的變更，請先處理儲存提示再切換',
       saveDraftSaved: '草稿已暫存',
       saveDraftPending: '有變更待暫存',
       saveDraftSaving: '草稿暫存中…',
@@ -9870,7 +9919,7 @@
       conflict: '內容已被其他分頁修改，請先重新載入再還原'
     },
     journals: {
-      back: '返回工作台',
+      back: '返回墨匣',
       dateNav: 'Journal 日期導覽',
       prevWeek: '往前七天',
       nextWeek: '往後七天',
@@ -10001,6 +10050,7 @@
         translate: '翻譯為 · {value}',
         tone: '變更語氣為 · {value}',
         polish: '改進寫作',
+        humanize: '去 AI 味',
         expand: '擴寫',
         shorten: '縮寫',
         continue: '續寫',
@@ -10024,7 +10074,6 @@
         more: '更多',
         ask: '問 AI',
         open: '開啟 AI 助理',
-        rewrite: 'AI 改寫',
         selected: '已選取 {count} 個字'
       },
       preview: {
@@ -10052,9 +10101,9 @@
         tooLong: '選取超過 8000 字，請分段處理',
         noModel: '未設定可用模型，請先到模型管理新增',
         streamBroken: '生成中斷，已保留部分結果，可重新生成',
-        disabled: '工作台 AI 已停用',
+        disabled: '墨匣 AI 已停用',
         disabledHint: '啟用後可在這裡提問、整理 Page 內容，並把結果確認後插入目前項目。',
-        goSettings: '開啟工作台 AI 設定',
+        goSettings: '開啟墨匣 AI 設定',
         needSelection: '請先選取文字',
         codeBlockHint: '程式碼區塊內僅支援「解釋選取」'
       },
@@ -10081,7 +10130,7 @@
         empty: '沒有符合的命令'
       },
       panel: {
-        title: '工作台 AI',
+        title: '墨匣 AI',
         agentPlaceholder: '選擇智能體',
         agentDefault: '跟隨工作空間預設模型',
         agentBuiltin: '{name}（內建）',
@@ -10096,16 +10145,16 @@
       }
     },
     settings: {
-      title: '工作台設定',
+      title: '墨匣設定',
       subtitle: '以下都是你的個人偏好，只儲存在這台裝置上。',
-      open: '開啟工作台設定',
+      open: '開啟墨匣設定',
       storageNote: '偏好僅存於本機瀏覽器；清除瀏覽器資料會恢復預設，不影響既有文件與歸檔。',
       resetEditor: '恢復預設（編輯器）',
-      resetAI: '恢復預設（工作台 AI）',
+      resetAI: '恢復預設（墨匣 AI）',
       resetDone: '已恢復預設',
       tab: {
         editor: '編輯器',
-        ai: '工作台 AI'
+        ai: '墨匣 AI'
       },
       editor: {
         text: '字型與頁面',
@@ -10172,9 +10221,9 @@
         none: '無邊框'
       },
       ai: {
-        general: '工作台 AI',
+        general: '墨匣 AI',
         agent: '預設智慧體',
-        enabled: '啟用工作台 AI',
+        enabled: '啟用墨匣 AI',
         enabledHint: '關閉後隱藏側欄、Page 內嵌與畫布 AI 入口；不影響編輯、歸檔與已提交的任務。',
         citations: '回答顯示來源引用',
         confirmInsert: '寫入前先預覽確認',
@@ -10206,7 +10255,7 @@
       entryClosed: '文件已有內容，範本入口已關閉',
       applied: '已套用「{name}」範本',
       startBlank: '從空白文件開始',
-      footNote: '範本儲存在本機工作台，僅自己可見',
+      footNote: '範本儲存在本機墨匣，僅自己可見',
       escHint: 'Esc 關閉',
       mineEmpty: '還沒有自己的範本',
       mineEmptyHint: '開啟任意文件，在 ⋯ 中選擇「另存為範本」',
@@ -11104,6 +11153,10 @@
           coreValue: '核心價值',
           scenarios: '關鍵場景',
           background: '背景說明'
+        },
+        cognition: {
+          hint: '由 AI 引導整理，也可直接修改；變更會隨草稿自動儲存',
+          placeholder: '可直接輸入或修改，留空表示尚未確認'
         },
         blocks: {
           cognition: '產品認知',

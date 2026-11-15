@@ -128,6 +128,30 @@ const ZH_HANS: Record<string, string> = {
   'Copy this line to clipboard.': '复制本行到剪贴板。',
   'Create a duplicate of this line.': '创建本行的副本。',
   'Remove this line permanently.': '永久删除本行。',
+  // 正文工具条（Selection toolbar）的文案
+  'Turn into': '转换为',
+  Conversions: '转换',
+  More: '更多',
+  'More menu': '更多操作',
+  Code: '行内代码',
+  Highlight: '高亮',
+  Color: '颜色',
+  Background: '背景',
+  'Inline Equation': '行内公式',
+  'Create Table': '创建表格',
+  'Create Linked Doc': '创建链接文档',
+  'Copied to clipboard': '已复制到剪贴板',
+  Comment: '评论',
+  'default color': '默认颜色',
+  'default background': '默认背景',
+  red: '红色',
+  orange: '橙色',
+  yellow: '黄色',
+  green: '绿色',
+  teal: '青色',
+  blue: '蓝色',
+  purple: '紫色',
+  grey: '灰色',
 }
 
 const ZH_HANT: Record<string, string> = {
@@ -238,12 +262,47 @@ const ZH_HANT: Record<string, string> = {
   'Copy this line to clipboard.': '複製本行到剪貼簿。',
   'Create a duplicate of this line.': '建立本行的副本。',
   'Remove this line permanently.': '永久刪除本行。',
+  // 正文工具条的文案
+  'Turn into': '轉換為',
+  Conversions: '轉換',
+  More: '更多',
+  'More menu': '更多操作',
+  Code: '行內程式碼',
+  Highlight: '標亮',
+  Color: '顏色',
+  Background: '背景',
+  'Inline Equation': '行內公式',
+  'Create Table': '建立表格',
+  'Create Linked Doc': '建立連結文件',
+  'Copied to clipboard': '已複製到剪貼簿',
+  Comment: '留言',
+  'default color': '預設顏色',
+  'default background': '預設背景',
+  red: '紅色',
+  orange: '橙色',
+  yellow: '黃色',
+  green: '綠色',
+  teal: '青色',
+  blue: '藍色',
+  purple: '紫色',
+  grey: '灰色',
 }
 
 function dictionaryFor(locale: string): Record<string, string> | null {
   if (locale === 'zh-TW' || locale.startsWith('zh-Hant')) return ZH_HANT
   if (locale === 'zh-CN' || locale.startsWith('zh-Hans')) return ZH_HANS
   return null
+}
+
+/**
+ * 工具条等编辑器 UI 文案的翻译入口。
+ *
+ * BlockSuite 把 tooltip、下拉菜单项名称等写成硬编码英文，前端通过
+ * `setEditorUiTranslator`（见 blocksuite.ts）把它注入编辑器；
+ * 没有词条时返回原文，非中文语言保持英文。
+ */
+export function translateEditorUiText(text: string): string {
+  return dictionaryFor(String(i18n.global.locale.value ?? ''))?.[text] ?? text
 }
 
 /** 空段落占位：中文环境把 "Type '/' for commands" 也一起本地化。 */

@@ -127,9 +127,9 @@
   automation: {
     conversationNotice: "この会話は自動化タスクが実行します。手動でメッセージは送信できません。保留中のリクエストは上で対応してください。",
     title: 'オートメーション',
-    description: 'WeKnora アシスタントがあなたに代わって定期的にタスクを実行します。結果と承認待ちの操作を通知します。',
+    description: '天禄があなたに代わって定期的にタスクを実行します。結果と承認待ちの操作を通知します。',
     add: '新規オートメーション',
-    addHint: 'WeKnora アシスタントに作成を頼むこともできます',
+    addHint: '天禄に作成を頼むこともできます',
     paused: '一時停止中',
     scheduleEnded: '終了',
     scheduleEndedHint: 'この一回限りのスケジュールは終了しました。今すぐ実行するか、実行日時を変更してから再開してください。',
@@ -181,7 +181,7 @@
       sections: {
         basic: {
           title: '基本情報',
-          desc: 'WeKnora アシスタントがタスクを実行します。他のエージェントに委任する場合は、タスクに委任先と作業内容を記載してください。',
+          desc: '天禄がタスクを実行します。他のエージェントに委任する場合は、タスクに委任先と作業内容を記載してください。',
         },
         schedule: {
           title: '実行スケジュール',
@@ -583,12 +583,12 @@
     meetings: '会議室',
     docAssistant: 'ソリューションアシスタント',
     pm: 'PMワークステーション',
-    workbench: 'ワークベンチ'
+    workbench: 'インクウェル'
   },
-  // ワークベンチ：最近 / データベース / お気に入り / ゴミ箱 / アイテム編集 / アーカイブ
+  // インクウェル：最近 / データベース / お気に入り / ゴミ箱 / アイテム編集 / アーカイブ
   workbench: {
     nav: {
-      title: 'ワークベンチ',
+      title: 'インクウェル',
       beta: 'BETA',
       recent: '最近',
       databases: '事項',
@@ -638,7 +638,7 @@
       database: '新しいデータベース',
       databaseHint: 'テーブル、ボード、カレンダービュー',
       folder: '新しいフォルダー',
-      folderHint: 'ワークベンチ内でアイテムを整理'
+      folderHint: 'インクウェル内でアイテムを整理'
     },
     import: {
       entry: '資料をインポート',
@@ -699,7 +699,7 @@
       emptyTrashFailed: 'ゴミ箱を空にできませんでした。もう一度お試しください',
       clearSearch: '検索をクリア',
       loadMore: 'さらに読み込む',
-      loadFailed: 'ワークベンチの読み込みに失敗しました。再読み込みしてください'
+      loadFailed: 'インクウェルの読み込みに失敗しました。再読み込みしてください'
     },
     item: {
       untitled: '無題',
@@ -712,6 +712,7 @@
       rename: '名前を変更',
       move: 'フォルダーへ移動',
       pin: '特定の日に固定',
+      pinHint: '日付をクリアして確定すると固定を解除します（通常の項目に戻ります）。',
       favorite: 'お気に入りに追加',
       unfavorite: 'お気に入りから削除',
       delete: '削除（ゴミ箱へ）',
@@ -724,6 +725,14 @@
       restoreFailed: '復元に失敗しました',
       favoriteFailed: 'お気に入りの更新に失敗しました',
       more: 'その他の操作'
+    },
+    noteDetail: {
+      title: 'ドキュメントの詳細',
+      open: '詳細を表示',
+      close: '閉じる',
+      updated: '{time} に更新',
+      words: '{count} 文字',
+      empty: 'プレビューできる内容がありません'
     },
     backlinks: {
       title: '被リンク',
@@ -767,6 +776,26 @@
       skipped: '適用できない指示を {count} 件無視しました',
       done: '{frames} 個のグループを作成し、{moves} 個の要素を移動しました',
       failed: '生成に失敗しました。もう一度お試しください'
+    },
+    relation: {
+      entry: '関連を探す',
+      title: '関連ドキュメント',
+      hint: 'AI が本文と他のドキュメントを比較します。確認するまでキャンバスには書き込みません。',
+      loading: '関連ドキュメントを検索中…',
+      empty: '関連ドキュメントはまだ見つかっていません',
+      degraded: '利用できるチャットモデルがないため、タグと mention による絞り込みのみ表示しています',
+      count: '選択 {selected} / {total}',
+      selectAll: 'すべて選択',
+      strong: '強い関連',
+      weak: '弱い関連',
+      moreWeak: '弱い関連が {count} 件あります（既定では未選択）',
+      ignore: '無視',
+      apply: 'キャンバスに追加',
+      cancel: 'キャンセル',
+      done: '{count} 件の関連ドキュメントを追加しました',
+      failed: 'キャンバスに書き込めませんでした。無限キャンバス形式で編集可能か確認してください。',
+      untitled: '無題のドキュメント',
+      open: '元のドキュメントを開く'
     },
     export: {
       entry: 'キャンバスを書き出す',
@@ -999,26 +1028,6 @@
           failed: '生成に失敗しました。しばらくしてから再度お試しください。'
         }
       },
-      collect: {
-        entry: '事項を抽出',
-        title: '事項を抽出',
-        hint: '本文から実行すべきことを検出し、確認後に「事項」に同期します',
-        hintTodo: '本文の ToDo から事項を抽出し、確認後に「事項」に同期します',
-        empty: '本文に ToDo はまだありません',
-        emptyAi: '本文に実行可能な事項は見つかりませんでした',
-        recognizing: '本文から事項を検出しています…',
-        titleField: '事項のタイトル',
-        count: '選択済み {selected} / {total}',
-        selectAll: 'すべて選択',
-        selectNone: '選択を解除',
-        done: '完了',
-        cancel: 'キャンセル',
-        confirm: '事項に同期',
-        applied: '{count} 件の事項を収集しました',
-        failed: '収集に失敗しました。しばらくしてから再度お試しください。',
-        aiNotFound: '実行可能な事項は見つかりませんでした',
-        aiFailed: '抽出に失敗しました。しばらくしてから再度お試しください。'
-      },
       /** アーカイブ後の自動抽出 */
       itemExtract: {
         applied: '「{title}」から {count} 件の事項を同期しました',
@@ -1042,6 +1051,26 @@
         isChecked: 'チェック済み',
         isUnchecked: '未チェック'
       }
+    },
+    collect: {
+      entry: '事項を抽出',
+      title: '事項を抽出',
+      hint: '本文から実行すべきことを検出し、確認後に「事項」に同期します',
+      hintTodo: '本文の ToDo から事項を抽出し、確認後に「事項」に同期します',
+      empty: '本文に ToDo はまだありません',
+      emptyAi: '本文に実行可能な事項は見つかりませんでした',
+      recognizing: '本文から事項を検出しています…',
+      titleField: '事項のタイトル',
+      count: '選択済み {selected} / {total}',
+      selectAll: 'すべて選択',
+      selectNone: '選択を解除',
+      done: '完了',
+      cancel: 'キャンセル',
+      confirm: '事項に同期',
+      applied: '{count} 件の事項を収集しました',
+      failed: '収集に失敗しました。しばらくしてから再度お試しください。',
+      aiNotFound: '実行可能な事項は見つかりませんでした',
+      aiFailed: '抽出に失敗しました。しばらくしてから再度お試しください。'
     },
     archive: {
       status: {
@@ -1111,10 +1140,11 @@
       }
     },
     editor: {
-      back: 'ワークベンチに戻る',
+      back: 'インクウェルに戻る',
       loading: 'キャンバスを読み込み中…',
       loadFailed: 'キャンバスの読み込みに失敗しました',
       notFound: 'アイテムが存在しないか、削除されています',
+      leaveBlocked: 'このドキュメントには未保存の変更があります。保存の確認を済ませてから切り替えてください。',
       saveDraftSaved: '下書きを保存済み',
       saveDraftPending: '未保存の変更あり',
       saveDraftSaving: '下書きを保存中…',
@@ -1157,7 +1187,7 @@
       conflict: '他のタブで内容が変更されました。再読み込みしてから復元してください'
     },
     journals: {
-      back: 'ワークベンチに戻る',
+      back: 'インクウェルに戻る',
       dateNav: 'Journal 日付ナビゲーション',
       prevWeek: '7 日前へ',
       nextWeek: '7 日後へ',
@@ -1288,6 +1318,7 @@
         translate: '翻訳 · {value}',
         tone: 'トーンを変更 · {value}',
         polish: '文章を推敲',
+        humanize: 'AI っぽさを消す',
         expand: '加筆',
         shorten: '短縮',
         continue: '続きを書く',
@@ -1311,7 +1342,6 @@
         more: 'その他',
         ask: 'AI に聞く',
         open: 'AI アシスタントを開く',
-        rewrite: 'AI で書き直す',
         selected: '{count} 文字を選択中'
       },
       preview: {
@@ -1339,9 +1369,9 @@
         tooLong: '選択範囲が 8000 文字を超えています。分割して処理してください。',
         noModel: '利用できるモデルがありません。先にモデル管理で追加してください。',
         streamBroken: '生成が中断しました。一部の結果は保持しています。再生成できます。',
-        disabled: 'ワークベンチ AI は無効です',
+        disabled: 'インクウェル AI は無効です',
         disabledHint: '有効にすると、ここで質問したりこのページを整理して、確認後に挿入できます。',
-        goSettings: 'ワークベンチ AI 設定を開く',
+        goSettings: 'インクウェル AI 設定を開く',
         needSelection: '先にテキストを選択してください',
         codeBlockHint: 'コードブロック内では「選択範囲を説明」のみ使えます'
       },
@@ -1368,7 +1398,7 @@
         empty: '一致するコマンドがありません'
       },
       panel: {
-        title: 'ワークベンチ AI',
+        title: 'インクウェル AI',
         agentPlaceholder: 'エージェントを選択',
         agentDefault: 'ワークスペースの既定モデルを使用',
         agentBuiltin: '{name}（組み込み）',
@@ -1383,16 +1413,16 @@
       }
     },
     settings: {
-      title: 'ワークスペース設定',
+      title: 'インクウェル設定',
       subtitle: '以下は個人設定で、この端末にのみ保存されます。',
-      open: 'ワークスペース設定を開く',
+      open: 'インクウェル設定を開く',
       storageNote: '設定はこのブラウザにのみ保存されます。ブラウザデータを消去すると既定値に戻りますが、既存のドキュメントとアーカイブには影響しません。',
       resetEditor: '既定値に戻す（エディター）',
-      resetAI: '既定値に戻す（ワークスペース AI）',
+      resetAI: '既定値に戻す（インクウェル AI）',
       resetDone: '既定値に戻しました',
       tab: {
         editor: 'エディター',
-        ai: 'ワークスペース AI'
+        ai: 'インクウェル AI'
       },
       editor: {
         text: 'フォントとページ',
@@ -1459,9 +1489,9 @@
         none: '枠線なし'
       },
       ai: {
-        general: 'ワークスペース AI',
+        general: 'インクウェル AI',
         agent: '既定のエージェント',
-        enabled: 'ワークスペース AI を有効化',
+        enabled: 'インクウェル AI を有効化',
         enabledHint: 'オフにするとサイドバー、ページ内 AI、キャンバス AI の入口が非表示になります。編集・アーカイブ・送信済みのタスクには影響しません。',
         citations: '回答に出典を表示',
         confirmInsert: '書き込む前にプレビュー',
@@ -1493,7 +1523,7 @@
       entryClosed: 'ドキュメントに既に内容があるため、テンプレート入口を閉じました',
       applied: '「{name}」テンプレートを適用しました',
       startBlank: '空白のドキュメントから始める',
-      footNote: 'テンプレートはこの端末のワークベンチに保存され、自分のみ閲覧できます',
+      footNote: 'テンプレートはこの端末のインクウェルに保存され、自分のみ閲覧できます',
       escHint: 'Esc で閉じる',
       mineEmpty: '自分のテンプレートはまだありません',
       mineEmptyHint: '任意のドキュメントを開き、⋯ から「テンプレートとして保存」を選びます',
@@ -2392,6 +2422,10 @@
           scenarios: '主要シナリオ',
           background: '背景'
         },
+        cognition: {
+          hint: 'AI ガイドが整理しますが、直接編集もできます。変更は下書きとして自動保存されます',
+          placeholder: '直接入力・編集できます。未確認の場合は空欄のままにしてください'
+        },
         blocks: {
           cognition: '製品理解',
           features: '機能分解',
@@ -2856,7 +2890,7 @@
     reopen: 'プロダクトツアー',
     steps: {
       assistant: {
-        title: 'WeKnora アシスタントのご紹介',
+        title: '天禄のご紹介',
         desc: 'WeKnora のバージョン、機能、設定について質問できます。現在のページをもとに、あなたの権限でエージェントの作成、定期タスクの設定、ナレッジの整理も行えます。'
       },
       welcome: {
@@ -4680,6 +4714,7 @@
       loadFailed: '解析エンジン一覧の読み込みに失敗しました',
       ensureDocreaderConnected: 'DocReaderサービスが環境変数で設定され、接続されていることを確認してください',
       checkDoneStatusUpdated: '現在のパラメータで確認しました。上のステータスを更新しました。',
+      checking: '確認中…',
       checkSuccess: '接続テストに成功しました',
       checkFailed: '接続テストに失敗しました',
       saveSuccess: '保存しました',
@@ -5482,7 +5517,8 @@
     back: '戻る'
   },
   file: {
-    upload: 'ファイルをアップロード'
+    upload: 'ファイルをアップロード',
+    downloadFailed: 'ダウンロードに失敗しました。しばらくしてから再度お試しください。'
   },
   manualEditor: {
     assistant: {
@@ -5603,6 +5639,16 @@
     }
   },
   input: {
+    imageUpload: {
+      label: '画像をアップロード',
+      tooltip: '画像をアップロード（貼り付け・ドラッグ対応）'
+    },
+    fileUpload: {
+      label: '添付ファイルをアップロード',
+      tooltip: '添付ファイルをアップロード（ドキュメント・音声など）',
+      tooMany: '添付ファイルは最大 5 個までアップロードできます',
+      tooLarge: '添付ファイルのサイズは 20 MB 以下にしてください'
+    },
     addModel: 'モデルを追加',
     placeholder: '質問や依頼内容を入力…',
     agentMode: 'スマート推論',
@@ -5618,6 +5664,7 @@
     agentNotReadyDetail: 'エージェント「{agentName}」は準備できていません。次の項目を設定してください: {reasons}',
     sharedAgentNotReadyDetail: '共有エージェント「{agentName}」は準備できていません（不足: {reasons}）。共有元スペースの管理者に設定の完了を依頼してください。',
     webSearch: {
+      label: 'ウェブ検索',
       toggleOn: 'Web検索を有効化',
       toggleOff: 'Web検索を無効化',
       notConfigured: 'Web検索エンジンが未設定です'
@@ -5914,7 +5961,7 @@
       systemActor: 'システム',
       actorWithAPIKey: '{actor} · API Key · {name}',
       actorAPIKey: 'API Key · {name}',
-      viaAssistant: 'WeKnora アシスタント経由',
+      viaAssistant: '天禄経由',
       knowledgeBase: 'ナレッジベース',
       countItems: '{count}件',
       titleWithCount: '{title}ほか{count}件',
@@ -6708,6 +6755,7 @@
     }
   },
   chat: {
+    imageReadFailed: '添付ファイルの読み込みに失敗しました。もう一度お試しください。',
     memoryUsedCount: '{count}件のメモリを使用',
     memoryForget: 'このメモリを削除',
     memoryForgotten: 'メモリを削除しました',
@@ -7682,6 +7730,10 @@
       getApiPrincipalConfigFailed: 'APIプリンシパル設定の取得に失敗しました',
       updateApiPrincipalConfigFailed: 'APIプリンシパル設定の更新に失敗しました',
       createApiPrincipalTestTokenFailed: 'APIテストトークンの作成に失敗しました',
+      createApiKeyFailed: 'API キーの作成に失敗しました',
+      deleteApiKeyFailed: 'API キーの削除に失敗しました',
+      listApiKeysFailed: 'API キー一覧の取得に失敗しました',
+      createFailed: 'ワークスペースの作成に失敗しました',
       updateFailed: 'ワークスペース情報の更新に失敗しました',
       deleteFailed: 'ワークスペースの削除に失敗しました'
     },
@@ -8806,7 +8858,7 @@
       videoNotSupported: 'お使いのブラウザは動画再生に対応していません'
     },
     assistant: {
-      title: 'WeKnora アシスタント',
+      title: '天禄',
       newConversation: '新しい会話',
       history: '会話履歴',
       untitledConversation: '無題の会話',
@@ -8823,7 +8875,7 @@
       welcomeDesc: 'WeKnora の使い方、ナレッジやドキュメントの整理、エージェント・ツール・自動化の設定をお手伝いします。',
       help: {
         label: 'アシスタントの説明',
-        title: 'WeKnora アシスタントにできること',
+        title: '天禄にできること',
         identity: 'アシスタントはあなた自身として動きます。見たり変更したりできる範囲は、このスペースでのあなたの役割までです。',
         page: '開くと現在のページが付きます。画面の内容を整理したり、エージェントや自動化を設定したり、フォームに記入したりできます。ボタンを押したり保存したりはしません。',
         access: '入力欄の下で権限を切り替えられます。閲覧のみ、変更前に確認、回復できる変更は自動実行。削除は必ず確認が必要で、管理者が定めた上限は超えられません。',
@@ -9317,7 +9369,7 @@
       commands: 'コマンド',
       recent: '最近',
       quickActions: 'クイックアクション',
-      workbench: 'ワークベンチ'
+      workbench: 'インクウェル'
     },
     workbench: {
       item: 'キャンバス / データベース項目',
@@ -10519,6 +10571,7 @@
     syncFailed: '同期の開始に失敗しました',
     pause: '一時停止',
     resume: '再開',
+    resumeFailed: '再開に失敗しました。もう一度お試しください。',
     paused: '一時停止しました',
     resumed: '再開しました',
     pauseFailed: '一時停止に失敗しました',

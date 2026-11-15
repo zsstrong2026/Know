@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -84,7 +84,10 @@ test('a non-reattachable (Docker) terminal never redials silently after ready', 
   assert.match(terminal, /chat\.sandbox\.stopped/)
 })
 
-test('interactive bash defines Debian-style ls aliases', () => {
+// Windows 上 bash 可能解析到不可用的 WSL 转发，这类 POSIX 用例需跳过
+const bashAvailable = spawnSync('bash', ['--version'], { stdio: 'ignore' }).status === 0
+
+test('interactive bash defines Debian-style ls aliases', { skip: !bashAvailable && 'bash is unavailable' }, () => {
   const out = execFileSync('bash', [
     '--norc',
     '--noprofile',

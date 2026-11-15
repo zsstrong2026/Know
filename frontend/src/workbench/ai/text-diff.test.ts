@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { diffSegments, splitResultBlocks, toPlainDocumentText } from './text-diff.ts'
+import { diffSegments, splitResultBlocks, stripMarkdownForPreview, toPlainDocumentText } from './text-diff.ts'
 
 test('diffSegments：识别中文里的插入与删除', () => {
   const segments = diffSegments('今天开会讨论方案', '今天开会讨论新方案')
@@ -71,4 +71,9 @@ test('toPlainDocumentText：说明紧接正文（没有空行）时也要截断'
 
 test('toPlainDocumentText：整段都是分析时退回纯文本，避免写不进去', () => {
   assert.equal(toPlainDocumentText('说明：这是一段解释。'), '说明：这是一段解释。')
+})
+
+test('stripMarkdownForPreview：预览不出现 Markdown 源码，保留行结构', () => {
+  const preview = stripMarkdownForPreview('## 标题\n**加粗**与`代码`\n\n---\n- 列表项')
+  assert.equal(preview, '标题\n加粗与代码\n\n列表项')
 })

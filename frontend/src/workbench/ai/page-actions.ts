@@ -62,7 +62,15 @@ const TONE_INSTRUCTIONS: Record<ToneOption, string> = {
   casual: '把语气改为轻松、口语；事实、负责人、数字与截止时间不变；保持原意。',
 }
 
-/** 19 个主项（含 3 个无 action 的分组项）。顺序与原型第 12 屏一致。 */
+/**
+ * 改写类动作统一追加的约束。
+ *
+ * 模型常在正文外加「改写结果」「改动说明」这类包装段落，写进正文后用户还得手工删；
+ * 这里明确要求只返回正文。
+ */
+const BODY_ONLY = '只返回改写后的正文；不解释、不加标题、不加改动说明。'
+
+/** 20 个主项（含 3 个无 action 的分组项）。顺序与原型第 12 屏一致。 */
 export const PAGE_AI_ACTIONS: readonly PageAIAction[] = [
   // 审阅文本
   {
@@ -111,7 +119,22 @@ export const PAGE_AI_ACTIONS: readonly PageAIAction[] = [
     group: 'edit',
     labelKey: 'workbench.pageAi.action.polish',
     action: 'polish',
-    instruction: '只返回润色后的文本；保留结构与专有名词；不解释。',
+    instruction: '只返回润色后的文本；保留结构与专有名词；不解释、不加标题、不加改动说明。',
+    write: 'replace',
+  },
+  {
+    // 去 AI 味：复用 humanizer 技能的规则，但只取与「读起来像人写的」相关的判据。
+    id: 'edit.humanize',
+    group: 'edit',
+    labelKey: 'workbench.pageAi.action.humanize',
+    action: 'custom',
+    instruction:
+      '清除 AI 写作痕迹，让文字像人写的：删掉「不是…而是」「不仅是…更是」否定排比、硬凑的三点式、同义词来回换与假范围句；' +
+      '去掉「见证/彰显/赋能/关键一步」等拔高，以及「专家认为/业内人士指出」这类无来源归因；' +
+      '不用「强大、无缝、深度、全面」等宣传词，不用「此外/值得注意的是/综上所述」机械衔接；' +
+      '拆掉破折号堆叠、加粗小标题式清单、表情符号、「希望这能帮到你」等对话残留和「未来可期」式空结尾；' +
+      '能用「是/有/做」就写简单句，长短句交错，补具体细节与真实判断，允许不确定和取舍；' +
+      '保留原文事实、数字、专有名词与核心观点。只返回改写后的正文；不解释、不加标题、不加改动说明。',
     write: 'replace',
   },
   {
@@ -119,7 +142,7 @@ export const PAGE_AI_ACTIONS: readonly PageAIAction[] = [
     group: 'edit',
     labelKey: 'workbench.pageAi.action.expand',
     action: 'custom',
-    instruction: '在不新增事实的前提下补充执行顺序、条件与细节；不超过原文两倍。',
+    instruction: '在不新增事实的前提下补充执行顺序、条件与细节；不超过原文两倍。只返回扩写后的正文；不解释、不加标题、不加改动说明。',
     write: 'replace',
   },
   {
@@ -127,7 +150,7 @@ export const PAGE_AI_ACTIONS: readonly PageAIAction[] = [
     group: 'edit',
     labelKey: 'workbench.pageAi.action.shorten',
     action: 'custom',
-    instruction: '压缩到原文一半以内；保留数字、负责人、截止时间与结论。',
+    instruction: '压缩到原文一半以内；保留数字、负责人、截止时间与结论。只返回压缩后的正文；不解释、不加标题、不加改动说明。',
     write: 'replace',
   },
   {
@@ -260,7 +283,7 @@ export function submenuItems(submenu: 'translate' | 'tone' | undefined): PageAIS
     return TONE_OPTIONS.map((tone) => ({
       id: `edit.tone.${tone}`,
       label: TONE_NAMES[tone],
-      instruction: TONE_INSTRUCTIONS[tone],
+      instruction: `${TONE_INSTRUCTIONS[tone]}${BODY_ONLY}`,
       action: 'custom' as InlineAIAction,
       write: 'replace' as PageAIWriteMode,
     }))

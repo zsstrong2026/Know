@@ -10,6 +10,7 @@ import {
   type ToolbarContext,
   type ToolbarPlacement,
 } from '@blocksuite/affine-shared/services';
+import { editorT, getEditorUiRevision } from '@blocksuite/affine-shared/utils';
 import { nextTick } from '@blocksuite/global/utils';
 import { TextSelection } from '@blocksuite/std';
 import { MoreVerticalIcon } from '@blocksuite/icons/lit';
@@ -255,6 +256,8 @@ function fixedToolbarSignatureOf(
   const range = context.std.range.value;
 
   return [
+    // 语言切换后翻译函数会更新，版本号变化让缓存签名失效、按新语言重绘。
+    String(getEditorUiRevision()),
     flavour,
     range?.collapsed ? 'collapsed' : 'range',
     modelKey,
@@ -333,12 +336,12 @@ export function renderToolbar(
           `${flavour}:${key}`,
           html`
             <editor-menu-button
-              aria-label="More menu"
+              aria-label=${editorT('More menu')}
               .contentPadding="${'8px'}"
               .button=${html`
                 <editor-icon-button
-                  aria-label="More"
-                  .tooltip="${'More'}"
+                  aria-label=${editorT('More')}
+                  .tooltip=${editorT('More')}
                   .iconContainerPadding=${innerToolbar ? 4 : 2}
                   .iconSize=${innerToolbar ? '16px' : undefined}
                 >
@@ -377,13 +380,15 @@ export function renderToolbar(
   }
 
   // Avoids shaking
+  // 只在首次切换时写 inline 属性：逐字输入会重复进入这里，
+  // 反复 setAttribute 会触发工具条样式失效，视觉上表现为闪动。
   if (flavour === 'affine:note' && context.std.range.value) {
     if (!('inline' in toolbar.dataset)) {
       toolbar.dataset.inline = '';
-    } else {
+    } else if (toolbar.dataset.inline !== 'true') {
       toolbar.dataset.inline = 'true';
     }
-  } else {
+  } else if ('inline' in toolbar.dataset) {
     delete toolbar.dataset.inline;
   }
 
@@ -439,11 +444,21 @@ function renderActions(
 }
 
 // TODO(@fundon): supports templates
+/**
+ * 工具条文案的翻译入口。
+ *
+ * 上游允许 tooltip 直接传 HTML 模板（例如带快捷键提示），
+ * 只有纯字符串才走宿主注入的翻译函数，模板原样透传。
+ */
+function trText(text: unknown): unknown {
+  return typeof text === 'string' ? editorT(text) : text;
+}
+
 function renderActionItem(action: ToolbarAction, context: ToolbarContext) {
   const innerToolbar = context.placement$.value === 'inner';
   const ids = action.id.split('.');
   const id = ids[ids.length - 1];
-  const label = action.label ?? action.tooltip ?? id;
+  const label = trText(action.label ?? action.tooltip ?? id);
   const actived =
     typeof action.active === 'function'
       ? action.active(context)
@@ -459,7 +474,7 @@ function renderActionItem(action: ToolbarAction, context: ToolbarContext) {
       aria-label=${ifDefined(label)}
       ?active=${actived}
       ?disabled=${disabled}
-      .tooltip=${action.tooltip}
+      .tooltip=${trText(action.tooltip)}
       .iconContainerPadding=${innerToolbar ? 4 : 2}
       .iconSize=${innerToolbar ? '16px' : undefined}
       @click=${() => action.run?.(context)}
@@ -467,7 +482,7 @@ function renderActionItem(action: ToolbarAction, context: ToolbarContext) {
       ${action.icon}
       ${
         action.showLabel && action.label
-          ? html`<span class="label">${action.label}</span>`
+          ? html`<span class="label">${trText(action.label)}</span>`
           : null
       }
     </editor-icon-button>
@@ -478,7 +493,7 @@ function renderMenuActionItem(action: ToolbarAction, context: ToolbarContext) {
   const innerToolbar = context.placement$.value === 'inner';
   const ids = action.id.split('.');
   const id = ids[ids.length - 1];
-  const label = action.label ?? action.tooltip ?? id;
+  const label = trText(action.label ?? action.tooltip ?? id);
   const actived =
     typeof action.active === 'function'
       ? action.active(context)
@@ -496,13 +511,13 @@ function renderMenuActionItem(action: ToolbarAction, context: ToolbarContext) {
       class="${ifDefined(destructive)}"
       ?active=${actived}
       ?disabled=${disabled}
-      .tooltip=${ifDefined(action.tooltip)}
+      .tooltip=${ifDefined(trText(action.tooltip))}
       .iconContainerPadding=${innerToolbar ? 4 : 2}
       .iconSize=${innerToolbar ? '16px' : undefined}
       @click=${() => action.run?.(context)}
     >
       ${action.icon}
-      ${action.label ? html`<span class="label">${action.label}</span>` : null}
+      ${action.label ? html`<span class="label">${trText(action.label)}</span>` : null}
     </editor-menu-action>
   `;
 }

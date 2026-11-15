@@ -54,7 +54,7 @@ import {
   ActionPlacement,
   blockCommentToolbarButton,
 } from '@blocksuite/affine-shared/services';
-import { getMostCommonValue } from '@blocksuite/affine-shared/utils';
+import { editorT, getMostCommonValue } from '@blocksuite/affine-shared/utils';
 import { tableViewMeta } from '@blocksuite/data-view/view-presets';
 import {
   CopyIcon,
@@ -112,8 +112,8 @@ const conversionsActionGroup = {
           .contentPadding="${'8px'}"
           .button=${html`
             <editor-icon-button
-              aria-label="Conversions"
-              .tooltip="${'Turn into'}"
+              aria-label=${editorT('Conversions')}
+              .tooltip=${editorT('Turn into')}
             >
               ${conversion.icon} ${EditorChevronDown}
             </editor-icon-button>
@@ -125,11 +125,11 @@ const conversionsActionGroup = {
               item => item.name,
               ({ flavour, type, name, icon }) => html`
                 <editor-menu-action
-                  aria-label=${name}
+                  aria-label=${editorT(name)}
                   ?data-selected=${conversion.name === name}
                   @click=${() => update(flavour, type)}
                 >
-                  ${icon}<span class="label">${name}</span>
+                  ${icon}<span class="label">${editorT(name)}</span>
                 </editor-menu-action>
               `
             )}
@@ -173,7 +173,10 @@ const alignActionGroup = {
         <editor-menu-button
           .contentPadding="${'8px'}"
           .button=${html`
-            <editor-icon-button aria-label="Align" .tooltip="${'Align'}">
+            <editor-icon-button
+              aria-label=${editorT('Align')}
+              .tooltip=${editorT('Align')}
+            >
               ${alignment.icon} ${EditorChevronDown}
             </editor-icon-button>
           `}
@@ -184,10 +187,10 @@ const alignActionGroup = {
               item => item.name,
               ({ textAlign, name, icon }) => html`
                 <editor-menu-action
-                  aria-label=${name}
+                  aria-label=${editorT(name)}
                   @click=${() => update(textAlign)}
                 >
-                  ${icon}<span class="label">${name}</span>
+                  ${icon}<span class="label">${editorT(name)}</span>
                 </editor-menu-action>
               `
             )}
@@ -407,7 +410,7 @@ export const builtinToolbarConfig = {
 
             if (!ok) return;
 
-            toast(host, 'Copied to clipboard');
+            toast(host, editorT('Copied to clipboard'));
           },
         },
         {

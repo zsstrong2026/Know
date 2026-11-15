@@ -276,7 +276,7 @@ export async function assembleZip(input: ZipInput): Promise<Blob> {
   })
 }
 
-/** 下载文件名：`标题-工作台导出.zip`，标题非法时退回 item id。 */
+/** 下载文件名：`标题-墨匣导出.zip`，标题非法时退回 item id。 */
 export function packageFileName(title: string, fallbackId: string): string {
-  return `${sanitizeFileName(title, sanitizeFileName(fallbackId, 'workbench'))}-工作台导出.zip`
+  return `${sanitizeFileName(title, sanitizeFileName(fallbackId, 'workbench'))}-墨匣导出.zip`
 }

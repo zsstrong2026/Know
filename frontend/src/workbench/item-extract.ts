@@ -54,7 +54,7 @@ async function withThingsEditor<T>(
 
   const { mountEditor } = await import('@/workbench/editor/blocksuite')
   const { DatabaseBlockDataSource } = await import('@blocksuite/affine/blocks/database')
-  const { ensureWorkbenchSourceColumns, seedWorkbenchDatabase } = await import(
+  const { ensureWorkbenchSourceColumns, migrateLegacyTextColumns, seedWorkbenchDatabase } = await import(
     '@/workbench/editor/database-seed'
   )
   const { editorSeedLabels } = await import('@/workbench/editor/use-editor-session')
@@ -73,6 +73,7 @@ async function withThingsEditor<T>(
   })
   try {
     // 老表可能还没有「来源 / 来源文档」两列：写入前先补齐，保证来源能落库。
+    migrateLegacyTextColumns(handle.store)
     ensureWorkbenchSourceColumns(handle.store, labels)
     const databaseId = findDatabaseId(handle.store)
     const model = databaseId ? handle.store.getModelById(databaseId) : null

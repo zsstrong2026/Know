@@ -35,7 +35,7 @@ for (const term of ['/docs/_home/product/wiki-browser.png', '/docs/_home/product
 }
 // Release highlights and enduring capabilities must survive independently.
 const release = html.match(/<section id="release"[\s\S]*?<\/section>/)?.[0];
-for (const term of ['WeKnora 助手、多智能体协作与自动化', '多智能体协作', '自动化', '执行权限与审批', '按用户复用沙箱', '飞书 / Lark 同步', '产品问答', '任务协助', '一句话设置', '手动设置', '以你的身份']) {
+for (const term of ['天禄、多智能体协作与自动化', '多智能体协作', '自动化', '执行权限与审批', '按用户复用沙箱', '飞书 / Lark 同步', '产品问答', '任务协助', '一句话设置', '手动设置', '以你的身份']) {
   assert.ok(release?.includes(term), `Missing release highlight: ${term}`);
 }
 for (const shot of ['assistant-release-guide', 'assistant-overview', 'agent-collaboration', 'automation-conversation', 'automation-setup', 'assistant-permissions']) {

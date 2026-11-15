@@ -136,7 +136,7 @@ func (s *knowledgeBaseService) buildWorkKnowledgeBase(
 		CreatorID:   userID,
 		Name:        types.KBNameWork,
 		Type:        types.KnowledgeBaseTypeDocument,
-		Description: "我的工作台文档与生成资料的私有归档",
+		Description: "我的墨匣文档与生成资料的私有归档",
 		IsSystem:    true,
 		SystemKey:   types.KBSystemKeyWork,
 		Visibility:  types.KBVisibilityPrivate,

@@ -118,6 +118,8 @@ export function applyDatabasePatch(options: {
   for (const column of columnsFromModel(model, dataSource)) {
     columnIds.set(column.name.trim().toLowerCase(), column.id)
   }
+  // 待写的行标题：新行块要等本事务提交后才注册进 store，见下方事务外的补写。
+  const pendingTitles: Array<{ rowId: string; title: string }> = []
 
   store.transact(() => {
     for (const op of patch.ops) {
@@ -140,10 +142,8 @@ export function applyDatabasePatch(options: {
         // 必须放在 cells 循环之前：归档补丁自带来源单元格，后写即可覆盖这里。
         markAiSource(dataSource, rowId)
         // 标题列是 spacial property：值就是行块自身的 Y.Text。
-        const rowModel = store.getModelById(rowId)
-        if (rowModel?.text && op.title) {
-          rowModel.text.replace(0, rowModel.text.length, op.title)
-        }
+        // 但新行块要等事务提交后才会注册进 store，这里只能先记下来。
+        if (op.title) pendingTitles.push({ rowId, title: op.title })
         for (const cell of op.cells) {
           const columnId = columnIds.get(cell.columnName.trim().toLowerCase()) ?? cell.columnId
           if (!columnId) continue
@@ -174,7 +174,26 @@ export function applyDatabasePatch(options: {
     }
   })
 
+  // 新建行的标题要等事务提交后再写：行块在本事务里才落到 Y.Doc，
+  // 事务内 `getModelById` 还拿不到它，写进去会静默丢失（表格里就显示成 Untitled）。
+  for (const { rowId, title } of pendingTitles) writeRowTitle(store, rowId, title)
+
   return outcome
+}
+
+/**
+ * 写行标题（标题列是 spacial property，值就是行块自身的 Y.Text）。
+ *
+ * 行块还没注册进 store 时静默跳过：调用方无法补救，记录日志便于排查。
+ */
+function writeRowTitle(store: any, rowId: string, title: string): boolean {
+  const model = store.getModelById?.(rowId)
+  if (!model?.text) {
+    console.warn('[workbench-db-ai] row model not ready, title skipped:', rowId)
+    return false
+  }
+  model.text.replace(0, model.text.length, title)
+  return true
 }
 
 /** AI 建行补「AI 识别」来源；列或选项不存在时跳过（老条目可能没补这一列）。 */

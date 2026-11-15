@@ -161,6 +161,6 @@ test('assembleZip：空资产数据被跳过，不影响整包', async () => {
 })
 
 test('packageFileName：标题非法时退回条目 id', () => {
-  assert.equal(packageFileName('项目 / 看板', 'item-1'), '项目 - 看板-工作台导出.zip')
-  assert.equal(packageFileName('   ', 'item-1'), 'item-1-工作台导出.zip')
+  assert.equal(packageFileName('项目 / 看板', 'item-1'), '项目 - 看板-墨匣导出.zip')
+  assert.equal(packageFileName('   ', 'item-1'), 'item-1-墨匣导出.zip')
 })

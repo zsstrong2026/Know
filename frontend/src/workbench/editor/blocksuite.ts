@@ -22,6 +22,7 @@ import {
   FontConfigExtension,
 } from '@blocksuite/affine/shared/services'
 import { BlockStdScope } from '@blocksuite/affine/std'
+import { NoteConfigExtension } from '@blocksuite/affine/blocks/note'
 import { insertEdgelessTextCommand } from '@blocksuite/affine-gfx-text'
 import { DefaultTool, EdgelessCRUDIdentifier } from '@blocksuite/affine/blocks/surface'
 import { initDatabaseBlock } from '@blocksuite/affine/blocks/database'
@@ -40,12 +41,29 @@ import { TextSelection } from '@blocksuite/std'
 import { GfxControllerIdentifier } from '@blocksuite/std/gfx'
 import { Text } from '@blocksuite/store'
 import { signal } from '@preact/signals-core'
+import { html } from 'lit'
 import * as Y from 'yjs'
 import { ParagraphViewExtension } from '@blocksuite/affine-block-paragraph/view'
-import { localizedParagraphPlaceholder, translateSlashMenuItem } from './slash-menu-locale'
+import { setEditorUiTranslator } from '@blocksuite/affine-shared/utils'
+import { watch } from 'vue'
+import i18n from '@/i18n'
+import { localizedParagraphPlaceholder, translateEditorUiText, translateSlashMenuItem } from './slash-menu-locale'
+import { WB_NOTE_DETAIL_EVENT, noteCardTitle } from './note-events'
 import { PenOnlyEraserTool } from './canvas-eraser'
 import { canvasHistoryQuickTools } from './canvas-history-tools'
+import {
+  applyRelationPlan,
+  readRelationRects,
+  readRelationsState,
+  writeRelationsState,
+  type ApplyRelationInput,
+  type ApplyRelationOutcome,
+  type RelationCardState,
+  type RelationRect,
+  type RelationsState,
+} from './canvas-relations'
 import { WorkbenchWorkspace } from './workbench-workspace'
+import { locateQuoteInEditor, type QuoteLocateOutcome } from './quote-locate'
 // 斜杠菜单挂在 body 上，必须用全局样式覆盖其浮层背景
 import './editor-popover.css'
 
@@ -54,6 +72,11 @@ import './editor-popover.css'
 type BsExtension = any
 type BsStore = any
 type BsDoc = any
+
+/** 关联写入的入参：store / crud / surface 由编辑器内部补齐，调用方只管业务字段。 */
+export type CanvasRelationInput = Omit<ApplyRelationInput, 'store' | 'crud' | 'surfaceId'>
+export type CanvasRelationOutcome = ApplyRelationOutcome
+export type { RelationCardState, RelationRect, RelationsState }
 
 export type EditorKind = 'canvas' | 'database'
 export type EditorMode = 'page' | 'edgeless'
@@ -187,6 +210,20 @@ export interface CanvasViewport {
   y: number
 }
 
+/**
+ * 画布视图矩阵：把模型坐标换算成「宿主元素内的像素坐标」。
+ *
+ * `px = (model - viewportOrigin) * zoom * viewScale`。
+ * viewScale 是外层容器对编辑器的整体缩放（嵌套场景才不为 1），
+ * DOM 覆盖层必须带上它，否则在缩放过的容器里会错位。
+ */
+export interface CanvasViewState {
+  zoom: number
+  viewScale: number
+  viewportX: number
+  viewportY: number
+}
+
 export interface CanvasHandle {
   destroy(): void
   getSnapshot(): Uint8Array
@@ -255,6 +292,50 @@ export interface CanvasHandle {
    * 返回成功插入的块数（只读或资产 id 为空时返回 0）。
    */
   insertAttachments(files: AttachmentInsertInput[]): number
+  /**
+   * 写入智能关联的锚点、引用卡片与连线（§P2）。
+   *
+   * 只在 edgeless 形态且可编辑时生效；page 形态或只读时返回全失败的结果，
+   * 由调用方提示，不抛错。画布上只建空 frame 与 connector，卡片文字由 DOM 覆盖层渲染。
+   */
+  applyRelations(input: CanvasRelationInput): CanvasRelationOutcome
+  /**
+   * 读画布上卡片 frame 的当前包围盒（frameId → rect）。
+   *
+   * 覆盖层按它渲染，因此用户拖动 frame 后卡片文字会跟随；
+   * 已被删掉的 frame 不在此表里。
+   */
+  readRelationRects(cards: RelationCardState[]): Map<string, RelationRect>
+  /** 读已落盘的关联状态；没有或不合法时返回 null。 */
+  readRelations(): RelationsState | null
+  /** 覆盖写关联状态（进入自动保存队列）。 */
+  saveRelations(state: RelationsState): void
+  /**
+   * 定位并临时高亮一句原文（P4：点开关联卡片时用）。
+   *
+   * 只改渲染：画布形态把视口挪到目标块，之后用 CSS Highlight 标出那句话；
+   * 不写 Y.Doc，也不产生保存。找不到这句原文时返回 null。
+   */
+  locateQuote(quote: string): QuoteLocateOutcome | null
+  /**
+   * 读画布视图矩阵（DOM 覆盖层定位用）。page 形态或视口未就绪时返回 null。
+   *
+   * 与 `getViewport` 的差别：那个给「记住/恢复视口」用（中心点），
+   * 这个给「模型坐标 → 像素坐标」用（左上角原点 + viewScale）。
+   */
+  getViewState(): CanvasViewState | null
+  /**
+   * 订阅视口变化（平移、缩放、resize）。返回取消订阅函数。
+   *
+   * 覆盖层靠它跟随画布；不要用 requestAnimationFrame 轮询，空闲时白白耗电。
+   */
+  onViewChange(listener: (state: CanvasViewState | null) => void): () => void
+  /**
+   * 订阅内容变更（块的增删与 props 变化，如拖动 frame 改 xywh）。
+   *
+   * 与 `onViewChange` 分开：视口没动但卡片被拖走时，覆盖层也要重新定位。
+   */
+  onContentChange(listener: () => void): () => void
   /** 供上层读取 block model / 做投影，不参与渲染 */
   store: BsStore
   doc: BsDoc
@@ -308,6 +389,26 @@ function canvasViewportOf(view: AttachedView, mode: EditorMode): any {
   return view.std?.get?.(GfxControllerIdentifier)?.viewport ?? null
 }
 
+/** 取 surface 块 id；page 形态或空画布没有 surface，返回空串。 */
+function surfaceIdOf(store: any): string {
+  const children: any[] = store?.root?.children ?? []
+  return children.find((child: any) => child.flavour === 'affine:surface')?.id ?? ''
+}
+
+/**
+ * 取 Edgeless CRUD。
+ *
+ * connector 是 surface element，只能用 CRUD 的 `addElement` 建；
+ * page 形态没有 surface，取不到就返回 null，由调用方降级为「不可写入」。
+ */
+function edgelessCrudOf(view: AttachedView): any {
+  try {
+    return view.std?.get?.(EdgelessCRUDIdentifier) ?? null
+  } catch {
+    return null
+  }
+}
+
 /** 读视口参数；上游字段非数值时返回 null，避免把 NaN 传出去。 */
 function readCanvasViewport(view: AttachedView, mode: EditorMode): CanvasViewport | null {
   const viewport = canvasViewportOf(view, mode)
@@ -317,6 +418,51 @@ function readCanvasViewport(view: AttachedView, mode: EditorMode): CanvasViewpor
   const y = Number(viewport.centerY)
   if (![zoom, x, y].every((value) => Number.isFinite(value))) return null
   return { zoom, x, y }
+}
+
+/**
+ * 读视图矩阵（模型 → 宿主像素）。
+ *
+ * 用上游的 `viewportX/viewportY` 而不是中心点：覆盖层要的是左上角原点，
+ * 自己拿中心点减去半个视口还要先知道 width/height，绕远且容易算错。
+ */
+function readCanvasViewState(view: AttachedView, mode: EditorMode): CanvasViewState | null {
+  const viewport = canvasViewportOf(view, mode)
+  if (!viewport) return null
+  const zoom = Number(viewport.zoom)
+  const viewScale = Number(viewport.viewScale ?? 1)
+  const viewportX = Number(viewport.viewportX)
+  const viewportY = Number(viewport.viewportY)
+  if (![zoom, viewScale, viewportX, viewportY].every((value) => Number.isFinite(value))) return null
+  return { zoom, viewScale, viewportX, viewportY }
+}
+
+/**
+ * 订阅视口变化。
+ *
+ * 上游 `viewportUpdated` 在平移/缩放时触发；`sizeUpdated` 覆盖容器尺寸变化
+ * （右侧 AI 侧栏展开会让画布变窄，只订阅前者会错位）。
+ * 回调里统一重读一次矩阵，不信任事件里的字段——两路信号结构不同。
+ */
+function watchCanvasView(
+  view: AttachedView,
+  mode: EditorMode,
+  listener: (state: CanvasViewState | null) => void,
+): () => void {
+  const viewport = canvasViewportOf(view, mode)
+  if (!viewport) {
+    listener(null)
+    return () => {}
+  }
+  const emit = () => listener(readCanvasViewState(view, mode))
+  const subscriptions: Array<{ unsubscribe(): void }> = []
+  for (const signal of [viewport.viewportUpdated, viewport.sizeUpdated]) {
+    if (signal && typeof signal.subscribe === 'function') {
+      subscriptions.push(signal.subscribe(emit))
+    }
+  }
+  emit()
+  return () => subscriptions.forEach((subscription) => subscription.unsubscribe())
 }
 
 /** 写视口参数：只改传进来的项，未传的保持原值。 */
@@ -621,6 +767,8 @@ export function ensureBlockSuiteElements(): void {
     edgeless: [
       ...viewManager.get('edgeless'),
       FontConfigExtension(CommunityCanvasTextFonts),
+      // 文档卡片标题栏：图标 + 标题 + 详情入口（画布便签不受影响）
+      workbenchNoteConfig,
       PenOnlyEraserTool,
       // 原生工具栏补撤销 / 重做：上游工具栏本身没有历史入口
       ...canvasHistoryQuickTools,
@@ -744,6 +892,26 @@ function installSlashMenuLocale(root: HTMLElement): void {
   }
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(retry)
   else window.setTimeout(retry, 16)
+}
+
+/** 工具条翻译器只绑定一次语言监听，避免编辑器反复挂载时重复注册。 */
+let editorUiLocaleBound = false
+
+/**
+ * 给编辑器注入工具条等 UI 文案的翻译器。
+ *
+ * 工具条按钮 tooltip、下拉菜单项名称由 BlockSuite 渲染，文案是硬编码英文；
+ * 上游留了运行期注入点（setEditorUiTranslator），这里接上前端 i18n。
+ * 语言切换时重新注入（内部 revision 自增），工具条按新语言重绘。
+ */
+function installEditorUiLocale(): void {
+  setEditorUiTranslator(translateEditorUiText)
+  if (editorUiLocaleBound) return
+  editorUiLocaleBound = true
+  watch(
+    () => i18n.global.locale.value,
+    () => setEditorUiTranslator(translateEditorUiText)
+  )
 }
 
 /**
@@ -880,6 +1048,94 @@ function installEdgelessBlankClickText(std: any, element: HTMLElement): () => vo
 }
 
 /**
+ * 无限画布里的文档卡片标题栏与固定尺寸。
+ *
+ * 版式参考「卡片笔记」：一行标题栏（图标 + 文档标题 + 详情入口）+ 固定大小的卡片。
+ * 标题栏走上游 NoteConfigExtension 的 pageBlockTitle 钩子，只有页面级 note 会渲染；
+ * 画布便签仍是原有样式，不受影响。
+ */
+const NOTE_CARD_WIDTH = 498
+const NOTE_CARD_HEIGHT = 420
+
+const NOTE_HEAD_ICON = html`<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v5h5" /></svg>`
+const NOTE_DETAIL_ICON = html`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h12v12" /><path d="M20 4 5 19" /><path d="M16 20H4V8" /></svg>`
+
+/**
+ * 文档卡片标题栏。
+ *
+ * 点击标题栏打开宿主页的右侧详情抽屉，而不是进入画布编辑：
+ * pointerdown 先拦住画布的选择/编辑链路，click 再派发事件。
+ */
+const workbenchNoteConfig = NoteConfigExtension({
+  pageBlockTitle: ({ std }: { std: any }) => {
+    // 条目标题优先（与页头一致）；未同步时退回 Y.Doc 的页面标题
+    const itemTitle = (noteCardTitle.value ?? '').trim()
+    const pageTitle = (std.store.root?.props.title$.value?.toString() ?? '').trim()
+    const label = itemTitle || pageTitle || i18n.global.t('workbench.item.untitledDocument')
+    const stopPointer = (event: Event) => event.stopPropagation()
+    const openDetail = (event: Event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      window.dispatchEvent(new CustomEvent(WB_NOTE_DETAIL_EVENT))
+    }
+    return html`
+      <div class="wb-note-head" @pointerdown=${stopPointer} @click=${openDetail}>
+        <span class="wb-note-head-icon">${NOTE_HEAD_ICON}</span>
+        <span class="wb-note-head-title" title=${label}>${label}</span>
+        <button
+          class="wb-note-head-detail"
+          type="button"
+          title=${i18n.global.t('workbench.noteDetail.open')}
+          aria-label=${i18n.global.t('workbench.noteDetail.open')}
+        >
+          ${NOTE_DETAIL_ICON}
+        </button>
+      </div>
+    `
+  },
+  // 背景层不再需要额外控件；空实现同时关闭上游页面笔记底部的折叠指示。
+  edgelessNoteHeader: () => html``,
+})
+
+/**
+ * 把页面级 note 固定成统一尺寸的卡片。
+ *
+ * 上游在 collapse=false 时会用 ResizeObserver 把 xywh 高度同步成内容高度，
+ * 文档越长卡片越高；写入固定 xywh 并打开 collapse 后，卡片高度才不会被内容撑开。
+ * 超出部分由画布原生折叠态裁切，悬停 / 进入编辑时仍可展开查看。
+ */
+function applyFixedDocNoteSize(store: BsStore): void {
+  if (store.readonly) return
+  const pageNote = (store.root?.children ?? []).find(
+    (child: any) => child.flavour === 'affine:note' && child.props?.displayMode !== 'edgeless',
+  ) as any
+  if (!pageNote) return
+  const parts = String(pageNote.props.xywh ?? '').replace(/^\[|\]$/g, '').split(',')
+  const x = Number(parts[0])
+  const y = Number(parts[1])
+  const nextXYWH = `[${Number.isFinite(x) ? x : 0},${Number.isFinite(y) ? y : 0},${NOTE_CARD_WIDTH},${NOTE_CARD_HEIGHT}]`
+  const edgeless = pageNote.props.edgeless ?? {}
+  if (
+    pageNote.props.xywh === nextXYWH &&
+    edgeless.collapse &&
+    edgeless.collapsedHeight === NOTE_CARD_HEIGHT &&
+    (edgeless.scale ?? 1) === 1
+  ) {
+    return
+  }
+  store.transact(() => {
+    pageNote.props.xywh = nextXYWH
+    pageNote.props.edgeless = {
+      ...edgeless,
+      collapse: true,
+      collapsedHeight: NOTE_CARD_HEIGHT,
+      // 统一回到 1:1，避免历史缩放让相同 xywh 显示成不同大小
+      scale: 1,
+    }
+  })
+}
+
+/**
  * 无限画布里的「文档卡片边框」标记（方案 B · 卡片浮层）。
  *
  * edgeless 视图把页面级 note（文档正文）与画布便签渲染成同一种
@@ -935,9 +1191,13 @@ function attachView(params: {
   element.appendChild(host)
   // 菜单文案跟随当前 i18n 语言（中文环境不再显示英文命令）
   installSlashMenuLocale(element)
+  // 正文工具条等 UI 文案同样跟随界面语言
+  installEditorUiLocale()
   // 无限画布：空白处单击直接落一个可编辑文本块（AFFiNE 的空白双击效果）
   const removeBlankClickText =
     mode === 'edgeless' ? installEdgelessBlankClickText(std, element) : null
+  // 无限画布：文档根 note 固定为统一尺寸的卡片
+  if (mode === 'edgeless') applyFixedDocNoteSize(store)
   // 无限画布：给文档根 note 打标记，样式层据此画「卡片浮层」边框
   const docNoteMarker = mode === 'edgeless' ? markDocumentNotes(element, store) : null
 
@@ -1106,6 +1366,17 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
   }
   bindToolWatch()
 
+  // 视口订阅同理：覆盖层要跟随平移/缩放，std 重建后必须重新绑一次。
+  const viewListeners = new Set<(state: CanvasViewState | null) => void>()
+  let stopViewWatch: (() => void) | null = null
+  const bindViewWatch = () => {
+    stopViewWatch?.()
+    stopViewWatch = watchCanvasView(view, currentMode, (state) => {
+      viewListeners.forEach((listener) => listener(state))
+    })
+  }
+  bindViewWatch()
+
   return {
     getSnapshot: () => Y.encodeStateAsUpdate(doc.spaceDoc),
     store,
@@ -1146,6 +1417,56 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
     insertAttachments: (files: AttachmentInsertInput[]) =>
       insertAttachmentBlocks(store, currentMode, view, files),
     /**
+     * 关联写入：page 形态、空画布或只读时统一按「全部失败」返回，
+     * 让上层给一次性提示，而不是半途抛错。
+     */
+    applyRelations: (input) => {
+      const surfaceId = currentMode === 'edgeless' ? surfaceIdOf(store) : ''
+      if (!surfaceId || store.readonly) {
+        return {
+          anchorId: '',
+          anchor: { x: 0, y: 0, w: 0, h: 0 },
+          cards: [...(input.existing ?? [])],
+          created: 0,
+          skipped: 0,
+          failed: input.relations.length,
+        }
+      }
+      return applyRelationPlan({ ...input, store, surfaceId, crud: edgelessCrudOf(view) })
+    },
+    readRelationRects: (cards) => readRelationRects(store, cards),
+    readRelations: () => readRelationsState(doc.spaceDoc),
+    saveRelations: (state) => writeRelationsState(doc.spaceDoc, state),
+    locateQuote: (quote) =>
+      locateQuoteInEditor(
+        {
+          store,
+          root: element,
+          // 画布形态才需要手动挪视口；页面形态由 scrollRectIntoContainer 负责
+          centerOn: (center) => {
+            if (currentMode !== 'edgeless') return false
+            return applyCanvasViewport(view, 'edgeless', { x: center.x, y: center.y })
+          },
+        },
+        quote,
+      ),
+    getViewState: () => readCanvasViewState(view, currentMode),
+    onViewChange: (listener) => {
+      viewListeners.add(listener)
+      // 立即回调一次当前值：订阅方通常是刚挂载的覆盖层，不能等第一次平移才有位置
+      listener(readCanvasViewState(view, currentMode))
+      return () => {
+        viewListeners.delete(listener)
+      }
+    },
+    onContentChange: (listener) => {
+      const subscriptions = [
+        store.slots.blockUpdated.subscribe(() => listener()),
+        store.slots.yBlockUpdated.subscribe(() => listener()),
+      ]
+      return () => subscriptions.forEach((subscription) => subscription.unsubscribe())
+    },
+    /**
      * 换 root：复用同一 store/doc/workspace，只重建视图层。
      * 不调用 encodeStateAsUpdate / applyUpdate，因此未保存变更天然保留。
      */
@@ -1177,6 +1498,8 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
       // 换 std 后旧工具信号已随旧视图销毁；重新挂订阅并广播一次当前值。
       bindToolWatch()
       toolListeners.forEach((listener) => listener(readActiveTool(view)))
+      // 视口订阅同样要迁到新视图：否则切回 edgeless 后覆盖层不再跟随平移。
+      bindViewWatch()
     },
     destroy: () => {
       subscriptions.forEach(sub => sub.unsubscribe())
@@ -1184,6 +1507,9 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
       stopToolWatch?.()
       stopToolWatch = null
       toolListeners.clear()
+      stopViewWatch?.()
+      stopViewWatch = null
+      viewListeners.clear()
       view.detach()
       stats.viewUnmounts += 1
       store.dispose()

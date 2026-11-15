@@ -22,22 +22,23 @@
       <button type="button" :disabled="codeOnlyActive" @click="quickAction('edit.polish')">
         {{ t('workbench.pageAi.action.polish') }}
       </button>
-      <button type="button" :disabled="codeOnlyActive" @click="quickAction('edit.translate')">
+      <button type="button" :disabled="codeOnlyActive" @click="quickAction('edit.humanize')">
+        {{ t('workbench.pageAi.action.humanize') }}
+      </button>
+      <button type="button" :disabled="codeOnlyActive" @click="quickTranslate">
         {{ t('workbench.pageAi.action.translate', { value: translateLangName(lastLang) }) }}
       </button>
-      <button type="button" :aria-expanded="menuOpen" @click="toggleMenu">
+      <button ref="moreBtnEl" type="button" :aria-expanded="menuOpen" @click="toggleMenu">
         {{ t('workbench.pageAi.bar.more') }}
       </button>
       <span class="pai-sep" />
       <button type="button" @click="openPanel">{{ t('workbench.pageAi.bar.ask') }}</button>
-      <button type="button" :disabled="codeOnlyActive" @click="quickAction('edit.polish')">
-        {{ t('workbench.pageAi.bar.rewrite') }}
-      </button>
       <span v-if="tooLong" class="pai-warn">{{ t('workbench.pageAi.state.tooLong') }}</span>
     </div>
 
     <PageAIMenu
       v-if="menuOpen"
+      ref="menuEl"
       :code-only="codeOnlyActive"
       :last-lang="lastLang"
       class="pai-menu-host"
@@ -79,7 +80,8 @@
       :class="{ 'is-docked': Boolean(panelTarget) }"
       :aria-label="t('workbench.pageAi.panel.title')"
     >
-      <header class="pp-head">
+      <!-- 停靠模式下由外层标签负责切换，标题与关闭按钮都是冗余信息，不再展示 -->
+      <header v-if="!panelTarget" class="pp-head">
         <span class="pp-title">{{ t('workbench.pageAi.panel.title') }}</span>
         <span class="spacer" />
         <button type="button" :aria-label="t('workbench.pageAi.panel.close')" @click="panelOpen = false">
@@ -284,6 +286,10 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const menuOpen = ref(false)
+/** 「更多」触发按钮：点击它由 click 负责切换，不参与外部点击关闭 */
+const moreBtnEl = ref<HTMLElement | null>(null)
+/** 菜单实例：用于判断点击是否落在弹窗内部 */
+const menuEl = ref<InstanceType<typeof PageAIMenu> | null>(null)
 /** 侧栏默认展开：编辑页进入即可看到 AI 对话与改写入口 */
 const panelOpen = ref(props.initialOpen !== false)
 const draft = ref('')
@@ -505,14 +511,39 @@ function toggleMenu() {
   if (menuOpen.value) slashOpen.value = false
 }
 
-function quickAction(id: string) {
+/**
+ * 点击页面其他位置（编辑器空白、侧栏等）时收起「更多」弹窗。
+ *
+ * 用捕获阶段监听：编辑器内部的 pointerdown 可能 stopPropagation，
+ * 冒泡阶段会漏掉点击空白的情况。菜单内部与触发按钮自身不关闭。
+ */
+function onDocumentPointerDown(event: PointerEvent) {
+  const target = event.target as Node | null
+  if (!target) return
+  if (menuEl.value?.$el?.contains(target)) return
+  if (moreBtnEl.value?.contains(target)) return
+  menuOpen.value = false
+}
+
+watch(menuOpen, (open) => {
+  if (open) document.addEventListener('pointerdown', onDocumentPointerDown, true)
+  else document.removeEventListener('pointerdown', onDocumentPointerDown, true)
+})
+
+/** 工具条直达动作：子菜单型动作（如翻译）可直接带上默认子项，跳过展开菜单。 */
+function quickAction(id: string, submenuId?: string) {
   // 代码块内快捷动作同样被禁用，避免绕过菜单的可用性规则（§9.15.1）。
   if (codeOnlyActive.value) {
     MessagePlugin.info(t('workbench.pageAi.state.codeBlockHint'))
     return
   }
   const action = PAGE_AI_ACTIONS.find((item) => item.id === id)
-  if (action) void onMenuSelect(action)
+  if (action) void onMenuSelect(action, submenuId)
+}
+
+/** 「翻译为」直达：按上次选择的语言生成子项 id，否则用默认语言。 */
+function quickTranslate() {
+  quickAction('edit.translate', `edit.translate.${lastLang.value}`)
 }
 
 /** 菜单选中：编译成请求参数后立刻发起（子菜单项带 submenuId）。 */
@@ -809,6 +840,7 @@ function openPanel() {
 
 onBeforeUnmount(() => {
   document.removeEventListener('selectionchange', onDocumentSelectionChange)
+  document.removeEventListener('pointerdown', onDocumentPointerDown, true)
   chatController?.abort()
   ai.abort()
 })

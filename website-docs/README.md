@@ -142,7 +142,7 @@ npm run test:integration
 - `static-site/`：唯一的部署目录，由构建生成。
 - `deploy/`、`Dockerfile`：Nginx 和 Docker 部署配置。
 - `releases/`：生成的部署压缩包。
-- `embed.go`：把 `01-getting-started/` 至 `07-releases/` 的正文编进 WeKnora 服务端，供内置的 WeKnora 助手检索和引用。新增分类目录时，同步更新 `embed.go` 和 `internal/productdocs/library.go` 中的分类列表。服务端测试会检查每篇正文能否解析、站内链接与锚点是否有效。
+- `embed.go`：把 `01-getting-started/` 至 `07-releases/` 的正文编进 WeKnora 服务端，供内置的天禄检索和引用。新增分类目录时，同步更新 `embed.go` 和 `internal/productdocs/library.go` 中的分类列表。服务端测试会检查每篇正文能否解析、站内链接与锚点是否有效。
 
 品牌素材来源见 [homepage/BRAND-ASSETS.md](homepage/BRAND-ASSETS.md)。v0.9.0 视频、页面、文档和截图随包部署；保留的旧版产品全览使用 GitHub 原始附件，播放需要访问 GitHub。
 
@@ -182,7 +182,7 @@ v0.8.3 首页内容按两层维护：当期版本区以左侧功能导航、右�
 
 v0.9.0 发布日期统一为 2026-10-29。正式 tag、镜像和官网部署的执行状态以主仓库 `docs/release-v0.9.0-audit.md` 为准；发布前完成其中的构建验收与上线检查。
 
-当前首页重点为 WeKnora 助手、多智能体协作、自动化和执行权限。画廊、Wiki、原文引用与浏览器等长期能力保留在对应章节；视频区优先展示 v0.9.0，通过横向标签切换旧版产品全览，共用一个播放器。
+当前首页重点为天禄、多智能体协作、自动化和执行权限。画廊、Wiki、原文引用与浏览器等长期能力保留在对应章节；视频区优先展示 v0.9.0，通过横向标签切换旧版产品全览，共用一个播放器。
 
 - 文档与发布说明：`07-releases/v0.9.0.md`，新增助手、自动化和执行权限三篇指南。
 - 发布截图：助手「产品问答 / 任务协助」使用 `assistant-release-guide.png` 与 `assistant-overview.png`；自动化「一句话设置 / 手动设置」使用 `automation-conversation.png` 与 `automation-setup.png`；另有 `agent-collaboration.png` 和 `assistant-permissions.png`。实际浏览器采集，1920 × 1056，与上一版 3840 × 2112 保持相同宽高比，未放大像素或重绘界面。知识库使用卡片视图。

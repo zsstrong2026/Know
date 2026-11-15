@@ -200,6 +200,8 @@ export function useCitationPopover(rootRef: Ref<HTMLElement | null>, options: Ci
       e.preventDefault()
       e.stopPropagation()
       const url = webEl.getAttribute('data-url') || ''
+      // 没有引用抽屉时直接回退到浮层；否则等解析结果，期间根节点可能已被替换
+      if (!referencesDrawer) { openWeb(webEl); return }
       void openDrawerForCitation({ url }).then((opened) => {
         if (!opened) openWeb(webEl)
       })
@@ -217,6 +219,7 @@ export function useCitationPopover(rootRef: Ref<HTMLElement | null>, options: Ci
         documentTitle: kbEl.getAttribute('data-doc') || '', knowledgeBaseId: kbEl.getAttribute('data-kb-id') || '' } : {}
       // 点击即刻收起悬停浮层，避免等待引用解析期间浮层残留
       reset()
+      if (!referencesDrawer) { void openKb(kbEl); return }
       void openDrawerForCitation({ chunkId, ...source }).then((opened) => {
         if (!opened) void openKb(kbEl)
       })

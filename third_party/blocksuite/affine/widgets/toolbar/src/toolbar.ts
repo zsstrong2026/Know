@@ -824,6 +824,11 @@ export class AffineToolbarWidget extends WidgetComponent {
      * 因此用「视口父容器 + offsetTop」还原顶栏下沿：offsetTop 是布局值，
      * 不受滚动与画布变换影响，两种模式都能稳定落在预留的顶栏里。
      */
+    // 固定定位缓存：几何值没变就不再写样式，避免逐字输入触发多余的重排/重绘。
+    let pinCache = ''
+    // 祖先链查找要遍历 getComputedStyle，结果在固定期间不会变，只算一次。
+    let fixedContainingBlock: HTMLElement | null | undefined
+
     const pinPageTextToolbar = () => {
       const viewport =
         (host.closest('.affine-page-viewport') as HTMLElement | null) ??
@@ -844,11 +849,22 @@ export class AffineToolbarWidget extends WidgetComponent {
 
       // 画布控件层是 fixed 的包含块：换算成它的局部坐标，效果仍然是视口坐标。
       // 页面模式没有这类祖先（顶层单位矩阵的 rect 是 0,0），减法不影响结果。
-      const containingRect = findFixedContainingBlock(this)?.getBoundingClientRect()
+      if (fixedContainingBlock === undefined) {
+        fixedContainingBlock = findFixedContainingBlock(this)
+      }
+      const containingRect = fixedContainingBlock?.getBoundingClientRect()
       if (containingRect) {
         left -= containingRect.left
         top -= containingRect.top
       }
+
+      const nextCache = `${Math.round(left)}:${Math.round(top)}:${Math.round(width - 24)}`
+      const unchanged =
+        nextCache === pinCache &&
+        toolbar.dataset.fixed === 'true' &&
+        toolbar.dataset.open === 'true'
+      if (unchanged) return
+      pinCache = nextCache
 
       toolbar.style.position = 'fixed'
       toolbar.style.left = `${Math.round(left)}px`
@@ -863,6 +879,9 @@ export class AffineToolbarWidget extends WidgetComponent {
 
     /** 离开固定模式时清掉 inline 定位，把控制权交回 autoUpdatePosition。 */
     const unpinPageTextToolbar = () => {
+      // 定位缓存与祖先链结果一并失效，下次进入固定模式重新计算。
+      pinCache = '';
+      fixedContainingBlock = undefined;
       if (!('fixed' in toolbar.dataset)) return;
       delete toolbar.dataset.fixed;
       toolbar.style.position = '';
@@ -873,15 +892,22 @@ export class AffineToolbarWidget extends WidgetComponent {
       toolbar.style.maxWidth = '';
     };
 
+    // 是否已固定置顶：只在进入文本编辑时固定一次，之后不再随选区/输入重算。
+    let pinned = false;
+
     // 编辑区尺寸变化时重算居中位置：AI 侧栏展开/收起、窗口缩放都会改变宽度。
     // 用 ResizeObserver 而不是 window.resize —— 侧栏开合不改窗口尺寸。
-    const toolbarResizeObserver = new ResizeObserver(() => {
-      if (flags.check(Flag.Text, flags.value$.peek())) {
-        pinPageTextToolbar()
-      }
-    });
+    const repinIfTextActive = () => {
+      if (!pinned) return;
+      if (!flags.check(Flag.Text, flags.value$.peek())) return;
+      pinPageTextToolbar();
+    };
+    const toolbarResizeObserver = new ResizeObserver(repinIfTextActive);
     toolbarResizeObserver.observe(host);
+    // 工具条自身尺寸变化（切换块类型导致按钮增减）也要重新校正顶部高度。
+    toolbarResizeObserver.observe(toolbar);
     disposables.add(() => toolbarResizeObserver.disconnect());
+    disposables.addFromEvent(window, 'resize', repinIfTextActive);
 
     disposables.add(
       effect(() => {
@@ -906,21 +932,31 @@ export class AffineToolbarWidget extends WidgetComponent {
         //
         // 固定模式刻意不判 context.activated：常驻工具栏在编辑器未聚焦
         // （例如刚打开文档、或点过侧栏）时也要停在顶部，否则会闪回左上角。
+        //
+        // 同理只在「进入文本编辑」这一刻固定位置：上游每次选区变化（含逐字输入）
+        // 都会调用 pinPageTextToolbar，内部要遍历祖先链 getComputedStyle、读两次
+        // getBoundingClientRect 与 offsetHeight，逐字执行会强制同步重排，
+        // 表现为输入时工具条/正文闪动。固定后位置与光标无关，
+        // 尺寸变化交给 ResizeObserver / window.resize 校正。
         if (flags.check(Flag.Text, value)) {
-          pinPageTextToolbar()
+          if (!pinned || toolbar.dataset.fixed !== 'true') {
+            pinned = true;
+            pinPageTextToolbar();
+          }
           return
         }
 
-        if (!context.activated) {
+        if (pinned) {
+          pinned = false;
           unpinPageTextToolbar();
+        }
+
+        if (!context.activated) {
           return;
         }
         if (Flag.None === value || flags.contains(Flag.Hiding, value)) {
-          unpinPageTextToolbar();
           return;
         }
-
-        unpinPageTextToolbar();
 
         const build = referenceElement$.value;
         const referenceElement = build?.();

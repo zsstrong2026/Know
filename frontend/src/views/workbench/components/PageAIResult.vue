@@ -128,7 +128,7 @@ import { useI18n } from 'vue-i18n'
 import type { PageAIWriteMode } from '@/workbench/ai/page-actions'
 import type { PageAICandidate } from '@/workbench/ai/use-page-ai'
 import type { ProofreadIssue } from '@/workbench/ai/inline-ai-types'
-import { diffSegments as computeDiffSegments, type DiffSegment } from '@/workbench/ai/text-diff'
+import { diffSegments as computeDiffSegments, stripMarkdownForPreview, type DiffSegment } from '@/workbench/ai/text-diff'
 import AiMarkdown from './AiMarkdown.vue'
 
 const props = defineProps<{
@@ -184,11 +184,14 @@ const metaText = computed(() => {
   return t('workbench.pageAi.preview.meta')
 })
 
+/** diff 对照用文本：去掉 Markdown 标记，避免预览里冒出 `**`、`##` 源码。 */
+const previewText = computed(() => stripMarkdownForPreview(props.text))
+
 /** diff 只在「替换」且不是纠错/解释时启用：插入下方与全文任务没有对照意义。 */
 const diffSegments = computed<DiffSegment[]>(() => {
   if (isProofread.value || props.mode !== 'replace') return []
   if (!props.originalText || !props.text) return []
-  return computeDiffSegments(props.originalText, props.text)
+  return computeDiffSegments(props.originalText, previewText.value)
 })
 
 /** 段内按换行拆行，避免整段挤成一行看不出结构。 */

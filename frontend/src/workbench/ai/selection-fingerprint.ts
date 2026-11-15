@@ -201,18 +201,113 @@ export function buildWritePlan(
 }
 
 /**
+ * 行内样式属性，与 BlockSuite delta 的属性同名。
+ *
+ * 写入时直接当 Text 的 attributes 用，所以这里只留 true（不写 false），
+ * 避免把「取消加粗」这种无意义属性带进 delta。
+ */
+export type InlineAttrs = Partial<Record<'bold' | 'italic' | 'strike' | 'code', true>>
+
+/** 一段带样式的行内文本。 */
+export interface InlineRun {
+  text: string
+  attrs?: InlineAttrs
+}
+
+/**
+ * 行内标记：链接/图片 → 只留可读文字；加粗、删除线、行内代码、斜体识别成样式。
+ *
+ * 交替顺序有意义：`**` 必须排在 `*` 前面，否则 `**粗体**` 会被拆成两个斜体。
+ */
+const INLINE_RE =
+  /(!?)\[([^\]]*)\]\([^)]*\)|\*\*(.+?)\*\*|__([^\n]+?)__|~~([^\n]+?)~~|`([^`\n]+)`|\*([^*\n]+)\*|(?<![A-Za-z0-9])_([^_\n]+)_(?![A-Za-z0-9])/g
+
+/** 两个 run 的属性是否等价（键与值都相同）。 */
+function sameAttrs(a?: InlineAttrs, b?: InlineAttrs): boolean {
+  const keysA = Object.keys(a ?? {})
+  const keysB = Object.keys(b ?? {})
+  if (keysA.length !== keysB.length) return false
+  return keysA.every((key) => (a as Record<string, unknown>)[key] === (b as Record<string, unknown>)[key])
+}
+
+/** 追加 run，与上一段属性相同时合并，减少 delta 片段数。 */
+function pushRun(runs: InlineRun[], text: string, attrs: InlineAttrs): void {
+  if (!text) return
+  const last = runs[runs.length - 1]
+  if (last && sameAttrs(last.attrs, attrs)) {
+    last.text += text
+    return
+  }
+  runs.push(attrs.bold || attrs.italic || attrs.strike || attrs.code ? { text, attrs } : { text })
+}
+
+/**
+ * 把一行的 Markdown 行内标记解析成带样式的 run。
+ *
+ * 目标是「Word 式」：`**粗体**` 变成真正的加粗，而不是把星号写进正文。
+ * 嵌套（`**粗体里的 *斜体* 结束**`）靠递归解析选中内容实现；
+ * 未闭合的标记原样保留，绝不吞掉用户的文字。
+ */
+export function parseInlineRuns(source: string, base: InlineAttrs = {}): InlineRun[] {
+  const text = source ?? ''
+  const runs: InlineRun[] = []
+  const re = new RegExp(INLINE_RE.source, 'g')
+  let cursor = 0
+
+  for (const match of text.matchAll(re)) {
+    const index = match.index ?? 0
+    if (index > cursor) pushRun(runs, text.slice(cursor, index), base)
+
+    // 链接/图片：只保留可读文字，URL 不进正文。
+    if (match[2] !== undefined) {
+      pushRun(runs, match[2], base)
+      cursor = index + match[0].length
+      continue
+    }
+
+    const bold = match[3] !== undefined || match[4] !== undefined
+    const strike = match[5] !== undefined
+    const code = match[6] !== undefined
+    const inner = match[3] ?? match[4] ?? match[5] ?? match[6] ?? match[7] ?? match[8] ?? ''
+    const attr: InlineAttrs = bold
+      ? { bold: true }
+      : strike
+        ? { strike: true }
+        : code
+          ? { code: true }
+          : { italic: true }
+
+    if (code) {
+      // 行内代码内部的标记不参与解析，整段按字面写入。
+      pushRun(runs, inner, { ...base, ...attr })
+    } else {
+      // 加粗/斜体/删除线可嵌套，递归解析选中内容并合并属性。
+      for (const run of parseInlineRuns(inner, { ...base, ...attr })) {
+        pushRun(runs, run.text, run.attrs ?? base)
+      }
+    }
+    cursor = index + match[0].length
+  }
+
+  if (cursor < text.length) pushRun(runs, text.slice(cursor), base)
+  return runs
+}
+
+/**
  * 把 AI 返回的 Markdown 拆成块级片段（安全适配器，§9.15.3）。
  *
- * 只识别标题、无序/有序列表与代码围栏；其余按普通段落。刻意不解析行内
- * HTML —— 插入只经过编辑器的块 API，不拼 innerHTML，也不执行脚本。
+ * 只识别标题、引用、无序/有序列表与代码围栏；其余按普通段落。刻意不解析
+ * 行内 HTML —— 插入只经过编辑器的块 API，不拼 innerHTML，也不执行脚本。
  */
 export type MarkdownBlock =
   | { kind: 'heading'; level: 1 | 2 | 3; text: string }
+  | { kind: 'quote'; text: string }
   | { kind: 'list'; ordered: boolean; items: string[] }
   | { kind: 'code'; language: string; text: string }
   | { kind: 'paragraph'; text: string }
 
 const HEADING_RE = /^(#{1,6})\s+(.*)$/
+const QUOTE_RE = /^\s{0,3}>\s?(.*)$/
 const UL_RE = /^\s*[-*+]\s+(.*)$/
 const OL_RE = /^\s*\d+[.)]\s+(.*)$/
 
@@ -253,6 +348,20 @@ export function markdownToBlocks(markdown: string): MarkdownBlock[] {
       continue
     }
 
+    // 引用：连续的 `>` 行合并成一个引用块（空 `>` 行只是段落分隔）。
+    if (QUOTE_RE.test(line)) {
+      const parts: string[] = []
+      while (i < lines.length) {
+        const match = QUOTE_RE.exec(lines[i])
+        if (!match) break
+        const content = match[1].trim()
+        if (content) parts.push(content)
+        i += 1
+      }
+      blocks.push({ kind: 'quote', text: parts.join(' ') })
+      continue
+    }
+
     if (UL_RE.test(line) || OL_RE.test(line)) {
       const ordered = OL_RE.test(line)
       const items: string[] = []
@@ -272,7 +381,7 @@ export function markdownToBlocks(markdown: string): MarkdownBlock[] {
     while (i < lines.length) {
       const current = lines[i]
       if (!current.trim()) break
-      if (HEADING_RE.test(current) || UL_RE.test(current) || OL_RE.test(current)) break
+      if (HEADING_RE.test(current) || QUOTE_RE.test(current) || UL_RE.test(current) || OL_RE.test(current)) break
       if (/^```/.test(current)) break
       paragraph.push(current.trim())
       i += 1

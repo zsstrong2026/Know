@@ -243,3 +243,41 @@ test('来源列：AI 建行写「AI 识别」，列缺失时静默跳过', () =>
   })
   assert.equal(plain.values.size, 0)
 })
+
+test('新建行的标题在事务提交后写入（事务内行块还没注册进 store）', () => {
+  const { dataSource } = fakeDataSource([
+    { id: 'c-title', type: 'title', name: '事项' },
+  ])
+  // 模拟上游：行块要在 transact 结束后才出现在 store 里
+  const models = new Map<string, { text: { replace: (a: number, b: number, c: string) => void } }>()
+  let inTransact = false
+  const written: string[] = []
+  const store = {
+    transact: (fn: () => void) => {
+      inTransact = true
+      fn()
+      inTransact = false
+      // 事务提交：把本次新建的行注册成 model
+      models.set('r-new-1', {
+        text: {
+          replace: (_start: number, _len: number, next: string) => {
+            written.push(next)
+          },
+        },
+      })
+    },
+    getModelById: (id: string) => (inTransact ? null : models.get(id) ?? null),
+  }
+  applyDatabasePatch({
+    store,
+    dataSource,
+    model,
+    patch: {
+      errors: [],
+      overwriteCount: 0,
+      ops: [{ kind: 'add_row', title: '补充部署文档', cells: [] }],
+    },
+    allowOverwrite: false,
+  })
+  assert.deepEqual(written, ['补充部署文档'])
+})

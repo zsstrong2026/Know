@@ -167,6 +167,7 @@ type WorkbenchRepository interface {
 	WorkbenchAssetRepository
 	WorkbenchTagRepository
 	WorkbenchLinkRepository
+	WorkbenchRelationRepository
 }
 
 // WorkbenchTagRepository 个人标签仓储（P4-2）。
@@ -207,6 +208,23 @@ type WorkbenchLinkRepository interface {
 	ListBacklinks(
 		ctx context.Context, tenantID uint64, ownerID, targetItemID string, limit int,
 	) ([]*types.WorkbenchBacklink, error)
+}
+
+// WorkbenchRelationRepository 智能关联召回所需的只读能力面。
+//
+// 单独一个接口而不是塞进 WorkbenchLinkRepository：召回要读正文摘要与标签，
+// 与反向链接是完全不同的数据面，混在一起会让链接仓储越来越胖。
+type WorkbenchRelationRepository interface {
+	// ListItemIDsBySharedTag 找出与 itemID 至少共享一个标签的其它画布条目。
+	ListItemIDsBySharedTag(
+		ctx context.Context, tenantID uint64, ownerID, itemID string, limit int,
+	) ([]string, error)
+
+	// ListRelationCandidates 返回最近更新的画布条目候选池（含正文摘要与标签 id），
+	// 永远排除 excludeItemID 自己；回收站中的条目不参与。
+	ListRelationCandidates(
+		ctx context.Context, tenantID uint64, ownerID, excludeItemID string, limit int,
+	) ([]*types.WorkbenchRelationCandidate, error)
 }
 
 // WorkbenchAssetRepository 条目资产元数据仓储（§12.1）。

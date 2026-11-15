@@ -7,9 +7,11 @@ import { fileURLToPath } from 'node:url'
 test('PPTX preview bundles the ESM renderer with one shared Vue runtime', async () => {
   const root = fileURLToPath(new URL('../../', import.meta.url))
   const loaded = await loadConfigFromFile({ command: 'serve', mode: 'development' }, `${root}vite.config.ts`)
-  const aliases = loaded!.config.resolve!.alias as Record<string, string>
-  const entry = aliases['@vue-office/pptx']
-  assert.match(entry, /\/v3\/vue-office-pptx\.mjs$/)
+  // vite 的 alias 既可能是对象也可能是数组，这里统一按数组查找
+  const aliases = loaded!.config.resolve!.alias as Array<{ find: string | RegExp; replacement: string }>
+  const entry = aliases.find((item) => item.find === '@vue-office/pptx')!.replacement
+  // 兼容 Windows 反斜杠路径
+  assert.match(entry, /[/\\]v3[/\\]vue-office-pptx\.mjs$/)
   const result = await build({
     stdin: { contents: `export { createApp } from 'vue'; export { default as Pptx } from ${JSON.stringify(entry)}`,
       resolveDir: root },

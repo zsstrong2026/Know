@@ -142,7 +142,7 @@
             <t-icon v-else-if="!checking && checkMessage && !saveSuccess" name="close-circle-filled"
               class="status-icon unavailable" />
           </template>
-          {{ checking ? $t('settings.parser.checking', $t('settings.parser.testConnection')) : $t('settings.parser.testConnection') }}
+          {{ checking ? $t('settings.parser.checking') : $t('settings.parser.testConnection') }}
         </t-button>
         <span v-if="checkMessage" :class="['footer-test-message', saveSuccess ? 'success' : 'error']" :title="checkMessage">
           {{ checkMessage }}

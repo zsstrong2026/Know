@@ -11,12 +11,12 @@ import {
   submenuItems,
   translateLangName,
 } from './page-actions.ts'
-import { INLINE_AI_ACTIONS } from './inline-ai-types.ts'
+import { INLINE_AI_ACTIONS, INLINE_AI_INSTRUCTION_LIMIT } from './inline-ai-types.ts'
 
 const ALLOWED = new Set<string>(INLINE_AI_ACTIONS)
 
-test('19 个主项 + 11 个子项', () => {
-  assert.equal(PAGE_AI_ACTIONS.length, 19)
+test('20 个主项 + 11 个子项', () => {
+  assert.equal(PAGE_AI_ACTIONS.length, 20)
   assert.equal(TRANSLATE_LANGS.length, 6)
   assert.equal(TONE_OPTIONS.length, 5)
   assert.equal(TRANSLATE_LANGS.length + TONE_OPTIONS.length, 11)
@@ -36,7 +36,7 @@ test('每个主项都映射到六个 action 之一（other.chat 除外）', () =
 test('五个分组的动作数', () => {
   assert.equal(PAGE_AI_GROUPS.length, 5)
   assert.equal(actionsByGroup('review').length, 3)
-  assert.equal(actionsByGroup('edit').length, 6)
+  assert.equal(actionsByGroup('edit').length, 7)
   assert.equal(actionsByGroup('generate').length, 5)
   assert.equal(actionsByGroup('draft').length, 4)
   assert.equal(actionsByGroup('other').length, 1)
@@ -49,7 +49,7 @@ test('写入方式：解释类只出卡片，续写与生成类插到下方', ()
   for (const id of ['generate.summarize', 'generate.outline', 'draft.article', 'draft.poem']) {
     assert.equal(byId.get(id)?.write, 'below', id)
   }
-  for (const id of ['review.spelling', 'edit.polish', 'edit.translate', 'edit.tone']) {
+  for (const id of ['review.spelling', 'edit.polish', 'edit.humanize', 'edit.translate', 'edit.tone']) {
     assert.equal(byId.get(id)?.write, 'replace', id)
   }
 })
@@ -95,6 +95,14 @@ test('编译语气动作带上 instruction', () => {
 test('other.chat 编译为 null（只打开侧栏）', () => {
   const chat = PAGE_AI_ACTIONS.find((action) => action.id === 'other.chat')!
   assert.equal(compilePageAIAction(chat), null)
+})
+
+test('去 AI 味：编译为 custom + replace，且指令不超长', () => {
+  const humanize = PAGE_AI_ACTIONS.find((action) => action.id === 'edit.humanize')!
+  const compiled = compilePageAIAction(humanize)!
+  assert.equal(compiled.action, 'custom')
+  assert.equal(compiled.write, 'replace')
+  assert.ok((compiled.instruction?.length ?? 0) <= INLINE_AI_INSTRUCTION_LIMIT)
 })
 
 test('翻译语言名可回退', () => {

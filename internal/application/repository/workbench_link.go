@@ -103,3 +103,104 @@ func (r *workbenchRepository) ListBacklinks(
 		Scan(&rows).Error
 	return rows, err
 }
+
+// ListItemIDsBySharedTag 找出与 itemID 至少共享一个标签的其它条目（智能关联召回用）。
+//
+// 用自连接而不是应用层两段查询：一次拿到 id 列表，标签数量再多也不会放大行数
+// （自连接天然按 tag_id 收敛）。标签被软删时也参与匹配没有意义，因此带上 deleted_at。
+func (r *workbenchRepository) ListItemIDsBySharedTag(
+	ctx context.Context, tenantID uint64, ownerID, itemID string, limit int,
+) ([]string, error) {
+	if limit <= 0 || limit > types.WorkbenchAIRelationsCandidatePool {
+		limit = types.WorkbenchAIRelationsCandidatePool
+	}
+	ids := make([]string, 0, limit)
+	err := r.db.WithContext(ctx).
+		Table("workbench_item_tags AS mine").
+		Select("DISTINCT other.item_id").
+		Joins("JOIN workbench_item_tags AS other ON other.tag_id = mine.tag_id"+
+			" AND other.tenant_id = mine.tenant_id AND other.owner_id = mine.owner_id").
+		Joins("JOIN workbench_items AS i ON i.id = other.item_id"+
+			" AND i.tenant_id = other.tenant_id AND i.owner_id = other.owner_id").
+		Where("mine.tenant_id = ? AND mine.owner_id = ? AND mine.item_id = ?"+
+			" AND other.item_id <> ? AND i.deleted_at IS NULL AND i.kind = ?",
+			tenantID, ownerID, itemID, itemID, types.WorkbenchKindCanvas).
+		Limit(limit).
+		Pluck("other.item_id", &ids).Error
+	return ids, err
+}
+
+// ListRelationCandidates 取智能关联的候选池：最近更新的画布条目（带正文摘要与标签）。
+//
+// 为什么带 text_content：列表接口的 DTO 刻意不返回正文（json:"-"），
+// 而关联判定必须看主题，所以摘要只能在仓储层取。这里用 SUBSTR 只截前一段，
+// 避免把 256KB 的正文投影全量拉进内存——候选池是 300 条量级。
+//
+// 标签单独一次查询后在应用层分组：SQLite 与 PostgreSQL 的聚合函数写法不一致，
+// 两次查询比一个方言相关的 GROUP_CONCAT / STRING_AGG 更稳。
+func (r *workbenchRepository) ListRelationCandidates(
+	ctx context.Context, tenantID uint64, ownerID, excludeItemID string, limit int,
+) ([]*types.WorkbenchRelationCandidate, error) {
+	if limit <= 0 || limit > types.WorkbenchAIRelationsCandidatePool {
+		limit = types.WorkbenchAIRelationsCandidatePool
+	}
+	digestLimit := types.WorkbenchAIRelationsDigestMaxRunes * 3 // 预留：均按 rune 截断，字节上限放宽
+
+	type candidateRow struct {
+		ID        string
+		Title     string
+		Digest    string
+		UpdatedAt time.Time
+	}
+	rows := make([]*candidateRow, 0, limit)
+	if err := r.db.WithContext(ctx).
+		Table("workbench_items").
+		Select("id, title, SUBSTR(text_content, 1, ?) AS digest, updated_at", digestLimit).
+		Where("tenant_id = ? AND owner_id = ? AND deleted_at IS NULL AND kind = ? AND id <> ?",
+			tenantID, ownerID, types.WorkbenchKindCanvas, excludeItemID).
+		Order("updated_at DESC, id DESC").
+		Limit(limit).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return []*types.WorkbenchRelationCandidate{}, nil
+	}
+
+	out := make([]*types.WorkbenchRelationCandidate, 0, len(rows))
+	index := make(map[string]*types.WorkbenchRelationCandidate, len(rows))
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		candidate := &types.WorkbenchRelationCandidate{
+			ID:        row.ID,
+			Title:     row.Title,
+			Digest:    row.Digest,
+			UpdatedAt: row.UpdatedAt,
+			TagIDs:    []string{},
+		}
+		out = append(out, candidate)
+		index[row.ID] = candidate
+		ids = append(ids, row.ID)
+	}
+
+	// 一次查回这批候选的全部标签，再按 item_id 分组；查不到标签的条目保持空切片。
+	type tagRow struct {
+		ItemID string
+		TagID  string
+	}
+	tagRows := make([]*tagRow, 0, len(ids)*2)
+	if err := r.db.WithContext(ctx).
+		Table("workbench_item_tags").
+		Select("item_id, tag_id").
+		Where("tenant_id = ? AND owner_id = ? AND item_id IN ?", tenantID, ownerID, ids).
+		Scan(&tagRows).Error; err != nil {
+		// 标签只作为打分权重之一，取不到就按「无标签」降级，不让整次召回失败。
+		return out, nil
+	}
+	for _, tag := range tagRows {
+		if candidate, ok := index[tag.ItemID]; ok {
+			candidate.TagIDs = append(candidate.TagIDs, tag.TagID)
+		}
+	}
+	return out, nil
+}

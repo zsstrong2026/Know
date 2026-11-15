@@ -15796,12 +15796,12 @@ paths:
         id: automation.list
         max_items: 100
         risk: read
-      x-agent-hint: 'Lists the user''s automations: scheduled tasks the WeKnora assistant
-        runs on their behalf, with next and last run.'
+      x-agent-hint: 'Lists the user''s automations: scheduled tasks Tianlu runs on their
+        behalf, with next and last run.'
     post:
       consumes:
       - application/json
-      description: 创建一个按计划由 WeKnora 助手以当前用户身份运行的任务
+      description: 创建一个按计划由天禄以当前用户身份运行的任务
       parameters:
       - description: 自动化
         in: body
@@ -15836,7 +15836,7 @@ paths:
         label_param: name
         risk: write
         role: viewer
-      x-agent-hint: 'Creates an automation the WeKnora assistant runs as the user.
+      x-agent-hint: 'Creates an automation Tianlu runs as the user.
         If work requires other agents, name them and their assignments in the instruction
         so the assistant can delegate. Turn the user''s wording into a cron expression
         (five fields, minute first) and an IANA timezone, and check it with automation.validate_trigger

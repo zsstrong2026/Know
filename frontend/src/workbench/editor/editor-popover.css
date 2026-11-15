@@ -13,6 +13,19 @@ affine-slash-menu {
 }
 
 /**
+ * 「智能关联」原文定位的高亮样式（P4）。
+ *
+ * 块组件是 shadowless（`createRenderRoot` 返回自身），所以 `highlightRanges`
+ * 产生的 CSS Custom Highlight 直接作用在 light DOM 上，这里用全局规则即可命中。
+ * 名称必须与 `sourceLocatorDom.ts` 的 `SOURCE_HIGHLIGHT_NAME` 一致。
+ * 只在编辑器加载时才注入：工作台以外的页面不引这个文件。
+ */
+::highlight(source-locate) {
+  background-color: #fff1b8;
+  color: inherit;
+}
+
+/**
  * AFFiNE 主题变量补齐（P3-1 一比一复刻的前置条件）。
  *
  * BlockSuite 的样式大量依赖 `--affine-*` 变量（悬停底色、边框、次级文字、

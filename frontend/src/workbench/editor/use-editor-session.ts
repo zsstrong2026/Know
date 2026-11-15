@@ -17,6 +17,7 @@ import { projectMarkdown } from './projection'
 import { noteStyleSeedFromPrefs } from './prefs'
 import {
   ensureWorkbenchSourceColumns,
+  migrateLegacyTextColumns,
   removeObsoleteWorkbenchColumns,
   seedWorkbenchDatabase,
   type DatabaseSeedLabels,
@@ -321,6 +322,9 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
     // 真实原型只有六列，这里清掉一次；幂等，写回后由 onChange 触发落盘。
     if (kindOf(item.value) === 'database' && editor.value?.store) {
       removeObsoleteWorkbenchColumns(editor.value.store)
+      // 早期版本的「负责人 / 关联文档 / 来源文档」是上游不存在的 text 类型，
+      // 值写进去也渲染不出来；先纠正类型，再补来源列。
+      migrateLegacyTextColumns(editor.value.store)
       // 「来源 / 来源文档」是后加的两列：老步骤要在同一时机补齐，否则用户看不到来源。
       ensureWorkbenchSourceColumns(editor.value.store, seedLabels)
     }

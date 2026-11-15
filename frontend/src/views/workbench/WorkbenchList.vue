@@ -24,14 +24,14 @@
         <template #icon><t-icon name="delete" /></template>
         {{ $t('workbench.list.emptyTrashAction') }}
       </t-button>
-      <!-- 导入资料（P4-1）：列表页只有「加入工作知识库」一条路径 -->
-      <t-button v-if="scope !== 'trash'" variant="outline" @click="importOpen = true">
+      <!-- 导入资料（P4-1）：列表页只有「加入工作知识库」一条路径；收藏页不提供 -->
+      <t-button v-if="scope !== 'trash' && scope !== 'favorites'" variant="outline" @click="importOpen = true">
         <template #icon><t-icon name="upload" /></template>
         {{ $t('workbench.import.entry') }}
       </t-button>
-      <!-- 新建四选（B5）：文档 / 画布 / 数据库 / 文件夹 -->
+      <!-- 新建四选（B5）：文档 / 画布 / 数据库 / 文件夹；最近页与收藏页不重复提供 -->
       <CreateMenu
-        v-if="scope !== 'trash'"
+        v-if="scope !== 'trash' && scope !== 'recent' && scope !== 'favorites'"
         class="create-menu-host"
         :folder-id="scope === 'folder' ? folderId ?? null : null"
         @created="onCreated"
@@ -113,9 +113,9 @@
         <t-button v-if="keyword" size="small" variant="outline" @click="clearSearch">
           {{ $t('workbench.list.clearSearch') }}
         </t-button>
-        <!-- 空态与顶部共用同一套新建菜单（§9.16.2） -->
+        <!-- 空态与顶部共用同一套新建菜单（§9.16.2）；收藏页不提供新建入口 -->
         <CreateMenu
-          v-else-if="scope !== 'trash'"
+          v-else-if="scope !== 'trash' && scope !== 'favorites'"
           :folder-id="scope === 'folder' ? folderId ?? null : null"
           @created="onCreated"
           @create-folder="requestCreateFolder"
@@ -185,6 +185,25 @@
       @finished="onBatchFinished"
     />
 
+    <!-- 钉到某天：日历选择替代原生 prompt；清空日期确认表示取消钉 -->
+    <t-dialog
+      v-model:visible="pinDialogOpen"
+      :header="$t('workbench.item.pin')"
+      width="360px"
+      @confirm="confirmPin"
+    >
+      <div class="pin-body">
+        <t-date-picker
+          v-model="pinDraft"
+          class="pin-date"
+          value-type="YYYY-MM-DD"
+          format="YYYY-MM-DD"
+          clearable
+        />
+        <p class="pin-hint">{{ $t('workbench.item.pinHint') }}</p>
+      </div>
+    </t-dialog>
+
     <!-- 导入资料（P4-1）：列表页不需要 itemId，「作为附件」路径自动隐藏 -->
     <ImportMaterialDialog v-model:visible="importOpen" />
     </template>
@@ -241,6 +260,10 @@ const sortOptions = computed(() => [
 ])
 /** 导入资料对话框（P4-1）；列表页只走「加入工作知识库」 */
 const importOpen = ref(false)
+/** 钉到某天对话框：日历选择当前条目要钉的日期 */
+const pinDialogOpen = ref(false)
+const pinTarget = ref<WorkbenchItem | null>(null)
+const pinDraft = ref('')
 /** 一键清空回收站请求中：按钮 loading，避免重复提交 */
 const emptying = ref(false)
 
@@ -607,17 +630,20 @@ async function move(item: WorkbenchItem) {
   }
 }
 
-/** 钉到某天 / 改期：写 YYYY-MM-DD；留空表示取消钉。 */
-async function pinToDate(item: WorkbenchItem) {
-  const answer = window.prompt('YYYY-MM-DD', item.journal_date ?? todayISO())
-  if (answer === null) return
-  const next = answer.trim()
-  if (next && !/^\d{4}-\d{2}-\d{2}$/.test(next)) {
-    MessagePlugin.warning('YYYY-MM-DD')
-    return
-  }
+/** 钉到某天 / 改期：打开日历对话框；清空日期确认表示取消钉。 */
+function pinToDate(item: WorkbenchItem) {
+  pinTarget.value = item
+  pinDraft.value = item.journal_date ?? todayISO()
+  pinDialogOpen.value = true
+}
+
+/** 提交钉选日期：空串表示取消钉（服务端三态："" → NULL）。 */
+async function confirmPin() {
+  const item = pinTarget.value
+  if (!item) return
   try {
-    await store.pinItemToDate(item.id, next)
+    await store.pinItemToDate(item.id, pinDraft.value)
+    pinDialogOpen.value = false
   } catch {
     MessagePlugin.error(t('workbench.item.renameFailed'))
   }
@@ -893,5 +919,21 @@ async function onArchive(item: WorkbenchItem, action: ArchiveBadgeAction) {
   display: grid;
   place-items: center;
   padding: var(--app-space-3) 0 var(--app-space-5);
+}
+
+.pin-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+}
+
+.pin-date {
+  width: 100%;
+}
+
+.pin-hint {
+  margin: 0;
+  font-size: var(--app-text-xs);
+  color: var(--td-text-color-placeholder);
 }
 </style>

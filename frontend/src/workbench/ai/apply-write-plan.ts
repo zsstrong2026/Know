@@ -6,16 +6,30 @@
  *   - below：在锚点块之后插入新块，不覆盖原文。
  *
  * 刻意不碰 DOM、不拼 innerHTML：全部走 store / Text API，Markdown 经
- * markdownToBlocks 转成块，代码围栏按代码块插入。
+ * markdownToBlocks 转成块，行内标记（`**`、`*`、`` ` ``）转成 Text 的行内属性，
+ * 写入后就是「Word 式」富文本，正文里不会残留 Markdown 源码。
  */
 import type { WritePlan } from './selection-fingerprint'
-import { markdownToBlocks, type MarkdownBlock } from './selection-fingerprint'
+import {
+  markdownToBlocks,
+  parseInlineRuns,
+  type InlineRun,
+  type MarkdownBlock,
+} from './selection-fingerprint'
+import { stripBlockMarkup } from './text-diff'
 
 /** BlockSuite store / block 的最小形状；上游类型在 TS6 下无法被检查。 */
 interface TextLike {
-  replace(index: number, length: number, content: string): void
+  replace(index: number, length: number, content: string, attributes?: Record<string, unknown>): void
+  insert(content: string, index: number, attributes?: Record<string, unknown>): void
   toString(): string
 }
+
+/** delta 输入的最小形状（与 BlockSuite 的 DeltaInsert 同形）。 */
+type DeltaInput = { insert: string; attributes?: Record<string, unknown> }
+
+/** 构造 Text 的工厂：字符串或 delta 都要能接（带样式时只能走 delta）。 */
+type MakeText = (input: string | DeltaInput[]) => unknown
 
 interface BlockLike {
   id: string
@@ -76,31 +90,78 @@ function blockLength(model: BlockLike | null): number {
 }
 
 /** 动态取 BlockSuite 的 Text：只有真正写入时才加载，首屏不背这份体积。 */
-async function loadTextCtor(): Promise<((input: string) => unknown) | null> {
+async function loadTextCtor(): Promise<MakeText | null> {
   try {
     const mod = (await import('@blocksuite/store')) as unknown as {
-      Text?: new (input?: string) => unknown
+      Text?: new (input?: string | DeltaInput[]) => unknown
     }
-    return mod.Text ? (input: string) => new (mod.Text as new (i?: string) => unknown)(input) : null
+    if (!mod.Text) return null
+    const TextCtor = mod.Text
+    return (input) => new TextCtor(input)
   } catch {
     return null
   }
 }
 
+/** 拿不到 Text 时的兜底：delta 拼回纯字符串，保证不丢字。 */
+function plainTextFactory(input: string | DeltaInput[]): string {
+  return typeof input === 'string' ? input : input.map((part) => part.insert).join('')
+}
+
+/** InlineRun[] → Text delta；没有样式的片段不带 attributes 字段。 */
+function toDelta(runs: InlineRun[]): DeltaInput[] {
+  return runs
+    .filter((run) => run.text.length > 0)
+    .map((run) => (run.attrs ? { insert: run.text, attributes: { ...run.attrs } } : { insert: run.text }))
+}
+
+/** 一段文字 → 带行内样式的 Text；无样式时退回字符串构造，少一层 delta。 */
+function makeRichText(text: string, makeText: MakeText): unknown {
+  const runs = parseInlineRuns(text)
+  return runs.some((run) => run.attrs) ? makeText(toDelta(runs)) : makeText(runs.map((run) => run.text).join(''))
+}
+
+/** 一整段 Markdown → 行内 run：先剥块级标记，再解析行内标记。 */
+function richRuns(markdown: string): InlineRun[] {
+  return parseInlineRuns(stripBlockMarkup(markdown))
+}
+
+/**
+ * 用带样式的 run 替换 [start, start + length)。
+ *
+ * 先删后插：BlockSuite 的 Text 没有「带属性替换」的原生语义，
+ * 逐段 insert 才能让加粗、斜体、行内代码成为真正的行内样式。
+ */
+function replaceWithRuns(text: TextLike, start: number, length: number, runs: InlineRun[]): void {
+  text.replace(start, length, '')
+  let offset = start
+  for (const run of runs) {
+    if (!run.text) continue
+    text.insert(run.text, offset, run.attrs ? { ...run.attrs } : undefined)
+    offset += run.text.length
+  }
+}
+
 /** MarkdownBlock → BlockSuite 块 props；text 必须是 Text 实例，不能是裸字符串。 */
-function toBlockProps(block: MarkdownBlock, makeText: (s: string) => unknown): Record<string, unknown> {
+function toBlockProps(block: MarkdownBlock, makeText: MakeText): Record<string, unknown> {
   switch (block.kind) {
     case 'heading':
-      return { type: block.level === 1 ? 'h1' : block.level === 2 ? 'h2' : 'h3', text: makeText(block.text) }
+      return {
+        type: block.level === 1 ? 'h1' : block.level === 2 ? 'h2' : 'h3',
+        text: makeRichText(block.text, makeText),
+      }
+    case 'quote':
+      return { type: 'quote', text: makeRichText(block.text, makeText) }
     case 'code':
+      // 代码块内部不解析 Markdown：原文照写，星号与井号都是代码的一部分。
       return { language: block.language || 'text', text: makeText(block.text) }
     case 'list':
       return {
         type: block.ordered ? 'numbered' : 'bulleted',
-        text: makeText(block.items[0] ?? ''),
+        text: makeRichText(block.items[0] ?? '', makeText),
       }
     default:
-      return { text: makeText(block.text) }
+      return { text: makeRichText(block.text, makeText) }
   }
 }
 
@@ -137,7 +198,8 @@ export async function applyWritePlan(store: StoreLike, plan: WritePlan): Promise
         const start = isFirst ? target.span.start : 0
         const end = isLast ? target.span.end : blockLength(target.model)
         const next = plan.segments?.[index] ?? ''
-        text.replace(start, Math.max(0, end - start), next)
+        // 纯文本写入（侧栏问答）不解析 Markdown；内联 AI 转成富文本。
+        replaceWithRuns(text, start, Math.max(0, end - start), plan.plain ? [{ text: next }] : richRuns(next))
       })
     })
     return { applied: true }
@@ -147,11 +209,13 @@ export async function applyWritePlan(store: StoreLike, plan: WritePlan): Promise
     const text = textOf(model)
     if (!text) return { applied: false, reason: 'block-missing' }
     // 只替换选区范围：选区外的文字与行内样式都保持原样。
-    text.replace(plan.start, plan.end - plan.start, plan.markdown)
+    const runs = plan.plain ? [{ text: plan.markdown }] : richRuns(plan.markdown)
+    // 富文本要逐段 insert，包一层 transact 才能和单次 replace 一样「一次撤销」。
+    store.transact?.(() => replaceWithRuns(text, plan.start, plan.end - plan.start, runs))
     return { applied: true }
   }
 
-  const makeText = (await loadTextCtor()) ?? ((s: string) => s)
+  const makeText: MakeText = (await loadTextCtor()) ?? plainTextFactory
 
   // 纯文本写入：段落按空行拆分，段内换行原样保留（诗歌/多行创作不丢分行）。
   if (plan.plain) {
@@ -178,7 +242,7 @@ export async function applyWritePlan(store: StoreLike, plan: WritePlan): Promise
         props.push({
           flavour: 'affine:list',
           type: block.ordered ? 'numbered' : 'bulleted',
-          text: makeText(item),
+          text: makeRichText(item, makeText),
         })
       }
       continue

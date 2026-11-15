@@ -178,7 +178,7 @@ docker compose up -d    # 새 이미지로 컨테이너 재생성
 
 ### v0.9.0 <sub>· 2026-10-29 · [릴리스 노트](https://weknora.weixin.qq.com/docs/07-releases/v0.9.0)</sub>
 
-- **[WeKnora 도우미](https://weknora.weixin.qq.com/docs/07-releases/v0.9.0#assistant)**: WeKnora의 버전 업데이트, 기능과 설정에 관한 질문에 답하고, 현재 페이지를 바탕으로 사용자 본인의 권한으로 에이전트 생성, 작업 예약, 지식과 설정 관리를 수행합니다.
+- **[천록](https://weknora.weixin.qq.com/docs/07-releases/v0.9.0#assistant)**: WeKnora의 버전 업데이트, 기능과 설정에 관한 질문에 답하고, 현재 페이지를 바탕으로 사용자 본인의 권한으로 에이전트 생성, 작업 예약, 지식과 설정 관리를 수행합니다.
 - **[멀티 에이전트 협업](https://weknora.weixin.qq.com/docs/07-releases/v0.9.0#collaboration)**: 작업을 나누어 진행 상황을 확인하고 결과를 모읍니다.
 - **[자동화](https://weknora.weixin.qq.com/docs/07-releases/v0.9.0#automations)**: 일회성 및 정기 실행, 실행 기록, 결과와 승인 알림.
 - **[실행 권한과 승인](https://weknora.weixin.qq.com/docs/07-releases/v0.9.0#permissions)**: 읽기 전용, 변경 전 확인, 자동 실행과 범위가 제한된 권한 부여.

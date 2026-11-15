@@ -127,9 +127,9 @@
   automation: {
     conversationNotice: "This conversation is run by an automation. Manual messages are unavailable; handle pending requests above.",
     title: 'Automations',
-    description: 'Have the WeKnora assistant run tasks on a schedule as you. You are notified of results and pending approvals.',
+    description: 'Have Tianlu run tasks on a schedule as you. You are notified of results and pending approvals.',
     add: 'New automation',
-    addHint: 'Or ask the WeKnora assistant to set one up',
+    addHint: 'Or ask Tianlu to set one up',
     paused: 'Paused',
     scheduleEnded: 'Ended',
     scheduleEndedHint: 'This one-time schedule has ended. Run it now, or edit the run time before resuming.',
@@ -181,7 +181,7 @@
       sections: {
         basic: {
           title: 'Basics',
-          desc: 'The WeKnora assistant runs each task. To delegate work, name the agents and their assignments in the task.',
+          desc: 'Tianlu runs each task. To delegate work, name the agents and their assignments in the task.',
         },
         schedule: {
           title: 'Schedule',
@@ -583,12 +583,12 @@
     meetings: 'Meeting Rooms',
     docAssistant: 'Solution Assistant',
     pm: 'PM Workstation',
-    workbench: 'Workbench'
+    workbench: 'Inkwell'
   },
-  // Workbench: recents / databases / favorites / trash / item editor / archive
+  // Inkwell: recents / databases / favorites / trash / item editor / archive
   workbench: {
     nav: {
-      title: 'Workbench',
+      title: 'Inkwell',
       beta: 'BETA',
       recent: 'Recent',
       databases: 'Items',
@@ -638,7 +638,7 @@
       database: 'New database',
       databaseHint: 'Table, board and calendar views',
       folder: 'New folder',
-      folderHint: 'Organize items inside the workbench'
+      folderHint: 'Organize items inside the Inkwell'
     },
     import: {
       entry: 'Import material',
@@ -699,7 +699,7 @@
       emptyTrashFailed: 'Failed to empty the trash, please retry',
       clearSearch: 'Clear search',
       loadMore: 'Load more',
-      loadFailed: 'Failed to load the workbench, please refresh'
+      loadFailed: 'Failed to load the Inkwell, please refresh'
     },
     item: {
       untitled: 'Untitled',
@@ -712,6 +712,7 @@
       rename: 'Rename',
       move: 'Move to folder',
       pin: 'Pin to a day',
+      pinHint: 'Clear the date and confirm to unpin (back to a normal item).',
       favorite: 'Add to favorites',
       unfavorite: 'Remove from favorites',
       delete: 'Delete (move to trash)',
@@ -724,6 +725,14 @@
       restoreFailed: 'Restore failed',
       favoriteFailed: 'Failed to update favorite',
       more: 'More actions'
+    },
+    noteDetail: {
+      title: 'Document details',
+      open: 'View details',
+      close: 'Close',
+      updated: 'Updated {time}',
+      words: '{count} characters',
+      empty: 'No content preview yet'
     },
     backlinks: {
       title: 'Backlinks',
@@ -767,6 +776,26 @@
       skipped: 'Ignored {count} instructions that could not be applied',
       done: 'Created {frames} groups and moved {moves} elements',
       failed: 'Generation failed, please try again'
+    },
+    relation: {
+      entry: 'Find links',
+      title: 'Related documents',
+      hint: 'AI compares this document with the others. Nothing is written to the canvas until you confirm.',
+      loading: 'Looking for related documents…',
+      empty: 'No related documents found yet',
+      degraded: 'No chat model available: only tag and mention matches are shown',
+      count: 'Selected {selected} / {total}',
+      selectAll: 'Select all',
+      strong: 'Strong',
+      weak: 'Weak',
+      moreWeak: '{count} weak matches (not selected by default)',
+      ignore: 'Ignore',
+      apply: 'Add to canvas',
+      cancel: 'Cancel',
+      done: 'Added {count} related documents',
+      failed: 'Could not write to the canvas. Make sure it is in infinite canvas mode and editable.',
+      untitled: 'Untitled document',
+      open: 'Open source document'
     },
     export: {
       entry: 'Export canvas package',
@@ -999,26 +1028,6 @@
           failed: 'Generation failed. Try again later.'
         }
       },
-      collect: {
-        entry: 'Extract items',
-        title: 'Extract items',
-        hint: 'Detect actionable items in this document and sync them to Items after you confirm.',
-        hintTodo: 'Extract items from to-dos in this document and sync them to Items after you confirm.',
-        empty: 'No to-dos in this document yet',
-        emptyAi: 'No actionable items were detected in this document',
-        recognizing: 'Detecting items in this document…',
-        titleField: 'Item title',
-        count: 'Selected {selected} / {total}',
-        selectAll: 'Select all',
-        selectNone: 'Select none',
-        done: 'Done',
-        cancel: 'Cancel',
-        confirm: 'Sync to Items',
-        applied: '{count} items collected',
-        failed: 'Collection failed. Try again later.',
-        aiNotFound: 'No actionable items were detected',
-        aiFailed: 'Extraction failed. Try again later.'
-      },
       /** Auto-extraction after archiving a document */
       itemExtract: {
         applied: '{count} items synced from "{title}"',
@@ -1042,6 +1051,26 @@
         isChecked: 'is checked',
         isUnchecked: 'is unchecked'
       }
+    },
+    collect: {
+      entry: 'Extract items',
+      title: 'Extract items',
+      hint: 'Detect actionable items in this document and sync them to Items after you confirm.',
+      hintTodo: 'Extract items from to-dos in this document and sync them to Items after you confirm.',
+      empty: 'No to-dos in this document yet',
+      emptyAi: 'No actionable items were detected in this document',
+      recognizing: 'Detecting items in this document…',
+      titleField: 'Item title',
+      count: 'Selected {selected} / {total}',
+      selectAll: 'Select all',
+      selectNone: 'Select none',
+      done: 'Done',
+      cancel: 'Cancel',
+      confirm: 'Sync to Items',
+      applied: '{count} items collected',
+      failed: 'Collection failed. Try again later.',
+      aiNotFound: 'No actionable items were detected',
+      aiFailed: 'Extraction failed. Try again later.'
     },
     archive: {
       status: {
@@ -1111,10 +1140,11 @@
       }
     },
     editor: {
-      back: 'Back to workbench',
+      back: 'Back to Inkwell',
       loading: 'Loading canvas…',
       loadFailed: 'Failed to load the canvas',
       notFound: 'Item not found or already deleted',
+      leaveBlocked: 'This document has unsaved changes. Resolve the save prompt before switching.',
       // Draft staging is not archiving: autosave only writes back to the source item (§9.7).
       saveDraftSaved: 'Draft staged',
       saveDraftPending: 'Changes not staged',
@@ -1158,7 +1188,7 @@
       conflict: 'Content changed in another tab. Reload before restoring.'
     },
     journals: {
-      back: 'Back to workbench',
+      back: 'Back to Inkwell',
       dateNav: 'Journal date navigation',
       prevWeek: 'Previous seven days',
       nextWeek: 'Next seven days',
@@ -1289,6 +1319,7 @@
         translate: 'Translate to · {value}',
         tone: 'Change tone · {value}',
         polish: 'Improve writing',
+        humanize: 'Humanize',
         expand: 'Expand',
         shorten: 'Shorten',
         continue: 'Continue writing',
@@ -1312,7 +1343,6 @@
         more: 'More',
         ask: 'Ask AI',
         open: 'Open AI assistant',
-        rewrite: 'AI rewrite',
         selected: '{count} characters selected'
       },
       preview: {
@@ -1340,9 +1370,9 @@
         tooLong: 'The selection exceeds 8000 characters. Please process it in parts.',
         noModel: 'No chat model is available. Add one in model settings first.',
         streamBroken: 'Generation was interrupted. Partial output kept; you can regenerate.',
-        disabled: 'Workbench AI is turned off',
+        disabled: 'Inkwell AI is turned off',
         disabledHint: 'Turn it on to ask questions, work on this page, and insert results after confirming.',
-        goSettings: 'Open workbench AI settings',
+        goSettings: 'Open Inkwell AI settings',
         needSelection: 'Select some text first',
         codeBlockHint: 'Inside a code block only "Explain selection" is available'
       },
@@ -1369,7 +1399,7 @@
         empty: 'No matching command'
       },
       panel: {
-        title: 'Workbench AI',
+        title: 'Inkwell AI',
         agentPlaceholder: 'Select an agent',
         agentDefault: 'Use the workspace default model',
         agentBuiltin: '{name} (built-in)',
@@ -1384,16 +1414,16 @@
       }
     },
     settings: {
-      title: 'Workbench settings',
+      title: 'Inkwell settings',
       subtitle: 'These are personal preferences. They are stored on this device only.',
-      open: 'Open workbench settings',
+      open: 'Open Inkwell settings',
       storageNote: 'Preferences live in this browser. Clearing browser data restores the defaults; existing documents and archives are unaffected.',
       resetEditor: 'Restore defaults (editor)',
-      resetAI: 'Restore defaults (workbench AI)',
+      resetAI: 'Restore defaults (Inkwell AI)',
       resetDone: 'Defaults restored',
       tab: {
         editor: 'Editor',
-        ai: 'Workbench AI'
+        ai: 'Inkwell AI'
       },
       editor: {
         text: 'Font and page',
@@ -1460,9 +1490,9 @@
         none: 'No border'
       },
       ai: {
-        general: 'Workbench AI',
+        general: 'Inkwell AI',
         agent: 'Default agent',
-        enabled: 'Enable workbench AI',
+        enabled: 'Enable Inkwell AI',
         enabledHint: 'Turning this off hides the sidebar, inline page AI and canvas AI entries. Editing, archiving and submitted tasks are unaffected.',
         citations: 'Show source citations in answers',
         confirmInsert: 'Preview before writing',
@@ -1494,7 +1524,7 @@
       entryClosed: 'The document already has content, so the template entry is closed',
       applied: 'Applied the “{name}” template',
       startBlank: 'Start with a blank document',
-      footNote: 'Templates are stored in your local workbench and visible only to you',
+      footNote: 'Templates are stored in your local Inkwell and visible only to you',
       escHint: 'Esc to close',
       mineEmpty: 'You have no templates yet',
       mineEmptyHint: 'Open any document and choose “Save as template” from ⋯',
@@ -2393,6 +2423,10 @@
           scenarios: 'Key scenarios',
           background: 'Background'
         },
+        cognition: {
+          hint: 'Organized by the AI guide; you can also edit directly, and changes are saved with the draft',
+          placeholder: 'Enter or edit directly; leave blank if not yet confirmed'
+        },
         blocks: {
           cognition: 'Product cognition',
           features: 'Feature breakdown',
@@ -2857,7 +2891,7 @@
     reopen: 'Product tour',
     steps: {
       assistant: {
-        title: 'Meet the WeKnora Assistant',
+        title: 'Meet Tianlu',
         desc: 'Ask about WeKnora versions, features and setup. Using the current page as context, the assistant can create agents, schedule tasks and organize knowledge on your behalf, within your permissions.'
       },
       welcome: {
@@ -4681,6 +4715,7 @@
       loadFailed: 'Failed to load parser engine list',
       ensureDocreaderConnected: 'Please ensure the DocReader service is configured via environment variables and connected',
       checkDoneStatusUpdated: 'Checked with current parameters. Status above has been updated.',
+      checking: 'Checking…',
       checkSuccess: 'Test Connection Successful',
       checkFailed: 'Check failed',
       saveSuccess: 'Saved successfully',
@@ -5483,7 +5518,8 @@
     back: 'Back'
   },
   file: {
-    upload: 'Upload File'
+    upload: 'Upload File',
+    downloadFailed: 'Download failed. Try again later.'
   },
   manualEditor: {
     assistant: {
@@ -5604,6 +5640,16 @@
     }
   },
   input: {
+    imageUpload: {
+      label: 'Upload image',
+      tooltip: 'Upload an image (paste or drag supported)'
+    },
+    fileUpload: {
+      label: 'Upload attachment',
+      tooltip: 'Upload an attachment (documents, audio, etc.)',
+      tooMany: 'You can upload up to 5 attachments',
+      tooLarge: 'Attachment size must not exceed 20 MB'
+    },
     addModel: 'Add Model',
     placeholder: 'Ask a question or describe a task…',
     agentMode: 'Smart Reasoning',
@@ -5619,6 +5665,7 @@
     agentNotReadyDetail: 'Agent "{agentName}" is not ready. Please configure: {reasons}',
     sharedAgentNotReadyDetail: 'Shared agent "{agentName}" is not ready (missing: {reasons}). Ask the sharing organization admin to finish setup.',
     webSearch: {
+      label: 'Web search',
       toggleOn: 'Enable Web Search',
       toggleOff: 'Disable Web Search',
       notConfigured: 'Web search engine not configured'
@@ -5915,7 +5962,7 @@
       systemActor: 'System',
       actorWithAPIKey: '{actor} · API Key · {name}',
       actorAPIKey: 'API Key · {name}',
-      viaAssistant: 'Via WeKnora Assistant',
+      viaAssistant: 'Via Tianlu',
       knowledgeBase: 'Knowledge base',
       countItems: '{count} items',
       titleWithCount: '{title} and {count} more',
@@ -6709,6 +6756,7 @@
     }
   },
   chat: {
+    imageReadFailed: 'Failed to read the attachment. Please try again.',
     memoryUsedCount: 'Used {count} memories',
     memoryForget: 'Delete this memory',
     memoryForgotten: 'Memory deleted',
@@ -7683,6 +7731,10 @@
       getApiPrincipalConfigFailed: 'Failed to get API principal config',
       updateApiPrincipalConfigFailed: 'Failed to update API principal config',
       createApiPrincipalTestTokenFailed: 'Failed to create API test token',
+      createApiKeyFailed: 'Failed to create API key',
+      deleteApiKeyFailed: 'Failed to delete API key',
+      listApiKeysFailed: 'Failed to load API keys',
+      createFailed: 'Failed to create workspace',
       updateFailed: 'Failed to update workspace information',
       deleteFailed: 'Failed to delete workspace'
     },
@@ -8807,7 +8859,7 @@
       videoNotSupported: 'Your browser does not support video playback'
     },
     assistant: {
-      title: 'WeKnora Assistant',
+      title: 'Tianlu',
       newConversation: 'New conversation',
       history: 'Conversation history',
       untitledConversation: 'Untitled conversation',
@@ -8824,7 +8876,7 @@
       welcomeDesc: 'I can answer questions about WeKnora, organize knowledge and documents, and help set up agents, tools and automations.',
       help: {
         label: 'About the assistant',
-        title: 'What the WeKnora assistant can do',
+        title: 'What Tianlu can do',
         identity: 'The assistant works as you. It can see and change only what your role in this workspace allows.',
         page: 'It keeps the current page attached, so it can summarize what is on screen, set up agents and automations, or fill in forms. It will not click buttons or save for you.',
         access: 'Under the input you can switch access: read-only, confirm before changes, or run recoverable changes automatically. Deletes always need your confirmation, and an admin ceiling cannot be exceeded.',
@@ -9318,7 +9370,7 @@
       commands: 'Commands',
       recent: 'Recent',
       quickActions: 'Quick actions',
-      workbench: 'Workbench'
+      workbench: 'Inkwell'
     },
     workbench: {
       item: 'Canvas / database item',
@@ -10520,6 +10572,7 @@
     syncFailed: 'Failed to trigger sync',
     pause: 'Pause',
     resume: 'Resume',
+    resumeFailed: 'Failed to resume. Please try again.',
     paused: 'Paused',
     resumed: 'Resumed',
     pauseFailed: 'Failed to pause',

@@ -127,9 +127,9 @@
   automation: {
     conversationNotice: "자동화 작업이 실행하는 대화입니다. 메시지를 직접 보낼 수 없습니다. 대기 중인 요청은 위에서 처리하세요.",
     title: '자동화',
-    description: 'WeKnora 도우미가 예약된 시간에 사용자를 대신해 작업을 실행합니다. 결과와 승인 대기 항목을 알려드립니다.',
+    description: '천록이 예약된 시간에 사용자를 대신해 작업을 실행합니다. 결과와 승인 대기 항목을 알려드립니다.',
     add: '새 자동화',
-    addHint: 'WeKnora 어시스턴트에게 만들어 달라고 할 수도 있습니다',
+    addHint: '천록에게 만들어 달라고 할 수도 있습니다',
     paused: '일시 중지됨',
     scheduleEnded: '종료됨',
     scheduleEndedHint: '일회성 일정이 종료되었습니다. 지금 실행하거나 실행 시간을 변경한 후 재개하세요.',
@@ -181,7 +181,7 @@
       sections: {
         basic: {
           title: '기본 정보',
-          desc: 'WeKnora 도우미가 작업을 실행합니다. 다른 에이전트에 위임하려면 작업에 에이전트와 맡길 일을 명시하세요.',
+          desc: '천록이 작업을 실행합니다. 다른 에이전트에 위임하려면 작업에 에이전트와 맡길 일을 명시하세요.',
         },
         schedule: {
           title: '실행 시간',
@@ -1184,6 +1184,7 @@
     syncFailed: '동기화 트리거 실패',
     pause: '일시정지',
     resume: '재개',
+    resumeFailed: '실행 재개에 실패했습니다. 다시 시도하세요.',
     paused: '일시정지됨',
     resumed: '재개됨',
     pauseFailed: '일시정지 실패',
@@ -2655,7 +2656,7 @@
     askUser: '사용자에게 질문'
   },
   assistant: {
-    title: 'WeKnora 어시스턴트',
+    title: '천록',
     newConversation: '새 대화',
     history: '대화 기록',
     untitledConversation: '제목 없는 대화',
@@ -2672,7 +2673,7 @@
     welcomeDesc: 'WeKnora 사용법을 안내하고, 지식과 문서를 정리하며, 에이전트·도구·자동화 설정을 도와드릴 수 있습니다.',
     help: {
       label: '어시스턴트 설명',
-      title: 'WeKnora 어시스턴트가 할 수 있는 일',
+      title: '천록이 할 수 있는 일',
       identity: '어시스턴트는 사용자 본인으로 동작합니다. 보고 수정할 수 있는 범위는 이 공간에서 가진 역할과 같으며, 그 권한을 넘지 않습니다.',
       page: '열면 현재 페이지가 함께 붙습니다. 화면의 내용을 정리하고, 에이전트와 자동화를 설정하거나, 양식을 대신 채울 수 있습니다. 버튼을 누르거나 저장하지는 않습니다.',
       access: '입력창 아래에서 권한을 바꿀 수 있습니다. 읽기 전용, 수정 전 확인, 되돌릴 수 있는 수정은 자동 실행. 삭제는 항상 확인이 필요하며, 관리자가 정한 상한은 넘을 수 없습니다.',
@@ -3187,7 +3188,7 @@
       commands: '명령',
       recent: '최근 검색',
       quickActions: '빠른 작업',
-      workbench: '워크벤치'
+      workbench: '인크웰'
     },
     workbench: {
       item: '캔버스 / 데이터베이스 항목',
@@ -4336,6 +4337,10 @@
       getApiPrincipalConfigFailed: 'API principal config 조회 실패',
       updateApiPrincipalConfigFailed: 'API principal config 업데이트 실패',
       createApiPrincipalTestTokenFailed: 'API 테스트 토큰 생성 실패',
+      createApiKeyFailed: 'API 키를 생성하지 못했습니다',
+      deleteApiKeyFailed: 'API 키를 삭제하지 못했습니다',
+      listApiKeysFailed: 'API 키 목록을 불러오지 못했습니다',
+      createFailed: '워크스페이스를 생성하지 못했습니다',
       updateFailed: '워크스페이스 정보 업데이트 실패',
       deleteFailed: 'Failed to delete workspace'
     },
@@ -5063,6 +5068,7 @@
     }
   },
   chat: {
+    imageReadFailed: '첨부 파일을 읽지 못했습니다. 다시 시도하세요.',
     memoryUsedCount: '기억 {count}개를 참고했습니다',
     memoryForget: '이 기억 삭제',
     memoryForgotten: '기억을 삭제했습니다',
@@ -6010,7 +6016,7 @@
       systemActor: '시스템',
       actorWithAPIKey: '{actor} · API Key · {name}',
       actorAPIKey: 'API Key · {name}',
-      viaAssistant: 'WeKnora 어시스턴트 경유',
+      viaAssistant: '천록 경유',
       knowledgeBase: '지식 베이스',
       countItems: '{count}개 항목',
       titleWithCount: '{title} 외 {count}개',
@@ -6336,6 +6342,16 @@
     }
   },
   input: {
+    imageUpload: {
+      label: '이미지 업로드',
+      tooltip: '이미지 업로드(붙여넣기/드래그 지원)'
+    },
+    fileUpload: {
+      label: '첨부 파일 업로드',
+      tooltip: '첨부 파일 업로드(문서, 오디오 등)',
+      tooMany: '첨부 파일은 최대 5개까지 업로드할 수 있습니다',
+      tooLarge: '첨부 파일 크기는 20MB를 초과할 수 없습니다'
+    },
     addModel: '모델 추가',
     placeholder: '질문이나 작업 내용을 입력하세요…',
     agentMode: 'Agent 모드',
@@ -6396,6 +6412,7 @@
       stopFailed: '중지 실패, 다시 시도해주세요'
     },
     webSearch: {
+      label: '웹 검색',
       toggleOn: '웹 검색 켜기',
       toggleOff: '웹 검색 끄기',
       notConfigured: '웹 검색 엔진이 구성되지 않았습니다'
@@ -6520,7 +6537,8 @@
     }
   },
   file: {
-    upload: '파일 업로드'
+    upload: '파일 업로드',
+    downloadFailed: '다운로드에 실패했습니다. 잠시 후 다시 시도하세요.'
   },
   mentionDetail: {
     readOnlyFromAgent: '이 대화에서는 읽기 전용이며 지식베이스 목록에는 표시되지 않습니다.',
@@ -7859,6 +7877,7 @@
       loadFailed: '파서 엔진 목록 로드 실패',
       ensureDocreaderConnected: 'DocReader 서비스가 환경변수로 구성되고 연결되었는지 확인하세요',
       checkDoneStatusUpdated: '현재 파라미터로 검사 완료. 위 상태가 업데이트되었습니다.',
+      checking: '확인 중…',
       checkSuccess: '연결 테스트 성공',
       checkFailed: '검사 실패',
       saveSuccess: '저장 성공',
@@ -9128,7 +9147,7 @@
     reopen: '사용 가이드',
     steps: {
       assistant: {
-        title: 'WeKnora 어시스턴트를 만나보세요',
+        title: '천록을 만나보세요',
         desc: 'WeKnora의 버전, 기능, 설정에 대해 질문할 수 있습니다. 현재 페이지를 바탕으로 사용자의 권한 내에서 에이전트를 만들고, 작업을 예약하고, 지식을 정리할 수도 있습니다.'
       },
       done: {
@@ -9295,12 +9314,12 @@
     meetings: '회의실',
     docAssistant: '솔루션 도우미',
     pm: 'PM 워크스테이션',
-    workbench: '워크벤치'
+    workbench: '인크웰'
   },
-  // 워크벤치: 최근 / 데이터베이스 / 즐겨찾기 / 휴지통 / 항목 편집 / 아카이브
+  // 인크웰: 최근 / 데이터베이스 / 즐겨찾기 / 휴지통 / 항목 편집 / 아카이브
   workbench: {
     nav: {
-      title: '워크벤치',
+      title: '인크웰',
       beta: 'BETA',
       recent: '최근',
       databases: '항목',
@@ -9350,7 +9369,7 @@
       database: '새 데이터베이스',
       databaseHint: '테이블, 보드, 캘린더 보기',
       folder: '새 폴더',
-      folderHint: '워크벤치 안에서 항목 정리'
+      folderHint: '인크웰 안에서 항목 정리'
     },
     import: {
       entry: '자료 가져오기',
@@ -9411,7 +9430,7 @@
       emptyTrashFailed: '휴지통을 비우지 못했습니다. 다시 시도해 주세요',
       clearSearch: '검색 지우기',
       loadMore: '더 불러오기',
-      loadFailed: '워크벤치를 불러오지 못했습니다. 새로고침해 주세요'
+      loadFailed: '인크웰을 불러오지 못했습니다. 새로고침해 주세요'
     },
     item: {
       untitled: '제목 없음',
@@ -9424,6 +9443,7 @@
       rename: '이름 바꾸기',
       move: '폴더로 이동',
       pin: '특정 날짜에 고정',
+      pinHint: '날짜를 지우고 확인하면 고정이 해제됩니다(일반 항목으로 돌아갑니다).',
       favorite: '즐겨찾기 추가',
       unfavorite: '즐겨찾기 해제',
       delete: '삭제(휴지통으로)',
@@ -9436,6 +9456,14 @@
       restoreFailed: '복원하지 못했습니다',
       favoriteFailed: '즐겨찾기를 갱신하지 못했습니다',
       more: '추가 작업'
+    },
+    noteDetail: {
+      title: '문서 상세',
+      open: '상세 보기',
+      close: '닫기',
+      updated: '{time} 업데이트됨',
+      words: '{count}자',
+      empty: '미리 볼 내용이 없습니다'
     },
     backlinks: {
       title: '역링크',
@@ -9479,6 +9507,26 @@
       skipped: '적용할 수 없는 지시 {count}개를 무시했습니다',
       done: '그룹 {frames}개를 만들고 요소 {moves}개를 이동했습니다',
       failed: '생성에 실패했습니다. 다시 시도하세요'
+    },
+    relation: {
+      entry: '관련 문서 찾기',
+      title: '관련 문서',
+      hint: 'AI가 본문과 다른 문서를 비교합니다. 확인하기 전에는 캔버스에 아무것도 쓰지 않습니다.',
+      loading: '관련 문서를 찾는 중…',
+      empty: '아직 관련 문서를 찾지 못했습니다',
+      degraded: '사용 가능한 채팅 모델이 없어 태그와 언급 기반 결과만 표시합니다',
+      count: '선택 {selected} / {total}',
+      selectAll: '전체 선택',
+      strong: '강한 관련',
+      weak: '약한 관련',
+      moreWeak: '약한 관련 {count}건 (기본 미선택)',
+      ignore: '무시',
+      apply: '캔버스에 추가',
+      cancel: '취소',
+      done: '관련 문서 {count}건을 추가했습니다',
+      failed: '캔버스에 쓰지 못했습니다. 무한 캔버스 형식이며 편집 가능한지 확인하세요.',
+      untitled: '제목 없는 문서',
+      open: '원본 문서 열기'
     },
     export: {
       entry: '캔버스 패키지 내보내기',
@@ -9711,26 +9759,6 @@
           failed: '생성에 실패했습니다. 잠시 후 다시 시도하세요.'
         }
       },
-      collect: {
-        entry: '항목 인식',
-        title: '항목 인식',
-        hint: '본문에서 실제로 해야 할 일을 감지하고, 확인 후 「항목」에 동기화합니다',
-        hintTodo: '본문의 할 일에서 항목을 추출하고, 확인 후 「항목」에 동기화합니다',
-        empty: '본문에 아직 할 일이 없습니다',
-        emptyAi: '본문에서 실행 가능한 항목을 찾지 못했습니다',
-        recognizing: '본문에서 항목을 감지하는 중…',
-        titleField: '항목 제목',
-        count: '선택 {selected} / {total}',
-        selectAll: '전체 선택',
-        selectNone: '선택 해제',
-        done: '완료',
-        cancel: '취소',
-        confirm: '항목에 동기화',
-        applied: '항목 {count}개를 수집했습니다',
-        failed: '수집에 실패했습니다. 잠시 후 다시 시도하세요.',
-        aiNotFound: '실행 가능한 항목을 찾지 못했습니다',
-        aiFailed: '인식에 실패했습니다. 잠시 후 다시 시도하세요.'
-      },
       /** 보관 후 자동 추출 */
       itemExtract: {
         applied: '「{title}」에서 항목 {count}개를 동기화했습니다',
@@ -9754,6 +9782,26 @@
         isChecked: '체크됨',
         isUnchecked: '체크 안 됨'
       }
+    },
+    collect: {
+      entry: '항목 인식',
+      title: '항목 인식',
+      hint: '본문에서 실제로 해야 할 일을 감지하고, 확인 후 「항목」에 동기화합니다',
+      hintTodo: '본문의 할 일에서 항목을 추출하고, 확인 후 「항목」에 동기화합니다',
+      empty: '본문에 아직 할 일이 없습니다',
+      emptyAi: '본문에서 실행 가능한 항목을 찾지 못했습니다',
+      recognizing: '본문에서 항목을 감지하는 중…',
+      titleField: '항목 제목',
+      count: '선택 {selected} / {total}',
+      selectAll: '전체 선택',
+      selectNone: '선택 해제',
+      done: '완료',
+      cancel: '취소',
+      confirm: '항목에 동기화',
+      applied: '항목 {count}개를 수집했습니다',
+      failed: '수집에 실패했습니다. 잠시 후 다시 시도하세요.',
+      aiNotFound: '실행 가능한 항목을 찾지 못했습니다',
+      aiFailed: '인식에 실패했습니다. 잠시 후 다시 시도하세요.'
     },
     archive: {
       status: {
@@ -9823,10 +9871,11 @@
       }
     },
     editor: {
-      back: '워크벤치로 돌아가기',
+      back: '인크웰로 돌아가기',
       loading: '캔버스를 불러오는 중…',
       loadFailed: '캔버스를 불러오지 못했습니다',
       notFound: '항목이 없거나 이미 삭제되었습니다',
+      leaveBlocked: '이 문서에 저장하지 않은 변경이 있습니다. 저장 알림을 처리한 후 전환하세요.',
       saveDraftSaved: '초안 임시 저장됨',
       saveDraftPending: '임시 저장 대기 중',
       saveDraftSaving: '초안 임시 저장 중…',
@@ -9869,7 +9918,7 @@
       conflict: '다른 탭에서 내용이 변경되었습니다. 새로고침 후 복원해 주세요'
     },
     journals: {
-      back: '워크벤치로 돌아가기',
+      back: '인크웰로 돌아가기',
       dateNav: 'Journal 날짜 탐색',
       prevWeek: '7일 전으로',
       nextWeek: '7일 후로',
@@ -10000,6 +10049,7 @@
         translate: '번역 · {value}',
         tone: '어조 변경 · {value}',
         polish: '글 다듬기',
+        humanize: 'AI 느낌 없애기',
         expand: '확장',
         shorten: '축약',
         continue: '이어 쓰기',
@@ -10023,7 +10073,6 @@
         more: '더보기',
         ask: 'AI에게 묻기',
         open: 'AI 어시스턴트 열기',
-        rewrite: 'AI로 다시 쓰기',
         selected: '{count}자 선택됨'
       },
       preview: {
@@ -10051,9 +10100,9 @@
         tooLong: '선택 영역이 8000자를 넘습니다. 나눠서 처리해 주세요.',
         noModel: '사용 가능한 모델이 없습니다. 모델 관리에서 먼저 추가해 주세요.',
         streamBroken: '생성이 중단되었습니다. 일부 결과를 보관했으며 다시 생성할 수 있습니다.',
-        disabled: '워크벤치 AI가 꺼져 있습니다',
+        disabled: '인크웰 AI가 꺼져 있습니다',
         disabledHint: '켜면 여기서 질문하고 이 페이지를 정리한 뒤 결과를 확인해 삽입할 수 있습니다.',
-        goSettings: '워크벤치 AI 설정 열기',
+        goSettings: '인크웰 AI 설정 열기',
         needSelection: '먼저 텍스트를 선택해 주세요',
         codeBlockHint: '코드 블록에서는 "선택 내용 설명"만 사용할 수 있습니다'
       },
@@ -10080,7 +10129,7 @@
         empty: '일치하는 명령이 없습니다'
       },
       panel: {
-        title: '워크벤치 AI',
+        title: '인크웰 AI',
         agentPlaceholder: '에이전트 선택',
         agentDefault: '워크스페이스 기본 모델 사용',
         agentBuiltin: '{name}(기본 제공)',
@@ -10095,16 +10144,16 @@
       }
     },
     settings: {
-      title: '워크벤치 설정',
+      title: '인크웰 설정',
       subtitle: '아래 설정은 개인 환경설정이며 이 기기에만 저장됩니다.',
-      open: '워크벤치 설정 열기',
+      open: '인크웰 설정 열기',
       storageNote: '환경설정은 이 브라우저에만 저장됩니다. 브라우저 데이터를 지우면 기본값으로 돌아가며, 기존 문서와 아카이브에는 영향이 없습니다.',
       resetEditor: '기본값으로 복원(편집기)',
-      resetAI: '기본값으로 복원(워크벤치 AI)',
+      resetAI: '기본값으로 복원(인크웰 AI)',
       resetDone: '기본값으로 복원했습니다',
       tab: {
         editor: '편집기',
-        ai: '워크벤치 AI'
+        ai: '인크웰 AI'
       },
       editor: {
         text: '글꼴과 페이지',
@@ -10171,9 +10220,9 @@
         none: '테두리 없음'
       },
       ai: {
-        general: '워크벤치 AI',
+        general: '인크웰 AI',
         agent: '기본 에이전트',
-        enabled: '워크벤치 AI 사용',
+        enabled: '인크웰 AI 사용',
         enabledHint: '끄면 사이드바, 페이지 내 AI, 캔버스 AI 진입점이 숨겨집니다. 편집, 아카이브, 이미 제출한 작업에는 영향이 없습니다.',
         citations: '답변에 출처 표시',
         confirmInsert: '쓰기 전에 미리보기',
@@ -10205,7 +10254,7 @@
       entryClosed: '문서에 이미 내용이 있어 템플릿 진입점을 닫았습니다',
       applied: '“{name}” 템플릿을 적용했습니다',
       startBlank: '빈 문서로 시작',
-      footNote: '템플릿은 이 기기의 워크벤치에 저장되며 나만 볼 수 있습니다',
+      footNote: '템플릿은 이 기기의 인크웰에 저장되며 나만 볼 수 있습니다',
       escHint: 'Esc로 닫기',
       mineEmpty: '아직 내 템플릿이 없습니다',
       mineEmptyHint: '아무 문서를 열고 ⋯ 에서 “템플릿으로 저장”을 선택하세요',
@@ -11103,6 +11152,10 @@
           coreValue: '핵심 가치',
           scenarios: '핵심 시나리오',
           background: '배경'
+        },
+        cognition: {
+          hint: 'AI 가이드가 정리하며 직접 수정할 수도 있습니다. 변경 사항은 초안과 함께 자동 저장됩니다',
+          placeholder: '직접 입력하거나 수정할 수 있으며, 미확인 상태는 비워 두세요'
         },
         blocks: {
           cognition: '제품 인식',

@@ -201,8 +201,26 @@ func (h *WorkbenchAIHandler) Canvas(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }
 
-// ExtractItems POST /api/v1/workbench/ai/items
+// Relations POST /api/v1/workbench/ai/relations
 //
+// 画布「智能关联」：服务端做混合召回（正文提及 / 共享标签 / 关键词）与模型精判，
+// 只返回「关联文档 + 双方原句 + 理由」，不写画布——前端预览勾选后才写入 Y.Doc。
+// 没有可用聊天模型时降级为召回结果并带 degraded_reason，不报错。
+func (h *WorkbenchAIHandler) Relations(c *gin.Context) {
+	var req types.WorkbenchAIRelationsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewValidationError("Invalid request data").WithDetails(err.Error()))
+		return
+	}
+	result, err := h.service.Relations(c.Request.Context(), req)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}
+
+// ExtractItems POST /api/v1/workbench/ai/items
 // 从文档正文识别事项候选：非流式整包 JSON（半截 JSON 无法预览）。
 // 服务端只产出候选，写入由前端确认后在 BlockSuite 事务里执行。
 func (h *WorkbenchAIHandler) ExtractItems(c *gin.Context) {

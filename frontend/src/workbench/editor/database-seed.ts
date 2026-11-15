@@ -9,6 +9,7 @@
  *     手写会停在空态（见 p0-spike-report §3 第 6 条）。
  */
 import { DatabaseBlockDataSource } from '@blocksuite/affine/blocks/database'
+import { Text } from '@blocksuite/store'
 
 import type { EditorSeedContext } from './blocksuite'
 import {
@@ -92,11 +93,13 @@ function buildWorkbenchColumns(labels: DatabaseSeedLabels) {
       name: labels.statusColumn,
       data: { options: selectOptions(['wb-opt-todo', 'wb-opt-doing', 'wb-opt-done'], labels.statusOptions, ['var(--affine-tag-gray)', 'var(--affine-tag-blue)', 'var(--affine-tag-green)']) },
     },
-    { id: WORKBENCH_DB_COLUMNS.owner, type: 'text', name: labels.ownerColumn, data: {} },
+    { id: WORKBENCH_DB_COLUMNS.owner, type: 'rich-text', name: labels.ownerColumn, data: {} },
     { id: WORKBENCH_DB_COLUMNS.date, type: 'date', name: labels.dateColumn, data: {} },
-    // 优先级只做展示与筛选；上游没有 person / relation 类型，负责人与关联项都用文本承载。
+    // 优先级只做展示与筛选；上游没有 person / relation 类型，负责人与关联项都用富文本承载。
+    // 注意类型名必须是 `rich-text`：上游没有 `text` 这个属性类型，写成 text 的列
+    // 拿不到属性元信息，读不到值也渲染不出内容（表现为「写了但表里看不到」）。
     { id: WORKBENCH_DB_COLUMNS.priority, type: 'select', name: labels.priorityColumn, data: { options: PRIORITY_OPTIONS } },
-    { id: WORKBENCH_DB_COLUMNS.relation, type: 'text', name: labels.relationColumn, data: {} },
+    { id: WORKBENCH_DB_COLUMNS.relation, type: 'rich-text', name: labels.relationColumn, data: {} },
     // 来源两列：默认可见（用户明确要求可追溯），排在想定位置末尾。
     {
       id: WORKBENCH_DB_COLUMNS.source,
@@ -110,7 +113,7 @@ function buildWorkbenchColumns(labels: DatabaseSeedLabels) {
         ),
       },
     },
-    { id: WORKBENCH_DB_COLUMNS.sourceDoc, type: 'text', name: labels.sourceDocColumn, data: {} },
+    { id: WORKBENCH_DB_COLUMNS.sourceDoc, type: 'rich-text', name: labels.sourceDocColumn, data: {} },
   ]
 }
 
@@ -167,6 +170,58 @@ export function ensureWorkbenchSourceColumns(
 }
 
 /** 来源两列在表格视图里的默认宽度见 `database-view-defaults.ts` 的 SOURCE_COLUMN_WIDTH。 */
+
+/**
+ * 早期版本把「负责人 / 关联文档 / 来源文档」建成了 `text` 类型。
+ *
+ * 上游根本没有 `text` 这个属性类型（纯文本列真实类型名是 `rich-text`），
+ * 这类列拿不到属性元信息：`propertyMetaGet('text')` 为 undefined，
+ * 于是没有单元格渲染器、值也读不出来——表现为「写了但表里永远空白」
+ * （AI 识别出的来源文档就是这么丢的）。
+ *
+ * 这里把这三列就地改成 `rich-text`，并把已写入的纯字符串包成 Text，
+ * 保证历史数据也能显示。幂等：没有 `text` 列时直接返回 false。
+ */
+const LEGACY_TEXT_COLUMN_IDS = new Set<string>([
+  WORKBENCH_DB_COLUMNS.owner,
+  WORKBENCH_DB_COLUMNS.relation,
+  WORKBENCH_DB_COLUMNS.sourceDoc,
+])
+
+export function migrateLegacyTextColumns(store: BsStore): boolean {
+  const databaseId = findDatabaseId(store)
+  const model = databaseId ? store.getModelById(databaseId) : null
+  const current: any[] = model?.props?.columns$?.value ?? []
+  if (!model || !current.length) return false
+
+  const targets = current.filter(
+    (column) => column?.type === 'text' && LEGACY_TEXT_COLUMN_IDS.has(column.id),
+  )
+  if (!targets.length) return false
+
+  store.updateBlock(databaseId, {
+    columns: current.map((column) =>
+      targets.includes(column) ? { ...column, type: 'rich-text' } : column,
+    ),
+  })
+
+  // 列类型改完后，把仍是纯字符串的历史值包成 Text；富文本列的原始值必须是 Text。
+  // 这里直接从块 props 的原始 cells 读：改类型后 `cellValueGet` 会按 rich-text 的
+  // schema 校验，旧字符串会被判为不合法而返回 undefined，读不到原值。
+  const dataSource = new DatabaseBlockDataSource(model)
+  const cells = model.props.cells$?.value ?? {}
+  const rowIds: string[] = dataSource.rows$.value ?? []
+  store.transact(() => {
+    for (const column of targets) {
+      for (const rowId of rowIds) {
+        const raw = cells[rowId]?.[column.id]?.value
+        if (typeof raw !== 'string' || !raw.trim()) continue
+        dataSource.cellValueChange(rowId, column.id, new Text(raw))
+      }
+    }
+  })
+  return true
+}
 
 /**
  * 清理误加的列（描述 / 需求来源 / 价值达成 / 所属版本 / Progress）。

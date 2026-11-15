@@ -6,6 +6,7 @@ import {
   fingerprintOf,
   hashText,
   markdownToBlocks,
+  parseInlineRuns,
   verifyFingerprint,
 } from './selection-fingerprint.ts'
 
@@ -171,4 +172,40 @@ test('Markdown 转块：未闭合围栏不死循环', () => {
   const blocks = markdownToBlocks('```\nabc')
   assert.equal(blocks.length, 1)
   assert.equal(blocks[0].kind, 'code')
+})
+
+test('Markdown 转块：连续的引用行合并成一个引用块', () => {
+  const blocks = markdownToBlocks('> 甲\n> 乙\n\n正文')
+  assert.deepEqual(blocks, [
+    { kind: 'quote', text: '甲 乙' },
+    { kind: 'paragraph', text: '正文' },
+  ])
+})
+
+test('行内标记：加粗/斜体/代码解析成样式，正文不残留星号', () => {
+  assert.deepEqual(parseInlineRuns('**加粗**与*斜体*和`代码`'), [
+    { text: '加粗', attrs: { bold: true } },
+    { text: '与' },
+    { text: '斜体', attrs: { italic: true } },
+    { text: '和' },
+    { text: '代码', attrs: { code: true } },
+  ])
+})
+
+test('行内标记：加粗里可嵌套斜体', () => {
+  assert.deepEqual(parseInlineRuns('**粗体 *斜体* 结束**'), [
+    { text: '粗体 ', attrs: { bold: true } },
+    { text: '斜体', attrs: { bold: true, italic: true } },
+    { text: ' 结束', attrs: { bold: true } },
+  ])
+})
+
+test('行内标记：链接只留文字，未闭合标记原样保留', () => {
+  const runs = parseInlineRuns('见[文档](https://a.b) 与 **未闭合')
+  assert.equal(runs.map((run) => run.text).join(''), '见文档 与 **未闭合')
+  assert.ok(runs.every((run) => !run.attrs))
+})
+
+test('行内标记：变量名里的下划线不当作斜体', () => {
+  assert.deepEqual(parseInlineRuns('snake_case_name'), [{ text: 'snake_case_name' }])
 })

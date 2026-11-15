@@ -10,6 +10,7 @@ import {
   collectI18nUsageFromSources,
   collectLocaleKeys,
   collectReferencedLocaleKeys,
+  collectStrictTranslationKeysFromSources,
   diffLocaleKeys,
   findAllLocaleMessageCompileErrors,
   findUsedKeysMissingInLocales,
@@ -68,6 +69,14 @@ test('installer command progress messages resolve in the settings namespace', ()
 
 test('referenced i18n keys used in app code exist in every locale', () => {
   const failures = findUsedKeysMissingInLocales(referencedKeys, localeKeysByName)
+  assert.deepEqual(failures, [], failures.slice(0, 20).join('\n'))
+})
+
+test('literal keys used in translation calls exist in every locale', () => {
+  // 只看真实翻译调用的字面量 key，能发现「代码引用了从未定义过的 key」这类缺失；
+  // referencedKeys 只遍历语言包中已存在的键，覆盖不到这种情况。
+  const usedKeys = collectStrictTranslationKeysFromSources()
+  const failures = findUsedKeysMissingInLocales(usedKeys, localeKeysByName)
   assert.deepEqual(failures, [], failures.slice(0, 20).join('\n'))
 })
 

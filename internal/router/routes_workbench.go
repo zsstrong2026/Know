@@ -112,6 +112,8 @@ func RegisterWorkbenchRoutes(
 		group.POST("/ai/items", g.Viewer(), aiHandler.ExtractItems)
 		// 画布 AI（P2-6）：自然语言 → 分组/平移补丁，同样先预览后写入。
 		group.POST("/ai/canvas", g.Viewer(), aiHandler.Canvas)
+		// 画布智能关联：混合召回 + 模型精判，返回关联文档与双方原句，不写画布。
+		group.POST("/ai/relations", g.Viewer(), aiHandler.Relations)
 	}
 	if templateHandler != nil && flags.Templates {
 		// 文档模板（§9.16）：个人资源，按 tenant_id + owner_id 隔离；

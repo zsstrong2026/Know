@@ -45,7 +45,7 @@ test('buildCanvasPackage：缺资产只记 missing，整包照常产出', async 
   assert.equal(result.blocks, 4) // note + 3 image
   assert.equal(result.assetCount, 3)
   assert.equal(result.missingCount, 1)
-  assert.equal(result.fileName, '项目 - 看板-工作台导出.zip')
+  assert.equal(result.fileName, '项目 - 看板-墨匣导出.zip')
 
   const zip = await JSZip.loadAsync(await result.blob.arrayBuffer())
   const files = Object.keys(zip.files).filter((path) => !zip.files[path].dir).sort()

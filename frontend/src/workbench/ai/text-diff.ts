@@ -93,13 +93,36 @@ const ANALYSIS_BLOCK_RE =
 /** 单独一行是否是 Markdown 分隔线（--- / *** / ___）。 */
 const HORIZONTAL_RULE_RE = /^\s{0,3}((?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$/
 
-/** 去掉单行的 Markdown 标记，只保留可读文本。 */
-function stripMarkdownLine(line: string): string {
-  let text = line
-  // 引用 / 标题 / 列表符号
+/**
+ * 去掉单行的**块级**标记（引用 / 标题 / 列表符号），行内标记（`**`、`*`、`` ` ``）原样保留。
+ *
+ * 富文本写入要把块级结构交给块类型、行内标记交给 parseInlineRuns，
+ * 所以这一步只剥块级符号。
+ */
+export function stripBlockMarkupLine(line: string): string {
+  let text = (line ?? '').replace(/\r$/, '')
   text = text.replace(/^\s{0,3}>\s?/, '')
   text = text.replace(/^\s{0,3}#{1,6}\s+/, '')
   text = text.replace(/^\s{0,3}(?:[-*+]|\d+[.)])\s+/, '')
+  return text
+}
+
+/**
+ * 去掉整段 Markdown 的块级标记，保留行内标记与换行。
+ *
+ * 代码围栏行不是正文，直接丢弃；围栏内的代码行按原样保留。
+ */
+export function stripBlockMarkup(markdown: string): string {
+  const lines = (markdown ?? '').replace(/\r\n/g, '\n').split('\n')
+  return lines
+    .filter((line) => !/^\s*```/.test(line))
+    .map((line) => stripBlockMarkupLine(line))
+    .join('\n')
+}
+
+/** 去掉单行的全部 Markdown 标记，只保留可读文本。 */
+function stripMarkdownLine(line: string): string {
+  let text = stripBlockMarkupLine(line)
   // 图片与链接：保留可读文字，丢掉 URL
   text = text.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
   text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
@@ -111,6 +134,20 @@ function stripMarkdownLine(line: string): string {
   text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1$2')
   text = text.replace(/(^|[^_])_([^_\n]+)_/g, '$1$2')
   return text.replace(/\s+$/, '')
+}
+
+/**
+ * 预览用的「Word 式」纯文本：逐行去掉全部标记，丢弃分隔线与代码围栏。
+ *
+ * 预览卡片展示的是用户最终会看到的排版效果，所以不能出现 `**`、`##` 这类源码；
+ * 保留换行让 diff 仍能按行对齐。
+ */
+export function stripMarkdownForPreview(markdown: string): string {
+  const lines = (markdown ?? '').replace(/\r\n/g, '\n').split('\n')
+  return lines
+    .filter((line) => !/^\s*```/.test(line) && !HORIZONTAL_RULE_RE.test(line))
+    .map((line) => stripMarkdownLine(line))
+    .join('\n')
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { AffineTextStyleAttributes } from '@blocksuite/affine-shared/types';
+import { editorT } from '@blocksuite/affine-shared/utils';
 import { PropTypes, requiredProperties } from '@blocksuite/std';
 import { LitElement } from 'lit';
 import { property } from 'lit/decorators.js';
@@ -52,7 +53,10 @@ export class HighlightDropdownMenu extends LitElement {
       <editor-menu-button
         .contentPadding="${'8px'}"
         .button=${html`
-          <editor-icon-button aria-label="highlight" .tooltip="${'Highlight'}">
+          <editor-icon-button
+            aria-label=${editorT('Highlight')}
+            .tooltip=${editorT('Highlight')}
+          >
             <affine-highlight-duotone-icon
               style=${styleMap({
                 '--color':
@@ -65,7 +69,7 @@ export class HighlightDropdownMenu extends LitElement {
         `}
       >
         <div data-size="large" data-orientation="vertical">
-          <div class="highlight-heading">Color</div>
+          <div class="highlight-heading">${editorT('Color')}</div>
           ${repeat(colors, color => {
             const isDefault = color === 'default';
             const value = isDefault
@@ -82,13 +86,13 @@ export class HighlightDropdownMenu extends LitElement {
                   })}
                 ></affine-text-duotone-icon>
                 <span class="label capitalize"
-                  >${isDefault ? `${color} color` : color}</span
+                  >${editorT(isDefault ? `${color} color` : color)}</span
                 >
               </editor-menu-action>
             `;
           })}
 
-          <div class="highlight-heading">Background</div>
+          <div class="highlight-heading">${editorT('Background')}</div>
           ${repeat(colors, color => {
             const isDefault = color === 'default';
             const value = isDefault ? null : `var(${prefix}-${color})`;
@@ -105,7 +109,7 @@ export class HighlightDropdownMenu extends LitElement {
                 ></affine-text-duotone-icon>
 
                 <span class="label capitalize"
-                  >${isDefault ? `${color} background` : color}</span
+                  >${editorT(isDefault ? `${color} background` : color)}</span
                 >
               </editor-menu-action>
             `;

@@ -195,7 +195,8 @@ export function collectLocaleKeys(root: unknown): Set<string> {
 
 function isAuditableSourceFile(path: string): boolean {
   if (!SOURCE_EXTENSIONS.test(path)) return false
-  if (path.includes('/i18n/locales/')) return false
+  // i18n 目录本身是审计工具与语言包，不参与「业务代码使用了哪些 key」的收集。
+  if (path.replace(/\\/g, '/').includes('/i18n/')) return false
   if (TEST_FILE_PATTERN.test(path)) return false
   return true
 }
@@ -268,6 +269,91 @@ function getSourceFiles(rootDir = SOURCE_ROOT): string[] {
 /** Collect literal i18n keys from app source (excludes locale bundles and tests). */
 export function collectStaticI18nKeysFromSources(rootDir = SOURCE_ROOT): Set<string> {
   return collectI18nUsageFromSources(rootDir).staticKeys
+}
+
+/**
+ * Collect literal keys from real translation calls only ($t/t/i18n.global.t/te).
+ *
+ * Unlike `collectStaticI18nKeysFromSources`, this skips metadata fields such as
+ * `labelKey` / `i18nKey` — those hold namespace names that callers concatenate at
+ * runtime, so they are not expected to resolve as full keys. Comments are stripped
+ * too, so documentation examples like `t('root.kb.created')` are not treated as
+ * real calls. Used by the audit test that asserts every literal call resolves.
+ */
+export function collectStrictTranslationKeysFromSources(rootDir = SOURCE_ROOT): Set<string> {
+  const keys = new Set<string>()
+
+  for (const file of getSourceFiles(rootDir)) {
+    const content = stripSourceComments(readFileSync(file, 'utf8'))
+    for (const pattern of STATIC_KEY_PATTERNS) {
+      pattern.lastIndex = 0
+      let match: RegExpExecArray | null
+      while ((match = pattern.exec(content)) !== null) {
+        const key = match[1]
+        if (isStaticTranslationKey(key)) keys.add(key)
+      }
+    }
+  }
+
+  return keys
+}
+
+/** Strip `//`, block and HTML comments while keeping string literals untouched. */
+function stripSourceComments(source: string): string {
+  const withoutHtmlComments = source.replace(/<!--[\s\S]*?-->/g, '')
+  let result = ''
+  let index = 0
+
+  while (index < withoutHtmlComments.length) {
+    const char = withoutHtmlComments[index]
+    const next = withoutHtmlComments[index + 1]
+
+    if (char === '"' || char === "'" || char === '`') {
+      const quote = char
+      result += char
+      index += 1
+      while (index < withoutHtmlComments.length) {
+        const current = withoutHtmlComments[index]
+        result += current
+        if (current === '\\') {
+          result += withoutHtmlComments[index + 1] ?? ''
+          index += 2
+          continue
+        }
+        index += 1
+        if (current === quote) break
+      }
+      continue
+    }
+
+    if (char === '/' && next === '/') {
+      while (index < withoutHtmlComments.length && withoutHtmlComments[index] !== '\n') {
+        result += ' '
+        index += 1
+      }
+      continue
+    }
+
+    if (char === '/' && next === '*') {
+      result += '  '
+      index += 2
+      while (
+        index < withoutHtmlComments.length
+        && !(withoutHtmlComments[index] === '*' && withoutHtmlComments[index + 1] === '/')
+      ) {
+        result += withoutHtmlComments[index] === '\n' ? '\n' : ' '
+        index += 1
+      }
+      result += '  '
+      index += 2
+      continue
+    }
+
+    result += char
+    index += 1
+  }
+
+  return result
 }
 
 function escapeRegExp(value: string): string {

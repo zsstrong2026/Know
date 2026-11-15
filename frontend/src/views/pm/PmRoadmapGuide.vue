@@ -111,15 +111,21 @@
 
         <div class="pg-output">
           <t-tabs v-model="activeTab" class="pg-tabs">
-            <!-- 产品认知 -->
+            <!-- 产品认知：AI 自动整理后仍可人工修订，改动即时自动保存 -->
             <t-tab-panel value="cognition" :label="$t('pm.roadmap.guide.tabs.cognition')">
               <div class="pg-block">
-                <dl class="pg-info is-cognition">
-                  <template v-for="field in COGNITION_FIELDS" :key="field.key">
-                    <dt>{{ $t(field.labelKey) }}</dt>
-                    <dd>{{ cognition[field.key] || '—' }}</dd>
-                  </template>
-                </dl>
+                <p class="pg-stat-line">{{ $t('pm.roadmap.guide.cognition.hint') }}</p>
+                <div class="pg-cognition">
+                  <div v-for="field in COGNITION_FIELDS" :key="field.key" class="pg-cognition-item">
+                    <span class="pg-cognition-label">{{ $t(field.labelKey) }}</span>
+                    <t-textarea
+                      :model-value="cognition[field.key]"
+                      :autosize="{ minRows: 2, maxRows: 6 }"
+                      :placeholder="$t('pm.roadmap.guide.cognition.placeholder')"
+                      @update:model-value="(value: string) => updateCognition(field.key, value)"
+                    />
+                  </div>
+                </div>
               </div>
             </t-tab-panel>
 
@@ -377,6 +383,8 @@ function normalizeDraft(input?: PmRoadmapDraft | null): PmRoadmapDraft {
 const draft = ref<PmRoadmapDraft>(normalizeDraft(
   props.seedDraft === undefined ? props.batch.draft : props.seedDraft,
 ));
+// 已被人工编辑的认知字段：后续 AI 回填跳过这些字段，避免覆盖用户手写内容
+const manualCognition = ref<Set<keyof PmRoadmapCognition>>(new Set());
 const input = ref('');
 const syncFeatures = ref(true);
 const submitting = ref(false);
@@ -619,8 +627,28 @@ function flush(targetStep: number, notify = false): Promise<boolean> {
 
 // ===== 草稿回填：用户输入与 AI 回复共用一套解析 =====
 
-function patchCognition(patch: Partial<PmRoadmapCognition>) {
-  draft.value.cognition = { ...cognition.value, ...patch };
+// 回填产品认知：已被用户手工编辑的字段保持不动
+function patchCognition(patch: Partial<PmRoadmapCognition>): boolean {
+  const next: Partial<PmRoadmapCognition> = {};
+  for (const [key, value] of Object.entries(patch) as Array<[keyof PmRoadmapCognition, string]>) {
+    if (manualCognition.value.has(key)) continue;
+    if ((cognition.value[key] ?? '') === value) continue;
+    next[key] = value;
+  }
+  if (!Object.keys(next).length) return false;
+  draft.value.cognition = { ...cognition.value, ...next };
+  return true;
+}
+
+// 人工编辑产品认知：记录字段后自动保存，右侧预览即时生效
+function updateCognition(key: keyof PmRoadmapCognition, value: string) {
+  const text = value ?? '';
+  if ((cognition.value[key] ?? '') === text) return;
+  // 清空表示放弃手填内容，重新允许 AI 回填该字段
+  if (text.trim()) manualCognition.value.add(key);
+  else manualCognition.value.delete(key);
+  draft.value.cognition = { ...cognition.value, [key]: text };
+  scheduleSave();
 }
 
 // 识别「目标用户：…」等字段行
@@ -813,8 +841,7 @@ function applyText(text: string): ApplyResult {
     notes.push(t('pm.roadmap.guide.acks.subsystem', { name: subsystem }));
   }
   const cognitionPatch = extractCognition(text);
-  if (cognitionPatch) {
-    patchCognition(cognitionPatch);
+  if (cognitionPatch && patchCognition(cognitionPatch)) {
     notes.push(t('pm.roadmap.guide.acks.cognition'));
   }
   const added = addFeatureRows([...parseFeatureTable(text), ...parseFeatureLines(text)]);
@@ -828,10 +855,11 @@ function applyText(text: string): ApplyResult {
 function applyLocalInput(text: string): string {
   const result = applyText(text);
   if (!result.recognized) {
+    // 用户自己的补充说明直接追加到背景，即使该字段已被手工修订过
     const merged = cognition.value.background
       ? `${cognition.value.background}\n${text}`
       : text;
-    patchCognition({ background: merged });
+    draft.value.cognition = { ...cognition.value, background: merged };
   }
   scheduleSave();
   return result.notes.join('；') || t('pm.roadmap.guide.acks.cognition');
@@ -1322,6 +1350,25 @@ onBeforeUnmount(() => {
   color: var(--td-text-color-placeholder);
 }
 
+// 产品认知：字段纵向排布，标签在上、输入框在下，便于长文本编辑
+.pg-cognition {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-3);
+}
+
+.pg-cognition-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-1);
+}
+
+.pg-cognition-label {
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  color: var(--td-text-color-secondary);
+}
+
 // 子系统输入：由用户指定，作为功能清单第一列的默认值
 .pg-subsystem-bar {
   display: flex;
@@ -1458,12 +1505,6 @@ onBeforeUnmount(() => {
     margin: 0;
     color: var(--td-text-color-primary);
     word-break: break-all;
-  }
-
-  // 认知字段可能多行输入，保留换行
-  &.is-cognition dd {
-    white-space: pre-line;
-    word-break: break-word;
   }
 }
 
