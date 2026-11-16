@@ -616,6 +616,46 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
     message.is_completed = false
   }
 
+  // 流式连接中断后，恢复轮询拿到的是同 id 的完整历史行，旧逻辑直接跳过，
+  // 导致 content 与 agent_steps 永远补不进现有行，分析过程一直空白。
+  // 这里把已完成的完整行回填到列表里已有的助手行上。
+  const backfillCompletedAssistantMessage = (existing: ChatMessage, incoming: ChatMessage): boolean => {
+    if (existing.role !== 'assistant' || incoming.role !== 'assistant') return false
+    const steps = Array.isArray(incoming.agent_steps) ? incoming.agent_steps : []
+    const incomingContent = String(incoming.content || '')
+    const hasSteps = steps.length > 0
+    const hasContent = incomingContent.trim().length > 0
+    if (!hasSteps && !hasContent) return false
+    const streamed = Array.isArray(existing.agentEventStream)
+      ? existing.agentEventStream as ChatMessage[] : []
+    const hasStreamedSteps = streamed.some((e) => e.type === 'thinking' || e.type === 'tool_call')
+    const hasExistingContent = String(existing.content || '').trim().length > 0
+    // 已有完整流式内容时不覆盖，避免把实时事件回退成历史快照。
+    if (hasStreamedSteps && hasExistingContent) return false
+
+    existing.content = hasContent ? incomingContent : existing.content
+    existing.agent_duration_ms = incoming.agent_duration_ms ?? existing.agent_duration_ms
+    if (incoming.usage) existing.usage = incoming.usage
+    if (incoming.is_fallback) existing.is_fallback = true
+    if (hasSteps) {
+      existing.isAgentMode = true
+      existing.hideContent = true
+      existing.agent_steps = markRaw(steps as object)
+      existing.agentEventStream = markRaw(reconstructEventStreamFromSteps(
+        steps,
+        String(existing.content || ''),
+        Boolean(incoming.is_completed),
+        Boolean(incoming.is_fallback),
+        Number(incoming.agent_duration_ms) || 0,
+        incoming.usage,
+      ))
+      existing._eventMap = markRaw(new Map())
+      existing._pendingToolCalls = markRaw(new Map())
+    }
+    if (incoming.is_completed) existing.is_completed = true
+    return true
+  }
+
   const handleMsgList = async (
     data: ChatMessage[],
     isScrollType = false,
@@ -628,7 +668,13 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
     for (const raw of chatlist) {
       const item = preserveIncompleteStreamReactive ? raw : { ...raw }
       if (item.collaboration_status) item.collaborationStatus = item.collaboration_status
-      if (item.id && existingIds.has(item.id)) continue
+      if (item.id && existingIds.has(item.id)) {
+        const existingRow = messagesList.find((m) => m.id === item.id)
+        if (existingRow && item.is_completed) {
+          backfillCompletedAssistantMessage(existingRow, item as ChatMessage)
+        }
+        continue
+      }
       if (item.id) existingIds.add(item.id)
 
       item.isAgentMode = false

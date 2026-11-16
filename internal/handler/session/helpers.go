@@ -316,6 +316,10 @@ func (h *Handler) setupStreamHandler(
 	return streamHandler
 }
 
+// stopGenerationNotice 是用户手动停止生成、且本轮尚未产出任何回答时写入的消息内容。
+// 没有这段说明时，助手消息会以空内容完成，会话看起来像“卡死”且没有任何反馈。
+const stopGenerationNotice = "已停止生成：本轮在产出最终回答前被手动停止，因此没有返回结果。已完成的工具调用与生成的文件都保留在会话中，你可以直接回复「继续」，我会从当前进度接着完成。"
+
 // setupStopEventHandler registers a stop event handler
 func (h *Handler) setupStopEventHandler(
 	eventBus *event.EventBus,
@@ -328,6 +332,10 @@ func (h *Handler) setupStopEventHandler(
 		logger.Infof(ctx, "Received stop event, cancelling async operations for session: %s", sessionID)
 		cancel()
 		// Preserve whatever has been streamed so far; do not overwrite Content.
+		// 若停止前没有任何输出，写入一条可读说明，避免留下空白回答。
+		if strings.TrimSpace(assistantMessage.Content) == "" {
+			assistantMessage.Content = stopGenerationNotice
+		}
 		// Use session's tenant for message update (ctx may have effectiveTenantID when using shared agent).
 		// Use WithoutCancel so the GORM UPDATE survives the upcoming ctx.Done triggered by cancel()/client disconnect.
 		updateCtx := context.WithValue(

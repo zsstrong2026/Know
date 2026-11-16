@@ -29,6 +29,9 @@ var _ SandboxIDLookup = (*sandbox.SessionBoundManager)(nil)
 
 var _ SandboxIDLookup = (*service.PinnedSessionSandbox)(nil)
 
+// emptyAnswerNotice 是本轮完全没有产出回答时的兜底说明，确保会话不会停留在空白回复上。
+const emptyAnswerNotice = "本轮没有生成最终回答：生成过程在产出回答前结束（可能是模型服务中断、超时或被停止）。已完成的步骤与文件均已保留，你可以直接回复「继续」重试。"
+
 // AgentStreamHandler handles agent events for SSE streaming
 // It uses a dedicated EventBus per request to avoid SessionID filtering
 // Events are appended to StreamManager without accumulation
@@ -1014,6 +1017,41 @@ func (h *AgentStreamHandler) handleComplete(ctx context.Context, evt event.Event
 		h.assistantMessage.Content = rewriteArtifactReferences(h.assistantMessage.Content, h.assistantMessage.Artifacts)
 		h.assistantMessage.Content = types.ClarifyArtifactVersions(h.assistantMessage.Content,
 			h.assistantMessage.Artifacts, previous, types.LanguageFromContextOrDefault(h.ctx))
+
+		// 兜底：本轮在产出任何回答前就结束了（模型服务中断、超时、迭代预算耗尽等），
+		// 写入一条说明并推送到前端，避免历史里留下一条空白回答。
+		if suspended == nil && strings.TrimSpace(h.assistantMessage.Content) == "" {
+			notice := emptyAnswerNotice
+			h.assistantMessage.Content = notice
+			h.finalAnswer = notice
+			noticeID := fmt.Sprintf("answer-notice-%d", time.Now().UnixMilli())
+			if err := h.streamManager.AppendEvent(h.ctx, h.sessionID, h.assistantMessageID, interfaces.StreamEvent{
+				ID:        noticeID,
+				Type:      types.ResponseTypeAnswer,
+				Content:   notice,
+				Done:      false,
+				Timestamp: time.Now(),
+				Data: map[string]interface{}{
+					"event_id":    noticeID,
+					"is_fallback": true,
+				},
+			}); err != nil {
+				logger.GetLogger(h.ctx).Errorf("Append empty-answer notice failed: %v", err)
+			}
+			if err := h.streamManager.AppendEvent(h.ctx, h.sessionID, h.assistantMessageID, interfaces.StreamEvent{
+				ID:        noticeID,
+				Type:      types.ResponseTypeAnswer,
+				Content:   "",
+				Done:      true,
+				Timestamp: time.Now(),
+				Data: map[string]interface{}{
+					"event_id":    noticeID,
+					"is_fallback": true,
+				},
+			}); err != nil {
+				logger.GetLogger(h.ctx).Errorf("Append empty-answer notice done event failed: %v", err)
+			}
+		}
 	}
 
 	// Fallback: if no answer events were streamed but we have a final answer,

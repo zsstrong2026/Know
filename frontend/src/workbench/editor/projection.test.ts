@@ -185,6 +185,68 @@ test('空 store / 无 root 返回空投影', () => {
   assert.deepEqual(projectMarkdown(storeOf([])), { markdown: '', text: '' })
 })
 
+test('图片：默认不输出，includeImages 时给出 asset:// 占位', () => {
+  const store = storeOf([
+    {
+      flavour: 'affine:note',
+      children: [
+        para('图前'),
+        { id: 'i1', flavour: 'affine:image', props: { sourceId: 'a1', caption: '架构图' } },
+        { id: 'i2', flavour: 'affine:image', props: { sourceId: 'a2' } },
+        // 没有 sourceId 的图片块（尚未上传完成）不产生占位
+        { id: 'i3', flavour: 'affine:image', props: {} },
+      ],
+    },
+  ])
+
+  assert.equal(projectMarkdown(store).markdown.includes('asset://'), false)
+  const withImages = projectMarkdown(store, { includeImages: true }).markdown
+  assert.match(withImages, /^!\[架构图\]\(asset:\/\/a1\)$/m)
+  assert.match(withImages, /^!\[\]\(asset:\/\/a2\)$/m)
+  assert.equal(withImages.includes('a3'), false)
+})
+
+test('图片：说明里的方括号被去掉，不破坏 Markdown 语法', () => {
+  const store = storeOf([
+    {
+      flavour: 'affine:note',
+      children: [{ id: 'i1', flavour: 'affine:image', props: { sourceId: 'a1', caption: '图[1]' } }],
+    },
+  ])
+  const markdown = projectMarkdown(store, { includeImages: true }).markdown
+  assert.match(markdown, /^!\[图1\]\(asset:\/\/a1\)$/m)
+})
+
+test('画布上散落的图片在导出模式下也出现在正文里', () => {
+  const store = storeOf([
+    {
+      flavour: 'affine:surface',
+      children: [{ id: 's1', flavour: 'affine:image', props: { sourceId: 'a9', caption: '海报' } }],
+    },
+  ])
+  assert.equal(projectMarkdown(store).markdown.includes('asset://'), false)
+  assert.match(projectMarkdown(store, { includeImages: true }).markdown, /!\[海报\]\(asset:\/\/a9\)/)
+})
+
+test('Frame 内的图片只出现一次', () => {
+  const store = storeOf([
+    {
+      flavour: 'affine:surface',
+      children: [
+        {
+          id: 'f1',
+          flavour: 'affine:frame',
+          props: { title: { toString: () => '分组' }, childElementIds: { t1: true, i1: true } },
+        },
+        { id: 't1', flavour: 'affine:edgeless-text', children: [para('框内文字')] },
+        { id: 'i1', flavour: 'affine:image', props: { sourceId: 'a5', caption: '框内图' } },
+      ],
+    },
+  ])
+  const markdown = projectMarkdown(store, { includeImages: true }).markdown
+  assert.equal(markdown.match(/!\[框内图\]\(asset:\/\/a5\)/g)?.length, 1)
+})
+
 test('表格单元格里的竖线被转义，不破坏 Markdown 表格', () => {
   const store = storeOf([
     {

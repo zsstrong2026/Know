@@ -360,6 +360,7 @@ import {
 import type { CanvasViewState } from '@/workbench/editor/blocksuite'
 import type { CanvasPlan } from '@/workbench/ai/canvas-patch'
 import type { WorkbenchRelation } from '@/api/workbench'
+import type { DocExportFormat } from '@/workbench/export/export-doc'
 
 const route = useRoute()
 const router = useRouter()
@@ -688,6 +689,16 @@ const moreOptions = computed(() => [
     value: 'export-package',
     disabled: exporting.value || !ready.value || Boolean(loadError.value),
   },
+  // 文档导出：正文投影出 Markdown / HTML / Word，只带走可读内容（不含画布快照与资产）
+  {
+    content: t('workbench.export.docEntry'),
+    value: 'export-doc',
+    disabled: exporting.value || !ready.value || Boolean(loadError.value),
+    children: (['markdown', 'html', 'docx'] as const).map((format) => ({
+      content: t(`workbench.export.format.${format}`),
+      value: `export-doc-${format}`,
+    })),
+  },
   {
     content: t('workbench.templates.save.entry'),
     value: 'save-template',
@@ -999,6 +1010,7 @@ function onMore(data: { value?: string | number }) {
   else if (value === 'import-csv') importInputRef.value?.click()
   else if (value === 'database-ai') databaseAIOpen.value = true
   else if (value === 'export-package') void exportCanvasPackage()
+  else if (value.startsWith('export-doc-')) void exportDocument(value.slice('export-doc-'.length) as DocExportFormat)
   else if (value === 'canvas-ai') canvasAIOpen.value = true
   else if (value === 'tags') tagsOpen.value = true
   else if (value === 'backlinks') backlinksOpen.value = true
@@ -1264,6 +1276,36 @@ async function exportCanvasPackage() {
   }
 }
 
+/**
+ * 文档导出：正文投影 → Markdown / HTML / Word。
+ *
+ * 与「导出画布包」互补：那边带走快照与资产用于还原画布，这里只带走可读正文，
+ * 便于把文档交给外部阅读、打印或继续在 Word 里编辑。全程只读、不 flush。
+ */
+async function exportDocument(format: DocExportFormat) {
+  if (exporting.value) return
+  const current = item.value
+  if (!current) return
+  exporting.value = true
+  try {
+    // 动态 import：三种格式的构建逻辑与 jszip 不进首屏 chunk
+    const { buildDocumentExport } = await import('@/workbench/export/export-doc')
+    const { downloadBlob } = await import('@/utils/downloadFile')
+    const result = await buildDocumentExport(format, {
+      title: title.value || current.title || t('workbench.item.untitled'),
+      // Word 才需要图片位置与字节；Markdown / HTML 由构建层统一降级成说明文字
+      markdown: format === 'docx' ? session.markdownWithImages() : session.markdown(),
+      resolveImage: format === 'docx' ? (assetId: string) => session.resolveAsset(assetId) : undefined,
+    })
+    downloadBlob(result.blob, result.fileName)
+    MessagePlugin.success(t('workbench.export.docDone', { format: t(`workbench.export.format.${format}`) }))
+  } catch {
+    MessagePlugin.error(t('workbench.export.docFailed'))
+  } finally {
+    exporting.value = false
+  }
+}
+
 /** 导入资料 → 作为附件：复用会话的资产上传（与粘贴/拖拽同一条链路）。 */
 async function onUploadAssetForImport(file: File): Promise<string> {
   return session.uploadAsset(file)
@@ -1381,6 +1423,8 @@ async function submitArchive(action: ArchiveBadgeAction, options: { silent?: boo
       await refreshArchive(payload)
     }
     await refreshArchiveState()
+    // 工作库文档数随归档变化：回源 bootstrap，让侧栏「工作知识库」计数保持当下值。
+    void workbenchStore.fetchBootstrap().catch(() => undefined)
     if (!options.silent) {
       MessagePlugin.success(
         t(action === 'update' || action === 'retry' ? 'workbench.archive.action.update' : 'workbench.archive.action.create'),

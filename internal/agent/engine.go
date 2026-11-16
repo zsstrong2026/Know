@@ -773,6 +773,10 @@ loop:
 				_ = e.streamFinalAnswerToEventBus(ctx, query, state, sessionID, messages)
 				state.IsComplete = true
 			}
+			// 超时终止时补一条说明；手动停止由 handler 侧写入停止说明，避免重复。
+			if strings.TrimSpace(state.FinalAnswer) == "" && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				state.FinalAnswer = "本轮生成超时被终止，未产出最终回答。已完成的步骤与文件均已保留，你可以直接回复「继续」重试。"
+			}
 			return state, ctx.Err()
 		default:
 		}
@@ -814,6 +818,13 @@ loop:
 	// answers, so no answer is synthesized for it.
 	if !state.IsComplete && ctx.Err() == nil && state.Suspended == nil {
 		if e.collaboration != nil && e.collaboration.Child == nil && e.collaborationOwnsFailure(ctx) {
+			// 迭代预算耗尽且不会进入最终答案合成时，补一条说明，避免留空。
+			if strings.TrimSpace(state.FinalAnswer) == "" {
+				state.FinalAnswer = fmt.Sprintf(
+					"本轮已达到单次执行的最大工具调用轮次（%d 轮），任务尚未完成，因此没有生成最终回答。已完成的步骤与文件均已保留，回复「继续」可从当前进度接着做。",
+					e.config.MaxIterations,
+				)
+			}
 			return state, fmt.Errorf("parent iteration budget exhausted; remaining delegated work was cancelled")
 		}
 		if err := e.handleMaxIterations(ctx, query, state, sessionID, messages); err != nil {

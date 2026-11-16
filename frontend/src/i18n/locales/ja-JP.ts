@@ -611,7 +611,8 @@
       folderRenameFailed: 'フォルダー名の変更に失敗しました',
       folderMoveFailed: 'フォルダーの移動に失敗しました。もう一度お試しください',
       folderDeleteFailed: 'フォルダーの削除に失敗しました',
-      addExistingDocs: '既存のドキュメントを追加'
+      addExistingDocs: '既存のドキュメントを追加',
+      workKbDocs: 'ドキュメント {count} 件'
     },
     folderPicker: {
       title: '「{folder}」に既存のドキュメントを追加',
@@ -802,7 +803,15 @@
       running: '書き出し中…',
       done: '{blocks} 個のブロックと {assets} 個のアセットを書き出しました',
       missing: '{count} 個のアセットを読み取れず、欠落として記録しました',
-      failed: '書き出しに失敗しました。もう一度お試しください'
+      failed: '書き出しに失敗しました。もう一度お試しください',
+      docEntry: 'ドキュメントを書き出す',
+      docDone: '{format} として書き出しました',
+      docFailed: '書き出しに失敗しました。もう一度お試しください',
+      format: {
+        markdown: 'Markdown',
+        html: 'HTML',
+        docx: 'Word'
+      }
     },
     modeSwitch: {
       label: '表示モード',
@@ -1204,6 +1213,8 @@
       monthGrid: 'Journals カレンダー',
       panelTitle: 'Journals カレンダー',
       panelSwitch: '右パネル',
+      panelEntry: 'カレンダー / AI',
+      closePanel: 'サイドパネルを閉じる',
       tabCalendar: 'カレンダー',
       tabAi: 'AI',
       prevMonth: '前の月',
@@ -1246,7 +1257,13 @@
       },
       flushFailed: '下書きが未保存のため、元の日付に留まりました',
       createFailed: 'Journal の作成に失敗しました',
-      moveFailed: '日付変更に失敗したため、元の日付に戻しました'
+      moveFailed: '日付変更に失敗したため、元の日付に戻しました',
+      deleteEntry: 'ゴミ箱に移動',
+      deleteTitle: 'ゴミ箱に移動',
+      deleteBody: '「{title}」をゴミ箱に移動しますか？アーカイブ済みの知識は削除されず、ゴミ箱から復元できます。',
+      deleteConfirm: 'ゴミ箱に移動',
+      deleted: 'ゴミ箱に移動しました',
+      deleteFailed: 'ゴミ箱への移動に失敗しました。もう一度お試しください'
     },
     notice: {
       gotIt: '確認しました',

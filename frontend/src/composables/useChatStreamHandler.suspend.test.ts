@@ -444,3 +444,23 @@ test('approval resume keeps updates that arrived while approval was pending', as
     data: { resume_pending_id: 'p1', resume_tool_call_id: 'call-1' } })
   assert.equal(m.agentEventStream.filter((e: any) => e.content === 'another child finished').length, 1)
 })
+
+// 流式连接中途断开后，恢复轮询返回的是同 id 的完整历史行。
+// 它必须回填到现有助手行，否则回答与分析过程都会一直空白。
+test('completed history backfills an existing assistant row after stream loss', async () => {
+  const { handler, messagesList } = setup()
+  messagesList.push({ id: 'a1', role: 'assistant', content: '', is_completed: false, agentEventStream: [] })
+
+  await handler.handleMsgList([{
+    id: 'a1', role: 'assistant', content: '最终回答', is_completed: true,
+    agent_steps: [{ iteration: 0, reasoning_content: '分析过程内容', tool_calls: [] }],
+  }])
+
+  assert.equal(messagesList.length, 1)
+  assert.equal(messagesList[0].content, '最终回答')
+  assert.equal(messagesList[0].is_completed, true)
+  assert.equal(messagesList[0].isAgentMode, true)
+  const thinking = messagesList[0].agentEventStream.find((e: any) => e.type === 'thinking')
+  assert.equal(thinking?.content, '分析过程内容')
+})
+

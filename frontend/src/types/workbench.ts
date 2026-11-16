@@ -41,6 +41,8 @@ export interface WorkbenchKbSummary {
   system_key: string
   visibility: 'private' | 'workspace'
   embedding_model_id: string
+  /** 工作库真实文档数（含归档与导入），不是墨匣条目数 */
+  knowledge_count: number
   capabilities: WorkbenchKbCapabilities
 }
 
@@ -131,6 +133,8 @@ export interface WorkbenchFolder {
   name: string
   parent_id: string | null
   sort_order: number
+  /** 该文件夹直属的未删除文档数；列表接口聚合返回 */
+  item_count: number
   created_at: string
   updated_at: string
 }

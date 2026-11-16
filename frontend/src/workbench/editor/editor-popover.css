@@ -74,6 +74,21 @@ affine-slash-menu {
   --affine-font-sm: var(--app-text-md);
   --affine-font-xs: var(--app-text-sm);
 
+  /**
+   * 标题字号（H1–H6）：上游段落样式用 `--affine-font-h-1…6` 区分层级，
+   * 缺这组变量时 font-size 解析为空，六级标题只剩 font-weight，
+   * 看起来就是「全是加粗正文」。
+   *
+   * 按正文字号的倍率给出（默认 16px 时即上游的 28/26/24/22/20/18px），
+   * 用户调整字号偏好时标题会等比跟随。
+   */
+  --affine-font-h-1: calc(var(--affine-font-base) * 1.75);
+  --affine-font-h-2: calc(var(--affine-font-base) * 1.625);
+  --affine-font-h-3: calc(var(--affine-font-base) * 1.5);
+  --affine-font-h-4: calc(var(--affine-font-base) * 1.375);
+  --affine-font-h-5: calc(var(--affine-font-base) * 1.25);
+  --affine-font-h-6: calc(var(--affine-font-base) * 1.125);
+
   --affine-shadow-1: var(--td-shadow-1);
   --affine-shadow-2: var(--td-shadow-2);
   --affine-shadow-3: var(--td-shadow-3);
@@ -121,6 +136,50 @@ affine-slash-menu {
 
   /* 弹层阴影：视图设置等浮层用 `unsafeCSSVar('overlayPanelShadow')`，同样缺定义。 */
   --affine-overlay-panel-shadow: var(--td-shadow-2);
+
+  /**
+   * 文字高亮（工具栏「高亮」面板）：bg 是底色，fg 是文字颜色。
+   * 缺这组变量时 `background: var(--affine-v2-text-highlight-bg-*)` 解析为空，
+   * 高亮格式虽然写进了文档，页面上却完全看不到底色。
+   */
+  --affine-v2-text-highlight-border: #00000038;
+  --affine-v2-text-highlight-bg-red: #fce5e6;
+  --affine-v2-text-highlight-bg-orange: #ffebd5;
+  --affine-v2-text-highlight-bg-yellow: #fff9b6;
+  --affine-v2-text-highlight-bg-green: #f0fccb;
+  --affine-v2-text-highlight-bg-teal: #c7f8f2;
+  --affine-v2-text-highlight-bg-blue: #daf0ff;
+  --affine-v2-text-highlight-bg-purple: #ede9ff;
+  --affine-v2-text-highlight-bg-grey: #e6e6e6;
+  --affine-v2-text-highlight-fg-red: #c83030;
+  --affine-v2-text-highlight-fg-orange: #db7123;
+  --affine-v2-text-highlight-fg-yellow: #ac7400;
+  --affine-v2-text-highlight-fg-green: #225c18;
+  --affine-v2-text-highlight-fg-teal: #0e4841;
+  --affine-v2-text-highlight-fg-blue: #003c67;
+  --affine-v2-text-highlight-fg-purple: #7c3aed;
+  --affine-v2-text-highlight-fg-grey: #7a7a7a;
+}
+
+/* 深色主题下的高亮色：沿用上游 dark 取值，避免浅底色在深色页面上刺眼。 */
+:root[theme-mode="dark"] {
+  --affine-v2-text-highlight-border: #ffffff3b;
+  --affine-v2-text-highlight-bg-red: #460606;
+  --affine-v2-text-highlight-bg-orange: #843b06;
+  --affine-v2-text-highlight-bg-yellow: #321a04;
+  --affine-v2-text-highlight-bg-green: #192e06;
+  --affine-v2-text-highlight-bg-teal: #0e4841;
+  --affine-v2-text-highlight-bg-blue: #002742;
+  --affine-v2-text-highlight-bg-purple: #2e1065;
+  --affine-v2-text-highlight-bg-grey: #414141;
+  --affine-v2-text-highlight-fg-red: #fc7979;
+  --affine-v2-text-highlight-fg-orange: #ffae63;
+  --affine-v2-text-highlight-fg-yellow: #facc15;
+  --affine-v2-text-highlight-fg-green: #9bda91;
+  --affine-v2-text-highlight-fg-teal: #448e86;
+  --affine-v2-text-highlight-fg-blue: #2f94d5;
+  --affine-v2-text-highlight-fg-purple: #9681ef;
+  --affine-v2-text-highlight-fg-grey: #565656;
 }
 
 /**
@@ -1298,4 +1357,72 @@ body center-peek .wb-peek-delete {
 body center-peek .wb-peek-delete:hover {
   border-color: #f0c9c6;
   background: #fdf3f2;
+}
+
+/**
+ * 无限画布文档卡片：编辑态改为「卡片内滚动」。
+ *
+ * 文档卡片是固定尺寸的折叠 note，进入编辑后上游把裁剪容器的内联
+ * `overflow-y` 从 clip 改成 initial（用于悬停预览外溢内容），长文档就会
+ * 一路溢出到卡片外面，看起来像卡片没有边界。
+ *
+ * 这里只在编辑态把裁剪容器恢复成滚动容器：
+ *   - 用 !important 压过上游的内联 style，不改 third_party 源码；
+ *   - 只命中 wb-doc-note（页面级文档卡片）且 data-editing="true"，
+ *     悬停预览与画布便签保持上游原样；
+ *   - overscroll-behavior: contain 避免滚到边界后把滚动继续传给画布。
+ * 滚轮冒泡会被画布根块拦下平移视口，配套处理见 blocksuite.ts 的
+ * installDocNoteScroll。
+ */
+affine-edgeless-note.wb-doc-note
+  [data-testid='edgeless-note-container'][data-editing='true']
+  [data-testid='edgeless-note-clip-container'] {
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+
+/* WebKit 的细滚动条：与工作台其它滚动区域保持同一视觉 */
+affine-edgeless-note.wb-doc-note
+  [data-testid='edgeless-note-container'][data-editing='true']
+  [data-testid='edgeless-note-clip-container']::-webkit-scrollbar {
+  width: 6px;
+}
+
+affine-edgeless-note.wb-doc-note
+  [data-testid='edgeless-note-container'][data-editing='true']
+  [data-testid='edgeless-note-clip-container']::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background-color: rgba(0, 0, 0, 0.18);
+}
+
+affine-edgeless-note.wb-doc-note
+  [data-testid='edgeless-note-container'][data-editing='true']
+  [data-testid='edgeless-note-clip-container']::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/**
+ * 正文格式工具条 portal（PATCH-2）。
+ *
+ * 无限画布中工具条固定置顶时，会被从 widget 的 shadow root 临时移到 body
+ * （否则会被画布 viewport 的 overflow:hidden 裁掉）。widget 内的样式不再命中，
+ * 这里补齐 data-fixed 需要的关键规则；定位（position/left/top/transform）
+ * 仍由 toolbar.ts 的固定逻辑用 inline style 写入。
+ */
+editor-toolbar[data-wb-portal='true'] {
+  display: flex;
+  align-items: center;
+  opacity: 1;
+  width: max-content;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0 4px;
+  overflow-x: auto;
+  touch-action: pan-x;
+  /* 压在画布之上，但不盖住右侧抽屉（抽屉 z-index: 40） */
+  z-index: 30;
 }

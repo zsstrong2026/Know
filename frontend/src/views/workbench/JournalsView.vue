@@ -30,6 +30,20 @@
         <t-button v-if="currentEntry && ready" variant="text" size="small" @click="openCollect">
           {{ $t('workbench.collect.entry') }}
         </t-button>
+        <!-- 右侧抽屉：日历 / AI 共用同一面板，按钮只负责开合 -->
+        <t-button
+          v-if="currentEntry"
+          variant="text"
+          size="small"
+          class="side-drawer-entry"
+          :class="{ 'is-open': sideOpen }"
+          :aria-expanded="sideOpen"
+          :aria-label="$t('workbench.journals.panelSwitch')"
+          @click="toggleSideDrawer"
+        >
+          <template #icon><t-icon name="calendar" size="14px" /></template>
+          {{ $t('workbench.journals.panelEntry') }}
+        </t-button>
         <div class="mode-switch" role="group" :aria-label="$t('workbench.journals.modeSwitch')">
           <button
             v-for="option in modeOptions"
@@ -180,33 +194,44 @@
     </div>
 
     <!--
-      右侧栏：日历 / AI 共用固定宽度，切换标签放在栏内顶部。
-      宽度固定后，切换 AI 时主区的星期切换条与编辑区宽度都不会变化。
+      右侧抽屉：日历 / AI 共用一个可收起的面板，不再常驻挤占编辑区宽度。
+      关闭时用 transform 移出视口（保留 DOM，AI 面板挂载点不会丢）。
     -->
-    <aside class="j-side">
-      <div class="j-side-tabs" role="tablist" :aria-label="t('workbench.journals.panelSwitch')">
+    <aside class="j-side" :class="{ 'is-open': sideOpen }" :aria-hidden="!sideOpen">
+      <div class="j-side-head">
+        <div class="j-side-tabs" role="tablist" :aria-label="t('workbench.journals.panelSwitch')">
+          <button
+            class="j-side-tab"
+            type="button"
+            role="tab"
+            :aria-selected="sideTab === 'calendar'"
+            :class="{ 'is-active': sideTab === 'calendar' }"
+            @click="selectSide('calendar')"
+          >
+            <t-icon name="calendar" size="14px" />
+            {{ t('workbench.journals.tabCalendar') }}
+          </button>
+          <button
+            class="j-side-tab"
+            type="button"
+            role="tab"
+            :aria-selected="sideTab === 'ai'"
+            :class="{ 'is-active': sideTab === 'ai' }"
+            :disabled="!canUseAI || !currentEntry"
+            @click="selectSide('ai')"
+          >
+            <t-icon name="star" size="14px" />
+            {{ t('workbench.journals.tabAi') }}
+          </button>
+        </div>
         <button
-          class="j-side-tab"
+          class="j-side-close"
           type="button"
-          role="tab"
-          :aria-selected="sideTab === 'calendar'"
-          :class="{ 'is-active': sideTab === 'calendar' }"
-          @click="selectSide('calendar')"
+          :aria-label="t('workbench.journals.closePanel')"
+          :title="t('workbench.journals.closePanel')"
+          @click="closeSideDrawer"
         >
-          <t-icon name="calendar" size="14px" />
-          {{ t('workbench.journals.tabCalendar') }}
-        </button>
-        <button
-          class="j-side-tab"
-          type="button"
-          role="tab"
-          :aria-selected="sideTab === 'ai'"
-          :class="{ 'is-active': sideTab === 'ai' }"
-          :disabled="!canUseAI || !currentEntry"
-          @click="selectSide('ai')"
-        >
-          <t-icon name="star" size="14px" />
-          {{ t('workbench.journals.tabAi') }}
+          <t-icon name="close" size="15px" />
         </button>
       </div>
       <div class="j-side-body">
@@ -222,6 +247,7 @@
           @open="openEntry"
           @create="createJournal"
           @move="onMoveEntry"
+          @delete="onDeleteEntry"
         />
         <!-- AI 面板的 Teleport 容器：始终在 DOM 中，切换时只控制显隐 -->
         <div v-show="sideTab === 'ai'" ref="aiHostRef" class="j-ai-host" />
@@ -345,6 +371,8 @@ const canUseAI = computed(() => aiPrefs.value.enabled && store.features.ai)
 
 /** 右侧面板当前标签：日历 / AI */
 const sideTab = ref<'calendar' | 'ai'>('calendar')
+/** 右侧抽屉是否展开：默认收起，把宽度还给编辑区 */
+const sideOpen = ref(false)
 const aiLayer = ref<InstanceType<typeof PageAILayer> | null>(null)
 /** AI 面板的 Teleport 容器：始终在 DOM 中，保证切换时不会丢挂载点 */
 const aiHostRef = ref<HTMLElement | null>(null)
@@ -651,10 +679,14 @@ const aiAdapterOptions: PageAIAdapterOptions = {
 }
 const aiAdapter = () => (canUseAI.value ? createPageAIAdapter(aiAdapterOptions) : null)
 
-/** 右侧标签切换：AI 面板停靠到右栏，切换时同步开合 */
+/** 右侧标签切换：AI 面板停靠到抽屉，切换时同步开合 */
 function selectSide(tab: 'calendar' | 'ai') {
   if (tab === 'ai' && (!canUseAI.value || !currentEntry.value)) return
-  if (sideTab.value === tab) return
+  sideOpen.value = true
+  if (sideTab.value === tab) {
+    if (tab === 'ai') void nextTick(() => aiLayer.value?.openPanel())
+    return
+  }
   sideTab.value = tab
   if (tab === 'ai') {
     void nextTick(() => aiLayer.value?.openPanel())
@@ -663,9 +695,32 @@ function selectSide(tab: 'calendar' | 'ai') {
   aiLayer.value?.closePanel()
 }
 
-/** 空白页「以 AI」：直接打开右侧 AI 面板 */
+/** 顶栏按钮：开合右侧抽屉；打开时沿用上次标签 */
+function toggleSideDrawer() {
+  if (sideOpen.value) {
+    closeSideDrawer()
+    return
+  }
+  sideOpen.value = true
+  if (sideTab.value === 'ai' && canUseAI.value && currentEntry.value) {
+    void nextTick(() => aiLayer.value?.openPanel())
+    return
+  }
+  sideTab.value = 'calendar'
+  aiLayer.value?.closePanel()
+}
+
+/** 收起抽屉：同时关掉 AI 面板，避免下次打开时状态残留 */
+function closeSideDrawer() {
+  sideOpen.value = false
+  if (sideTab.value === 'ai') sideTab.value = 'calendar'
+  aiLayer.value?.closePanel()
+}
+
+/** 空白页「以 AI」：直接打开右侧抽屉的 AI 标签 */
 function openAiPanel() {
   if (!canUseAI.value || !currentEntry.value) return
+  sideOpen.value = true
   sideTab.value = 'ai'
   void nextTick(() => aiLayer.value?.openPanel())
 }
@@ -678,6 +733,8 @@ function openAiPanel() {
  */
 function onAiPanelChange(open: boolean) {
   if (open) {
+    // 浮动工具条 / 问答命令打开 AI 时，抽屉也要跟着展开
+    sideOpen.value = true
     sideTab.value = 'ai'
     return
   }
@@ -687,11 +744,12 @@ function onAiPanelChange(open: boolean) {
 /**
  * 标签先于编辑器就绪时（点击「AI」时还在挂载），
  * 等 PageAILayer 真正渲染出来再打开侧栏，避免标签亮着但面板没开。
+ * 抽屉收起时不主动打开 AI，关闭动作由 closeSideDrawer 统一处理。
  */
 watch(
-  [sideTab, ready, currentItemId],
+  [sideTab, sideOpen, ready, currentItemId],
   () => {
-    if (sideTab.value !== 'ai') return
+    if (!sideOpen.value || sideTab.value !== 'ai') return
     void nextTick(() => aiLayer.value?.openPanel())
   },
   { flush: 'post' },
@@ -924,6 +982,50 @@ async function onMoveEntry(payload: { id: string; date: string }) {
   }
 }
 
+/**
+ * 日历列表删除：移入回收站（不删已归档知识）。
+ *
+ * 删除当前打开的 Journal 前先 flush，避免保存队列在删除后又把内容写回；
+ * 删除后从本地月历移除并重拉当月，若删的是当前条目则按当天剩余条目重新收敛。
+ */
+function onDeleteEntry(id: string) {
+  const entry = store.journals.find((row) => row.id === id)
+  if (!entry) return
+  const dialog = DialogPlugin.confirm({
+    header: t('workbench.journals.deleteTitle'),
+    body: t('workbench.journals.deleteBody', { title: entry.title }),
+    theme: 'warning',
+    confirmBtn: t('workbench.journals.deleteConfirm'),
+    onConfirm: async () => {
+      const isCurrent = currentItemId.value === id
+      if (isCurrent) {
+        // 删除前尽量把草稿落盘；失败也不阻塞删除（条目即将进入回收站）
+        try {
+          await session.flush()
+        } catch {
+          // 忽略：删除后正文不再需要保存
+        }
+      }
+      try {
+        await store.trashItem(id)
+        // 月历与当天列表都读 store.journals，先本地移除避免闪一下旧数据
+        store.journals = store.journals.filter((row) => row.id !== id)
+        if (isCurrent) {
+          currentItemId.value = ''
+          currentEntry.value = null
+          session.destroy()
+          await resolveDay(selectedDate.value)
+        }
+        void loadMonth(store.journalsMonth).catch(() => undefined)
+        MessagePlugin.success(t('workbench.journals.deleted'))
+        dialog.hide()
+      } catch {
+        MessagePlugin.error(t('workbench.journals.deleteFailed'))
+      }
+    },
+  })
+}
+
 async function onArchiveAction(action: ArchiveBadgeAction) {
   if (!currentEntry.value || action === 'none' || action === 'progress') return
   const markdown = session.markdown()
@@ -1089,6 +1191,7 @@ void (async () => {
   flex: 1;
   min-height: 0;
   display: flex;
+  position: relative;
   background: var(--td-bg-color-page);
 }
 
@@ -1211,23 +1314,74 @@ void (async () => {
   overflow-y: auto;
 }
 
-/* ===== 右侧栏：顶部切换标签 + 日历 / AI 面板 ===== */
+/* 顶栏「日历」入口：打开时保持高亮，和抽屉状态一致 */
+.side-drawer-entry {
+  &.is-open {
+    background: var(--td-brand-color-1);
+    color: var(--td-brand-color);
+  }
+}
+
+/* ===== 右侧抽屉：顶部切换标签 + 关闭按钮 + 日历 / AI 面板 ===== */
 .j-side {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
   width: 340px;
-  flex: none;
+  max-width: 92vw;
   min-height: 0;
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--td-component-stroke);
   background: var(--td-bg-color-container);
+  box-shadow: -12px 0 32px rgba(22, 32, 26, 0.12);
+  /* 收起时移出视口：保留 DOM（AI 挂载点不丢），不占编辑区宽度 */
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform var(--app-motion-base) ease, visibility 0s linear var(--app-motion-base);
+
+  &.is-open {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform var(--app-motion-base) ease, visibility 0s;
+  }
+}
+
+:root[theme-mode='dark'] .j-side {
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.42);
+}
+
+.j-side-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--td-component-stroke);
 }
 
 .j-side-tabs {
-  flex: none;
+  flex: 1;
+  min-width: 0;
   display: flex;
   gap: 4px;
   padding: var(--app-space-2);
-  border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.j-side-close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-right: var(--app-space-2);
+  display: grid;
+  place-items: center;
+  border-radius: var(--app-radius-sm);
+  color: var(--td-text-color-secondary);
+
+  &:hover {
+    background: var(--td-bg-color-secondarycontainer);
+    color: var(--td-text-color-primary);
+  }
 }
 
 .j-side-tab {

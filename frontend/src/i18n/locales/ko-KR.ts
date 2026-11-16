@@ -9342,7 +9342,8 @@
       folderRenameFailed: '폴더 이름을 변경하지 못했습니다',
       folderMoveFailed: '폴더를 이동하지 못했습니다. 다시 시도하세요',
       folderDeleteFailed: '폴더를 삭제하지 못했습니다',
-      addExistingDocs: '기존 문서 추가'
+      addExistingDocs: '기존 문서 추가',
+      workKbDocs: '문서 {count}개'
     },
     folderPicker: {
       title: '「{folder}」에 기존 문서 추가',
@@ -9533,7 +9534,15 @@
       running: '내보내는 중…',
       done: '블록 {blocks}개, 에셋 {assets}개를 내보냈습니다',
       missing: '에셋 {count}개를 읽지 못해 누락으로 표시했습니다',
-      failed: '내보내기에 실패했습니다. 다시 시도하세요'
+      failed: '내보내기에 실패했습니다. 다시 시도하세요',
+      docEntry: '문서 내보내기',
+      docDone: '{format}(으)로 내보냈습니다',
+      docFailed: '내보내기에 실패했습니다. 다시 시도하세요',
+      format: {
+        markdown: 'Markdown',
+        html: 'HTML',
+        docx: 'Word'
+      }
     },
     modeSwitch: {
       label: '보기 모드',
@@ -9935,6 +9944,8 @@
       monthGrid: 'Journals 달력',
       panelTitle: 'Journals 달력',
       panelSwitch: '오른쪽 패널',
+      panelEntry: '캘린더 / AI',
+      closePanel: '사이드 패널 닫기',
       tabCalendar: '캘린더',
       tabAi: 'AI',
       prevMonth: '이전 달',
@@ -9977,7 +9988,13 @@
       },
       flushFailed: '초안이 임시 저장되지 않아 원래 날짜에 머뭅니다',
       createFailed: 'Journal 생성에 실패했습니다',
-      moveFailed: '날짜 변경에 실패하여 원래 날짜로 되돌렸습니다'
+      moveFailed: '날짜 변경에 실패하여 원래 날짜로 되돌렸습니다',
+      deleteEntry: '휴지통으로 이동',
+      deleteTitle: '휴지통으로 이동',
+      deleteBody: '「{title}」을(를) 휴지통으로 이동할까요? 보관된 지식은 삭제되지 않으며 휴지통에서 복원할 수 있습니다.',
+      deleteConfirm: '휴지통으로 이동',
+      deleted: '휴지통으로 이동했습니다',
+      deleteFailed: '휴지통으로 이동하지 못했습니다. 다시 시도하세요'
     },
     notice: {
       gotIt: '확인',

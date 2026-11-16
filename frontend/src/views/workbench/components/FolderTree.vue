@@ -56,6 +56,11 @@
         />
         <span v-else class="ft-name">{{ row.folder.name }}</span>
 
+        <!-- 文档数量：跟随文件夹名右对齐；重命名时隐藏，避免挤占输入框 -->
+        <span v-if="renamingId !== row.folder.id" class="ft-count">
+          {{ row.folder.item_count ?? 0 }}
+        </span>
+
         <!-- 行尾「…」：常驻弱化显示，悬停/选中提亮，保证文件夹操作可发现 -->
         <t-dropdown
           v-if="renamingId !== row.folder.id"
@@ -538,6 +543,21 @@ defineExpose({ startCreate })
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 文档数量：弱化的小号数字，选中时与行文字同色 */
+.ft-count {
+  flex: none;
+  min-width: 14px;
+  margin-left: 2px;
+  text-align: right;
+  font-size: var(--app-text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--td-text-color-placeholder);
+}
+
+.ft-row.is-active .ft-count {
+  color: var(--td-brand-color-7);
 }
 
 .ft-input {

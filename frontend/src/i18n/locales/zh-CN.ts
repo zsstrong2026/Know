@@ -9343,7 +9343,8 @@
       folderRenameFailed: '文件夹重命名失败',
       folderMoveFailed: '移动文件夹失败，请重试',
       folderDeleteFailed: '删除文件夹失败',
-      addExistingDocs: '添加已有文档'
+      addExistingDocs: '添加已有文档',
+      workKbDocs: '共 {count} 个文档'
     },
     folderPicker: {
       title: '添加已有文档到「{folder}」',
@@ -9534,7 +9535,15 @@
       running: '正在导出…',
       done: '已导出 {blocks} 个块、{assets} 个资产',
       missing: '{count} 个资产未能读取，已在清单标为缺失',
-      failed: '导出失败，请重试'
+      failed: '导出失败，请重试',
+      docEntry: '导出文档',
+      docDone: '已导出为 {format}',
+      docFailed: '导出失败，请重试',
+      format: {
+        markdown: 'Markdown',
+        html: 'HTML',
+        docx: 'Word'
+      }
     },
     modeSwitch: {
       label: '形态切换',
@@ -9708,7 +9717,7 @@
         search: '搜索需求',
         sortBy: '排序：{field}',
         reset: '清除',
-        newRow: '新建行',
+        newRow: '新建事项',
         rowDetail: '表格行详情',
         deleteRow: '删除事项',
         deleteBody: '删除后无法恢复，确认删除「{title}」吗？',
@@ -9937,6 +9946,8 @@
       monthGrid: 'Journals 月历',
       panelTitle: 'Journals 月历',
       panelSwitch: '右侧面板',
+      panelEntry: '日历 / AI',
+      closePanel: '关闭右侧面板',
       tabCalendar: '日历',
       tabAi: 'AI',
       prevMonth: '上个月',
@@ -9979,7 +9990,13 @@
       },
       flushFailed: '草稿尚未暂存，已留在原日期',
       createFailed: '新建 Journal 失败',
-      moveFailed: '改期失败，已恢复原日期'
+      moveFailed: '改期失败，已恢复原日期',
+      deleteEntry: '放入回收站',
+      deleteTitle: '放入回收站',
+      deleteBody: '将「{title}」放入回收站？已归档的知识不会被删除，可在回收站中恢复。',
+      deleteConfirm: '放入回收站',
+      deleted: '已放入回收站',
+      deleteFailed: '放入回收站失败，请重试'
     },
     notice: {
       gotIt: '知道了',

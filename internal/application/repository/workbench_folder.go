@@ -86,7 +86,7 @@ func (r *workbenchRepository) UpdateFolder(
 // 只接受「父级的完整子集合」：服务层先算出顺序再整体写回，因此不会出现
 // 两个文件夹共用同一 sort_order 的中间态。空列表是合法的空操作。
 //
-// parentID 为 nil 表示根层级；用 IS NULL 而不是 = ''，与 ListFolders 的口径一致。
+// parentID 为 nil 表示根层级；用 IS NULL 而不是 = ”，与 ListFolders 的口径一致。
 func (r *workbenchRepository) ReorderFolders(
 	ctx context.Context, tenantID uint64, ownerID string, parentID *string, orderedIDs []string,
 ) error {
@@ -145,6 +145,7 @@ func (r *workbenchRepository) DeleteFolder(
 }
 
 // ListFolders 返回该用户的全部文件夹，按层级与排序位稳定输出。
+// ItemCount 由一次分组统计补齐，供文件夹树展示「该文件夹下有多少文档」。
 func (r *workbenchRepository) ListFolders(
 	ctx context.Context, tenantID uint64, ownerID string,
 ) ([]*types.WorkbenchFolder, error) {
@@ -154,7 +155,32 @@ func (r *workbenchRepository) ListFolders(
 		Where("tenant_id = ? AND owner_id = ? AND deleted_at IS NULL", tenantID, ownerID).
 		Order("parent_id ASC, sort_order ASC, created_at ASC").
 		Find(&folders).Error
-	return folders, err
+	if err != nil || len(folders) == 0 {
+		return folders, err
+	}
+
+	// 只统计未删除条目；文件夹只收纳文档，所以这里就是文档数量。
+	var counts []struct {
+		FolderID string `gorm:"column:folder_id"`
+		Total    int    `gorm:"column:total"`
+	}
+	if err := r.db.WithContext(ctx).
+		Table("workbench_items").
+		Select("folder_id, COUNT(*) AS total").
+		Where("tenant_id = ? AND owner_id = ? AND folder_id IS NOT NULL AND deleted_at IS NULL",
+			tenantID, ownerID).
+		Group("folder_id").
+		Scan(&counts).Error; err != nil {
+		return nil, err
+	}
+	byFolder := make(map[string]int, len(counts))
+	for _, row := range counts {
+		byFolder[row.FolderID] = row.Total
+	}
+	for _, folder := range folders {
+		folder.ItemCount = byFolder[folder.ID]
+	}
+	return folders, nil
 }
 
 // ReparentChildren 把直接子文件夹挂到 newParentID（nil 表示根）。

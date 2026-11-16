@@ -190,6 +190,21 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
     folders.value = await listWorkbenchFolders()
   }
 
+  /**
+   * 条目归属变化后刷新文件夹树上的文档计数。
+   *
+   * 做 200ms 防抖：批量移入/删除会连续触发多次，最终只回源一次；
+   * 失败静默，计数过期不影响主流程。
+   */
+  let folderCountTimer: ReturnType<typeof setTimeout> | undefined
+  function refreshFolderCountsSoon() {
+    if (folderCountTimer) clearTimeout(folderCountTimer)
+    folderCountTimer = setTimeout(() => {
+      folderCountTimer = undefined
+      void fetchFolders().catch(() => undefined)
+    }, 200)
+  }
+
   /** 拉未读通知；失败静默（通知条不出现，不影响工作台主流程）。 */
   async function fetchNotices() {
     try {
@@ -266,6 +281,8 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
       ...(kind === 'canvas' ? { current_mode: modeOverride ?? prefs.defaultCreateMode } : {}),
     })
     items.value = [item, ...items.value]
+    // 新建到某个文件夹时，文件夹树上的数量要立刻跟上
+    if (folderId) refreshFolderCountsSoon()
     return item
   }
 
@@ -353,6 +370,7 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
     const payload = folderId ? { folder_id: folderId } : { move_to_root: true }
     const item = await updateWorkbenchItem(id, payload)
     upsertItem(item)
+    refreshFolderCountsSoon()
     return item
   }
 
@@ -379,11 +397,14 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
   async function trashItem(id: string, opts: { deleteArchives?: boolean } = {}) {
     await deleteWorkbenchItem(id, { delete_archives: opts.deleteArchives })
     removeItem(id)
+    // 回收站条目不计入文件夹数量，移入后回源一次保持准确
+    refreshFolderCountsSoon()
   }
 
   async function restoreItem(id: string) {
     const item = await restoreWorkbenchItem(id)
     removeItem(id)
+    refreshFolderCountsSoon()
     return item
   }
 
@@ -403,7 +424,10 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
 
   async function renameFolder(id: string, name: string) {
     const folder = await updateWorkbenchFolder(id, { name })
-    folders.value = folders.value.map((row) => (row.id === folder.id ? folder : row))
+    // 改名响应不带聚合计数，保留列表里的原值，避免数字闪没
+    folders.value = folders.value.map((row) =>
+      row.id === folder.id ? { ...folder, item_count: row.item_count } : row,
+    )
     return folder
   }
 
@@ -428,6 +452,8 @@ export const useWorkbenchStore = defineStore('workbenchStore', () => {
       .filter((row) => row.id !== id)
       // 直接子级的父级应回挂到被删文件夹的父级（后端同口径），而不是一律提到根。
       .map((row) => (row.parent_id === id ? { ...row, parent_id: removed?.parent_id ?? null } : row))
+    // 被删文件夹里的文档已上移，相关层级的计数需要回源
+    refreshFolderCountsSoon()
   }
 
   /**

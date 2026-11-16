@@ -470,12 +470,14 @@ type WorkbenchSearchResult struct {
 
 // WorkbenchFolder 工作台文件夹。
 type WorkbenchFolder struct {
-	ID        string    `json:"id" gorm:"type:varchar(36);primaryKey"`
-	TenantID  uint64    `json:"-"`
-	OwnerID   string    `json:"-"`
-	Name      string    `json:"name"`
-	ParentID  *string   `json:"parent_id"`
-	SortOrder int       `json:"sort_order"`
+	ID        string  `json:"id" gorm:"type:varchar(36);primaryKey"`
+	TenantID  uint64  `json:"-"`
+	OwnerID   string  `json:"-"`
+	Name      string  `json:"name"`
+	ParentID  *string `json:"parent_id"`
+	SortOrder int     `json:"sort_order"`
+	// ItemCount 是文件夹直属的未删除条目数，由 ListFolders 聚合填充，不落库。
+	ItemCount int       `json:"item_count" gorm:"-"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	// DDL 有 deleted_at；删除文件夹是软删，子文件夹与条目上移到父级（不级联删）。
@@ -599,15 +601,18 @@ type WorkbenchKbCapabilities struct {
 	Keyword bool `json:"keyword"`
 }
 
-// WorkbenchKbSummary 工作 KB 摘要。
+// WorkbenchKbSummary 工作 KB 摘要（bootstrap 里的投影）。
 type WorkbenchKbSummary struct {
-	ID               string                  `json:"id"`
-	Name             string                  `json:"name"`
-	IsSystem         bool                    `json:"is_system"`
-	SystemKey        string                  `json:"system_key"`
-	Visibility       string                  `json:"visibility"`
-	EmbeddingModelID string                  `json:"embedding_model_id"`
-	Capabilities     WorkbenchKbCapabilities `json:"capabilities"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	IsSystem         bool   `json:"is_system"`
+	SystemKey        string `json:"system_key"`
+	Visibility       string `json:"visibility"`
+	EmbeddingModelID string `json:"embedding_model_id"`
+	// KnowledgeCount 是工作库里的真实文档数（含归档与导入），
+	// 与 counts.items（墨匣条目数）不是一回事，前端展示时不可混用。
+	KnowledgeCount int64                   `json:"knowledge_count"`
+	Capabilities   WorkbenchKbCapabilities `json:"capabilities"`
 }
 
 // WorkbenchBootstrapCounts 工作台聚合计数。

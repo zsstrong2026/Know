@@ -43,6 +43,8 @@ export interface WorkbenchWorkspaceOptions {
   idGenerator?: BsIdGenerator
   /** 资源解析与落盘入口；缺省用内存实现（刷新后从服务端重新取） */
   blobSources?: { main: BsBlobSource }
+  /** 新文件上传入口（粘贴/拖拽）；缺省沿用上游的内容哈希 key（仅适合 spike） */
+  uploadAsset?: (file: File) => Promise<string>
 }
 
 /** 默认 id 生成器：只要求全局唯一，不要求可读。 */
@@ -220,6 +222,38 @@ class WorkbenchDoc implements BsDoc {
   }
 }
 
+/**
+ * 造 BlobEngine，并接管「粘贴/拖拽导入」的 key。
+ *
+ * 上游所有文件导入入口都只调用 `blobSync.set(file)`，BlobEngine 会用文件内容的
+ * sha256 当 key，并把该 key 写进 image/attachment 块的 sourceId；而服务端资产的
+ * id 是 uuid，刷新后 resolver 拿哈希去下载只会 404（画布显示 “Image not found”）。
+ *
+ * 因此只拦截「调用方没给 key」的写入：先上传换成 assetId，再用显式 key 写入，
+ * 这样 Y.Doc 里保存的 sourceId 就是下次打开仍能解析的资产 id。
+ * 显式 key 的调用（上游导入包等）保持原语义，不重复上传。
+ */
+function createBlobEngine(
+  main: BsBlobSource,
+  uploadAsset?: (file: File) => Promise<string>,
+): any {
+  const engine: any = new BlobEngine(main, [], new NoopLogger())
+  if (!uploadAsset) return engine
+  const set = engine.set.bind(engine)
+  engine.set = async (valueOrKey: string | Blob, value?: Blob) => {
+    if (typeof valueOrKey === 'string') return set(valueOrKey, value)
+    const blob = valueOrKey
+    // 剪贴板图片通常就是 File；其他 Blob 补一个名字，服务端需要落库文件名。
+    const file =
+      blob instanceof File
+        ? blob
+        : new File([blob], `asset-${Date.now()}`, { type: blob.type || 'application/octet-stream' })
+    const assetId = await uploadAsset(file)
+    return set(assetId, file)
+  }
+  return engine
+}
+
 /** 工作台 Workspace：内存承载 Doc，资源经 blobSources 解析。 */
 export class WorkbenchWorkspace {
   readonly id: string
@@ -241,10 +275,9 @@ export class WorkbenchWorkspace {
     this.idGenerator = options.idGenerator ?? defaultIdGenerator
     this.doc = new Y.Doc({ guid: this.id })
     this.awarenessStore = new AwarenessStore(new Awareness(this.doc))
-    this.blobSync = new BlobEngine(
+    this.blobSync = createBlobEngine(
       options.blobSources?.main ?? new MemoryBlobSource(),
-      [],
-      new NoopLogger(),
+      options.uploadAsset,
     )
     this.meta = new WorkbenchMeta(this.doc)
 

@@ -73,7 +73,7 @@
           <span class="wk-name">{{ store.bootstrap?.work_kb.name }}</span>
           <span class="wk-meta">
             <t-icon name="lock-on" size="10px" />
-            {{ $t('workbench.list.total', { count: store.bootstrap?.counts.items ?? 0 }) }}
+            {{ $t('workbench.nav.workKbDocs', { count: store.bootstrap?.work_kb.knowledge_count ?? 0 }) }}
           </span>
         </span>
       </button>

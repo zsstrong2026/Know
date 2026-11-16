@@ -14,6 +14,13 @@ import type { ResolvedCell, ResolvedOp, ResolvedPatch } from './database-patch'
 /** 识别出来的一条事项；字段都可缺省，写入时按列配置补。 */
 export interface ItemCandidate {
   title: string
+  /**
+   * 模型给出的状态，仅用于展示。
+   *
+   * 写入时不采用：识别出来的都是还没做的事，状态一律「待开始」。
+   * 若原样写入，不在选项表里的值（例如「待办」）会被写入层自动建成新选项，
+   * 看板就会多出一列与「待开始」重复的分组。
+   */
   status?: string
   owner?: string
   due?: string
@@ -119,7 +126,9 @@ export interface ItemWriteSchema {
 /**
  * 候选 → 写入补丁。
  *
- * 状态缺省补「待开始」：识别出来的都是还没做的事，落在待开始列才符合看板直觉。
+ * 状态只写内置两态：识别出来的都是还没做的事，统一落「待开始」；
+ * 正文待办已勾选时才落「已完成」。忽略模型返回的 status，避免自由发挥出
+ * 「待办」这类选项（写入层会为未知选项自动建选项，看板因此多出一列）。
  * 其余字段只写有值的那几项，空值交给用户在表里补，不臆造负责人或日期。
  */
 export function buildItemPatch(candidates: ItemCandidate[], schema: ItemWriteSchema): ResolvedPatch {
@@ -140,7 +149,7 @@ export function buildItemPatch(candidates: ItemCandidate[], schema: ItemWriteSch
       schema.statusColumnId,
       schema.statusColumnName,
       'select',
-      candidate.status || (candidate.done ? schema.statusDone : schema.statusTodo),
+      candidate.done ? schema.statusDone : schema.statusTodo,
     )
     push(schema.priorityColumnId, schema.priorityColumnName, 'select', candidate.priority)
     push(schema.ownerColumnId, schema.ownerColumnName, 'rich-text', candidate.owner)

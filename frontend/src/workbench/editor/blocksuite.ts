@@ -122,6 +122,13 @@ export interface AssetResolver {
   resolve(assetId: string): Promise<Blob | null> | Blob | null
   /** 可选：新上传的资产落盘（spike 不做持久化） */
   save?(assetId: string, blob: Blob): Promise<void> | void
+  /**
+   * 可选：上传新文件并返回服务端资产 id。
+   *
+   * 上游粘贴/拖拽入口只调用 `blobSync.set(file)`，默认会用内容哈希当 key，
+   * 而服务端资产 id 是 uuid；不接管上传的话，块里留下的是刷新后无法解析的哈希。
+   */
+  put?(file: File): Promise<string>
 }
 
 export interface MountEditorOptions {
@@ -1006,15 +1013,25 @@ function installSlashMenuFallback(element: HTMLElement): () => void {
 function installEdgelessBlankClickText(std: any, element: HTMLElement): () => void {
   const gfx = std.get(GfxControllerIdentifier)
   let down: { x: number; y: number } | null = null
+  /** 本次按下是否发生过拖动：拖动卡片后即使坐标校验不到，也不能补落文本块 */
+  let moved = false
 
   const onPointerDown = (event: PointerEvent) => {
     down = event.button === 0 ? { x: event.clientX, y: event.clientY } : null
+    moved = false
+  }
+
+  const onPointerMove = (event: PointerEvent) => {
+    if (!down || moved) return
+    if (Math.abs(event.clientX - down.x) > 4 || Math.abs(event.clientY - down.y) > 4) moved = true
   }
 
   const onClick = (event: MouseEvent) => {
     const origin = down
+    const dragged = moved
     down = null
-    if (!origin) return
+    moved = false
+    if (!origin || dragged) return
     // 框选、平移、轻微抖动都不应该落成文本块
     if (Math.abs(event.clientX - origin.x) > 4 || Math.abs(event.clientY - origin.y) > 4) return
 
@@ -1024,6 +1041,7 @@ function installEdgelessBlankClickText(std: any, element: HTMLElement): () => vo
         // 工具栏的实际标签是 `edgeless-toolbar-widget`（上游 EDGELESS_TOOLBAR_WIDGET），
         // 写成 affine- 前缀会匹配不到，点工具条时空白处也会落一个文本块。
         'edgeless-toolbar-widget, affine-edgeless-zoom-toolbar-widget, affine-note, ' +
+          'affine-edgeless-note, ' +
           'affine-edgeless-text, .inline-editor, button, input, textarea, [role="toolbar"]',
       )
     ) {
@@ -1040,9 +1058,11 @@ function installEdgelessBlankClickText(std: any, element: HTMLElement): () => vo
   }
 
   element.addEventListener('pointerdown', onPointerDown, true)
+  element.addEventListener('pointermove', onPointerMove, true)
   element.addEventListener('click', onClick, true)
   return () => {
     element.removeEventListener('pointerdown', onPointerDown, true)
+    element.removeEventListener('pointermove', onPointerMove, true)
     element.removeEventListener('click', onClick, true)
   }
 }
@@ -1060,11 +1080,15 @@ const NOTE_CARD_HEIGHT = 420
 const NOTE_HEAD_ICON = html`<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v5h5" /></svg>`
 const NOTE_DETAIL_ICON = html`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h12v12" /><path d="M20 4 5 19" /><path d="M16 20H4V8" /></svg>`
 
+/** 标题栏 pointerdown 起点：用来区分「点击打开详情」与「拖动卡片」。 */
+let noteHeadPointer: { x: number; y: number } | null = null
+
 /**
  * 文档卡片标题栏。
  *
- * 点击标题栏打开宿主页的右侧详情抽屉，而不是进入画布编辑：
- * pointerdown 先拦住画布的选择/编辑链路，click 再派发事件。
+ * 点击标题栏打开宿主页的右侧详情抽屉；标题栏同时是卡片的拖动把手：
+ * pointerdown 正常冒泡给画布（否则从标题处拖不动卡片），
+ * click 仅在按下后几乎没有位移时才派发详情事件。
  */
 const workbenchNoteConfig = NoteConfigExtension({
   pageBlockTitle: ({ std }: { std: any }) => {
@@ -1072,14 +1096,28 @@ const workbenchNoteConfig = NoteConfigExtension({
     const itemTitle = (noteCardTitle.value ?? '').trim()
     const pageTitle = (std.store.root?.props.title$.value?.toString() ?? '').trim()
     const label = itemTitle || pageTitle || i18n.global.t('workbench.item.untitledDocument')
-    const stopPointer = (event: Event) => event.stopPropagation()
-    const openDetail = (event: Event) => {
+    // 标题栏不能拦 pointerdown：画布靠它启动选择/拖动，拦掉后从标题处拖不动卡片（PATCH）。
+    const onPointerDown = (event: PointerEvent) => {
+      noteHeadPointer = event.button === 0 ? { x: event.clientX, y: event.clientY } : null
+    }
+    const openDetail = (event: MouseEvent) => {
+      const origin = noteHeadPointer
+      noteHeadPointer = null
+      // 拖动结束后的 click 不打开抽屉，否则一次拖拽会变成「打开详情」
+      if (
+        origin &&
+        (Math.abs(event.clientX - origin.x) > 4 || Math.abs(event.clientY - origin.y) > 4)
+      ) {
+        return
+      }
       event.preventDefault()
       event.stopPropagation()
+      // 点击标题只打开详情：清掉画布刚建立的选择/编辑态，避免抽屉关闭后卡片拖不动
+      std.getOptional?.(GfxControllerIdentifier)?.selection?.clear?.()
       window.dispatchEvent(new CustomEvent(WB_NOTE_DETAIL_EVENT))
     }
     return html`
-      <div class="wb-note-head" @pointerdown=${stopPointer} @click=${openDetail}>
+      <div class="wb-note-head" @pointerdown=${onPointerDown} @click=${openDetail}>
         <span class="wb-note-head-icon">${NOTE_HEAD_ICON}</span>
         <span class="wb-note-head-title" title=${label}>${label}</span>
         <button
@@ -1166,6 +1204,34 @@ function markDocumentNotes(element: HTMLElement, store: BsStore): MutationObserv
   return observer
 }
 
+/**
+ * 无限画布文档卡片：编辑态滚轮只在卡片内滚动，不平移画布。
+ *
+ * 卡片内容超高时由 editor-popover.css 让裁剪容器出现滚动条，但画布根块
+ * 在 host 上以非 passive 监听 wheel、先 preventDefault 再平移视口：滚轮事件
+ * 冒泡到 host 后卡片就滚不动，画布反而跟着动。
+ *
+ * 这里在挂载容器（host 的祖先）的捕获阶段拦下「正在编辑的文档卡片」内的
+ * wheel：只阻断冒泡、不 preventDefault，原生滚动照常生效；内容未超出时
+ * 放行，画布平移行为不变。
+ */
+function installDocNoteScroll(element: HTMLElement): () => void {
+  const onWheel = (event: WheelEvent) => {
+    const target = event.target as HTMLElement | null
+    const clip = target?.closest?.(
+      '[data-testid="edgeless-note-clip-container"]',
+    ) as HTMLElement | null
+    if (!clip) return
+    const note = clip.closest('[data-testid="edgeless-note-container"]')
+    if (note?.getAttribute('data-editing') !== 'true') return
+    // 没有溢出时交还给画布（避免小卡片上滚轮失效）
+    if (clip.scrollHeight <= clip.clientHeight) return
+    event.stopPropagation()
+  }
+  element.addEventListener('wheel', onWheel, { capture: true, passive: true })
+  return () => element.removeEventListener('wheel', onWheel, { capture: true })
+}
+
 function attachView(params: {
   store: BsStore
   mode: EditorMode
@@ -1200,6 +1266,8 @@ function attachView(params: {
   if (mode === 'edgeless') applyFixedDocNoteSize(store)
   // 无限画布：给文档根 note 打标记，样式层据此画「卡片浮层」边框
   const docNoteMarker = mode === 'edgeless' ? markDocumentNotes(element, store) : null
+  // 无限画布：文档卡片编辑态内容超高时，滚轮在卡片内滚动而不是平移画布
+  const removeDocNoteScroll = mode === 'edgeless' ? installDocNoteScroll(element) : null
 
   if (mode === 'edgeless') {
     // 页面模式的内容都放在 note 里，切到画布后是一张卡片；
@@ -1219,6 +1287,7 @@ function attachView(params: {
   return {
     detach() {
       removeBlankClickText?.()
+      removeDocNoteScroll?.()
       docNoteMarker?.disconnect()
       // host.remove() 触发 disconnectedCallback → std.unmount()，释放该 std 自己的订阅
       host.remove()
@@ -1295,6 +1364,8 @@ export async function mountEditor(options: MountEditorOptions): Promise<CanvasHa
     idGenerator: createSafeIdGenerator(`wb${Math.random().toString(36).slice(2, 8)}`),
     // 只有显式传入 assets 时才替换默认的 MemoryBlobSource
     ...(assets ? { blobSources: { main: createAssetBlobSource(assets.resolve, assets.save) } } : {}),
+    // 粘贴/拖拽上传：让上游把服务端 assetId 写进块，而不是内容哈希
+    uploadAsset: assets?.put ? (file: File) => assets.put!(file) : undefined,
   })
   workspace.storeExtensions = storeExtensions ?? []
   workspace.meta.initialize()

@@ -35,15 +35,18 @@
     </div>
 
     <div class="jp-list">
-      <button
+      <div
         v-for="entry in dayEntries"
         :key="entry.id"
         class="jp-row"
         :class="{ 'is-active': entry.id === selectedItemId, 'is-dragging': entry.id === draggingId }"
-        type="button"
+        role="button"
+        tabindex="0"
         draggable="true"
         :aria-pressed="entry.id === selectedItemId"
         @click="emit('open', entry.id)"
+        @keydown.enter.prevent="emit('open', entry.id)"
+        @keydown.space.prevent="emit('open', entry.id)"
         @dragstart="onDragStart(entry.id, $event)"
         @dragend="onDragEnd"
       >
@@ -56,7 +59,20 @@
             <span class="jr-mode">{{ $t(`workbench.journals.mode.${entry.current_mode}`) }}</span>
           </span>
         </span>
-      </button>
+        <!-- 悬停显示的删除入口：只移入回收站，二次确认由宿主页负责 -->
+        <button
+          class="jr-delete"
+          type="button"
+          draggable="false"
+          :aria-label="$t('workbench.journals.deleteEntry')"
+          :title="$t('workbench.journals.deleteEntry')"
+          @pointerdown.stop
+          @click.stop="emit('delete', entry.id)"
+          @dragstart.stop.prevent
+        >
+          <t-icon name="delete" size="13px" />
+        </button>
+      </div>
 
       <div v-if="dayEntries.length === 0" class="jp-empty">
         {{ $t('workbench.journals.emptyDay') }}
@@ -102,6 +118,7 @@ const emit = defineEmits<{
   open: [id: string]
   create: []
   move: [payload: { id: string; date: string }]
+  delete: [id: string]
 }>()
 
 const { t, locale } = useI18n()
@@ -131,6 +148,11 @@ const subtitle = computed(() => {
 })
 
 function onDragStart(id: string, event: DragEvent) {
+  // 从删除按钮起手不触发整行拖拽（改期只允许拖条目主体）
+  if ((event.target as HTMLElement | null)?.closest?.('.jr-delete')) {
+    event.preventDefault()
+    return
+  }
   draggingId.value = id
   // 保留 text/plain 便于浏览器允许 drop；真实 id 走 props 传递更可靠
   event.dataTransfer?.setData('text/plain', id)
@@ -221,6 +243,7 @@ function onDragEnd() {
 
 .jp-row {
   width: 100%;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: var(--app-space-2);
@@ -235,6 +258,11 @@ function onDragEnd() {
     background: var(--td-bg-color-container-hover);
   }
 
+  &:focus-visible {
+    outline: 2px solid var(--td-brand-color-3);
+    outline-offset: -2px;
+  }
+
   &.is-active {
     border-color: var(--td-brand-color-3);
     background: var(--td-brand-color-1);
@@ -243,6 +271,33 @@ function onDragEnd() {
   &.is-dragging {
     opacity: 0.45;
   }
+}
+
+/* 删除入口：默认隐藏，悬停或键盘聚焦到该行时出现 */
+.jr-delete {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--app-radius-xs);
+  color: var(--td-text-color-placeholder);
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+  transition: opacity var(--app-motion-fast) ease, color var(--app-motion-fast) ease,
+    background-color var(--app-motion-fast) ease;
+
+  &:hover {
+    background: var(--td-error-color-1);
+    color: var(--td-error-color);
+  }
+}
+
+.jp-row:hover .jr-delete,
+.jp-row:focus-within .jr-delete {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .jr-date {
@@ -254,6 +309,7 @@ function onDragEnd() {
 }
 
 .jr-body {
+  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;

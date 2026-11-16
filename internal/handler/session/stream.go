@@ -5,6 +5,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/errors"
@@ -323,6 +324,25 @@ func (h *Handler) StopSession(c *gin.Context) {
 			"message": "Message already completed",
 		})
 		return
+	}
+
+	// 若停止前还没有任何输出，先把一条说明作为回答事件推给前端，
+	// 这样用户点击停止后能立刻看到原因，而不是面对一个空消息。
+	if strings.TrimSpace(message.Content) == "" {
+		noticeID := fmt.Sprintf("stop-answer-%d", time.Now().UnixNano())
+		if err := h.streamManager.AppendEvent(ctx, sessionID, assistantMessageID, interfaces.StreamEvent{
+			ID:        noticeID,
+			Type:      types.ResponseTypeAnswer,
+			Content:   stopGenerationNotice,
+			Done:      false,
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"event_id":       noticeID,
+				"is_stop_notice": true,
+			},
+		}); err != nil {
+			logger.Warnf(ctx, "Failed to append stop notice for session %s: %v", sessionID, err)
+		}
 	}
 
 	// Write stop event to StreamManager for distributed support

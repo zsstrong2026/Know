@@ -359,6 +359,9 @@
   border: 1px solid var(--td-component-stroke);
   border-radius: var(--app-radius-md);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04), 0 6px 20px rgba(0, 0, 0, 0.08);
+  // 动画放在弹层容器上：若加在 .t-dropdown__menu 上，其 transform 会成为二级菜单的
+  // 定位祖先，使二级菜单被 menu 的 overflow 裁剪而不可见。
+  animation: dropdownSlideIn 0.18s cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 .t-popup__content {
@@ -369,7 +372,6 @@
     gap: 2px;
     padding: 4px;
     min-width: 148px;
-    animation: dropdownSlideIn 0.18s cubic-bezier(0.2, 0, 0, 1) both;
     overflow-x: hidden;
     overflow-y: auto;
     scrollbar-width: thin;
@@ -420,7 +422,12 @@
     display: flex !important;
     align-items: center;
     width: 100%;
-    position: relative;
+
+    // 叶子项保持相对定位（ripple 与分隔线依赖它）；带子菜单的项必须留给弹层做定位祖先，
+    // 否则二级菜单会以该项为参照，被 .t-dropdown__menu 的 overflow 裁掉。
+    &:not(.t-dropdown__item--suffix) {
+      position: relative;
+    }
 
     &:hover {
       background: var(--td-bg-color-container-hover);

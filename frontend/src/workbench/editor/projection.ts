@@ -31,6 +31,16 @@ export interface ProjectionResult {
   text: string
 }
 
+export interface ProjectionOptions {
+  /**
+   * 是否输出图片占位（`![说明](asset://<assetId>)`）。
+   *
+   * 默认关闭：归档与搜索正文不需要图片地址，混进 `asset://` 只会成为噪音。
+   * 文档导出（Word 内嵌图片）打开它，再从 Markdown 里还原图片位置。
+   */
+  includeImages?: boolean
+}
+
 const HEADING_BY_TYPE: Record<string, string> = {
   h1: '# ',
   h2: '## ',
@@ -39,6 +49,9 @@ const HEADING_BY_TYPE: Record<string, string> = {
   h5: '##### ',
   h6: '###### ',
 }
+
+/** 图片占位的前缀：`![说明](asset://<assetId>)`，供导出层替换成真实图片。 */
+export const ASSET_URI_PREFIX = 'asset://'
 
 /** 表格单元格里的值可能是数字时间戳；统一按本地日历日输出，避免东八区偏移。 */
 function formatDate(value: unknown): string {
@@ -116,10 +129,11 @@ function projectDatabase(block: BlockLike): string[] {
  * 顺序固定为「Page 正文 → 画布 Frame → 画布独立文本 → 画布便签」，与原型里
  * 归档快照的阅读顺序一致：正文先读，画布元素按类型聚集，避免碎片化。
  */
-export function projectMarkdown(store: any): ProjectionResult {
+export function projectMarkdown(store: any, options: ProjectionOptions = {}): ProjectionResult {
   const lines: string[] = []
   const root = store?.root as BlockLike | undefined
   if (!root) return { markdown: '', text: '' }
+  const includeImages = Boolean(options.includeImages)
 
   const surface = collect(root, 'affine:surface')[0]
   const surfaceChildren = surface?.children ?? []
@@ -156,6 +170,21 @@ export function projectMarkdown(store: any): ProjectionResult {
   // 3. 独立文本块：按段落处理，并递归其子块。
   for (const text of surfaceChildren.filter((block) => block.flavour === 'affine:edgeless-text')) {
     walk([text], 0)
+  }
+
+  // 3.5 画布上散落的图片：导出需要它们的位置，其余场景保持静默。
+  //     Frame 内已经展开过的图片要排除，否则同一张图会出现两次。
+  if (includeImages) {
+    const framedIds = new Set<string>()
+    for (const frame of frames) {
+      for (const id of Object.keys(frame.props?.childElementIds ?? {})) framedIds.add(id)
+    }
+    walk(
+      surfaceChildren.filter(
+        (block) => block.flavour === 'affine:image' && (!block.id || !framedIds.has(block.id)),
+      ),
+      0,
+    )
   }
 
   // 4. 画布便签：正文按出现顺序追加，标题用居中的「便签」小标题区分来源。
@@ -234,6 +263,17 @@ export function projectMarkdown(store: any): ProjectionResult {
         }
         case 'affine:edgeless-text': {
           walk(block.children ?? [], depth)
+          break
+        }
+        case 'affine:image': {
+          // 只有导出需要图片位置；归档/搜索不输出 asset:// 噪音。
+          if (!includeImages) break
+          const assetId = typeof block.props?.sourceId === 'string' ? block.props.sourceId : ''
+          if (!assetId) break
+          const caption = String(block.props?.caption ?? block.props?.name ?? '').trim()
+          // 说明里的方括号会截断 Markdown 图片语法，直接去掉而不是转义
+          lines.push(`![${caption.replace(/[[\]]/g, '')}](${ASSET_URI_PREFIX}${assetId})`)
+          lines.push('')
           break
         }
         default:

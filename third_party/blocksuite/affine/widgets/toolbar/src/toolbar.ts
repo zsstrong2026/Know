@@ -318,6 +318,12 @@ export class AffineToolbarWidget extends WidgetComponent {
       host,
       std,
     } = this;
+    // 工具条平时挂在组件 shadow root；无限画布固定置顶时会临时搬到 body。
+    const toolbarHome = this.shadowRoot!;
+    // 组件销毁时如果工具条还在 body（固定置顶中），必须手动移除，避免泄漏。
+    disposables.add(() => {
+      if (toolbar.parentElement === document.body) toolbar.remove();
+    });
     const { flags, flavour$, message$, placement$ } = toolbarRegistry;
     const context = new ToolbarContext(std);
 
@@ -847,12 +853,34 @@ export class AffineToolbarWidget extends WidgetComponent {
       const barHeight = toolbar.offsetHeight || PAGE_TEXT_TOOLBAR_FALLBACK_HEIGHT
       top -= barHeight + PAGE_TEXT_TOOLBAR_GAP
 
-      // 画布控件层是 fixed 的包含块：换算成它的局部坐标，效果仍然是视口坐标。
-      // 页面模式没有这类祖先（顶层单位矩阵的 rect 是 0,0），减法不影响结果。
+      // 画布控件层是 fixed 的包含块：页面模式没有这类祖先（顶层单位矩阵的 rect 是 0,0）。
       if (fixedContainingBlock === undefined) {
         fixedContainingBlock = findFixedContainingBlock(this)
       }
-      const containingRect = fixedContainingBlock?.getBoundingClientRect()
+      /*
+       * 无限画布的 .widgets-container 带 contain: size layout，会成为 fixed 的
+       * 包含块。工具条被固定在编辑器上方 52px 的预留顶栏里，而编辑器挂载层
+       * .j-mount 带 overflow:hidden——留在画布子树里会被整体裁掉。
+       * 固定期间把工具条挂到 body，用视口坐标定位；退出固定再放回 shadow root。
+       */
+      const pinnedToBody =
+        Boolean(fixedContainingBlock) ||
+        viewport.classList.contains('affine-edgeless-viewport')
+      if (pinnedToBody) {
+        if (toolbar.parentElement !== document.body) {
+          document.body.appendChild(toolbar)
+          // 脱离 widget 的 shadow root 后样式不再命中，用全局规则补齐固定栏样式
+          toolbar.dataset.wbPortal = 'true'
+          pinCache = ''
+        }
+      } else if (toolbar.parentElement === document.body) {
+        toolbarHome.appendChild(toolbar)
+        delete toolbar.dataset.wbPortal
+        pinCache = ''
+      }
+      const containingRect = pinnedToBody
+        ? null
+        : fixedContainingBlock?.getBoundingClientRect()
       if (containingRect) {
         left -= containingRect.left
         top -= containingRect.top
@@ -882,6 +910,11 @@ export class AffineToolbarWidget extends WidgetComponent {
       // 定位缓存与祖先链结果一并失效，下次进入固定模式重新计算。
       pinCache = '';
       fixedContainingBlock = undefined;
+      // 固定期间可能挂到 body（无限画布），退出时放回组件 shadow root
+      if (toolbar.parentElement === document.body) {
+        toolbarHome.appendChild(toolbar);
+        delete toolbar.dataset.wbPortal;
+      }
       if (!('fixed' in toolbar.dataset)) return;
       delete toolbar.dataset.fixed;
       toolbar.style.position = '';

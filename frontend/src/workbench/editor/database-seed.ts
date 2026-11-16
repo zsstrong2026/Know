@@ -265,6 +265,63 @@ export function removeObsoleteWorkbenchColumns(store: BsStore): boolean {
 }
 
 /**
+ * 清理识别事项时被自动建出来的「待办」状态选项（幂等）。
+ *
+ * 背景：早期识别写入直接采用模型返回的 status；不在选项表里的值会被写入层
+ * 自动补成新选项，于是看板多出一列「待办」，与「待开始」语义重复。
+ * 这里把该选项下的行迁回「待开始」，再从状态列里删掉选项。
+ *
+ * 只在内置「待开始」选项还在时处理：选项被用户删过就跳过，不凭空造状态。
+ */
+const LEGACY_TODO_STATUS_LABELS = new Set([
+  '待办',
+  '待辦',
+  '待办事项',
+  '待辦事項',
+  'todo',
+  'to do',
+  'to-do',
+])
+
+export function removeLegacyTodoStatusOption(store: BsStore): boolean {
+  const databaseId = findDatabaseId(store)
+  const model = databaseId ? store.getModelById(databaseId) : null
+  if (!model) return false
+  const dataSource = new DatabaseBlockDataSource(model)
+  const data = dataSource.propertyDataGet(WORKBENCH_DB_COLUMNS.status) as
+    | { options?: Array<{ id: string; value: string }> }
+    | undefined
+  const options = Array.isArray(data?.options) ? data.options : []
+  if (!options.some((option) => option.id === 'wb-opt-todo')) return false
+
+  const legacyIds = new Set(
+    options
+      .filter(
+        (option) =>
+          option.id !== 'wb-opt-todo' &&
+          LEGACY_TODO_STATUS_LABELS.has(option.value.trim().toLowerCase()),
+      )
+      .map((option) => option.id),
+  )
+  if (!legacyIds.size) return false
+
+  const rowIds: string[] = dataSource.rows$.value ?? []
+  store.transact(() => {
+    for (const rowId of rowIds) {
+      const current = dataSource.cellValueGet(rowId, WORKBENCH_DB_COLUMNS.status)
+      if (typeof current === 'string' && legacyIds.has(current)) {
+        dataSource.cellValueChange(rowId, WORKBENCH_DB_COLUMNS.status, 'wb-opt-todo')
+      }
+    }
+    dataSource.propertyDataSet(WORKBENCH_DB_COLUMNS.status, {
+      ...data,
+      options: options.filter((option) => !legacyIds.has(option.id)),
+    })
+  })
+  return true
+}
+
+/**
  * 在第一个 note 里插入一个空数据库块，并建好三种视图。
  *
  * 视图顺序与原型一致：表格（默认）→ 看板 → Calendar。

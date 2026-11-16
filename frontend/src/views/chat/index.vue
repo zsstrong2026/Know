@@ -1250,8 +1250,10 @@ const getmsgList = (data, isScrollType = false, scrollHeight) => {
 
 // 发送消息
 // 处理停止生成事件 - 立即清除 loading 状态
+let pendingStopMessageId = '';
 const handleStopGeneration = () => {
     console.log('[Stop Generation] Immediately clearing loading state');
+    pendingStopMessageId = currentAssistantMessageId.value;
     stopStream();
     loading.value = false;
     isReplying.value = false;
@@ -1263,6 +1265,36 @@ const handleStopGeneration = () => {
 const handleStopConfirmed = () => {
     for (const item of steerQueue.value) discardSteerPreview(messagesList, item.steer_id);
     steerQueue.value = [];
+    refreshStoppedAnswer();
+};
+
+// 停止生成后，后端会把“为什么没有结果”的说明写回助手消息；
+// 这里短暂轮询把它取回来，避免页面停留在空白回答上。
+const refreshStoppedAnswer = async () => {
+    const targetSession = session_id.value;
+    const targetMessageId = pendingStopMessageId || currentAssistantMessageId.value;
+    if (!targetSession || !targetMessageId) return;
+    const findRow = () => messagesList.find((m) => m.role === 'assistant' && (
+        m.id === targetMessageId ||
+        m.assistant_message_id === targetMessageId ||
+        m.request_id === targetMessageId
+    ));
+    for (let attempt = 0; attempt < 8; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        if (session_id.value !== targetSession) return;
+        try {
+            const res = await getMessageList({ session_id: targetSession, limit: limit.value, created_at: '' });
+            const target = (res?.data || []).find((m) =>
+                m.id === targetMessageId || m.request_id === targetMessageId);
+            if (target?.is_completed && target?.content) {
+                const row = findRow();
+                if (row) row.content = target.content;
+                return;
+            }
+        } catch (e) {
+            console.warn('[Stop] refresh stopped answer failed:', e);
+        }
+    }
 };
 
 const handleStopFailed = () => {

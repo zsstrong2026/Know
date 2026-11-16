@@ -18,6 +18,7 @@ import { noteStyleSeedFromPrefs } from './prefs'
 import {
   ensureWorkbenchSourceColumns,
   migrateLegacyTextColumns,
+  removeLegacyTodoStatusOption,
   removeObsoleteWorkbenchColumns,
   seedWorkbenchDatabase,
   type DatabaseSeedLabels,
@@ -95,6 +96,12 @@ export interface EditorSession {
   canLeave(): boolean
   /** 把当前 Y.Doc 投影成 Markdown，供归档使用 */
   markdown(): string
+  /**
+   * 同上，但保留图片位置（`![说明](asset://<id>)`）。
+   *
+   * 只给文档导出用：归档/搜索正文不需要图片地址，默认投影会把它滤掉。
+   */
+  markdownWithImages(): string
   /** 当前正文的非空白字符数；文档信息行用，不额外请求接口 */
   markdownCount(): number
   /** 上传粘贴/拖拽的文件，返回 assetId（P2-3）；失败时抛错由调用方提示 */
@@ -327,6 +334,8 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
       migrateLegacyTextColumns(editor.value.store)
       // 「来源 / 来源文档」是后加的两列：老步骤要在同一时机补齐，否则用户看不到来源。
       ensureWorkbenchSourceColumns(editor.value.store, seedLabels)
+      // 识别事项早期写入自动建出的「待办」状态选项：迁回「待开始」并删掉。
+      removeLegacyTodoStatusOption(editor.value.store)
     }
 
     // 模板路径：快照来自内存 override，服务端仍是 version 0，而 BlockSuite 用快照
@@ -406,6 +415,10 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
     return projectMarkdown(editor.value?.store).markdown
   }
 
+  function markdownWithImages(): string {
+    return projectMarkdown(editor.value?.store, { includeImages: true }).markdown
+  }
+
   /** 字数按非空白字符计：中文场景下比“按空格分词”更接近直觉。 */
   function markdownCount(): number {
     return markdown().replace(/\s+/g, '').length
@@ -453,8 +466,9 @@ export function useEditorSession(options: EditorSessionOptions): EditorSession {
     flush,
     canLeave,
     markdown,
+    markdownWithImages,
     markdownCount,
-    /** 粘贴/拖拽文件：上传后返回 assetId，由调用方插入 block。 */
+    /** 上传新文件并返回 assetId（导入资料等显式插入场景）；编辑器内的粘贴/拖拽由同一 resolver 接管。 */
     uploadAsset: (file: File) => ensureCanvasAssets().put(file),
     /** 导出包按 asset id 取 Blob：与渲染共用 resolver 与缓存，不重复下载。 */
     resolveAsset: async (assetId: string) => (await ensureCanvasAssets().resolve(assetId)) ?? null,

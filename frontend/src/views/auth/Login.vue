@@ -744,9 +744,10 @@ onMounted(async () => {
 .form-section {
   flex: 0 0 48%;
   display: flex;
-  align-items: flex-end;
+  align-items: center; /* 登录卡片在视口内垂直居中 */
   justify-content: center;
-  padding: 112px 50px 100px 30px;
+  /* 上下内边距保持对称，避免居中位置发生偏移 */
+  padding: 100px 50px 100px 30px;
   box-sizing: border-box;
   position: relative;
   z-index: 2;
@@ -755,7 +756,6 @@ onMounted(async () => {
 .form-panel {
   width: 100%;
   max-width: 400px;
-  margin-bottom: 60px;
   position: relative;
   z-index: 2;
 }

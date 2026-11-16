@@ -82,6 +82,24 @@ test('buildItemPatch：状态缺省补待开始，空字段不写', () => {
   assert.equal(first.cells.some((cell) => cell.columnId === 'c-owner'), false)
 })
 
+test('buildItemPatch：忽略模型返回的 status，统一待开始', () => {
+  const patch = buildItemPatch(
+    [
+      { title: '补充部署文档', status: '待办' },
+      { title: '完成评审', status: '进行中' },
+    ],
+    SCHEMA,
+  )
+  const status = (index: number) => {
+    const op = patch.ops[index]
+    return op.kind === 'add_row'
+      ? op.cells.find((cell) => cell.columnId === 'c-status')?.value
+      : undefined
+  }
+  assert.equal(status(0), '待开始', '模型给的「待办」不写入，避免自动建出多余选项')
+  assert.equal(status(1), '待开始')
+})
+
 test('buildItemPatch：写入来源与来源文档', () => {
   const patch = buildItemPatch([{ title: '补充部署文档', owner: '李昀', due: '2026-11-06' }], SCHEMA)
   const op = patch.ops[0]

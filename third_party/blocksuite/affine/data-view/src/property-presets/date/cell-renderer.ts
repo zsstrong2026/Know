@@ -5,7 +5,7 @@ import {
 import { DatePicker } from '@blocksuite/affine-components/date-picker';
 import { createLitPortal } from '@blocksuite/affine-components/portal';
 import { IS_MOBILE } from '@blocksuite/global/env';
-import { flip, offset } from '@floating-ui/dom';
+import { flip, offset, shift } from '@floating-ui/dom';
 import { computed, signal } from '@preact/signals-core';
 import { format } from 'date-fns/format';
 import { html } from 'lit';
@@ -84,7 +84,9 @@ export class DateCell extends BaseCellRenderer<number, number> {
         computePosition: {
           referenceElement: this,
           placement: 'bottom',
-          middleware: [offset(10), flip()],
+          // 行详情抽屉贴着视口右侧，日期弹层需要水平避让；flip() 只处理上下翻转，
+          // 缺 shift() 时约 296px 宽的日历会溢出窗口、右侧周六列被裁掉（PATCH-1）。
+          middleware: [offset(10), flip(), shift({ padding: 8 })],
         },
         template: () => {
           const datePicker = new DatePicker();

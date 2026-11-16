@@ -47,7 +47,6 @@
               <span v-if="row.due" class="collect-chip">{{ t('workbench.database.columns.date') }} {{ row.due }}</span>
               <span v-if="row.owner" class="collect-chip">{{ row.owner }}</span>
               <span v-if="row.priority" class="collect-chip">{{ row.priority }}</span>
-              <span v-if="row.status" class="collect-chip">{{ row.status }}</span>
             </div>
             <p v-if="row.evidence" class="collect-evidence">{{ row.evidence }}</p>
           </li>

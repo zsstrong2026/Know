@@ -611,7 +611,8 @@
       folderRenameFailed: 'Could not rename the folder',
       folderMoveFailed: 'Failed to move the folder, please try again',
       folderDeleteFailed: 'Could not delete the folder',
-      addExistingDocs: 'Add existing documents'
+      addExistingDocs: 'Add existing documents',
+      workKbDocs: '{count} documents'
     },
     folderPicker: {
       title: 'Add existing documents to “{folder}”',
@@ -802,7 +803,15 @@
       running: 'Exporting…',
       done: 'Exported {blocks} blocks and {assets} assets',
       missing: '{count} assets could not be read and are marked missing',
-      failed: 'Export failed, please try again'
+      failed: 'Export failed, please try again',
+      docEntry: 'Export document',
+      docDone: 'Exported as {format}',
+      docFailed: 'Export failed, please try again',
+      format: {
+        markdown: 'Markdown',
+        html: 'HTML',
+        docx: 'Word'
+      }
     },
     modeSwitch: {
       label: 'Editor mode',
@@ -1205,6 +1214,8 @@
       monthGrid: 'Journals calendar',
       panelTitle: 'Journals calendar',
       panelSwitch: 'Right panel',
+      panelEntry: 'Calendar / AI',
+      closePanel: 'Close side panel',
       tabCalendar: 'Calendar',
       tabAi: 'AI',
       prevMonth: 'Previous month',
@@ -1247,7 +1258,13 @@
       },
       flushFailed: 'Draft not saved yet, staying on the previous day',
       createFailed: 'Failed to create journal',
-      moveFailed: 'Reschedule failed, date restored'
+      moveFailed: 'Reschedule failed, date restored',
+      deleteEntry: 'Move to trash',
+      deleteTitle: 'Move to trash',
+      deleteBody: 'Move “{title}” to trash? Archived knowledge will be kept and can be restored from Trash.',
+      deleteConfirm: 'Move to trash',
+      deleted: 'Moved to trash',
+      deleteFailed: 'Failed to move to trash, please try again'
     },
     notice: {
       gotIt: 'Got it',

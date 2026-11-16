@@ -77,6 +77,27 @@ func TestAgentStreamHandlerInternalErrorKeepsErrorType(t *testing.T) {
 	require.True(t, evt.Done)
 }
 
+// 一轮生成如果完全没有产出回答（停止、超时或上游失败），必须落一条可读说明，
+// 不能留下空白助手消息。
+func TestAgentStreamHandlerFillsNoticeWhenTurnProducedNoAnswer(t *testing.T) {
+	streams := &capturingStreamManager{}
+	message := &types.Message{ID: "msg-empty"}
+	h := NewAgentStreamHandler(
+		context.Background(), "sess-1", "msg-empty", "req-1", 1, time.Now(),
+		message, streams, nil, nil, nil, nil,
+	)
+
+	err := h.handleComplete(context.Background(), event.Event{
+		ID: "evt-complete", Type: event.EventAgentComplete,
+		Data: event.AgentCompleteData{MessageID: "msg-empty"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, emptyAnswerNotice, message.Content)
+	require.NotEmpty(t, streams.events)
+	require.Equal(t, types.ResponseTypeAnswer, streams.events[0].Type)
+	require.Equal(t, emptyAnswerNotice, streams.events[0].Content)
+}
+
 func TestAgentStreamHandlerForwardsOperationDataChange(t *testing.T) {
 	streams := &capturingStreamManager{}
 	h := NewAgentStreamHandler(
