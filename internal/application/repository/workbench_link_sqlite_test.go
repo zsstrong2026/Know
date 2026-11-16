@@ -79,6 +79,23 @@ func TestWorkbenchLink_MentionScanExcludesSingleCharAndSelf(t *testing.T) {
 	assert.NotContains(t, ids, self.ID, "自己提自己不算反向链接")
 }
 
+// 同名文档（通常来自同一模板自动命名）被标题命中时无法判断指向哪一篇，
+// 不能算作提及；不同标题的提及仍然保留。
+func TestWorkbenchLink_MentionScanExcludesSameTitle(t *testing.T) {
+	db, repo := setupWorkbenchLinkDB(t)
+	const tenant uint64 = 7
+
+	source := newTestItemTitled(t, db, tenant, "owner-a", "会议纪要")
+	twin := newTestItemTitled(t, db, tenant, "owner-a", "会议纪要")
+	other := newTestItemTitled(t, db, tenant, "owner-a", "行动项清单")
+
+	text := "会议纪要：负责人：戴格明（2026-11-16）。行动项清单见附件。"
+	ids, err := repo.ListItemIDsMentioning(t.Context(), tenant, "owner-a", source.ID, text, 50)
+	require.NoError(t, err)
+	assert.NotContains(t, ids, twin.ID, "同名文档不算提及")
+	assert.Contains(t, ids, other.ID, "不同标题的提及仍然保留")
+}
+
 func TestWorkbenchLink_ReplaceIsCoverAndScoped(t *testing.T) {
 	db, repo := setupWorkbenchLinkDB(t)
 	const tenant uint64 = 7

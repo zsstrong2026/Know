@@ -196,7 +196,7 @@ type WorkbenchTagRepository interface {
 // 全部方法按 tenant_id + owner_id 过滤，越权即空。
 type WorkbenchLinkRepository interface {
 	// ListItemIDsMentioning 在用户自己的条目里找「标题出现在 text 里」的条目。
-	// 单字标题不参与（误报太多）；上限由调用方控制。
+	// 单字标题与同名条目不参与（误报太多）；上限由调用方控制。
 	ListItemIDsMentioning(
 		ctx context.Context, tenantID uint64, ownerID, sourceItemID, text string, limit int,
 	) ([]string, error)

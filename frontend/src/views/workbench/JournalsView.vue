@@ -194,8 +194,9 @@
     </div>
 
     <!--
-      右侧抽屉：日历 / AI 共用一个可收起的面板，不再常驻挤占编辑区宽度。
-      关闭时用 transform 移出视口（保留 DOM，AI 面板挂载点不会丢）。
+      右侧抽屉：日历 / AI 共用一个可收起的面板。
+      展开时作为正常栏位参与布局，顶栏与星期条随之压缩，不遮挡正文与底部信息；
+      收起时宽度归零、移出布局（保留 DOM，AI 面板挂载点不会丢）。
     -->
     <aside class="j-side" :class="{ 'is-open': sideOpen }" :aria-hidden="!sideOpen">
       <div class="j-side-head">
@@ -371,8 +372,8 @@ const canUseAI = computed(() => aiPrefs.value.enabled && store.features.ai)
 
 /** 右侧面板当前标签：日历 / AI */
 const sideTab = ref<'calendar' | 'ai'>('calendar')
-/** 右侧抽屉是否展开：默认收起，把宽度还给编辑区 */
-const sideOpen = ref(false)
+/** 右侧抽屉是否展开：默认展开日历，收起后把宽度还给编辑区 */
+const sideOpen = ref(true)
 const aiLayer = ref<InstanceType<typeof PageAILayer> | null>(null)
 /** AI 面板的 Teleport 容器：始终在 DOM 中，保证切换时不会丢挂载点 */
 const aiHostRef = ref<HTMLElement | null>(null)
@@ -1322,39 +1323,31 @@ void (async () => {
   }
 }
 
-/* ===== 右侧抽屉：顶部切换标签 + 关闭按钮 + 日历 / AI 面板 ===== */
+/* ===== 右侧栏：顶部切换标签 + 关闭按钮 + 日历 / AI 面板 ===== */
 .j-side {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 40;
+  flex: none;
   width: 340px;
   max-width: 92vw;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   border-left: 1px solid var(--td-component-stroke);
   background: var(--td-bg-color-container);
-  box-shadow: -12px 0 32px rgba(22, 32, 26, 0.12);
-  /* 收起时移出视口：保留 DOM（AI 挂载点不丢），不占编辑区宽度 */
-  transform: translateX(100%);
-  visibility: hidden;
-  transition: transform var(--app-motion-base) ease, visibility 0s linear var(--app-motion-base);
+  transition: width var(--app-motion-base) ease;
 
-  &.is-open {
-    transform: translateX(0);
-    visibility: visible;
-    transition: transform var(--app-motion-base) ease, visibility 0s;
+  /* 收起：宽度归零并移出布局，编辑区 / 顶栏 / 星期条重新铺满（保留 DOM 以免丢 AI 挂载点） */
+  &:not(.is-open) {
+    width: 0;
+    border-left-width: 0;
+    visibility: hidden;
+    transition: width var(--app-motion-base) ease, visibility 0s linear var(--app-motion-base);
   }
-}
-
-:root[theme-mode='dark'] .j-side {
-  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.42);
 }
 
 .j-side-head {
   flex: none;
+  min-width: 340px;
   display: flex;
   align-items: center;
   border-bottom: 1px solid var(--td-component-stroke);
@@ -1414,6 +1407,7 @@ void (async () => {
 
 .j-side-body {
   flex: 1;
+  min-width: 340px;
   min-height: 0;
   display: flex;
 }

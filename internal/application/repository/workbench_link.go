@@ -19,6 +19,8 @@ import (
 // 边界（防误报/防越权）：
 //   - 单字标题不参与匹配（types.WorkbenchMentionTitleMinRunes）；
 //   - 永远排除 source 自己（自己提自己不是反向链接）；
+//   - 同名条目不参与匹配：标题相同通常来自同一模板自动命名，正文里出现的
+//     只是模板标题，无法判断指向哪一篇，不能当作提及；
 //   - 关联行带 owner_id，ReplaceItemLinks 只删写自己的行。
 
 // ListItemIDsMentioning 找出标题出现在 text 里的其它条目。
@@ -33,8 +35,11 @@ func (r *workbenchRepository) ListItemIDsMentioning(
 		Table("workbench_items").
 		Select("id").
 		Where(`tenant_id = ? AND owner_id = ? AND deleted_at IS NULL AND id <> ?
-			AND length(title) >= ? AND ? LIKE '%' || title || '%'`,
-			tenantID, ownerID, sourceItemID, types.WorkbenchMentionTitleMinRunes, text).
+			AND length(title) >= ? AND ? LIKE '%' || title || '%'
+			AND title <> COALESCE((SELECT title FROM workbench_items
+				WHERE id = ? AND tenant_id = ? AND owner_id = ? AND deleted_at IS NULL), '')`,
+			tenantID, ownerID, sourceItemID, types.WorkbenchMentionTitleMinRunes, text,
+			sourceItemID, tenantID, ownerID).
 		Limit(limit).
 		Pluck("id", &ids).Error
 	return ids, err

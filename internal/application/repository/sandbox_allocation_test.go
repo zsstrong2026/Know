@@ -740,6 +740,10 @@ func TestSandboxAllocationOnTheMigratedSQLiteSchema(t *testing.T) {
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	require.NoError(t, err)
+	// Windows 下必须先关连接池，否则 TempDir 清理会因文件句柄未释放而失败。
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	repo := NewSandboxAllocationRepository(db).(*sandboxAllocationRepository)
 	ctx := context.Background()
 

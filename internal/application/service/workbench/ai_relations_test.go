@@ -150,6 +150,59 @@ func TestRankRelationCandidates_RespectsExcludeAndPrimarySource(t *testing.T) {
 		primaryRecallSource(ranked[0].MatchedBy, ""), "提及优先于标签与关键词")
 }
 
+// meetingTemplateDocs 构造两篇同一模板产出的会议纪要：骨架一致，填写项略有差异。
+func meetingTemplateDocs() (*types.WorkbenchItem, *types.WorkbenchRelationCandidate) {
+	source := &types.WorkbenchItem{
+		ID:    "doc-1",
+		Title: "会议纪要",
+		TextContent: "# 会议纪要\n## 会议信息\n时间：\n地点：\n参会人：\n主持：\n" +
+			"## 议题\n- 议题一：\n- 议题二：\n## 讨论与结论\n- 结论一：\n" +
+			"## 行动项\n- 负责人：戴格明（2026-11-16）\n## 下次会议\n时间与议题待定。",
+	}
+	candidate := relationCandidate("doc-2", "会议纪要",
+		"# 会议纪要\n## 会议信息\n时间：\n地点：\n## 议题\n- 议题一：\n"+
+			"## 行动项\n- 负责人：戴格明（2026-11-16）\n## 下次会议\n时间与议题待定。")
+	return source, candidate
+}
+
+// 同一模板产出的文档：骨架与占位内容高度重合，关键词重合不再作为关联依据。
+func TestRankRelationCandidates_IgnoresSameTemplateKeywordOverlap(t *testing.T) {
+	source, candidate := meetingTemplateDocs()
+
+	ranked, _ := rankRelationCandidates(
+		source, []*types.WorkbenchRelationCandidate{candidate},
+		nil, nil, map[string]struct{}{"doc-1": {}})
+
+	assert.Empty(t, ranked, "只有模板相似时不得产生关联候选")
+}
+
+// 当前文档多出画布帧标题时，骨架判定仍要认得同模板候选（骨架取重合度，不受额外章节影响）。
+func TestRankRelationCandidates_SameTemplateWithExtraHeadings(t *testing.T) {
+	source, candidate := meetingTemplateDocs()
+	source.TextContent += "\n## 1231651651\n\n## 150515656\n"
+
+	ranked, _ := rankRelationCandidates(
+		source, []*types.WorkbenchRelationCandidate{candidate},
+		nil, nil, map[string]struct{}{"doc-1": {}})
+
+	assert.Empty(t, ranked)
+}
+
+// 同模板但存在用户主动信号（提及 / 标签）时仍然保留，只是不再叠加关键词分。
+func TestRankRelationCandidates_SameTemplateKeepsExplicitSignals(t *testing.T) {
+	source, candidate := meetingTemplateDocs()
+	mentions := map[string]struct{}{"doc-2": {}}
+
+	ranked, _ := rankRelationCandidates(
+		source, []*types.WorkbenchRelationCandidate{candidate},
+		mentions, nil, map[string]struct{}{"doc-1": {}})
+
+	require.Len(t, ranked, 1)
+	assert.Equal(t, relationScoreMention, ranked[0].MatchScore)
+	assert.NotContains(t, ranked[0].MatchedBy, types.WorkbenchRelationSourceKeyword,
+		"模板骨架带来的关键词重合不参与打分")
+}
+
 // 短名单超限时按分数截断，并标记 truncated。
 func TestRankRelationCandidates_TruncatesShortlist(t *testing.T) {
 	source := &types.WorkbenchItem{ID: "doc-0", Title: "主题", TextContent: "主题正文"}
@@ -295,6 +348,21 @@ func TestRelations_RecallsFromBacklinksToo(t *testing.T) {
 	assert.Equal(t, "doc-5", result.Relations[0].ItemID)
 	assert.Equal(t, types.WorkbenchRelationSourceMention, result.Relations[0].Source,
 		"入链与出链同属提及信号")
+}
+
+// 同名文档的历史回链（早期按标题匹配写入）也不能把同模板文档召回成关联。
+func TestRelations_IgnoresSameTitleBacklinks(t *testing.T) {
+	source, candidate := meetingTemplateDocs()
+	repo := &relationsRepo{
+		source:     source,
+		candidates: []*types.WorkbenchRelationCandidate{candidate},
+		backlinks:  []*types.WorkbenchBacklink{{ID: candidate.ID, Title: "会议纪要"}},
+	}
+	svc := newRelationsService(repo, &fakeModels{})
+
+	result, err := svc.Relations(inlineCtx(), types.WorkbenchAIRelationsRequest{ItemID: source.ID})
+	require.NoError(t, err)
+	assert.Empty(t, result.Relations, "同名回链与模板重合都不该产生关联")
 }
 
 // ---- 候选池为空 ----
