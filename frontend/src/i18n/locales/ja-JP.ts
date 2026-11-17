@@ -591,6 +591,7 @@
       title: 'インクウェル',
       beta: 'BETA',
       recent: '最近',
+      insights: 'インサイト',
       databases: '事項',
       favorites: 'お気に入り',
       templates: 'テンプレート',
@@ -1171,7 +1172,8 @@
       conflictReload: '最新を再読み込み',
       untitled: '無題',
       addIcon: 'アイコンを追加',
-      addIconHint: '絵文字を入力してアイテムのアイコンにします（空欄でクリア）',
+      addIconHint: '絵文字を選択してアイテムのアイコンにします',
+      iconClear: 'アイコンをクリア',
       docInfo: {
         updated: '{time} に更新',
         words: '{count} 文字',

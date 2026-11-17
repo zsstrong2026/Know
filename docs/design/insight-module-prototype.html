@@ -1,0 +1,1787 @@
+<!DOCTYPE html>
+<!--
+  墨匣 · 洞察模块 交互原型（单文件，直接双击打开）
+  覆盖：一级导航入口 / 主题列表与详情 / 素材体检 / 小样试跑 / 两阶段运行 /
+        证据集（可剔除不可编辑）/ 不可变报告（六段骨架 + 维度评分 + chunk 引用 + 推断标注）/
+        报告内追问 / 新建主题（模板 · 手写 · 上传方法包）/ 敏感主题隐私确认
+  说明：所有数据为演示数据；右上角「设计说明」可查看与已确认方案的对应关系。
+-->
+<html lang="zh-CN" theme-mode="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>墨匣 · 洞察模块原型</title>
+<style>
+  :root{
+    --brand:#07c05f; --brand-dark:#049b38; --brand-deep:#038626; --brand-light:#e9f8ec;
+    --page:#eee; --card:#fff; --stroke:#e7e7e7; --line:#f0f0f0;
+    --text:#181818; --text2:rgba(0,0,0,.6); --text3:rgba(0,0,0,.4); --text4:rgba(0,0,0,.26);
+    --amber:#ed7b2f; --amber-bg:#fef3e6; --red:#e34d59; --red-bg:#fdecee;
+    --radius:12px; --radius-lg:18px;
+    --shadow:0 12px 32px rgba(22,32,26,.10);
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--page);-webkit-font-smoothing:antialiased}
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;padding:0}
+  input,textarea,select{font-family:inherit;font-size:13px;color:var(--text);outline:none}
+  h1,h2,h3,h4,p{margin:0}
+  .ico{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  .ico.sm{width:13px;height:13px}
+  .ico.lg{width:20px;height:20px}
+
+  /* ---------- 外壳 ---------- */
+  .app{display:flex;height:100vh;overflow:hidden}
+  .rail{width:56px;flex:none;background:#f9f9f9;border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 0}
+  .rail-logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#08dd6e,#038626);display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px;margin-bottom:8px}
+  .rail-btn{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:var(--text3)}
+  .rail-btn:hover{background:#eee;color:var(--text)}
+  .rail-btn.is-active{background:var(--brand-light);color:var(--brand-dark)}
+  .rail-spacer{flex:1}
+
+  .wb-nav{width:232px;flex:none;display:flex;flex-direction:column;margin:10px 8px 10px 10px;padding:12px 10px 10px;background:var(--card);border:1px solid var(--stroke);border-radius:var(--radius-lg);box-shadow:var(--shadow);overflow:hidden;min-height:0}
+  .wb-nav-head{display:flex;align-items:center;justify-content:space-between;padding:2px 5px 10px}
+  .wb-nav-title{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600}
+  .wb-nav-title span{padding:2px 6px;border-radius:999px;background:var(--brand-light);color:var(--brand-deep);font-size:10px;font-weight:600}
+  .gear{width:26px;height:26px;border-radius:999px;display:grid;place-items:center;color:var(--text3)}
+  .gear:hover{background:#f3f3f3;color:var(--text)}
+  .wb-new{width:100%;display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;margin:0 0 4px;border:1px solid var(--stroke);border-radius:999px;background:var(--card);font-size:13px;font-weight:500;transition:.15s}
+  .wb-new:hover{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-light)}
+  .wb-new .ico{color:var(--brand)}
+  .wb-nav-scroll{flex:1;min-height:0;overflow-y:auto;padding:8px 6px;margin:0 -6px;scrollbar-width:thin}
+  .nav-item{display:flex;align-items:center;gap:9px;height:38px;padding:0 12px;margin-bottom:2px;border-radius:999px;font-size:13px;color:var(--text2);text-decoration:none;transition:.15s}
+  .nav-item:hover{background:#f3f3f3;color:var(--text)}
+  .nav-item.is-active{background-image:linear-gradient(135deg,#08dd6e,#049b38);color:#fff;font-weight:500;box-shadow:0 10px 20px rgba(7,192,95,.28)}
+  .nav-item .badge-new{margin-left:auto;font-size:9px;padding:1px 5px;border-radius:999px;background:#fff;color:var(--brand-dark);font-weight:600}
+  .nav-group-label{display:flex;align-items:center;margin:12px 0 4px;padding:11px 9px 0;border-top:1px solid var(--stroke);font-size:10px;letter-spacing:.05em;color:var(--text3)}
+  .folder-row{display:flex;align-items:center;gap:8px;height:32px;padding:0 12px;border-radius:8px;font-size:12.5px;color:var(--text2)}
+  .folder-row:hover{background:#f5f5f5}
+  .folder-row .count{margin-left:auto;font-size:10.5px;color:var(--text4)}
+  .wb-nav-foot{padding:10px 0 0}
+  .wk-card{width:100%;display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--stroke);border-radius:var(--radius);background:#fafafa;text-align:left}
+  .wk-card:hover{border-color:var(--brand)}
+  .wk-icon{width:28px;height:28px;flex:none;display:grid;place-items:center;border-radius:8px;background:var(--brand-light);color:var(--brand-dark)}
+  .wk-name{display:block;font-size:12px}
+  .wk-meta{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--text3)}
+
+  .wb-main{flex:1;min-width:0;padding:10px 10px 10px 0}
+  .surface{height:100%;background:var(--card);border:1px solid var(--stroke);border-radius:var(--radius-lg);box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;position:relative}
+  .view{display:none;flex:1;min-height:0;flex-direction:column}
+  .view.is-active{display:flex}
+
+  /* ---------- 通用 ---------- */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 13px;border:1px solid var(--stroke);border-radius:8px;background:var(--card);font-size:12.5px;font-weight:500;color:var(--text);transition:.15s;white-space:nowrap}
+  .btn:hover{border-color:var(--brand);color:var(--brand-dark)}
+  .btn.primary{background:linear-gradient(135deg,#08dd6e,#049b38);border-color:transparent;color:#fff;box-shadow:0 6px 14px rgba(7,192,95,.26)}
+  .btn.primary:hover{filter:brightness(1.03);color:#fff}
+  .btn.ghost{background:transparent;border-color:transparent;color:var(--text2)}
+  .btn.ghost:hover{background:#f5f5f5;color:var(--text)}
+  .btn.danger{color:var(--red)}
+  .btn.danger:hover{border-color:var(--red);color:var(--red)}
+  .btn.sm{height:27px;padding:0 9px;font-size:11.5px;border-radius:6px}
+  .btn[disabled]{opacity:.45;pointer-events:none}
+  .icon-btn{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--text2)}
+  .icon-btn:hover{background:#f3f3f3;color:var(--text)}
+  .tag{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;font-size:10.5px;line-height:1.6;background:#f3f3f3;color:var(--text2);font-weight:500;white-space:nowrap}
+  .tag.green{background:var(--brand-light);color:var(--brand-deep)}
+  .tag.amber{background:var(--amber-bg);color:#a75d2b}
+  .tag.red{background:var(--red-bg);color:#c9353f}
+  .tag.outline{background:transparent;border:1px solid var(--stroke);color:var(--text3)}
+  .divider{height:1px;background:var(--line);margin:16px 0}
+
+  /* ---------- 首页 ---------- */
+  .topbar{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:18px 22px 14px;border-bottom:1px solid var(--line)}
+  .topbar h1{font-size:17px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .topbar .sub{margin-top:4px;font-size:12px;color:var(--text3)}
+  .topbar-actions{display:flex;align-items:center;gap:8px}
+  .beta{font-size:10px;padding:2px 6px;border-radius:999px;background:var(--brand-light);color:var(--brand-deep);font-weight:600}
+
+  .home-grid{display:flex;flex:1;min-height:0}
+  .theme-pane{width:292px;flex:none;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .pane-head{padding:12px 14px 8px;display:flex;align-items:center;justify-content:space-between}
+  .pane-head b{font-size:12.5px}
+  .pane-head span{font-size:11px;color:var(--text3)}
+  .search{display:flex;align-items:center;gap:6px;margin:0 14px 10px;padding:0 9px;height:30px;border:1px solid var(--stroke);border-radius:8px;color:var(--text3);background:#fafafa}
+  .search input{flex:1;border:none;background:transparent;font-size:12px}
+  .theme-scroll{flex:1;overflow-y:auto;padding:0 8px 12px}
+  .list-label{display:flex;align-items:center;justify-content:space-between;padding:10px 8px 5px;font-size:10px;letter-spacing:.06em;color:var(--text3)}
+  .theme-item{display:flex;align-items:flex-start;gap:9px;width:100%;padding:9px 9px;border-radius:10px;text-align:left;transition:.13s;position:relative;overflow:hidden}
+  .theme-item:hover{background:#f7f7f7}
+  .theme-item.is-active{background:var(--brand-light)}
+  .theme-item.is-active::before{content:"";position:absolute;left:0;top:11px;bottom:11px;width:2.5px;border-radius:2px;background:var(--brand-dark)}
+  .theme-glyph{width:26px;height:26px;flex:none;border-radius:8px;display:grid;place-items:center;background:#f3f3f3;color:var(--text2)}
+  .theme-item.is-active .theme-glyph{background:#fff;color:var(--brand-dark)}
+  .theme-copy{min-width:0;flex:1;display:block;overflow:hidden}
+  .theme-name{display:flex;align-items:center;gap:5px;min-width:0;font-size:12.5px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .theme-name .tag{flex:none}
+  .theme-desc{display:block;width:100%;margin-top:2px;font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .theme-meta{margin-top:4px;display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text4)}
+  .dot{width:5px;height:5px;border-radius:50%;background:#c5c5c5}
+  .dot.run{background:var(--brand);box-shadow:0 0 0 3px rgba(7,192,95,.16)}
+  .dot.warn{background:var(--amber)}
+
+  .detail-pane{flex:1;min-width:0;overflow-y:auto}
+  .detail-inner{max-width:880px;padding:22px 26px 40px}
+  .detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+  .detail-title{display:flex;align-items:center;gap:8px}
+  .detail-title h2{font-size:20px;font-weight:600;letter-spacing:-.01em}
+  .detail-head-actions{display:flex;gap:8px;flex:none}
+  .detail-desc{margin-top:8px;font-size:12.5px;line-height:1.7;color:var(--text2);max-width:640px}
+  .meta-strip{display:flex;gap:26px;margin-top:16px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:#fafafa}
+  .meta-strip div{display:flex;flex-direction:column;gap:3px}
+  .meta-strip span{font-size:10.5px;color:var(--text3)}
+  .meta-strip b{font-size:12.5px;font-weight:600}
+  .scope-card{margin-top:14px;padding:13px 14px;border:1px solid var(--line);border-radius:10px;display:flex;align-items:center;gap:12px}
+  .scope-card .ico{color:var(--brand-dark)}
+  .scope-main{flex:1;min-width:0}
+  .scope-main b{font-size:12.5px}
+  .scope-main p{margin-top:3px;font-size:11.5px;color:var(--text3)}
+  .section-title{display:flex;align-items:center;gap:8px;margin:22px 0 10px;font-size:13px;font-weight:600}
+  .section-title .count{font-size:11px;color:var(--text3);font-weight:400}
+  .section-title .right{margin-left:auto;font-size:11.5px;font-weight:400;color:var(--text3)}
+
+  .dim-table{border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .dim-row{display:grid;grid-template-columns:150px 1fr 130px;gap:12px;padding:10px 13px;border-bottom:1px solid var(--line);font-size:12px}
+  .dim-row:last-child{border-bottom:none}
+  .dim-row.head{background:#fafafa;font-size:10.5px;color:var(--text3)}
+  .dim-row b{font-weight:500}
+  .dim-row span{color:var(--text2);line-height:1.6}
+
+  .report-row{display:flex;align-items:center;gap:10px;padding:11px 12px;border-bottom:1px solid var(--line);font-size:12px;cursor:pointer;border-radius:8px}
+  .report-row:last-child{border-bottom:none}
+  .report-row:hover{background:#fafafa}
+  .report-row .date{width:74px;color:var(--text2);font-variant-numeric:tabular-nums}
+  .report-row .name{flex:1;font-weight:500}
+  .report-row .facts{font-size:10.5px;color:var(--text3)}
+  .empty-box{margin-top:10px;padding:26px;border:1px dashed #dcdcdc;border-radius:10px;text-align:center;color:var(--text3);font-size:12px}
+  .empty-box b{display:block;font-size:12.5px;color:var(--text2);margin-bottom:4px}
+  .privacy-note{margin-top:22px;display:flex;gap:8px;padding:10px 12px;border-radius:9px;background:#fafafa;color:var(--text3);font-size:11px;line-height:1.7}
+  .privacy-note .ico{color:var(--brand-dark);margin-top:1px}
+
+  /* ---------- 自我洞悉 ---------- */
+  .title-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .mode-switch{display:inline-flex;padding:2px;background:#f3f3f3;border-radius:999px;gap:2px}
+  .mode-switch button{height:26px;padding:0 11px;border-radius:999px;font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:5px;transition:.15s}
+  .mode-switch button:hover{color:var(--text)}
+  .mode-switch button.on{background:#fff;color:var(--text);font-weight:500;box-shadow:0 1px 3px rgba(0,0,0,.10)}
+  .mode-switch .new-dot{width:5px;height:5px;border-radius:50%;background:var(--brand)}
+  .self-scroll{flex:1;overflow-y:auto;min-width:0}
+  .self-wrap{max-width:860px;margin:0 auto;padding:24px 28px 60px}
+  .self-hero{padding:20px 22px;border-radius:14px;background:linear-gradient(135deg,#f2fdf7,#fbfefc);border:1px solid #d9f2e3}
+  .self-hero .badges{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+  .self-hero .portrait{font-size:14.5px;line-height:1.95;color:var(--text)}
+  .self-hero .portrait strong{font-weight:600;color:var(--brand-deep)}
+  .self-hero .foot{margin-top:12px;padding-top:10px;border-top:1px dashed #cdecd9;font-size:10.5px;line-height:1.7;color:var(--text3)}
+  .layer-nav{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:14px}
+  .layer-chip{border:1px solid var(--line);border-radius:9px;padding:8px 6px;background:#fff;text-align:center;text-decoration:none;color:inherit;display:block}
+  .layer-chip:hover{border-color:var(--brand)}
+  .layer-chip .n{font-size:9px;color:var(--text4)}
+  .layer-chip b{display:block;font-size:11px;margin-top:2px;font-weight:500;color:var(--text2);white-space:nowrap}
+  .layer-chip .cov{margin-top:6px;height:3px;border-radius:99px;background:#f0f0f0;overflow:hidden}
+  .layer-chip .cov i{display:block;height:100%;border-radius:99px;background:var(--brand)}
+  .layer-chip .cov i.low{background:#c5c5c5}
+  .layer-sec{margin-top:24px;padding-top:18px;border-top:1px solid var(--line);scroll-margin-top:12px}
+  .layer-head{display:flex;align-items:flex-start;gap:10px}
+  .layer-no{width:28px;height:28px;flex:none;border-radius:8px;display:grid;place-items:center;background:var(--brand-light);color:var(--brand-deep);font-size:11.5px;font-weight:600}
+  .layer-head h2{font-size:15px;font-weight:600}
+  .layer-head .q{margin-top:3px;font-size:10.5px;color:var(--text3)}
+  .layer-head .cov-tag{margin-left:auto;flex:none}
+  .layer-lead{margin-top:10px;font-size:12.5px;line-height:1.9;color:var(--text2)}
+  .ldim{border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-top:8px}
+  .ldim-head{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .ldim-head b{font-size:12.5px;font-weight:600}
+  .ldim-head .src{margin-left:auto;font-size:10px;color:var(--text4)}
+  .ldim p{margin-top:5px;font-size:12px;line-height:1.8;color:var(--text2)}
+  .ldim.is-blank{background:#fafafa;border-style:dashed}
+  .ldim.is-blank b{color:var(--text2)}
+  .cross-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .cross{border:1px solid var(--line);border-radius:10px;padding:12px}
+  .cross .t{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
+  .cross p{margin-top:6px;font-size:12px;line-height:1.8;color:var(--text2)}
+  .trio{width:100%;border-collapse:collapse;font-size:12px}
+  .trio th{background:#fafafa;text-align:left;font-size:10.5px;color:var(--text3);font-weight:500;padding:8px 10px;border-bottom:1px solid var(--stroke)}
+  .trio td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;line-height:1.75;color:var(--text2)}
+  .trio td b{color:var(--text);font-weight:600}
+  .src-box{border:1px solid var(--line);border-radius:10px;padding:11px 12px;margin-top:10px;background:#fff}
+  .src-box b{display:block;font-size:11.5px;margin-bottom:7px}
+  .src-row{display:flex;align-items:center;font-size:11px;color:var(--text2);padding:2px 0}
+  .src-row em{margin-left:auto;font-style:normal;color:var(--text3);font-size:10.5px}
+  .src-row em.warn{color:var(--amber)}
+  .overview-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .ov-card{border:1px solid var(--line);border-radius:10px;padding:12px}
+  .ov-card .h{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
+  .ov-card .h .ico{color:var(--brand-dark)}
+  .ov-card .h a{margin-left:auto;font-size:10px;font-weight:400;color:var(--text3);text-decoration:none}
+  .ov-card .h a:hover{color:var(--brand-dark)}
+  .ov-card p{margin-top:6px;font-size:12px;line-height:1.8;color:var(--text2)}
+  .ov-card p b{color:var(--text);font-weight:600}
+  .gate-tag{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:999px;background:var(--brand-light);color:var(--brand-deep);font-size:11px;font-weight:500}
+
+  /* ---------- 运行 ---------- */
+  .run-body{padding:26px 30px;display:flex;gap:24px;overflow-y:auto}
+  .run-main{flex:1;max-width:760px}
+  .stepper{display:flex;align-items:center;gap:0;margin-bottom:26px}
+  .step{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text3)}
+  .step .num{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;border:1px solid #dcdcdc;font-size:10.5px;background:#fff}
+  .step.done{color:var(--brand-deep)}
+  .step.done .num{background:var(--brand-light);border-color:#bcebdc;color:var(--brand-deep)}
+  .step.active{color:var(--text);font-weight:500}
+  .step.active .num{background:var(--brand);border-color:var(--brand);color:#fff}
+  .step-line{flex:1;height:1px;background:#e7e7e7;margin:0 10px}
+  .step-line.done{background:#85dbbe}
+  .run-card{border:1px solid var(--line);border-radius:12px;padding:18px}
+  .run-card-head{display:flex;align-items:center;justify-content:space-between}
+  .run-card-head b{font-size:13px}
+  .run-card-head span{font-size:11.5px;color:var(--text3);font-variant-numeric:tabular-nums}
+  .bar{height:6px;border-radius:99px;background:#f0f0f0;margin-top:12px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#08dd6e,#049b38);transition:width .4s ease}
+  .run-stats{display:flex;gap:20px;margin-top:12px;font-size:11px;color:var(--text3)}
+  .run-stats b{color:var(--text2);font-weight:500}
+  .log{margin-top:16px;padding:12px;border-radius:9px;background:#fafafa;font-size:11px;line-height:1.9;color:var(--text2);font-family:ui-monospace,Consolas,monospace;max-height:180px;overflow-y:auto}
+  .log .t{color:var(--text4);margin-right:8px}
+  .run-aside{width:260px;flex:none}
+  .tip-card{border:1px solid var(--line);border-radius:12px;padding:14px;font-size:11.5px;line-height:1.8;color:var(--text2)}
+  .tip-card b{display:block;font-size:12px;color:var(--text);margin-bottom:6px}
+  .tip-card + .tip-card{margin-top:12px}
+
+  /* ---------- 证据表 ---------- */
+  .evidence-toolbar{display:flex;align-items:center;gap:8px;padding:12px 22px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .chip{height:27px;padding:0 10px;border-radius:999px;border:1px solid var(--stroke);background:#fff;font-size:11.5px;color:var(--text2);display:inline-flex;align-items:center;gap:5px}
+  .chip:hover{border-color:var(--brand);color:var(--brand-dark)}
+  .chip.on{background:var(--brand-light);border-color:#bcebdc;color:var(--brand-deep);font-weight:500}
+  .chip .n{font-size:10px;color:var(--text4)}
+  .chip.on .n{color:var(--brand-deep);opacity:.7}
+  .evidence-wrap{flex:1;overflow:auto;padding:0 22px}
+  table.ev{width:100%;border-collapse:collapse;font-size:12px}
+  table.ev th{position:sticky;top:0;background:#fff;text-align:left;font-size:10.5px;font-weight:500;color:var(--text3);padding:9px 8px;border-bottom:1px solid var(--stroke);z-index:1}
+  table.ev td{padding:11px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  table.ev tr:hover td{background:#fcfcfc}
+  table.ev tr.is-excluded td{color:var(--text4)}
+  table.ev tr.is-excluded .q{text-decoration:line-through;text-decoration-color:#c5c5c5}
+  .q{line-height:1.6;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .src{font-size:10.5px;color:var(--text3);line-height:1.6}
+  .src b{font-weight:500;color:var(--text2)}
+  .chk{width:15px;height:15px;border-radius:4px;border:1.5px solid #c5c5c5;display:inline-grid;place-items:center;background:#fff}
+  tr.is-excluded .chk{background:#f3f3f3;border-color:#c5c5c5}
+  .evidence-foot{display:flex;align-items:center;gap:14px;padding:12px 22px;border-top:1px solid var(--line);background:#fff}
+  .evidence-foot .stat{font-size:11.5px;color:var(--text2)}
+  .evidence-foot .stat b{font-weight:600;color:var(--text)}
+  .evidence-foot .spacer{flex:1}
+  .foot-hint{font-size:10.5px;color:var(--text3)}
+
+  /* ---------- 报告 ---------- */
+  .report-topbar{display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--line)}
+  .crumb{font-size:11.5px;color:var(--text3)}
+  .crumb b{font-weight:500;color:var(--text2)}
+  .report-topbar .actions{margin-left:auto;display:flex;gap:6px}
+  .report-layout{flex:1;min-height:0;display:flex}
+  .report-scroll{flex:1;overflow-y:auto;min-width:0}
+  .report{max-width:780px;margin:0 auto;padding:30px 28px 70px}
+  .report-cover{position:relative;padding-bottom:18px;border-bottom:1px solid var(--line)}
+  .snapshot{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;background:#f3f3f3;color:var(--text2);font-size:10px;margin-bottom:12px}
+  .report-cover h1{font-size:24px;font-weight:600;letter-spacing:-.02em}
+  .report-meta{margin-top:8px;font-size:11px;color:var(--text3);display:flex;gap:6px;flex-wrap:wrap}
+  .disclaimer{margin-top:14px;padding:9px 11px;border-radius:8px;background:#fafafa;font-size:11px;line-height:1.7;color:var(--text3)}
+  .demo-banner{margin-top:12px;padding:9px 11px;border-radius:8px;background:var(--amber-bg);color:#a75d2b;font-size:11px;line-height:1.7}
+  .r-sec{margin-top:30px}
+  .r-sec-head{display:flex;align-items:baseline;gap:8px;margin-bottom:12px}
+  .r-sec-head .idx{font-size:10.5px;color:var(--brand-dark);font-weight:600;letter-spacing:.06em}
+  .r-sec-head h2{font-size:15px;font-weight:600}
+  .r-sec-head .aside{margin-left:auto;font-size:10.5px;color:var(--text3)}
+  .cov-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .cov-cell{border:1px solid var(--line);border-radius:9px;padding:10px 11px}
+  .cov-cell span{font-size:10.5px;color:var(--text3)}
+  .cov-cell b{display:block;margin-top:4px;font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+  .cov-note{margin-top:9px;font-size:11.5px;color:var(--text3);line-height:1.7}
+  .finding{border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:0 9px 9px 0;padding:13px 14px;margin-bottom:10px}
+  .finding.inferred{border-left-color:var(--amber)}
+  .finding-head{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .finding-head h3{font-size:13px;font-weight:600;line-height:1.5}
+  .finding p{margin-top:7px;font-size:12.5px;line-height:1.8;color:var(--text2)}
+  .refs{display:flex;gap:5px;margin-top:9px;flex-wrap:wrap}
+  .ref{font-size:10px;padding:1px 6px;border-radius:5px;background:#f3f3f3;color:var(--text2);cursor:pointer}
+  .ref:hover{background:var(--brand-light);color:var(--brand-deep)}
+  blockquote{margin:0 0 10px;padding:11px 13px;border-left:2px solid #dcdcdc;background:#fafafa;border-radius:0 8px 8px 0;font-size:12.5px;line-height:1.75;color:var(--text2)}
+  .quote-src{display:block;margin-top:6px;font-size:10.5px;color:var(--text3)}
+  .bullet{display:flex;gap:8px;font-size:12.5px;line-height:1.8;color:var(--text2);margin-bottom:8px}
+  .bullet i{width:4px;height:4px;border-radius:50%;background:#c5c5c5;margin-top:9px;flex:none}
+  .score-row{display:grid;grid-template-columns:96px 1fr 92px;gap:12px;align-items:center;margin-bottom:11px;font-size:12px}
+  .score-track{height:6px;border-radius:99px;background:#f0f0f0;overflow:hidden}
+  .score-track i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#08dd6e,#049b38)}
+  .score-val{text-align:right;font-size:11px;color:var(--text2);font-variant-numeric:tabular-nums}
+  .scale-note{margin-top:4px;font-size:10.5px;color:var(--text3)}
+  .conclusion{padding:16px 18px;border-radius:10px;background:linear-gradient(180deg,#f7fdf9,#fbfefc);border:1px solid #d9f2e3}
+  .conclusion .lead{font-size:14px;line-height:1.9;font-weight:500;color:var(--text)}
+  .conclusion .lead b{color:var(--brand-deep);font-weight:600}
+  .conclusion p{font-size:12.5px;line-height:1.95;color:var(--text2);margin-top:10px}
+  .conclusion .basis{margin-top:12px;padding-top:9px;border-top:1px dashed #cdecd9;font-size:10.5px;line-height:1.7;color:var(--text3)}
+  .action{display:flex;gap:10px;padding:11px 12px;border:1px solid var(--line);border-radius:9px;margin-bottom:8px;font-size:12.5px;line-height:1.7}
+  .action .n{width:19px;height:19px;flex:none;border-radius:50%;background:var(--brand-light);color:var(--brand-deep);display:grid;place-items:center;font-size:10px;font-weight:600;margin-top:1px}
+
+  .ask-rail{width:320px;flex:none;border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:#fcfcfc}
+  .ask-head{padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+  .ask-head b{font-size:12.5px;display:flex;align-items:center;gap:6px}
+  .ask-head p{margin-top:4px;font-size:10.5px;color:var(--text3);line-height:1.6}
+  .toc{padding:10px 16px;border-bottom:1px solid var(--line)}
+  .toc a{display:block;font-size:11.5px;color:var(--text2);text-decoration:none;padding:4px 0}
+  .toc a:hover{color:var(--brand-dark)}
+  .chat{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+  .msg{font-size:12px;line-height:1.75}
+  .msg.user{align-self:flex-end;max-width:85%;background:var(--brand-light);color:#0b3d22;padding:8px 10px;border-radius:10px 10px 2px 10px}
+  .msg.ai{max-width:95%;color:var(--text2)}
+  .msg.ai .ai-name{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text3);margin-bottom:4px}
+  .msg.ai .ai-body{background:#fff;border:1px solid var(--line);border-radius:2px 10px 10px 10px;padding:9px 11px}
+  .ask-input{padding:10px 12px;border-top:1px solid var(--line);background:#fff}
+  .ask-box{display:flex;align-items:flex-end;gap:6px;border:1px solid var(--stroke);border-radius:10px;padding:6px 6px 6px 10px}
+  .ask-box:focus-within{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-light)}
+  .ask-box textarea{flex:1;border:none;resize:none;height:32px;line-height:1.6;font-size:12px;background:transparent}
+  .send{width:26px;height:26px;border-radius:7px;background:var(--brand);color:#fff;display:grid;place-items:center}
+
+  /* ---------- 弹窗 ---------- */
+  .mask{position:fixed;inset:0;background:rgba(20,24,22,.38);display:none;align-items:center;justify-content:center;z-index:50;padding:24px}
+  .mask.open{display:flex}
+  .modal{width:560px;max-width:100%;max-height:88vh;background:#fff;border-radius:16px;box-shadow:0 24px 64px rgba(0,0,0,.24);display:flex;flex-direction:column;overflow:hidden;animation:pop .18s ease}
+  .modal.wide{width:720px}
+  @keyframes pop{from{transform:translateY(8px) scale(.99);opacity:0}to{transform:none;opacity:1}}
+  .modal-head{display:flex;align-items:flex-start;gap:10px;padding:18px 20px 12px}
+  .modal-head h3{font-size:15px;font-weight:600}
+  .modal-head p{margin-top:4px;font-size:11.5px;color:var(--text3);line-height:1.6}
+  .modal-head .close{margin-left:auto}
+  .modal-body{padding:0 20px 18px;overflow-y:auto}
+  .modal-foot{display:flex;align-items:center;gap:8px;padding:12px 20px;border-top:1px solid var(--line);background:#fafafa}
+  .modal-foot .spacer{flex:1}
+  .modal-foot .hint{font-size:10.5px;color:var(--text3)}
+
+  .stat-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin-bottom:16px}
+  .stat-cell{border:1px solid var(--line);border-radius:9px;padding:9px 10px}
+  .stat-cell span{font-size:10px;color:var(--text3)}
+  .stat-cell b{display:block;margin-top:3px;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+  .stat-cell.muted b{color:var(--text3)}
+  .rule-list{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:14px}
+  .rule{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line)}
+  .rule:last-child{border-bottom:none}
+  .rule-main{flex:1}
+  .rule-main b{display:block;font-size:12px;font-weight:500}
+  .rule-main span{font-size:10.5px;color:var(--text3);line-height:1.6}
+  .switch{width:32px;height:18px;border-radius:99px;background:#dcdcdc;position:relative;transition:.15s;flex:none}
+  .switch::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.15s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+  .switch.on{background:var(--brand)}
+  .switch.on::after{transform:translateX(14px)}
+  .hint-box{display:flex;gap:8px;padding:9px 11px;border-radius:9px;background:var(--brand-light);color:#0b3d22;font-size:11px;line-height:1.7}
+  .hint-box.warn{background:var(--amber-bg);color:#8a4a1e}
+  .hint-box .ico{margin-top:1px}
+
+  .tabs{display:flex;gap:2px;padding:0 20px;border-bottom:1px solid var(--line)}
+  .tab{padding:9px 10px;font-size:12px;color:var(--text2);border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab.on{color:var(--brand-dark);border-bottom-color:var(--brand);font-weight:500}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:11px;color:var(--text3);margin-bottom:5px}
+  .field input,.field textarea,.field select{width:100%;border:1px solid var(--stroke);border-radius:8px;padding:7px 9px;font-size:12px;background:#fff}
+  .field input:focus,.field textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-light)}
+  .tpl-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .tpl{border:1px solid var(--line);border-radius:10px;padding:11px 12px;text-align:left}
+  .tpl:hover{border-color:var(--brand)}
+  .tpl.on{border-color:var(--brand);background:var(--brand-light)}
+  .tpl b{font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}
+  .tpl p{margin-top:4px;font-size:10.5px;color:var(--text3);line-height:1.6}
+  .drop{margin-top:4px;border:1px dashed #c5c5c5;border-radius:12px;padding:26px;text-align:center;color:var(--text3);font-size:11.5px;line-height:1.8}
+  .drop .ico{width:24px;height:24px;color:var(--text4);margin-bottom:6px}
+  .drop b{display:block;font-size:12px;color:var(--text2);margin-bottom:2px}
+  .code{margin-top:12px;padding:10px 12px;border-radius:9px;background:#fafafa;font-family:ui-monospace,Consolas,monospace;font-size:10.5px;line-height:1.8;color:var(--text2);white-space:pre-wrap}
+  .dim-edit{display:grid;grid-template-columns:1fr 1.6fr 88px 24px;gap:6px;margin-bottom:6px;align-items:center}
+  .dim-edit input,.dim-edit select{width:100%;border:1px solid var(--stroke);border-radius:7px;padding:6px 8px;font-size:11.5px;background:#fff}
+
+  .privacy-modal{text-align:left}
+  .shield{width:40px;height:40px;border-radius:12px;background:var(--brand-light);color:var(--brand-deep);display:grid;place-items:center;margin-bottom:12px}
+  .priv-list{display:flex;flex-direction:column;gap:9px;margin:12px 0 14px}
+  .priv-item{display:flex;gap:8px;font-size:11.5px;line-height:1.7;color:var(--text2)}
+  .priv-item .ico{color:var(--brand-dark);margin-top:2px}
+  .confirm-line{display:flex;align-items:flex-start;gap:7px;font-size:11.5px;color:var(--text2);padding:9px 11px;border-radius:8px;background:#fafafa}
+  .confirm-line .box{width:14px;height:14px;border:1.5px solid #c5c5c5;border-radius:4px;margin-top:2px;display:grid;place-items:center;background:#fff;flex:none;cursor:pointer}
+  .confirm-line .box.on{background:var(--brand);border-color:var(--brand);color:#fff}
+
+  /* ---------- 设计说明 ---------- */
+  .notes-fab{position:absolute;right:16px;bottom:16px;z-index:20;height:32px;padding:0 12px;border-radius:999px;background:#181818;color:#fff;font-size:11.5px;display:flex;align-items:center;gap:6px;box-shadow:0 8px 20px rgba(0,0,0,.22)}
+  .notes{position:absolute;right:0;top:0;bottom:0;width:330px;background:#fffdf7;border-left:1px solid #f0e2c8;box-shadow:-16px 0 40px rgba(0,0,0,.08);transform:translateX(100%);transition:transform .22s ease;z-index:19;display:flex;flex-direction:column}
+  .notes.open{transform:none}
+  .notes-head{display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid #f0e2c8}
+  .notes-head b{font-size:12.5px;color:#8a4a1e}
+  .notes-head .close{margin-left:auto;color:#a75d2b}
+  .notes-body{flex:1;overflow-y:auto;padding:12px 16px 24px}
+  .note{margin-bottom:14px}
+  .note b{display:flex;gap:6px;font-size:11.5px;color:#6b3a12;margin-bottom:3px}
+  .note b span{color:#a75d2b}
+  .note p{font-size:11px;line-height:1.7;color:#7a5a3a}
+
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.14);border-radius:99px}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  .toast{position:fixed;left:50%;bottom:34px;transform:translate(-50%,10px);background:rgba(24,24,24,.92);color:#fff;font-size:11.5px;line-height:1.6;padding:8px 14px;border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.24);opacity:0;pointer-events:none;transition:.18s ease;z-index:80;max-width:70vw}
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.7 4.9L18.5 9.6l-4.8 1.7L12 16l-1.7-4.7L5.5 9.6l4.8-1.7L12 3z"/><path d="M18.5 15.6l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v4l3 2"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-table" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M9.5 9.5v10"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.3-4.8-2.5-4.8 2.5.9-5.3L4.2 9.7l5.4-.8L12 4z"/></symbol>
+  <symbol id="i-template" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M9 9.5v10"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v5M14 11v5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2 2 2 0 1 1-4 0 1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4.6a2 2 0 1 1 4 0 1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 11a2 2 0 1 1 0 4z"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5v-15z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5A2.5 2.5 0 0 1 4 20.5z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 1 1 8 0v3"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v10M8 10.5l4 4 4-4M5 19h14"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16v4z"/><path d="M13.5 5.5l4 4"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V6M8 9.5l4-4 4 4M5 19h14"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3z"/><path d="M14 3v4h4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.2" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12l16-7-6.5 16-2.2-6.3L4 12z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 6.5A2 2 0 0 1 5.5 4.5h4l2 2.5h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-10z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8.2v.2"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l8 4.5-8 4.5-8-4.5L12 3z"/><path d="M4 12l8 4.5 8-4.5M4 16.5L12 21l8-4.5"/></symbol>
+</svg>
+
+<div class="app">
+  <!-- 全局最左侧窄栏（占位，保持与产品一致的层级） -->
+  <aside class="rail">
+    <div class="rail-logo">墨</div>
+    <button class="rail-btn" title="对话"><svg class="ico"><use href="#i-spark"/></svg></button>
+    <button class="rail-btn is-active" title="工作台"><svg class="ico"><use href="#i-layers"/></svg></button>
+    <button class="rail-btn" title="知识库"><svg class="ico"><use href="#i-book"/></svg></button>
+    <button class="rail-btn" title="设置"><svg class="ico"><use href="#i-gear"/></svg></button>
+    <div class="rail-spacer"></div>
+    <button class="rail-btn" title="隐私"><svg class="ico"><use href="#i-shield"/></svg></button>
+  </aside>
+
+  <!-- 墨匣二级导航 -->
+  <aside class="wb-nav">
+    <div class="wb-nav-head">
+      <div class="wb-nav-title">墨匣 <span>Beta</span></div>
+      <button class="gear" title="工作台设置"><svg class="ico sm"><use href="#i-gear"/></svg></button>
+    </div>
+    <button class="wb-new"><svg class="ico sm"><use href="#i-plus"/></svg><span>新建</span></button>
+    <div class="wb-nav-scroll">
+      <a class="nav-item"><svg class="ico"><use href="#i-history"/></svg>最近</a>
+      <a class="nav-item"><svg class="ico"><use href="#i-calendar"/></svg>日报</a>
+      <a class="nav-item"><svg class="ico"><use href="#i-table"/></svg>事项</a>
+      <a class="nav-item"><svg class="ico"><use href="#i-file"/></svg>文档</a>
+      <a class="nav-item is-active"><svg class="ico"><use href="#i-spark"/></svg>洞察<span class="badge-new">新</span></a>
+      <a class="nav-item"><svg class="ico"><use href="#i-star"/></svg>收藏</a>
+      <a class="nav-item"><svg class="ico"><use href="#i-template"/></svg>模板</a>
+      <a class="nav-item"><svg class="ico"><use href="#i-trash"/></svg>回收站</a>
+      <div class="nav-group-label"><span>文件夹</span><svg class="ico sm"><use href="#i-plus"/></svg></div>
+      <div class="folder-row"><svg class="ico sm"><use href="#i-folder"/></svg>产品思考<span class="count">24</span></div>
+      <div class="folder-row"><svg class="ico sm"><use href="#i-folder"/></svg>复盘<span class="count">18</span></div>
+      <div class="folder-row"><svg class="ico sm"><use href="#i-folder"/></svg>个人笔记<span class="count">11</span></div>
+    </div>
+    <div class="wb-nav-foot">
+      <button class="wk-card">
+        <span class="wk-icon"><svg class="ico sm"><use href="#i-book"/></svg></span>
+        <span>
+          <span class="wk-name">工作知识库</span>
+          <span class="wk-meta"><svg class="ico" style="width:9px;height:9px"><use href="#i-lock"/></svg>156 篇 · 仅自己可见</span>
+        </span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="wb-main">
+    <div class="surface">
+
+      <!-- ========== 首页 ========== -->
+      <section class="view is-active" id="view-home">
+        <header class="topbar">
+          <div>
+            <div class="title-row">
+              <h1>洞察 <span class="beta">Beta</span></h1>
+              <div class="mode-switch">
+                <button class="on" onclick="setMode('topics')">主题洞察</button>
+                <button onclick="setMode('self')"><svg class="ico sm"><use href="#i-spark"/></svg>自我洞悉<span class="new-dot"></span></button>
+              </div>
+            </div>
+            <p class="sub">从归档文档里找出你的思考方式、价值排序与反复出现的矛盾</p>
+          </div>
+          <div class="topbar-actions">
+            <button class="btn ghost" onclick="toast('原型：运行记录列表（可按主题筛选、删除单次运行）')"><svg class="ico sm"><use href="#i-clock"/></svg>运行记录</button>
+            <button class="btn primary" onclick="openNewTheme()"><svg class="ico sm"><use href="#i-plus"/></svg>新建主题</button>
+          </div>
+        </header>
+
+        <div class="home-grid">
+          <aside class="theme-pane">
+            <div class="pane-head"><b>主题</b><span>7 个</span></div>
+            <div class="search"><svg class="ico sm"><use href="#i-search"/></svg><input placeholder="搜索主题" /></div>
+            <div class="theme-scroll" id="themeList"></div>
+          </aside>
+          <div class="detail-pane">
+            <div class="detail-inner" id="themeDetail"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== 自我洞悉 ========== -->
+      <section class="view" id="view-self">
+        <header class="topbar">
+          <div>
+            <div class="title-row">
+              <h1>洞察 <span class="beta">Beta</span></h1>
+              <div class="mode-switch">
+                <button onclick="setMode('topics')">主题洞察</button>
+                <button class="on" onclick="setMode('self')"><svg class="ico sm"><use href="#i-spark"/></svg>自我洞悉<span class="new-dot"></span></button>
+              </div>
+            </div>
+            <p class="sub">把各主题报告与归档文档合成一份「自我说明书」：不只说你是什么样，还解释你为什么这样、在什么环境下会变形</p>
+          </div>
+          <div class="topbar-actions">
+            <span class="gate-tag"><svg class="ico sm"><use href="#i-check"/></svg>生成条件：内置主题 6 / 6</span>
+            <button class="btn" onclick="toast('原型：导出一份完整的自我说明书（含七层与空白区清单）')"><svg class="ico sm"><use href="#i-download"/></svg>导出</button>
+            <button class="btn primary" onclick="regenerateSelf()"><svg class="ico sm"><use href="#i-spark"/></svg>重新生成</button>
+          </div>
+        </header>
+
+        <div class="report-layout">
+          <div class="self-scroll">
+            <div class="self-wrap">
+              <div class="self-hero">
+                <div class="badges">
+                  <span class="tag green">更新于 2026-11-16</span>
+                  <span class="tag outline">综合 6 个内置主题 · 11 份报告 · 132 篇文档</span>
+                  <span class="tag amber">14 / 24 维度有证据</span>
+                </div>
+                <p class="portrait">
+                  你是一个<strong>用行动换确定性</strong>的人：习惯先跑最小闭环、再用反馈校准，把「把事做成」当作价值证明，而不是职位或表达。
+                  在目标清晰、能自己拍板的团队里，你最可靠；但在权力不对等、或需要判断他人动机的场合，容易先给出动机解释、再回头补事实。
+                  真正限制你的不是能力，而是<strong>长期判断的缺席</strong>——近半年你几乎没有把半年以上的方向写下来。
+                </p>
+                <div class="foot">生成前提：6 个内置主题都已至少完成一次分析。本页随主题报告与归档文档<strong>覆盖更新</strong>，不保留历史版本；想留档请另存为墨匣文档。第 5–7 层证据最少，相关结论已标为「推断」；空白维度不会被编造，只会告诉你下一步该补什么。</div>
+                <div class="layer-nav">
+                  <a class="layer-chip" href="#layer-1"><span class="n">L1</span><b>内核</b><span class="cov"><i style="width:100%"></i></span></a>
+                  <a class="layer-chip" href="#layer-2"><span class="n">L2</span><b>动力</b><span class="cov"><i style="width:50%"></i></span></a>
+                  <a class="layer-chip" href="#layer-3"><span class="n">L3</span><b>行为</b><span class="cov"><i style="width:75%"></i></span></a>
+                  <a class="layer-chip" href="#layer-4"><span class="n">L4</span><b>关系</b><span class="cov"><i style="width:67%"></i></span></a>
+                  <a class="layer-chip" href="#layer-5"><span class="n">L5</span><b>情境</b><span class="cov"><i class="low" style="width:33%"></i></span></a>
+                  <a class="layer-chip" href="#layer-6"><span class="n">L6</span><b>时间</b><span class="cov"><i class="low" style="width:33%"></i></span></a>
+                  <a class="layer-chip" href="#layer-7"><span class="n">L7</span><b>意义</b><span class="cov"><i class="low" style="width:33%"></i></span></a>
+                </div>
+              </div>
+
+              <section class="layer-sec" style="margin-top:20px">
+                <div class="layer-head">
+                  <span class="layer-no">◎</span>
+                  <div><h2>关于我的速览</h2><div class="q">先看结论，再往下看每一层的证据与来源</div></div>
+                </div>
+                <div class="overview-grid" style="margin-top:10px">
+                  <div class="ov-card">
+                    <div class="h"><svg class="ico sm"><use href="#i-spark"/></svg>性格底色<a href="#layer-1">详见 L1</a></div>
+                    <p><b>偏内向的实干型</b>：对外收敛、对内高要求。进入新环境先观察后接管，情绪表达少，但情绪强度不低——不是冷淡，而是把能量留给具体的事。</p>
+                  </div>
+                  <div class="ov-card">
+                    <div class="h"><svg class="ico sm"><use href="#i-star"/></svg>价值排序<a href="#layer-1">详见 L1</a></div>
+                    <p><b>做成事 &gt; 自主 &gt; 被认可 &gt; 稳定 &gt; 头衔</b>。愿意为把事做成承担加班与关系摩擦，但不愿为头衔做长期妥协；稳定是可以被牺牲的那一项。</p>
+                  </div>
+                  <div class="ov-card">
+                    <div class="h"><svg class="ico sm"><use href="#i-layers"/></svg>优势<a href="#trio">看适用条件</a></div>
+                    <p>行动力（先跑闭环）、高标准（交付前多改 2–3 轮）、结论先行（对齐成本低）、责任感（内部归因）。四项在<b>目标明确 + 有决策权</b>时会被同时放大。</p>
+                  </div>
+                  <div class="ov-card">
+                    <div class="h"><svg class="ico sm"><use href="#i-info"/></svg>短板<a href="#trio">看代价</a></div>
+                    <p>动机归因过早、长期视角薄弱、求助与授权不足、收尾与复盘最先被牺牲。它们不是优势的反义词，而是<b>同一套特质的背面</b>——环境一变，优势就变成代价。</p>
+                  </div>
+                  <div class="ov-card">
+                    <div class="h"><svg class="ico sm"><use href="#i-book"/></svg>关系风格<a href="#layer-4">详见 L4</a></div>
+                    <p><b>先给价值，再建连接</b>：通过一起把事做成靠近别人，而不是自我暴露。拒绝偏晚，被拒绝后冷处理而不是追问，很少主动求助。</p>
+                  </div>
+                  <div class="ov-card">
+                    <div class="h"><svg class="ico sm"><use href="#i-clock"/></svg>适配环境<a href="#layer-5">详见 L5</a></div>
+                    <p><b>最好</b>：单一清晰目标、放权充分、会议可控。<b>最差</b>：多头决策、目标每周变更、高频对齐。换环境比改性格更能提升你的表现。</p>
+                  </div>
+                </div>
+              </section>
+
+              <section class="layer-sec" id="layer-1">
+                <div class="layer-head">
+                  <span class="layer-no">1</span>
+                  <div><h2>内核层 · 我是谁</h2><div class="q">核心提问：我的默认值是什么？</div></div>
+                  <span class="tag green cov-tag">4 / 4 有证据</span>
+                </div>
+                <p class="layer-lead">你的默认值是「高行动倾向 + 中高尽责 + 偏具体的信息偏好 + 内部归因」。四者组合起来，形成一个很稳定的风格：先把事推进，再解释为什么。这一层不是标签，而是你在没有余力刻意调整时的出厂反应。</p>
+                <div class="ldim">
+                  <div class="ldim-head"><b>气质与能量倾向</b><span class="tag green">有证据</span><span class="src">来源：MBTI 倾向报告、出差与会议记录</span></div>
+                  <p>连续两天高强度协作后，第三天会明显回避会议；独处 4 小时以上才回到基线。社交对你是消耗型而非充电型，但小范围、议题明确的交流不消耗。</p>
+                </div>
+                <div class="ldim">
+                  <div class="ldim-head"><b>人格特质</b><span class="tag green">有证据</span><span class="src">来源：思维模式报告 + 9 篇复盘</span></div>
+                  <p>尽责性偏高（交付前平均多改 2–3 轮），开放性中等偏上，情绪稳定性中等。极端值出现在尽责性上：它带来质量，也带来启动慢与对合作者苛刻。</p>
+                </div>
+                <div class="ldim">
+                  <div class="ldim-head"><b>认知风格</b><span class="tag green">有证据</span><span class="src">来源：思维模式报告</span></div>
+                  <p>信息不足时倾向先动起来；偏好具体案例，抽象原则通常只在复盘时出现。你做判断更信任推演，但会用一个最小实验去验证推演。</p>
+                </div>
+                <div class="ldim">
+                  <div class="ldim-head"><b>核心价值观</b><span class="tag amber">部分证据</span><span class="src">来源：价值观报告、个人笔记</span></div>
+                  <p>「把事做成」排在职位之前，其次是自主空间。但工作文档里几乎没有用它解释取舍——这更像一条自述价值，还没变成决策标准。</p>
+                </div>
+              </section>
+
+              <section class="layer-sec" id="layer-2">
+                <div class="layer-head">
+                  <span class="layer-no">2</span>
+                  <div><h2>动力层 · 我为什么这样</h2><div class="q">核心提问：什么在推着我？</div></div>
+                  <span class="tag amber cov-tag">2 / 4 有证据</span>
+                </div>
+                <p class="layer-lead">比「行动优先」更能解释你的，是<strong>胜任需求</strong>与<strong>被看穿准备不足</strong>的恐惧。你反复用忙碌、提前准备和更长的交付打磨来换安全感——这不是勤奋，而是防御。</p>
+                <div class="ldim">
+                  <div class="ldim-head"><b>内在需求结构</b><span class="tag amber">推断</span><span class="src">来源：价值观报告 + 决策记录</span></div>
+                  <p>权重最高的是胜任（我做得好），其次是自主（我说了算）；联结需求被明显低估——你很少主动求助，也很少在文档里写「需要谁帮忙」。</p>
+                </div>
+                <div class="ldim">
+                  <div class="ldim-head"><b>恐惧图谱</b><span class="tag amber">部分证据</span><span class="src">来源：拖延记录、汇报准备清单</span></div>
+                  <p>拖延集中在「需要被人评价但标准模糊」的任务上；过度准备集中出现在汇报、面试、跨部门对齐。两者共同指向同一个恐惧：准备不足被人看穿。</p>
+                </div>
+                <div class="ldim">
+                  <div class="ldim-head"><b>防御机制</b><span class="tag amber">推断</span><span class="src">来源：冲突类文档 4 篇</span></div>
+                  <p>被批评时第一反应是解释而不是追问；对协作方容易外投——「他们没把我们当合作方」是把内部焦虑转成对方动机的典型句式。</p>
+                </div>
+                <div class="ldim is-blank">
+                  <div class="ldim-head"><b>欲望与羡慕</b><span class="tag outline">待补证据</span></div>
+                  <p>现有文档几乎没有羡慕类表述，这一项无法推断。建议记录最近三次明显的羡慕，以及具体羡慕对方身上哪一点。</p>
+                </div>
+              </section>
+
+              <section class="layer-sec" id="layer-3">
+                <div class="layer-head">
+                  <span class="layer-no">3</span>
+                  <div><h2>行为层 · 我实际怎么做</h2><div class="q">核心提问：记录里我是什么样？</div></div>
+                  <span class="tag green cov-tag">3 / 4 有证据</span>
+                </div>
+                <p class="layer-lead">这一层是你最可信的部分，因为证据来自记录而不是回忆：决策快、启动成本低、收尾偏慢；白天时间被会议切碎，注意力主权偏低。</p>
+                <div class="ldim">
+                  <div class="ldim-head"><b>决策模式</b><span class="tag green">有证据</span><span class="src">来源：思维模式报告、5 个重要决定</span></div>
+                  <p>重大决定平均耗时不到 3 天，所需信息量偏少；更容易后悔「没做」而不是「做错」。这解释了为什么你宁愿先跑一版，也不愿多等两周信息。</p>
+                </div>
+                <div class="ldim">
+                  <div class="ldim-head"><b>习惯回路与执行结构</b><span class="tag amber">部分证据</span><span class="src">来源：待办完成记录</span></div>
+                  <p>写方案、改稿几乎不需要意志力；跨部门沟通类任务平均拖延 4 天以上，共同点是「可能被拒绝」与「没有明确反馈」。</p>
+                </div>
+                <div class="ldim">
+                  <div class="ldim-head"><b>时间与注意力分配</b><span class="tag green">有证据</span><span class="src">来源：日历、周报 26 篇</span></div>
+                  <p>约 62% 的白天时间被会议占用；上午 9–11 点是唯一连续的深度工作段。你的自我叙述里「思考时间」很多，但记录里它主要发生在晚上。</p>
+                </div>
+                <div class="ldim is-blank">
+                  <div class="ldim-head"><b>金钱脚本</b><span class="tag outline">待补证据</span></div>
+                  <p>归档文档不涉及账单与消费，无法判断钱对你意味着安全垫、自由券还是地位证明。建议从「最痛的一类支出」和「最爽的一类支出」各找两笔。</p>
+                </div>
+              </section>
+
+              <section class="layer-sec" id="layer-4">
+                <div class="layer-head">
+                  <span class="layer-no">4</span>
+                  <div><h2>关系层 · 我怎么和人相处</h2><div class="q">核心提问：我在关系里的默认动作是什么？</div></div>
+                  <span class="tag amber cov-tag">2 / 3 有证据</span>
+                </div>
+                <p class="layer-lead">你靠近关系的方式是「先给价值」：通过一起把事做成建立连接，而不是通过自我暴露。拒绝的难度高，被拒绝后倾向冷处理而不是追问。</p>
+                <div class="ldim">
+                  <div class="ldim-head"><b>依恋与边界</b><span class="tag amber">部分证据</span><span class="src">来源：三段亲近关系回顾</span></div>
+                  <p>三段亲近关系的开始方式高度同构——都因共同做成一件事而靠近；结束后都没有明确收尾，而是自然淡出。边界问题不在「不会拒绝」，而在「拒绝得太晚」。</p>
+                </div>
+                <div class="ldim">
+                  <div class="ldim-head"><b>沟通与冲突策略</b><span class="tag amber">推断</span><span class="src">来源：会议纪要与冲突记录</span></div>
+                  <p>面对强势方倾向绕开或拖延，面对弱势方直接给方案。冲突中的默认位是「回避 + 事后合理化」，只有在涉及交付质量时才会切换到竞争。</p>
+                </div>
+                <div class="ldim is-blank">
+                  <div class="ldim-head"><b>给予与索取</b><span class="tag outline">待补证据</span></div>
+                  <p>文档里求助记录极少，别人找你多为要方案与判断。无法判断你是「不需要」还是「不允许自己索取」——这两种动机的应对方式完全不同。</p>
+                </div>
+              </section>
+
+              <section class="layer-sec" id="layer-5">
+                <div class="layer-head">
+                  <span class="layer-no">5</span>
+                  <div><h2>情境层 · 哪里让我最好</h2><div class="q">核心提问：什么环境下我会变形？</div></div>
+                  <span class="tag outline cov-tag">1 / 3 有证据</span>
+                </div>
+                <p class="layer-lead">你表现最好的环境有三个共同点：单一清晰的目标、能自己拍板的空间、可控的会议密度。反过来，多头决策、目标模糊、高频对齐会让你明显掉性能——不是能力问题，是环境不匹配。</p>
+                <div class="ldim">
+                  <div class="ldim-head"><b>人—环境匹配</b><span class="tag amber">推断</span><span class="src">来源：三段不同环境的横向对比</span></div>
+                  <p>发挥最好的半年：单一目标 + 直属上级放权。状态最差的时期：三方共管、需求每周变更。你在「结构化 + 快节奏」区间表现最好，在「混沌 + 快节奏」区间消耗最大。</p>
+                </div>
+                <div class="ldim">
+                  <div class="ldim-head"><b>压力与稀缺下的变形</b><span class="tag amber">推断</span><span class="src">来源：连续加班两周后的周报与消息</span></div>
+                  <p>连续加班后，对协作方的耐心显著下降，动机判断增多；时间稀缺时明显短视，会砍掉所有非交付动作（包括复盘）。权力在手时的表现缺少证据。</p>
+                </div>
+                <div class="ldim is-blank">
+                  <div class="ldim-head"><b>角色适配</b><span class="tag outline">待补证据</span></div>
+                  <p>还分不清「演得好但耗竭」「演得舒服但被低估」「被期待但不是自己要的」三种角色。建议记录一周里最疲惫的那天在做什么，以及被夸奖时心里认同的比例。</p>
+                </div>
+              </section>
+
+              <section class="layer-sec" id="layer-6">
+                <div class="layer-head">
+                  <span class="layer-no">6</span>
+                  <div><h2>时间层 · 我怎么走到这</h2><div class="q">核心提问：什么剧情在重复？</div></div>
+                  <span class="tag outline cov-tag">1 / 3 有证据</span>
+                </div>
+                <p class="layer-lead">目前能命名的重复模式只有一个：<strong>第 16–20 个月想换环境</strong>。而两次真正的转折都是组织变化推动的，不是你主动选的——这本身可能就是一种模式。</p>
+                <div class="ldim">
+                  <div class="ldim-head"><b>重复模式与转折点</b><span class="tag amber">推断</span><span class="src">来源：三段经历的时间轴</span></div>
+                  <p>三段经历都在第 16–20 个月出现「想换个环境」的表述；两次转折前都有同一个前提：直属上级更换。你倾向于把转折解释为机会，而不是被推着走。</p>
+                </div>
+                <div class="ldim">
+                  <div class="ldim-head"><b>生命阶段任务</b><span class="tag amber">推断</span><span class="src">来源：近两年焦虑内容</span></div>
+                  <p>当前焦虑集中在「能力深度 vs 管理路径」，更像深耕期而不是转型期。你缺的不是机会，而是把一个方向做满两年的耐心与外部约束。</p>
+                </div>
+                <div class="ldim is-blank">
+                  <div class="ldim-head"><b>成长曲线与学习方式</b><span class="tag outline">待补证据</span></div>
+                  <p>缺少跨十年的能力自评数据，无法判断你在高压、有师傅、允许失败、有明确反馈这四类条件下哪一种成长最快。</p>
+                </div>
+              </section>
+
+              <section class="layer-sec" id="layer-7">
+                <div class="layer-head">
+                  <span class="layer-no">7</span>
+                  <div><h2>意义层 · 我为了什么</h2><div class="q">核心提问：冲突时我最终牺牲哪一边？</div></div>
+                  <span class="tag outline cov-tag">1 / 3 有证据</span>
+                </div>
+                <p class="layer-lead">你对「做成一件被需要的事」的在意，明显高于头衔与影响力；但还没有形成稳定的贡献表述——这解释了为什么每次谈长期方向，你都会回到手头的交付。</p>
+                <div class="ldim">
+                  <div class="ldim-head"><b>遗憾与未完成</b><span class="tag amber">推断</span><span class="src">来源：个人笔记 11 篇</span></div>
+                  <p>反复出现的是「没有把一件事做满两年」。遗憾指向的往往正是未被满足的核心价值：你想要的不是更多选择，而是更深的完成感。</p>
+                </div>
+                <div class="ldim is-blank">
+                  <div class="ldim-head"><b>使命与贡献</b><span class="tag outline">待补证据</span></div>
+                  <p>不产生收益时你主动花时间的事记录不足。建议回看最近三个月周末自愿投入时间的三件事，找出共同的问题类型。</p>
+                </div>
+                <div class="ldim is-blank">
+                  <div class="ldim-head"><b>遗产与死亡意识</b><span class="tag outline">待补证据</span></div>
+                  <p>没有相关证据。这一项不需要文档积累，直接回答「如果只剩五年，我会立刻停止做什么、立刻开始做什么」即可。</p>
+                </div>
+              </section>
+
+              <section class="layer-sec">
+                <div class="layer-head">
+                  <span class="layer-no">+</span>
+                  <div><h2>四类贯穿性视角</h2><div class="q">不属于任何单层，但决定这套说明书的可信度</div></div>
+                </div>
+                <div class="cross-grid" style="margin-top:10px">
+                  <div class="cross">
+                    <div class="t"><svg class="ico sm" style="color:var(--brand-dark)"><use href="#i-layers"/></svg>张力：自主 vs 安全</div>
+                    <p>两者冲突时，你通常牺牲安全换自主，代价是长期规划被压缩。近半年长期表述下降 60%，就是这笔代价的账单。</p>
+                  </div>
+                  <div class="cross">
+                    <div class="t"><svg class="ico sm" style="color:var(--amber)"><use href="#i-info"/></svg>盲区：疲惫时的归因</div>
+                    <p>疲惫时你会把「没同步」直接解释为对方不重视，而这恰好是你为之辩护最多的部分——你会说「这不是敏感，是事实」。</p>
+                  </div>
+                  <div class="cross">
+                    <div class="t"><svg class="ico sm" style="color:var(--brand-dark)"><use href="#i-clock"/></svg>资源：能量而非时间</div>
+                    <p>可支配能量集中在上午 9–11 点；社会资本偏向「能一起做事的人」，而不是「能提供信息和机会的人」，这会限制你的下一步选择。</p>
+                  </div>
+                  <div class="cross">
+                    <div class="t"><svg class="ico sm" style="color:var(--brand-dark)"><use href="#i-search"/></svg>外部视角：反事实校验</div>
+                    <p>若留在上一份更稳定的工作，你可能有更深的专业积累，但会失去现在的决策速度与 ownership。这个对比支持「你更在意做成，而不是稳定」。</p>
+                  </div>
+                </div>
+              </section>
+
+              <section class="layer-sec" id="trio">
+                <div class="layer-head">
+                  <span class="layer-no">×</span>
+                  <div><h2>用三元组替代优缺点</h2><div class="q">同一个特质在不同情境下既是资产也是负债</div></div>
+                </div>
+                <table class="trio" style="margin-top:10px">
+                  <thead><tr><th style="width:22%">特质</th><th style="width:40%">适用情境</th><th>代价 / 失效条件</th></tr></thead>
+                  <tbody>
+                    <tr><td><b>行动优先</b></td><td>信息不足但必须推进、需要抢窗口</td><td>容易跳过验证；在需要共识的决策上显得独断</td></tr>
+                    <tr><td><b>标准高</b></td><td>质量敏感、需要长期口碑的领域</td><td>启动慢、交付拖延；对合作者苛刻</td></tr>
+                    <tr><td><b>内部归因</b></td><td>复盘、自我改进、承担 ownership</td><td>过度自责，容易忽视结构性因素</td></tr>
+                    <tr><td><b>具象表达</b></td><td>推动落地、对齐执行、减少歧义</td><td>在需要愿景动员、争取资源时说服力不足</td></tr>
+                  </tbody>
+                </table>
+              </section>
+
+              <section class="layer-sec">
+                <div class="layer-head">
+                  <span class="layer-no">→</span>
+                  <div><h2>空白区与下一步</h2><div class="q">10 个维度还没有证据；先补影响最大的 3 个</div></div>
+                </div>
+                <div class="action"><span class="n">1</span><span><b>恐惧图谱</b>：连续一周记录每次拖延超过 2 小时的任务，写下「我在怕什么被发现」。这是解释力最强、也最容易补的一项。</span></div>
+                <div class="action"><span class="n">2</span><span><b>金钱脚本</b>：翻最近三个月账单，各找两笔「最痛」与「最爽」的支出，回答「钱替我解决了什么情绪」。</span></div>
+                <div class="action"><span class="n">3</span><span><b>角色适配</b>：记录一周里最疲惫的那天在做什么，以及三次被夸奖时「心里认同 / 无感」的比例。</span></div>
+                <p style="margin-top:12px;font-size:11.5px;line-height:1.8;color:var(--text3)">补完这三项后，用「价值澄清」与「主要矛盾」两个主题各跑一次，再重新生成这份说明书；建议每半年生成一个新版本，对比维度覆盖与结论变化，而不是追求一次定终身。</p>
+              </section>
+            </div>
+          </div>
+
+          <aside class="ask-rail">
+            <div class="ask-head">
+              <b><svg class="ico sm"><use href="#i-spark"/></svg>就这份说明书追问</b>
+              <p>上下文限定为本次自我洞悉 + 它引用的主题报告与证据集。</p>
+            </div>
+            <div class="toc">
+              <a href="#layer-1">L1 内核层 · 我是谁</a>
+              <a href="#layer-2">L2 动力层 · 我为什么这样</a>
+              <a href="#layer-3">L3 行为层 · 我实际怎么做</a>
+              <a href="#layer-4">L4 关系层 · 我怎么和人相处</a>
+              <a href="#layer-5">L5 情境层 · 哪里让我最好</a>
+              <a href="#layer-6">L6 时间层 · 我怎么走到这</a>
+              <a href="#layer-7">L7 意义层 · 我为了什么</a>
+            </div>
+            <div style="padding:0 16px">
+              <div class="src-box">
+                <b>这次综合了什么</b>
+                <div class="src-row"><span>思维模式</span><em>3 份报告</em></div>
+                <div class="src-row"><span>价值观</span><em>2 份报告</em></div>
+                <div class="src-row"><span>思维陷阱</span><em>1 份报告</em></div>
+                <div class="src-row"><span>价值澄清</span><em>1 份报告</em></div>
+                <div class="src-row"><span>MBTI 倾向</span><em>1 份报告</em></div>
+                <div class="src-row"><span>主要矛盾</span><em>1 份报告</em></div>
+                <div class="src-row"><span>我的决策复盘</span><em>2 份报告</em></div>
+                <div class="src-row" style="border-top:1px solid var(--line);margin-top:5px;padding-top:5px"><span>工作知识库</span><em>132 篇文档</em></div>
+                <div class="src-row" style="color:var(--brand-deep)"><span>生成条件</span><em>6 / 6 已满足</em></div>
+              </div>
+            </div>
+            <div class="chat" id="selfChat">
+              <div class="msg user">这份说明书里哪条结论最不可靠？</div>
+              <div class="msg ai">
+                <div class="ai-name"><svg class="ico" style="width:11px;height:11px"><use href="#i-spark"/></svg>洞察助手</div>
+                <div class="ai-body">
+                  最不可靠的是 L6「重复模式：第 16–20 个月想换环境」。它只来自 3 段经历，且其中两段同时发生了上级更换，无法区分是周期还是人事触发。<br /><br />
+                  其次是 L5 的「压力下变形」，证据集中在一次连续加班，缺少第二次独立事件。
+                  <div class="refs" style="margin-top:8px"><span class="ref">来源：思维模式报告</span><span class="ref">来源：时间轴回顾</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="ask-input">
+              <div class="ask-box">
+                <textarea id="selfAskInput" placeholder="比如：L2 的推断有证据吗？"></textarea>
+                <button class="send" onclick="sendSelfAsk()"><svg class="ico sm"><use href="#i-send"/></svg></button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- ========== 运行中 ========== -->
+      <section class="view" id="view-run">
+        <header class="topbar">
+          <div style="display:flex;align-items:center;gap:10px">
+            <button class="icon-btn" onclick="backHome()"><svg class="ico"><use href="#i-back"/></svg></button>
+            <div>
+              <h1 id="runTitle">思维模式 · 分析进行中</h1>
+              <p class="sub">素材体检已完成，正在逐篇抽取证据</p>
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <button class="btn ghost danger" onclick="toast('原型：终止后保留已抽取的证据，可稍后继续')">终止运行</button>
+          </div>
+        </header>
+        <div class="run-body">
+          <div class="run-main">
+            <div class="stepper">
+              <div class="step done"><span class="num"><svg class="ico sm"><use href="#i-check"/></svg></span>素材体检</div>
+              <div class="step-line done"></div>
+              <div class="step active" id="step2"><span class="num">2</span>证据抽取</div>
+              <div class="step-line"></div>
+              <div class="step" id="step3"><span class="num">3</span>证据确认</div>
+              <div class="step-line"></div>
+              <div class="step" id="step4"><span class="num">4</span>生成报告</div>
+            </div>
+            <div class="run-card">
+              <div class="run-card-head"><b id="runStage">阶段一 · 证据抽取</b><span id="runPct">0%</span></div>
+              <div class="bar"><i id="runBar" style="width:0%"></i></div>
+              <div class="run-stats">
+                <span>已处理 <b id="runDocs">0</b>/132 篇</span>
+                <span>证据 <b id="runEv">0</b> 条</span>
+                <span>预计剩余 <b id="runEta">6</b> 分钟</span>
+              </div>
+              <div class="log" id="runLog"></div>
+            </div>
+            <div style="margin-top:14px;display:flex;gap:8px">
+              <button class="btn" onclick="skipToEvidence()">跳到证据表（演示）</button>
+              <span class="foot-hint" style="align-self:center">原型中为模拟进度，真实实现走后台任务 + SSE</span>
+            </div>
+          </div>
+          <div class="run-aside">
+            <div class="tip-card">
+              <b>为什么先跑阶段一</b>
+              逐篇抽取只做“找证据”，不做判断。跑完你会先看到证据集，可以剔除噪声文档或误判条目，再进入归并生成。
+            </div>
+            <div class="tip-card">
+              <b>只读一次的素材</b>
+              本次范围：工作知识库全部归档 · 132 篇可分析；已排除 24 篇（空 4 / 过短 9 / 纯附件 7 / 重复 4）。
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== 证据表 ========== -->
+      <section class="view" id="view-evidence">
+        <header class="topbar">
+          <div style="display:flex;align-items:center;gap:10px">
+            <button class="icon-btn" onclick="backHome()"><svg class="ico"><use href="#i-back"/></svg></button>
+            <div>
+              <h1>证据集 · 思维模式</h1>
+              <p class="sub">132 篇文档 → 214 条证据。确认后进入阶段二，只基于确认后的证据集生成报告。</p>
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <span class="tag outline"><svg class="ico sm"><use href="#i-shield"/></svg>仅你可见</span>
+          </div>
+        </header>
+        <div class="evidence-toolbar">
+          <button class="chip on">全部 <span class="n">214</span></button>
+          <button class="chip">决策偏好 <span class="n">72</span></button>
+          <button class="chip">归因方式 <span class="n">51</span></button>
+          <button class="chip">时间视角 <span class="n">46</span></button>
+          <button class="chip">抽象层级 <span class="n">45</span></button>
+          <button class="chip">仅看推断 <span class="n">18</span></button>
+          <div style="flex:1"></div>
+          <div class="search" style="margin:0;width:200px"><svg class="ico sm"><use href="#i-search"/></svg><input placeholder="搜索证据或文档" /></div>
+        </div>
+        <div class="evidence-wrap">
+          <table class="ev">
+            <thead>
+              <tr>
+                <th style="width:34px"></th>
+                <th style="width:42%">证据摘录</th>
+                <th style="width:96px">维度</th>
+                <th style="width:30%">来源</th>
+                <th style="width:84px">类型</th>
+              </tr>
+            </thead>
+            <tbody id="evBody"></tbody>
+          </table>
+        </div>
+        <div class="evidence-foot">
+          <span class="stat">有效 <b id="evValid">214</b> 条</span>
+          <span class="stat">已排除 <b id="evExcluded">0</b> 条</span>
+          <span class="foot-hint">证据只可剔除、不可编辑 —— 保证结论始终可回溯到原文；原型仅展示前 10 条</span>
+          <div class="spacer"></div>
+          <button class="btn primary" onclick="generateReport()">确认证据集，生成报告</button>
+        </div>
+      </section>
+
+      <!-- ========== 报告 ========== -->
+      <section class="view" id="view-report">
+        <header class="report-topbar">
+          <button class="icon-btn" onclick="backHome()"><svg class="ico"><use href="#i-back"/></svg></button>
+          <div class="crumb">洞察 / <b id="crumbTheme">思维模式</b> / 报告</div>
+          <div class="actions">
+            <button class="btn sm" onclick="toast('原型：生成一篇墨匣文档并跳转编辑（报告仍保留为快照）')"><svg class="ico sm"><use href="#i-edit"/></svg>另存为墨匣文档</button>
+            <button class="btn sm" onclick="toast('原型：导出 Markdown；PDF / docx 后置')"><svg class="ico sm"><use href="#i-download"/></svg>导出</button>
+            <button class="icon-btn" title="更多" onclick="toast('原型：删除本次运行 / 删除证据集')"><svg class="ico"><use href="#i-dots"/></svg></button>
+          </div>
+        </header>
+        <div class="report-layout">
+          <div class="report-scroll">
+            <article class="report">
+              <div class="report-cover">
+                <div class="snapshot"><svg class="ico" style="width:11px;height:11px"><use href="#i-lock"/></svg>不可变快照 · 第 4 次运行</div>
+                <h1 id="reportTitle">思维模式洞察报告</h1>
+                <div class="report-meta">
+                  <span>2026-11-16 14:32</span><span>·</span><span>默认模型</span><span>·</span>
+                  <span>覆盖 126 篇</span><span>·</span><span>208 条证据</span><span>·</span><span>脱敏已开启</span>
+                </div>
+                <div class="disclaimer">
+                  本报告是基于你归档文档的倾向性推断，不是心理测量结果，也不构成任何专业或医疗建议。你可以删除本次运行及其证据。
+                </div>
+                <div class="demo-banner" id="demoBanner" style="display:none">
+                  原型说明：这里展示的是「思维模式」主题的完整示例；正式实现会按当前主题的维度与证据生成同结构报告。
+                </div>
+              </div>
+
+              <section class="r-sec">
+                <div class="r-sec-head"><span class="idx">01</span><h2>素材覆盖度</h2><span class="aside">体检详情</span></div>
+                <div class="cov-grid">
+                  <div class="cov-cell"><span>归档文档</span><b>156</b></div>
+                  <div class="cov-cell"><span>可分析</span><b>132</b></div>
+                  <div class="cov-cell"><span>实际引用</span><b>126</b></div>
+                  <div class="cov-cell"><span>排除</span><b>26</b></div>
+                </div>
+                <p class="cov-note">排除项：空文档 4、过短 9、纯附件 7、重复 4、本次未触达 2。时间跨度 2025-03 至 2026-11；其中个人笔记 11 篇，其余为工作文档与会议记录。</p>
+              </section>
+
+              <section class="r-sec">
+                <div class="r-sec-head"><span class="idx">02</span><h2>核心发现</h2><span class="aside">4 条</span></div>
+                <div class="finding">
+                  <div class="finding-head">
+                    <span class="tag green">有证据</span><span class="tag outline">置信度 高</span>
+                    <h3>你做判断时，默认先行动再校准，而不是先穷举方案</h3>
+                  </div>
+                  <p>在 9 篇复盘里有 7 次把“先跑起来”作为默认策略，且很少在文档中记录被放弃的备选方案。这不是一句口头偏好，而是一致出现在不同项目、不同协作对象下的做法。</p>
+                  <div class="refs"><span class="ref">[1] Q3 OKR 复盘</span><span class="ref">[2] 周会记录 0812</span><span class="ref">[3] 项目复盘 0630</span></div>
+                </div>
+                <div class="finding">
+                  <div class="finding-head">
+                    <span class="tag green">有证据</span><span class="tag outline">置信度 中</span>
+                    <h3>对己内部归因，对人却容易归到动机</h3>
+                  </div>
+                  <p>项目延期时，你对自身多用“我没做好”，对协作方则频繁出现“他们没把我们当回事”这类动机判断，而不是先列流程事实。两类归因在同一批文档里交替出现。</p>
+                  <div class="refs"><span class="ref">[4] 对齐纪要 0712</span><span class="ref">[5] 项目复盘 0630</span></div>
+                </div>
+                <div class="finding inferred">
+                  <div class="finding-head">
+                    <span class="tag amber">推断</span><span class="tag outline">置信度 中</span>
+                    <h3>时间视角正在收缩：长期表述明显减少</h3>
+                  </div>
+                  <p>近 6 个月“三年 / 长期 / 方向”类表述相比前 6 个月下降约 60%，同期“交付 / 收尾 / 上线”类表述上升。这可能是阶段性节奏，也可能是稳定的注意力迁移，当前样本不足以区分。</p>
+                  <div class="refs"><span class="ref">[6] 跨 14 篇检索统计</span><span class="ref">[7] 周报 0418</span></div>
+                </div>
+                <div class="finding inferred">
+                  <div class="finding-head">
+                    <span class="tag amber">推断</span><span class="tag outline">置信度 低</span>
+                    <h3>你更在意“把事做成”，但没把它写进决策标准</h3>
+                  </div>
+                  <p>唯一明确的价值表述出现在个人笔记中，工作文档里几乎没有用它来解释取舍。样本只有 3 条，建议以价值澄清主题单独验证。</p>
+                  <div class="refs"><span class="ref">[8] 个人笔记 0211</span></div>
+                </div>
+              </section>
+
+              <section class="r-sec">
+                <div class="r-sec-head"><span class="idx">03</span><h2>证据链</h2><span class="aside">8 条代表证据</span></div>
+                <blockquote>先把最小闭环跑出来，再决定要不要把方案做全。
+                  <span class="quote-src">《Q3 OKR 复盘》 · 第 12 段 · 2026-09-28 · 证据 [1]</span>
+                </blockquote>
+                <blockquote>我习惯先动手改一版，讨论太慢。
+                  <span class="quote-src">《周会记录 0812》 · 第 3 段 · 2026-08-12 · 证据 [2]</span>
+                </blockquote>
+                <blockquote>他们没提前同步，说明根本没把我们当合作方。
+                  <span class="quote-src">《与产品对齐纪要 0712》 · 第 4 段 · 2026-07-12 · 证据 [4]</span>
+                </blockquote>
+                <blockquote>这周主要是把上线收尾，长期规划下周再看。
+                  <span class="quote-src">《周报 2026-04-18》 · 第 2 段 · 2026-04-18 · 证据 [7]</span>
+                </blockquote>
+              </section>
+
+              <section class="r-sec">
+                <div class="r-sec-head"><span class="idx">04</span><h2>反证与不确定性</h2><span class="aside">已主动检索反例</span></div>
+                <div class="bullet"><i></i><span>《招聘面试记录 2026-03》出现相反表述：“我会先把所有选项列出来再判断”，与“行动优先”不一致，可能区分了决策类型（人事判断 vs 业务判断）。</span></div>
+                <div class="bullet"><i></i><span>2025 年文档中长期规划类内容占比更高，说明“时间视角收缩”更可能是阶段性节奏，而非稳定特质。</span></div>
+                <div class="bullet"><i></i><span>132 篇里 74 篇是工作文档，价值观相关证据主要来自 11 篇个人笔记，样本偏小且自述性强。</span></div>
+              </section>
+
+              <section class="r-sec">
+                <div class="r-sec-head"><span class="idx">05</span><h2>维度评分</h2><span class="aside">倾向参考，非量表</span></div>
+                <div class="score-row"><span>决策偏好</span><div class="score-track"><i style="width:78%"></i></div><span class="score-val">行动优先 78</span></div>
+                <div class="score-row"><span>归因方式</span><div class="score-track"><i style="width:64%"></i></div><span class="score-val">内部归因 64</span></div>
+                <div class="score-row"><span>时间视角</span><div class="score-track"><i style="width:71%"></i></div><span class="score-val">短期聚焦 71</span></div>
+                <div class="score-row"><span>抽象层级</span><div class="score-track"><i style="width:66%"></i></div><span class="score-val">具象表达 66</span></div>
+                <p class="scale-note">分数只表示“在该维度上证据更偏向哪一端”，不表示能力高低；同一个人在不同领域可以有不同倾向。</p>
+              </section>
+
+              <section class="r-sec">
+                <div class="r-sec-head"><span class="idx">06</span><h2>结论</h2><span class="aside">文字总结</span></div>
+                <div class="conclusion">
+                  <p class="lead">总的来说，你的思维模式可以概括为：<b>用行动换确定性，用短期交付替代长期判断</b>。</p>
+                  <p>在业务推进类场景里，这套方式运转得很好——你先跑最小闭环，再根据反馈校准，决策速度快、落地阻力小。问题出现在需要判断“人”和判断“方向”的场景：同一套惯性会让你过早收敛，先用行动代替验证，先用动机解释协作，再回头补事实。</p>
+                  <p>四个维度里，<b>“行动优先”和“短期聚焦”是相互强化的一对</b>：越倾向于先做，越容易被眼前的交付节奏牵着走，长期判断也就越少被写下来。近半年长期表述下降约 60%，是这份报告里最值得单独关注的信号，但现有证据不足以判断它是阶段性节奏还是稳定迁移。</p>
+                  <p>因此，与其说你需要“想得更多”，不如说需要在两类特定决策上强行插入一个停顿：涉及人的动机判断，以及涉及半年以上方向的选择。其余场景维持现在的行动节奏即可。</p>
+                  <div class="basis">结论依据：4 条核心发现（3 条有证据、1 条推断）、208 条证据、3 条主动检索到的反证。其中“时间视角收缩”置信度最低，建议用「价值澄清」主题单独复核。</div>
+                </div>
+              </section>
+
+              <section class="r-sec">
+                <div class="r-sec-head"><span class="idx">07</span><h2>建议与下一步</h2></div>
+                <div class="action"><span class="n">1</span><span>下次方案评审前，强制写一页“如果不做会怎样”，用来检验“行动优先”是否是默认惯性。</span></div>
+                <div class="action"><span class="n">2</span><span>对协作方产生动机判断时，先记录 3 条可验证事实再下结论，连续两周，再回看这个主题。</span></div>
+                <div class="action"><span class="n">3</span><span>每月留一篇“三年视角”笔记，为时间视角提供对照样本；同时用「价值澄清」主题单独验证第 4 条推断。</span></div>
+              </section>
+            </article>
+          </div>
+
+          <aside class="ask-rail">
+            <div class="ask-head">
+              <b><svg class="ico sm"><use href="#i-spark"/></svg>就这份报告追问</b>
+              <p>只检索本次报告与它的 208 条证据，不会重新扫描全部文档。</p>
+            </div>
+            <div class="toc">
+              <a href="#">01 素材覆盖度</a>
+              <a href="#">02 核心发现</a>
+              <a href="#">03 证据链</a>
+              <a href="#">04 反证与不确定性</a>
+              <a href="#">05 维度评分</a>
+              <a href="#">06 结论</a>
+              <a href="#">07 建议与下一步</a>
+            </div>
+            <div class="chat" id="chat">
+              <div class="msg user">第 2 条发现有反例吗？</div>
+              <div class="msg ai">
+                <div class="ai-name"><svg class="ico" style="width:11px;height:11px"><use href="#i-spark"/></svg>洞察助手</div>
+                <div class="ai-body">
+                  有。报告第 04 节里《招聘面试记录 2026-03》就出现了相反做法：你会先列出全部选项再判断。差别可能在场景：业务推进你倾向先跑，人事判断你倾向先穷举。<br /><br />
+                  另外这条发现的置信度是「中」，主要因为动机类归因只出现在 4 篇文档里。
+                  <div class="refs" style="margin-top:8px"><span class="ref">[4] 对齐纪要 0712</span><span class="ref">[9] 面试记录 2026-03</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="ask-input">
+              <div class="ask-box">
+                <textarea id="askInput" placeholder="比如：这条结论的证据够吗？"></textarea>
+                <button class="send" onclick="sendAsk()"><svg class="ico sm"><use href="#i-send"/></svg></button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- 设计说明 -->
+      <button class="notes-fab" onclick="toggleNotes()"><svg class="ico sm"><use href="#i-info"/></svg>设计说明</button>
+      <aside class="notes" id="notes">
+        <div class="notes-head">
+          <b>与已确认方案的对应关系</b>
+          <button class="close" onclick="toggleNotes()"><svg class="ico sm"><use href="#i-x"/></svg></button>
+        </div>
+        <div class="notes-body">
+          <div class="note"><b><span>01</span>一级导航入口</b><p>墨匣左侧导航新增「洞察」，与最近、日报、事项平级；路由 /platform/workbench/insights。</p></div>
+          <div class="note"><b><span>02</span>主题 + 报告两栏</b><p>左侧主题列表，右侧主题详情与历史报告；运行记录折叠进详情，不设第三级。</p></div>
+          <div class="note"><b><span>03</span>素材体检前置</b><p>运行前展示归档 / 可分析 / 过短 / 空 / 纯附件 / 重复，默认排除并可调。</p></div>
+          <div class="note"><b><span>04</span>小样试跑</b><p>首次运行默认先跑最近 20 篇，确认口径后再全量，降低长任务的黑盒感。</p></div>
+          <div class="note"><b><span>05</span>证据集可剔除不可编辑</b><p>阶段一产物落库；只允许剔除，不允许改原文，保证结论可回溯到 chunk。</p></div>
+          <div class="note"><b><span>06</span>不可变报告</b><p>报告是快照实体，不可编辑；可另存为墨匣文档，多次运行形成时间线。</p></div>
+          <div class="note"><b><span>07</span>固定七段骨架</b><p>覆盖度 / 核心发现 / 证据链 / 反证 / 维度评分 / 结论 / 建议；结论是一段连贯的文字总结，给出明确判断，再过渡到行动建议。</p></div>
+          <div class="note"><b><span>08</span>引用与推断标注</b><p>结论级强制引用到 chunk；推断必须显式打标、给置信度，零引用且非推断不得出现。</p></div>
+          <div class="note"><b><span>09</span>严格私有</b><p>报告、证据、运行记录全部用户私有，管理员不可见；脱敏默认开启。</p></div>
+          <div class="note"><b><span>10</span>报告内追问</b><p>追问上下文限定为本次报告 + 证据集，复用 AskAI 车道，不重新全量检索。</p></div>
+          <div class="note"><b><span>11</span>自我洞悉（顶层入口）</b><p>顶部「主题洞察 / 自我洞悉」切换；生成前提是 6 个内置主题全部至少运行一次，结果覆盖更新、不保留历史。内容含「关于我的速览」（性格 / 价值排序 / 优势 / 短板 / 关系风格 / 适配环境）+ 七层结构 + 24 维度 + 四视角 + 三元组 + 空白区清单。</p></div>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<!-- ========== 素材体检 ========== -->
+<div class="mask" id="maskCheckup">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <h3>分析前确认</h3>
+        <p id="checkupSub">思维模式 · 工作知识库全部归档</p>
+      </div>
+      <button class="icon-btn close" onclick="closeModal('maskCheckup')"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="stat-grid">
+        <div class="stat-cell"><span>归档</span><b>156</b></div>
+        <div class="stat-cell"><span>可分析</span><b>132</b></div>
+        <div class="stat-cell muted"><span>过短</span><b>9</b></div>
+        <div class="stat-cell muted"><span>空/附件</span><b>11</b></div>
+        <div class="stat-cell muted"><span>重复</span><b>4</b></div>
+      </div>
+      <div class="rule-list">
+        <div class="rule">
+          <div class="rule-main"><b>排除空文档与过短内容</b><span>少于 120 字的文档不参与分析</span></div>
+          <div class="switch on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="rule">
+          <div class="rule-main"><b>排除纯附件与纯图片文档</b><span>没有可提取正文的文件跳过</span></div>
+          <div class="switch on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="rule">
+          <div class="rule-main"><b>重复文档只保留最新</b><span>按标题 + 正文相似度判重</span></div>
+          <div class="switch on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="rule">
+          <div class="rule-main"><b>超长文档部分截取</b><span>超过 4 万字的文档取开头 / 结尾与主题相关段落，不整篇排除</span></div>
+          <div class="switch on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="rule">
+          <div class="rule-main"><b>先跑小样（最近 20 篇）</b><span>约 2 分钟，确认分析口径后再全量</span></div>
+          <div class="switch on" id="sampleSwitch" onclick="this.classList.toggle('on')"></div>
+        </div>
+      </div>
+      <div class="hint-box"><svg class="ico sm"><use href="#i-shield"/></svg><span>本次分析仅你可见，管理员也无法查看报告与证据。发送给模型前会将人名、组织名替换为占位符（可关闭）。</span></div>
+    </div>
+    <div class="modal-foot">
+      <span class="hint">阶段一约 4–6 分钟，可随时终止</span>
+      <div class="spacer"></div>
+      <button class="btn ghost" onclick="closeModal('maskCheckup')">取消</button>
+      <button class="btn primary" onclick="confirmCheckup()">确认并开始</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 敏感主题隐私确认 ========== -->
+<div class="mask" id="maskPrivacy">
+  <div class="modal privacy-modal">
+    <div class="modal-head">
+      <div>
+        <div class="shield"><svg class="ico lg"><use href="#i-shield"/></svg></div>
+        <h3>这是一次敏感分析</h3>
+        <p id="privacySub">「价值观」会对你本人做出价值排序的推断，属于高敏感内容。</p>
+      </div>
+      <button class="icon-btn close" onclick="closeModal('maskPrivacy')"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="priv-list">
+        <div class="priv-item"><svg class="ico sm"><use href="#i-lock"/></svg><span>报告、证据集与运行记录<strong>仅你本人可见</strong>，管理员不可读，也不进入任何团队统计。</span></div>
+        <div class="priv-item"><svg class="ico sm"><use href="#i-shield"/></svg><span>发送给模型前会做<strong>人名 / 组织名脱敏</strong>，正文仍会经过你配置的模型服务商。</span></div>
+        <div class="priv-item"><svg class="ico sm"><use href="#i-trash"/></svg><span>你可以随时<strong>删除单次运行</strong>或清空全部洞察数据，删除后不可恢复。</span></div>
+      </div>
+      <div class="rule" style="border:1px solid var(--line);border-radius:9px">
+        <div class="rule-main"><b>脱敏</b><span>把真实人名、组织名替换为「甲 / A 公司」等占位符</span></div>
+        <div class="switch on" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="confirm-line" style="margin-top:12px" onclick="toggleAgree()">
+        <span class="box" id="agreeBox"><svg class="ico" style="width:10px;height:10px"><use href="#i-check"/></svg></span>
+        <span>我了解这类分析只是基于文档的倾向性推断，不是心理诊断，也已知悉数据会发送给我选择的模型服务商。</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" onclick="closeModal('maskPrivacy')">取消</button>
+      <div class="spacer"></div>
+      <button class="btn primary" id="privacyNext" disabled onclick="privacyConfirmed()">继续</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 新建主题 ========== -->
+<div class="mask" id="maskNewTheme">
+  <div class="modal wide">
+    <div class="modal-head">
+      <div>
+        <h3>新建洞察主题</h3>
+        <p>主题只声明“看什么、怎么判断”，报告结构由系统统一，保证不同时间的报告可对比。</p>
+      </div>
+      <button class="icon-btn close" onclick="closeModal('maskNewTheme')"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="tabs">
+      <button class="tab on" data-tab="tpl" onclick="switchTab('tpl')">从内置模板</button>
+      <button class="tab" data-tab="write" onclick="switchTab('write')">手写提示词</button>
+      <button class="tab" data-tab="zip" onclick="switchTab('zip')">上传方法包</button>
+    </div>
+    <div class="modal-body" style="padding-top:14px">
+      <div id="tab-tpl">
+        <div class="tpl-grid">
+          <button class="tpl on"><b><svg class="ico sm"><use href="#i-spark"/></svg>思维模式</b><p>识别稳定的思考路径与决策惯性</p></button>
+          <button class="tpl"><b><svg class="ico sm"><use href="#i-star"/></svg>价值观</b><p>找到真正看重的东西与言行落差</p></button>
+          <button class="tpl"><b><svg class="ico sm"><use href="#i-info"/></svg>思维陷阱</b><p>过度概括、确认偏误、沉没成本</p></button>
+          <button class="tpl"><b><svg class="ico sm"><use href="#i-layers"/></svg>价值澄清</b><p>核心价值观、反价值与领域权重</p></button>
+          <button class="tpl"><b><svg class="ico sm"><use href="#i-table"/></svg>MBTI 倾向</b><p>四个维度的倾向与证据分布</p></button>
+          <button class="tpl"><b><svg class="ico sm"><use href="#i-clock"/></svg>主要矛盾</b><p>目标冲突、资源约束、关系张力</p></button>
+        </div>
+        <div class="hint-box" style="margin-top:12px"><svg class="ico sm"><use href="#i-info"/></svg><span>模板会复制成可编辑的主题，内置模板本身不会被改动。</span></div>
+      </div>
+
+      <div id="tab-write" style="display:none">
+        <div class="field"><label>主题名称</label><input placeholder="例如：我的决策复盘" /></div>
+        <div class="field"><label>一句话说明</label><input placeholder="这个主题想回答什么问题？" /></div>
+        <div class="field">
+          <label>分析维度与判断口径</label>
+          <div class="dim-edit"><input placeholder="维度名称" value="决策质量" /><input placeholder="判断标准" value="是否记录了备选方案与放弃理由" /><select><option>0–100</option></select><button class="icon-btn"><svg class="ico sm"><use href="#i-x"/></svg></button></div>
+          <div class="dim-edit"><input placeholder="维度名称" value="信息充分度" /><input placeholder="判断标准" value="决策前是否列出关键未知项" /><select><option>0–100</option></select><button class="icon-btn"><svg class="ico sm"><use href="#i-x"/></svg></button></div>
+          <button class="btn sm" style="margin-top:4px"><svg class="ico sm"><use href="#i-plus"/></svg>添加维度</button>
+        </div>
+        <div class="rule" style="border:1px solid var(--line);border-radius:9px">
+          <div class="rule-main"><b>标记为敏感主题</b><span>首次运行需要额外确认，报告中带敏感声明</span></div>
+          <div class="switch" onclick="this.classList.toggle('on')"></div>
+        </div>
+      </div>
+
+      <div id="tab-zip" style="display:none">
+        <div class="drop">
+          <svg class="ico"><use href="#i-upload"/></svg>
+          <b>拖入 .zip 方法包，或点击选择文件</b>
+          需包含 SKILL.md（frontmatter 声明 name / description / dimensions），可附带参考文件
+        </div>
+        <div class="code">---
+name: 决策复盘
+description: 从复盘文档中检查决策过程
+dimensions:
+  - name: 决策质量
+    criteria: 是否记录了备选方案与放弃理由
+    scale: 0-100
+    requires_evidence: true
+  - name: 事后偏差
+    criteria: 是否出现“早就知道”类表述
+    scale: 0-100
+---
+
+# 分析方法
+1. 先定位每个决策节点……
+2. 区分结果好与决策好……</div>
+        <div class="hint-box" style="margin-top:12px"><svg class="ico sm"><use href="#i-lock"/></svg><span>方法包只作为分析与提示词规范加载，不执行其中的任何代码，也不会进入沙箱镜像。</span></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="hint">创建后不会自动运行</span>
+      <div class="spacer"></div>
+      <button class="btn ghost" onclick="closeModal('maskNewTheme')">取消</button>
+      <button class="btn primary" onclick="createTheme()">创建主题</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------------- 演示数据 ---------------- */
+const THEMES = [
+  {
+    id:'thinking', name:'思维模式', builtin:true, sensitive:false, glyph:'i-spark',
+    desc:'从你反复出现的判断与取舍里，识别稳定的思考路径，而不是单次的情绪表达。',
+    dims:[
+      ['决策偏好','先行动再校准 / 先穷举再决定','0–100'],
+      ['归因方式','对己与人分别倾向内部还是外部归因','0–100'],
+      ['时间视角','短期交付与长期方向的注意力分配','0–100'],
+      ['抽象层级','偏好具体案例还是抽象原则','0–100']
+    ],
+    reports:[
+      ['2026-11-16','第 4 次运行','覆盖 132 篇 · 208 条证据'],
+      ['2026-09-02','第 3 次运行','覆盖 118 篇 · 176 条证据'],
+      ['2026-06-14','第 2 次运行','覆盖 96 篇 · 141 条证据']
+    ],
+    last:'3 天前'
+  },
+  {
+    id:'values', name:'价值观', builtin:true, sensitive:true, glyph:'i-star',
+    desc:'找出你真正看重的东西：不是你说重视什么，而是你在取舍时实际放弃了什么。',
+    dims:[
+      ['价值排序','在冲突取舍中优先保留什么','0–100'],
+      ['言行落差','宣称价值与实际选择之间的差距','0–100'],
+      ['长期承诺','反复投入时间的方向','0–100']
+    ],
+    reports:[
+      ['2026-10-21','第 2 次运行','覆盖 121 篇 · 164 条证据'],
+      ['2026-07-05','第 1 次运行','覆盖 88 篇 · 102 条证据']
+    ],
+    last:'26 天前'
+  },
+  {
+    id:'traps', name:'思维陷阱', builtin:true, sensitive:false, glyph:'i-info',
+    desc:'检查反复出现的认知偏差：过度概括、确认偏误、沉没成本与二元对立。',
+    dims:[
+      ['过度概括','从个别事件推出普遍结论','0–100'],
+      ['确认偏误','只记录支持既有判断的证据','0–100'],
+      ['沉没成本','因已投入而继续错误的投入','0–100'],
+      ['二元对立','把连续问题表述成非此即彼','0–100']
+    ],
+    reports:[
+      ['2026-11-02','第 1 次运行','覆盖 109 篇 · 133 条证据']
+    ],
+    last:'14 天前'
+  },
+  {
+    id:'clarify', name:'价值澄清', builtin:true, sensitive:true, glyph:'i-layers',
+    desc:'把模糊的“我想要”拆成核心价值观、反价值与不同生活领域的权重。',
+    dims:[
+      ['核心价值观','反复出现且愿意付出代价的原则','0–100'],
+      ['反价值','明确不愿成为的样子','0–100'],
+      ['领域权重','工作 / 关系 / 成长 / 健康的投入比','0–100']
+    ],
+    reports:[
+      ['2026-11-08','第 1 次运行','覆盖 118 篇 · 142 条证据']
+    ],
+    last:'8 天前'
+  },
+  {
+    id:'mbti', name:'MBTI 倾向分析', builtin:true, sensitive:true, glyph:'i-table',
+    desc:'按四个维度整理文档中的行为证据，给出倾向参考，不做人格诊断。',
+    dims:[
+      ['E / I','能量来自外部交互还是独处','0–100'],
+      ['S / N','关注具体事实还是可能性','0–100'],
+      ['T / F','决策依据逻辑还是关系','0–100'],
+      ['J / P','偏好计划还是开放选项','0–100']
+    ],
+    reports:[
+      ['2026-09-18','第 1 次运行','覆盖 102 篇 · 118 条证据']
+    ],
+    last:'59 天前'
+  },
+  {
+    id:'conflict', name:'主要矛盾', builtin:true, sensitive:false, glyph:'i-clock',
+    desc:'从目标、资源与关系中找出当前最消耗你的那组冲突，而不是罗列所有问题。',
+    dims:[
+      ['目标冲突','两个都想达成但相互挤压的目标','0–100'],
+      ['资源约束','时间 / 精力 / 权限的硬约束','0–100'],
+      ['关系张力','反复出现的人际摩擦点','0–100']
+    ],
+    reports:[
+      ['2026-11-12','第 1 次运行','覆盖 127 篇 · 156 条证据']
+    ],
+    last:'4 天前'
+  },
+  {
+    id:'decision', name:'我的决策复盘', builtin:false, sensitive:false, glyph:'i-edit',
+    desc:'自定义方法包：检查每个决策节点是否记录了备选方案、关键未知项与事后偏差。',
+    dims:[
+      ['决策质量','是否记录备选方案与放弃理由','0–100'],
+      ['信息充分度','决策前列出的关键未知项','0–100'],
+      ['事后偏差','是否出现“早就知道”类表述','0–100']
+    ],
+    reports:[
+      ['2026-11-10','第 5 次运行','覆盖 132 篇 · 191 条证据'],
+      ['2026-10-08','第 4 次运行','覆盖 128 篇 · 183 条证据']
+    ],
+    last:'6 天前'
+  }
+];
+
+const EVIDENCE = [
+  ['先把最小闭环跑出来，再决定要不要把方案做全。','决策偏好','《Q3 OKR 复盘》 · 第 12 段','有证据',false,'2026-09-28'],
+  ['我习惯先动手改一版，讨论太慢。','决策偏好','《周会记录 0812》 · 第 3 段','有证据',false,'2026-08-12'],
+  ['他们没提前同步，说明根本没把我们当合作方。','归因方式','《与产品对齐纪要 0712》 · 第 4 段','有证据',false,'2026-07-12'],
+  ['这次延期主要是上游变更，我们没什么可优化的。','归因方式','《项目复盘 0630》 · 第 9 段','有证据',false,'2026-06-30'],
+  ['这周主要是把上线收尾，长期规划下周再看。','时间视角','《周报 2026-04-18》 · 第 2 段','有证据',false,'2026-04-18'],
+  ['方案先讲结论，背景放附录。','抽象层级','《汇报提纲 0521》 · 第 1 段','有证据',false,'2026-05-21'],
+  ['可能我骨子里更在意把事做成，而不是职位。','价值观','《个人笔记 2026-02-11》 · 第 5 段','推断',false,'2026-02-11'],
+  ['最近半年几乎没有写过三年后的打算。','时间视角','跨 14 篇检索统计','推断',false,'2026-10-02'],
+  ['我会先把所有选项列出来再判断。','决策偏好','《招聘面试记录 2026-03》 · 第 7 段','有证据',false,'2026-03-09'],
+  ['这次方向是老板定的，我们只是执行。','归因方式','《季度沟通记录》 · 第 2 段','有证据',false,'2026-08-30']
+];
+
+let current = 'thinking';
+let pendingFlow = null;   // 'checkup' | 'run'
+const acknowledged = new Set();
+let agreeChecked = false;
+
+/* ---------------- 渲染：主题列表 ---------------- */
+function renderList(){
+  const builtin = THEMES.filter(t=>t.builtin);
+  const mine = THEMES.filter(t=>!t.builtin);
+  const item = t => `
+    <button class="theme-item ${t.id===current?'is-active':''}" title="${t.desc}" onclick="selectTheme('${t.id}')">
+      <span class="theme-glyph"><svg class="ico sm"><use href="#${t.glyph}"/></svg></span>
+      <span class="theme-copy">
+        <span class="theme-name">${t.name}${t.sensitive?'<span class="tag amber" style="padding:0 5px;font-size:9px">敏感</span>':''}</span>
+        <span class="theme-desc">${t.desc}</span>
+        <span class="theme-meta">
+          ${t.reports.length?`<span class="dot ${t.id==='thinking'?'run':''}"></span>${t.reports.length} 份报告 · ${t.last}`:'<span class="dot"></span>未运行'}
+        </span>
+      </span>
+    </button>`;
+  document.getElementById('themeList').innerHTML = `
+    <div class="list-label"><span>内置主题</span><span>${builtin.length}</span></div>
+    ${builtin.map(item).join('')}
+    <div class="list-label"><span>我的主题</span><span>${mine.length}</span></div>
+    ${mine.map(item).join('')}
+  `;
+}
+
+/* ---------------- 渲染：主题详情 ---------------- */
+function renderDetail(){
+  const t = THEMES.find(x=>x.id===current);
+  const hasReport = t.reports.length>0;
+  const dimRows = t.dims.map(d=>`<div class="dim-row"><b>${d[0]}</b><span>${d[1]}</span><span class="tag outline" style="justify-self:start">${d[2]}</span></div>`).join('');
+  const reports = hasReport
+    ? t.reports.map(r=>`
+      <div class="report-row" onclick="openReport('${t.id}')">
+        <span class="date">${r[0]}</span>
+        <span class="name">${t.name}洞察报告</span>
+        <span class="facts">${r[2]}</span>
+        <svg class="ico sm" style="color:#c5c5c5"><use href="#i-dots"/></svg>
+      </div>`).join('')
+    : `<div class="empty-box"><b>还没有运行过这个主题</b>建议先跑一次小样（最近 20 篇），确认分析口径后再全量。</div>`;
+
+  document.getElementById('themeDetail').innerHTML = `
+    <div class="detail-head">
+      <div>
+        <div class="detail-title">
+          <h2>${t.name}</h2>
+          <span class="tag ${t.builtin?'green':'outline'}">${t.builtin?'内置模板':'自定义方法包'}</span>
+          ${t.sensitive?'<span class="tag amber">敏感</span>':''}
+        </div>
+        <p class="detail-desc">${t.desc}</p>
+      </div>
+      <div class="detail-head-actions">
+        <button class="btn ghost" onclick="toast('原型：编辑主题的维度与判断口径；历史报告不受影响')"><svg class="ico sm"><use href="#i-edit"/></svg>编辑方法</button>
+        <button class="btn primary" onclick="startFlow()">${hasReport?'再次分析':'开始分析'}</button>
+      </div>
+    </div>
+
+    <div class="meta-strip">
+      <div><span>分析维度</span><b>${t.dims.length} 个</b></div>
+      <div><span>模型</span><b>默认模型</b></div>
+      <div><span>历史报告</span><b>${t.reports.length} 份</b></div>
+      <div><span>上次运行</span><b>${t.last}</b></div>
+    </div>
+
+    <div class="scope-card">
+      <svg class="ico"><use href="#i-book"/></svg>
+      <div class="scope-main">
+        <b>工作知识库 · 全部归档</b>
+        <p>156 篇 · 可分析 132 篇 · 配置为包含文件夹「产品思考 / 复盘 / 个人笔记」</p>
+      </div>
+      <button class="btn sm" onclick="toast('原型：全部归档 / 按文件夹 / 按时间 / 手选文档')">调整范围</button>
+    </div>
+
+    <div class="section-title">维度与判断口径<span class="right">主题只声明口径，报告结构统一</span></div>
+    <div class="dim-table">
+      <div class="dim-row head"><span>维度</span><span>判断标准</span><span>评分</span></div>
+      ${dimRows}
+    </div>
+
+    <div class="section-title">历史报告 <span class="count">${t.reports.length}</span><span class="right">报告为不可变快照</span></div>
+    ${reports}
+
+    <div class="privacy-note">
+      <svg class="ico sm"><use href="#i-shield"/></svg>
+      <span>洞察仅你本人可见：报告、证据集与运行记录管理员不可读，也不进入团队统计。删除运行会同时删除它的证据集。</span>
+    </div>
+  `;
+}
+
+function selectTheme(id){
+  current = id;
+  renderList();
+  renderDetail();
+}
+
+/* ---------------- 视图切换 ---------------- */
+function showView(id){
+  document.querySelectorAll('.view').forEach(v=>v.classList.toggle('is-active', v.id===('view-'+id)));
+}
+function backHome(){
+  stopRun();
+  showView('home');
+}
+
+/* ---------------- 主题洞察 / 自我洞悉 切换 ---------------- */
+function setMode(mode){
+  if (mode === 'self') {
+    showView('self');
+    const sc = document.querySelector('.self-scroll');
+    if (sc) sc.scrollTop = 0;
+    return;
+  }
+  showView('home');
+}
+function regenerateSelf(){
+  toast('原型：将覆盖更新当前说明书（约 2–4 分钟），前提是 6 个内置主题都已完成');
+}
+
+/* ---------------- 流程 ---------------- */
+function startFlow(){
+  const t = THEMES.find(x=>x.id===current);
+  if (t.sensitive && !acknowledged.has(t.id)) { openPrivacy(t); return; }
+  openCheckup(t);
+}
+
+function openPrivacy(t){
+  agreeChecked = false;
+  document.getElementById('privacySub').textContent = `「${t.name}」会对你本人做出高敏感推断，首次运行前需要确认数据如何使用。`;
+  const box = document.getElementById('agreeBox');
+  box.classList.remove('on');
+  document.getElementById('privacyNext').disabled = true;
+  openModal('maskPrivacy');
+}
+function toggleAgree(){
+  agreeChecked = !agreeChecked;
+  document.getElementById('agreeBox').classList.toggle('on', agreeChecked);
+  document.getElementById('privacyNext').disabled = !agreeChecked;
+}
+function privacyConfirmed(){
+  acknowledged.add(current);
+  closeModal('maskPrivacy');
+  openCheckup(THEMES.find(x=>x.id===current));
+}
+
+function openCheckup(t){
+  document.getElementById('checkupSub').textContent = `${t.name} · 工作知识库全部归档`;
+  openModal('maskCheckup');
+}
+
+function confirmCheckup(){
+  closeModal('maskCheckup');
+  showView('run');
+  startRun();
+}
+
+/* ---------------- 模拟两阶段运行 ---------------- */
+let runTimer = null, runP = 0;
+function startRun(){
+  runP = 0;
+  const bar = document.getElementById('runBar');
+  const pct = document.getElementById('runPct');
+  const docs = document.getElementById('runDocs');
+  const ev = document.getElementById('runEv');
+  const eta = document.getElementById('runEta');
+  const log = document.getElementById('runLog');
+  bar.style.width = '0%'; pct.textContent = '0%';
+  docs.textContent = '0'; ev.textContent = '0'; eta.textContent = '6';
+  log.innerHTML = '';
+  document.getElementById('runTitle').textContent = THEMES.find(x=>x.id===current).name + ' · 分析进行中';
+  const lines = [
+    '读取归档索引：156 篇，可分析 132 篇',
+    '正在读取《Q3 OKR 复盘》…',
+    '抽取证据 3 条（决策偏好）',
+    '正在读取《周会记录 0812》…',
+    '抽取证据 2 条（归因方式）',
+    '正在读取《个人笔记 2026-02-11》…',
+    '去重与合并近似证据：-11',
+    '证据集就绪：214 条，等待确认'
+  ];
+  let li = 0;
+  stopRun();
+  runTimer = setInterval(()=>{
+    runP = Math.min(100, runP + 3 + Math.random()*4);
+    bar.style.width = runP.toFixed(0)+'%';
+    pct.textContent = runP.toFixed(0)+'%';
+    docs.textContent = Math.min(132, Math.round(runP*1.32));
+    ev.textContent = Math.min(214, Math.round(runP*2.14), 214);
+    eta.textContent = Math.max(0, Math.round((100-runP)/16));
+    if (li < lines.length && runP > li*12.5) {
+      log.insertAdjacentHTML('beforeend', `<div><span class="t">14:3${li}</span>${lines[li]}</div>`);
+      log.scrollTop = log.scrollHeight;
+      li++;
+    }
+    if (runP >= 100) {
+      stopRun();
+      setTimeout(showEvidence, 450);
+    }
+  }, 260);
+}
+function stopRun(){ if (runTimer) { clearInterval(runTimer); runTimer = null; } }
+function skipToEvidence(){ stopRun(); showEvidence(); }
+
+/* ---------------- 证据表 ---------------- */
+function showEvidence(){
+  showView('evidence');
+  renderEvidence();
+}
+function renderEvidence(){
+  const body = document.getElementById('evBody');
+  body.innerHTML = EVIDENCE.map((e,i)=>`
+    <tr data-idx="${i}">
+      <td><span class="chk" onclick="toggleExclude(${i}, this)"></span></td>
+      <td><div class="q">${e[0]}</div></td>
+      <td><span class="tag outline">${e[1]}</span></td>
+      <td><div class="src"><b>${e[2]}</b><br/>${e[5]}</div></td>
+      <td><span class="tag ${e[3]==='推断'?'amber':'green'}">${e[3]}</span></td>
+    </tr>`).join('');
+  // 预置两条被排除的示例，展示“可剔除”
+  [6,9].forEach(i=>{
+    const row = body.querySelector(`tr[data-idx="${i}"]`);
+    row.classList.add('is-excluded');
+    row.querySelector('.chk').classList.add('on');
+    row.querySelector('.chk').innerHTML = '<svg class="ico" style="width:9px;height:9px"><use href="#i-check"/></svg>';
+  });
+  updateEvCount();
+}
+function toggleExclude(i, el){
+  const row = el.closest('tr');
+  const on = row.classList.toggle('is-excluded');
+  el.classList.toggle('on', on);
+  el.innerHTML = on ? '<svg class="ico" style="width:9px;height:9px"><use href="#i-check"/></svg>' : '';
+  updateEvCount();
+}
+function updateEvCount(){
+  const ex = document.querySelectorAll('#evBody tr.is-excluded').length;
+  document.getElementById('evExcluded').textContent = ex;
+  document.getElementById('evValid').textContent = 214 - ex;
+}
+
+/* ---------------- 报告 ---------------- */
+function generateReport(){
+  openReport(current);
+}
+function openReport(id){
+  const t = THEMES.find(x=>x.id===id);
+  document.getElementById('crumbTheme').textContent = t.name;
+  document.getElementById('reportTitle').textContent = t.name + '洞察报告';
+  document.getElementById('demoBanner').style.display = (id==='thinking') ? 'none' : 'block';
+  showView('report');
+  document.querySelector('.report-scroll').scrollTop = 0;
+}
+
+/* ---------------- 追问 ---------------- */
+function sendAsk(){
+  const input = document.getElementById('askInput');
+  const text = input.value.trim();
+  if (!text) return;
+  const chat = document.getElementById('chat');
+  chat.insertAdjacentHTML('beforeend', `<div class="msg user">${escapeHtml(text)}</div>`);
+  input.value = '';
+  chat.scrollTop = chat.scrollHeight;
+  setTimeout(()=>{
+    chat.insertAdjacentHTML('beforeend', `
+      <div class="msg ai">
+        <div class="ai-name"><svg class="ico" style="width:11px;height:11px"><use href="#i-spark"/></svg>洞察助手</div>
+        <div class="ai-body">
+          这条问题只会在本次报告的 208 条证据里找答案。原型演示中先给一个示例：第 2 条发现的证据主要集中在 4 篇协作类文档，置信度标为「中」；你可以点开引用查看原文段落，也可以在证据表里剔除它们后重新生成。
+          <div class="refs" style="margin-top:8px"><span class="ref">[4] 对齐纪要 0712</span><span class="ref">[5] 项目复盘 0630</span></div>
+        </div>
+      </div>`);
+    chat.scrollTop = chat.scrollHeight;
+  }, 550);
+}
+function escapeHtml(s){ return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* 自我洞悉的追问：上下文限定为本次说明书 + 其引用的报告与证据 */
+function sendSelfAsk(){
+  const input = document.getElementById('selfAskInput');
+  const text = input.value.trim();
+  if (!text) return;
+  const chat = document.getElementById('selfChat');
+  chat.insertAdjacentHTML('beforeend', `<div class="msg user">${escapeHtml(text)}</div>`);
+  input.value = '';
+  chat.scrollTop = chat.scrollHeight;
+  setTimeout(()=>{
+    chat.insertAdjacentHTML('beforeend', `
+      <div class="msg ai">
+        <div class="ai-name"><svg class="ico" style="width:11px;height:11px"><use href="#i-spark"/></svg>洞察助手</div>
+        <div class="ai-body">
+          L2 的大部分内容是推断，而不是直接证据：「胜任需求」来自你反复打磨交付的行为，「被看穿的恐惧」来自拖延与过度准备的场景分布，两者都是间接推断。<br /><br />
+          直接证据只有一条：汇报前平均多改 3 轮，且改动集中在措辞而非结论。这一条支持「怕被评价」，但不足以证明它是最强的恐惧。
+          <div class="refs" style="margin-top:8px"><span class="ref">来源：思维模式报告</span><span class="ref">来源：汇报准备清单</span></div>
+        </div>
+      </div>`);
+    chat.scrollTop = chat.scrollHeight;
+  }, 550);
+}
+
+/* ---------------- 弹窗 ---------------- */
+function openModal(id){ document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+function openNewTheme(){ openModal('maskNewTheme'); }
+function switchTab(tab){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on', t.dataset.tab===tab));
+  ['tpl','write','zip'].forEach(k=>document.getElementById('tab-'+k).style.display = (k===tab?'block':'none'));
+}
+function createTheme(){
+  closeModal('maskNewTheme');
+  toast('原型：主题创建后出现在「我的主题」，不会自动运行');
+}
+
+/* ---------------- 设计说明 ---------------- */
+function toggleNotes(){ document.getElementById('notes').classList.toggle('open'); }
+
+/* ---------------- 轻量提示 ---------------- */
+let toastTimer = null;
+function toast(msg){
+  let el = document.getElementById('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    el.className = 'toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>el.classList.remove('on'), 2200);
+}
+
+/* ---------------- 初始化 ---------------- */
+renderList();
+renderDetail();
+document.querySelectorAll('.tpl').forEach(el=>{
+  el.addEventListener('click', ()=>{
+    document.querySelectorAll('.tpl').forEach(x=>x.classList.remove('on'));
+    el.classList.add('on');
+  });
+});
+document.addEventListener('keydown', e=>{
+  if (e.key === 'Escape') document.querySelectorAll('.mask.open').forEach(m=>m.classList.remove('open'));
+});
+</script>
+</body>
+</html>

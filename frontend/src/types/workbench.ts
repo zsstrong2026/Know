@@ -99,6 +99,8 @@ export interface WorkbenchItem {
   last_opened_at: string | null
   created_at: string
   updated_at: string
+  /** 大于 0 表示服务端已有列表封面；前端据此请求缩略图接口。 */
+  thumbnail_version: number
   archive_status?: ArchiveStatus
   archived_version?: number
 }

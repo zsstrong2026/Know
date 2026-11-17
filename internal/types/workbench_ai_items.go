@@ -122,7 +122,10 @@ func (p *WorkbenchAIItemsPayload) Validate(
 	if p == nil {
 		return fmt.Errorf("%w: payload is nil", ErrWorkbenchAIItemsBadPayload)
 	}
-	if len(p.Items) == 0 {
+	// 空数组是合法结果：文档里确实没有可执行事项时模型会正常返回 {"items":[]}，
+	// 这不是解析失败，前端据此提示「未识别到可执行的事项」。
+	// 但缺少 items 键（nil）仍视为输出格式跑偏，保留 2410。
+	if p.Items == nil {
 		return fmt.Errorf("%w: payload has no items", ErrWorkbenchAIItemsBadPayload)
 	}
 	statusSet := toLowerSet(statusOptions)

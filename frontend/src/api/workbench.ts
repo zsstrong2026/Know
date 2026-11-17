@@ -7,7 +7,7 @@
  *   - 统一在后端响应 `{ success, data }` 上解包，调用方直接拿业务对象；
  *   - 错误码统一用 workbenchErrorCode() 读取，不要在别处再抄一份判断。
  */
-import { get, patch, post, postUpload, put, del } from '@/utils/request'
+import { get, getDown, patch, post, postUpload, put, del } from '@/utils/request'
 import { WORKBENCH_ERROR, workbenchConflictVersion, workbenchErrorCode } from '@/workbench/error-code'
 import type {
   ArchiveSourceType,
@@ -116,6 +116,31 @@ export function updateWorkbenchItem(
     `${BASE}/items/${encodeURIComponent(id)}`,
     payload,
   ).then((r) => r.data)
+}
+
+/**
+ * 上传列表封面缩略图（编辑器保存后截取的当前视图）。
+ *
+ * 直接传图片字节而不是 multipart：单张图很小，服务端会嗅探真实类型；
+ * version 是截取时的 snapshot_version，服务端只接受不旧于当前封面的写入。
+ */
+export function saveWorkbenchThumbnail(
+  id: string,
+  image: Blob,
+  version: number,
+): Promise<{ thumbnail_version: number }> {
+  return put<{ success: boolean; data: { thumbnail_version: number } }>(
+    `${BASE}/items/${encodeURIComponent(id)}/thumbnail?version=${version}`,
+    image,
+    { headers: { 'Content-Type': image.type || 'image/jpeg' } },
+  ).then((r) => r.data)
+}
+
+/** 读取列表封面；没有封面时接口返回 404，由调用方回退到骨架封面。 */
+export function getWorkbenchThumbnail(id: string, version: number): Promise<Blob> {
+  return getDown(
+    `${BASE}/items/${encodeURIComponent(id)}/thumbnail?v=${version}`,
+  )
 }
 
 export function deleteWorkbenchItem(

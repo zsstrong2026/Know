@@ -1,5 +1,5 @@
 <template>
-  <!-- 条目卡片：封面用 CSS 画出「纸页 / 画布 / 数据表」缩略，不加载真实图片（P3 再做预览图） -->
+  <!-- 条目卡片：优先展示编辑器截图封面；没有封面时用 CSS 骨架兜底，避免空卡片 -->
   <article
     class="item-card"
     :class="{ 'is-trashed': trashed }"
@@ -8,40 +8,44 @@
     @click="emit('open', item)"
     @keydown.enter.prevent="emit('open', item)"
   >
-    <div class="card-cover" :class="`cover-${coverKind}`">
-      <!-- 文档：一张纸的骨架，让空封面也能表达「有内容」 -->
-      <div v-if="coverKind === 'page'" class="cover-paper" aria-hidden="true">
-        <span class="ln ln-title" />
-        <span v-for="width in docLineWidths" :key="width" class="ln" :style="{ width: `${width}%` }" />
-      </div>
-
-      <!-- 画布：点阵画布 + 节点连线 -->
-      <div v-else-if="coverKind === 'canvas'" class="cover-board" aria-hidden="true">
-        <svg class="board-art" viewBox="0 0 240 100" preserveAspectRatio="none">
-          <path class="board-edge" d="M55 33 L110 54 M120 54 L168 29" />
-          <rect class="board-node" x="16" y="19" width="62" height="28" rx="4" />
-          <rect class="board-node" x="104" y="41" width="70" height="28" rx="4" />
-          <rect class="board-node" x="163" y="13" width="60" height="34" rx="4" />
-          <line class="board-line is-strong" x1="26" y1="30" x2="62" y2="30" />
-          <line class="board-line" x1="26" y1="38" x2="52" y2="38" />
-          <line class="board-line is-strong" x1="114" y1="52" x2="150" y2="52" />
-          <line class="board-line" x1="114" y1="60" x2="140" y2="60" />
-          <line class="board-line is-strong" x1="173" y1="25" x2="211" y2="25" />
-          <line class="board-line" x1="173" y1="33" x2="199" y2="33" />
-        </svg>
-      </div>
-
-      <!-- 数据表：表头 + 行列骨架 -->
-      <div v-else class="cover-paper cover-table" aria-hidden="true">
-        <div class="table-grid">
-          <span
-            v-for="cell in 12"
-            :key="cell"
-            class="table-cell"
-            :class="{ 'is-head': cell <= 3 }"
-          />
+    <div ref="coverRef" class="card-cover" :class="`cover-${coverKind}`">
+      <!-- 有真实缩略图时直接铺满封面；加载中/无图时继续用骨架，避免卡片空白 -->
+      <img v-if="thumbUrl" class="cover-thumb" :src="thumbUrl" alt="" />
+      <template v-else>
+        <!-- 文档：一张纸的骨架，让空封面也能表达「有内容」 -->
+        <div v-if="coverKind === 'page'" class="cover-paper" aria-hidden="true">
+          <span class="ln ln-title" />
+          <span v-for="width in docLineWidths" :key="width" class="ln" :style="{ width: `${width}%` }" />
         </div>
-      </div>
+
+        <!-- 画布：点阵画布 + 节点连线 -->
+        <div v-else-if="coverKind === 'canvas'" class="cover-board" aria-hidden="true">
+          <svg class="board-art" viewBox="0 0 240 100" preserveAspectRatio="none">
+            <path class="board-edge" d="M55 33 L110 54 M120 54 L168 29" />
+            <rect class="board-node" x="16" y="19" width="62" height="28" rx="4" />
+            <rect class="board-node" x="104" y="41" width="70" height="28" rx="4" />
+            <rect class="board-node" x="163" y="13" width="60" height="34" rx="4" />
+            <line class="board-line is-strong" x1="26" y1="30" x2="62" y2="30" />
+            <line class="board-line" x1="26" y1="38" x2="52" y2="38" />
+            <line class="board-line is-strong" x1="114" y1="52" x2="150" y2="52" />
+            <line class="board-line" x1="114" y1="60" x2="140" y2="60" />
+            <line class="board-line is-strong" x1="173" y1="25" x2="211" y2="25" />
+            <line class="board-line" x1="173" y1="33" x2="199" y2="33" />
+          </svg>
+        </div>
+
+        <!-- 数据表：表头 + 行列骨架 -->
+        <div v-else class="cover-paper cover-table" aria-hidden="true">
+          <div class="table-grid">
+            <span
+              v-for="cell in 12"
+              :key="cell"
+              class="table-cell"
+              :class="{ 'is-head': cell <= 3 }"
+            />
+          </div>
+        </div>
+      </template>
 
       <button
         class="card-star"
@@ -96,13 +100,15 @@
 /**
  * 工作台条目卡片。
  *
- * 交互全部上抛给列表页（open / favorite / archive / menu），
- * 卡片本身不请求接口，保证在列表里可以大量复用而不产生 N+1 请求。
+ * 交互全部上抛给列表页（open / favorite / archive / menu）；
+ * 卡片只按需加载封面缩略图（进入视口附近才请求，且有全局缓存），
+ * 其余数据都来自列表响应，不额外请求。
  */
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ArchiveBadge from './ArchiveBadge.vue'
 import { formatRelativeTime, itemCaption } from '@/workbench/item-display'
+import { cachedThumbnail, loadThumbnail } from '@/workbench/thumbnail-cache'
 import {
   buildItemMenuOptions,
   resolveItemMenuAction,
@@ -156,6 +162,68 @@ function onMenu(data: { value?: string | number }) {
   const action = resolveItemMenuAction(data.value)
   if (action) emit('menu', props.item, action)
 }
+
+// ---- 封面缩略图：进入视口附近才发起请求，避免一页 30 张同时抢带宽 ----
+const coverRef = ref<HTMLElement | null>(null)
+const thumbUrl = ref('')
+/** 已发起请求的 key，防止 watch 与 observer 重复触发 */
+let requestedKey = ''
+let observer: IntersectionObserver | null = null
+
+/** 版本随内容更新；key 变化即视为另一张图。 */
+function thumbnailKey(): string {
+  return props.item.thumbnail_version ? `${props.item.id}:${props.item.thumbnail_version}` : ''
+}
+
+function requestThumbnail() {
+  const key = thumbnailKey()
+  if (!key || requestedKey === key) return
+  requestedKey = key
+  const cached = cachedThumbnail(props.item)
+  if (cached) {
+    thumbUrl.value = cached
+    return
+  }
+  void loadThumbnail(props.item).then((url) => {
+    // 加载期间条目可能已被替换（同一路由切换），只接受当前 key 的结果。
+    if (url && thumbnailKey() === key) thumbUrl.value = url
+  })
+}
+
+function resetThumbnail() {
+  observer?.disconnect()
+  observer = null
+  thumbUrl.value = ''
+  requestedKey = ''
+
+  const key = thumbnailKey()
+  if (!key) return
+  const cached = cachedThumbnail(props.item)
+  if (cached) {
+    requestedKey = key
+    thumbUrl.value = cached
+    return
+  }
+  if (typeof IntersectionObserver === 'undefined') {
+    requestThumbnail()
+    return
+  }
+  observer = new IntersectionObserver(
+    (entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return
+      observer?.disconnect()
+      observer = null
+      requestThumbnail()
+    },
+    // 提前 200px 预取，滚动到卡片时图片大概率已经就绪。
+    { rootMargin: '200px' },
+  )
+  if (coverRef.value) observer.observe(coverRef.value)
+}
+
+onMounted(resetThumbnail)
+watch(() => `${props.item.id}:${props.item.thumbnail_version}`, resetThumbnail)
+onBeforeUnmount(() => observer?.disconnect())
 </script>
 
 <style lang="less" scoped>
@@ -198,6 +266,18 @@ function onMenu(data: { value?: string | number }) {
   overflow: hidden;
   border-bottom: 1px solid var(--td-component-stroke);
   background: var(--td-bg-color-secondarycontainer);
+}
+
+/* 真实封面：铺满封面区，文档从顶部对齐，避免看到大片空白正文 */
+.cover-thumb {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: top center;
+  background: var(--card-paper);
 }
 
 /* 纸页：文档与数据表共用，贴着封面底边裁切，像从下方抽出来的一张纸 */

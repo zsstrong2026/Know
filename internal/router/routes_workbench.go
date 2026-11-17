@@ -37,6 +37,7 @@ func RegisterWorkbenchRoutes(
 	aiHandler *handler.WorkbenchAIHandler,
 	templateHandler *handler.WorkbenchTemplateHandler,
 	assetHandler *handler.WorkbenchAssetHandler,
+	insightHandler *handler.WorkbenchInsightHandler,
 	flags WorkbenchFeatureFlags,
 	g *rbacGuards,
 ) {
@@ -61,6 +62,9 @@ func RegisterWorkbenchRoutes(
 
 		group.GET("/items/:id/content", g.Viewer(), itemHandler.GetContent)
 		group.PUT("/items/:id/content", g.Viewer(), itemHandler.SaveContent)
+		// 列表封面缩略图：PUT 传原始图片字节，GET 返回图片；版本号走 query。
+		group.GET("/items/:id/thumbnail", g.Viewer(), itemHandler.GetThumbnail)
+		group.PUT("/items/:id/thumbnail", g.Viewer(), itemHandler.SaveThumbnail)
 
 		// 标签（P4-2）：个人资源，与条目同一套隔离；覆盖式设置条目标签
 		group.GET("/tags", g.Viewer(), itemHandler.ListTags)
@@ -135,6 +139,38 @@ func RegisterWorkbenchRoutes(
 		group.DELETE("/items/:id/assets/:asset_id", g.Viewer(), assetHandler.DeleteItemAsset)
 		// 下载不带 item 前缀：BlockSuite 只知道 asset id，拼不出 item 路径。
 		group.GET("/assets/:asset_id", g.Viewer(), assetHandler.DownloadAsset)
+	}
+	if insightHandler != nil {
+		// 洞察（墨匣）：主题、两阶段分析、证据、报告与自我洞悉。
+		// 与工作台其他个人资源一致，全部挂在 DenyAPIKeyPrincipal 之下。
+		group.GET("/insights/themes", g.Viewer(), insightHandler.ListThemes)
+		group.POST("/insights/themes", g.Viewer(), insightHandler.CreateTheme)
+		group.PUT("/insights/themes/:id", g.Viewer(), insightHandler.UpdateTheme)
+		group.DELETE("/insights/themes/:id", g.Viewer(), insightHandler.DeleteTheme)
+		group.GET("/insights/themes/:id/checkup", g.Viewer(), insightHandler.Checkup)
+		group.POST("/insights/themes/:id/runs", g.Viewer(), insightHandler.StartRun)
+		group.GET("/insights/themes/:id/runs", g.Viewer(), insightHandler.ListThemeRuns)
+		group.POST("/insights/theme-import", g.Viewer(), insightHandler.ImportTheme)
+		group.GET("/insights/themes/:id/reports", g.Viewer(), insightHandler.ListReports)
+
+		group.GET("/insights/runs/:id", g.Viewer(), insightHandler.GetRun)
+		group.DELETE("/insights/runs/:id", g.Viewer(), insightHandler.DeleteRun)
+		group.POST("/insights/runs/:id/cancel", g.Viewer(), insightHandler.CancelRun)
+		group.GET("/insights/runs/:id/evidence", g.Viewer(), insightHandler.ListEvidence)
+		group.POST("/insights/runs/:id/evidence/exclude", g.Viewer(), insightHandler.ExcludeEvidence)
+		group.POST("/insights/runs/:id/confirm", g.Viewer(), insightHandler.ConfirmRun)
+
+		group.GET("/insights/reports/:id", g.Viewer(), insightHandler.GetReport)
+		group.DELETE("/insights/reports/:id", g.Viewer(), insightHandler.DeleteReport)
+		group.GET("/insights/reports/:id/messages", g.Viewer(), insightHandler.ListReportMessages)
+		group.POST("/insights/reports/:id/ask", g.Viewer(), insightHandler.AskReport)
+
+		group.GET("/insights/self", g.Viewer(), insightHandler.GetSelf)
+		group.POST("/insights/self/generate", g.Viewer(), insightHandler.GenerateSelf)
+		group.GET("/insights/self/messages", g.Viewer(), insightHandler.ListSelfMessages)
+		group.POST("/insights/self/ask", g.Viewer(), insightHandler.AskSelf)
+		group.GET("/insights/privacy", g.Viewer(), insightHandler.GetPrivacy)
+		group.PUT("/insights/privacy", g.Viewer(), insightHandler.UpdatePrivacy)
 	}
 }
 

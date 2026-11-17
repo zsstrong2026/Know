@@ -138,48 +138,53 @@ affine-slash-menu {
   --affine-overlay-panel-shadow: var(--td-shadow-2);
 
   /**
-   * 文字高亮（工具栏「高亮」面板）：bg 是底色，fg 是文字颜色。
-   * 缺这组变量时 `background: var(--affine-v2-text-highlight-bg-*)` 解析为空，
-   * 高亮格式虽然写进了文档，页面上却完全看不到底色。
+   * 文字高亮（工具栏「高亮」面板）。
+   *
+   * 上游 HighlightDropdownMenu 写入的是 `var(--affine-text-highlight-<color>)`
+   * 作为 background、`var(--affine-text-highlight-foreground-<color>)` 作为 color，
+   * 最终由 `affineTextStyles` 落到内联 `background-color` / `color`。
+   * 这组变量同样只在 `@toeverything/theme` 里定义，缺失时整条声明解析为空，
+   * 高亮格式虽然写进了文档，页面上却看不到任何底色（表现为「高亮工具没反应」）。
+   * 取值与上游浅色主题一致。
    */
-  --affine-v2-text-highlight-border: #00000038;
-  --affine-v2-text-highlight-bg-red: #fce5e6;
-  --affine-v2-text-highlight-bg-orange: #ffebd5;
-  --affine-v2-text-highlight-bg-yellow: #fff9b6;
-  --affine-v2-text-highlight-bg-green: #f0fccb;
-  --affine-v2-text-highlight-bg-teal: #c7f8f2;
-  --affine-v2-text-highlight-bg-blue: #daf0ff;
-  --affine-v2-text-highlight-bg-purple: #ede9ff;
-  --affine-v2-text-highlight-bg-grey: #e6e6e6;
-  --affine-v2-text-highlight-fg-red: #c83030;
-  --affine-v2-text-highlight-fg-orange: #db7123;
-  --affine-v2-text-highlight-fg-yellow: #ac7400;
-  --affine-v2-text-highlight-fg-green: #225c18;
-  --affine-v2-text-highlight-fg-teal: #0e4841;
-  --affine-v2-text-highlight-fg-blue: #003c67;
-  --affine-v2-text-highlight-fg-purple: #7c3aed;
-  --affine-v2-text-highlight-fg-grey: #7a7a7a;
+  --affine-text-highlight-pink: rgba(255, 206, 206, 1);
+  --affine-text-highlight-red: rgba(254, 213, 213, 1);
+  --affine-text-highlight-orange: rgba(254, 223, 187, 1);
+  --affine-text-highlight-yellow: rgba(254, 243, 161, 1);
+  --affine-text-highlight-green: rgba(225, 250, 177, 1);
+  --affine-text-highlight-teal: rgba(173, 248, 233, 1);
+  --affine-text-highlight-blue: rgba(204, 226, 254, 1);
+  --affine-text-highlight-purple: rgba(237, 221, 255, 1);
+  --affine-text-highlight-grey: rgba(234, 236, 239, 1);
+  --affine-text-highlight-foreground-red: rgba(198, 34, 34, 1);
+  --affine-text-highlight-foreground-orange: rgba(211, 79, 11, 1);
+  --affine-text-highlight-foreground-yellow: rgba(182, 124, 4, 1);
+  --affine-text-highlight-foreground-green: rgba(20, 147, 67, 1);
+  --affine-text-highlight-foreground-teal: rgba(7, 130, 160, 1);
+  --affine-text-highlight-foreground-blue: rgba(33, 89, 211, 1);
+  --affine-text-highlight-foreground-purple: rgba(132, 46, 211, 1);
+  --affine-text-highlight-foreground-grey: rgba(122, 122, 122, 1);
 }
 
 /* 深色主题下的高亮色：沿用上游 dark 取值，避免浅底色在深色页面上刺眼。 */
 :root[theme-mode="dark"] {
-  --affine-v2-text-highlight-border: #ffffff3b;
-  --affine-v2-text-highlight-bg-red: #460606;
-  --affine-v2-text-highlight-bg-orange: #843b06;
-  --affine-v2-text-highlight-bg-yellow: #321a04;
-  --affine-v2-text-highlight-bg-green: #192e06;
-  --affine-v2-text-highlight-bg-teal: #0e4841;
-  --affine-v2-text-highlight-bg-blue: #002742;
-  --affine-v2-text-highlight-bg-purple: #2e1065;
-  --affine-v2-text-highlight-bg-grey: #414141;
-  --affine-v2-text-highlight-fg-red: #fc7979;
-  --affine-v2-text-highlight-fg-orange: #ffae63;
-  --affine-v2-text-highlight-fg-yellow: #facc15;
-  --affine-v2-text-highlight-fg-green: #9bda91;
-  --affine-v2-text-highlight-fg-teal: #448e86;
-  --affine-v2-text-highlight-fg-blue: #2f94d5;
-  --affine-v2-text-highlight-fg-purple: #9681ef;
-  --affine-v2-text-highlight-fg-grey: #565656;
+  --affine-text-highlight-pink: rgba(127, 93, 93, 1);
+  --affine-text-highlight-red: rgba(108, 39, 39, 1);
+  --affine-text-highlight-orange: rgba(112, 58, 21, 1);
+  --affine-text-highlight-yellow: rgba(106, 84, 15, 1);
+  --affine-text-highlight-green: rgba(26, 91, 50, 1);
+  --affine-text-highlight-teal: rgba(14, 85, 97, 1);
+  --affine-text-highlight-blue: rgba(56, 75, 122, 1);
+  --affine-text-highlight-purple: rgba(80, 46, 111, 1);
+  --affine-text-highlight-grey: rgba(64, 67, 74, 1);
+  --affine-text-highlight-foreground-red: rgba(249, 141, 141, 1);
+  --affine-text-highlight-foreground-orange: rgba(252, 168, 99, 1);
+  --affine-text-highlight-foreground-yellow: rgba(251, 214, 68, 1);
+  --affine-text-highlight-foreground-green: rgba(110, 229, 153, 1);
+  --affine-text-highlight-foreground-teal: rgba(87, 221, 204, 1);
+  --affine-text-highlight-foreground-blue: rgba(128, 183, 251, 1);
+  --affine-text-highlight-foreground-purple: rgba(205, 157, 253, 1);
+  --affine-text-highlight-foreground-grey: rgba(86, 86, 86, 1);
 }
 
 /**

@@ -142,6 +142,7 @@ const navEntries = computed(() =>
     { name: 'workbenchRecent', labelKey: 'workbench.nav.recent', icon: 'history', match: 'workbenchRecent' },
     { name: 'workbenchJournals', labelKey: 'workbench.nav.journals', icon: 'calendar', match: 'workbenchJournals', gate: 'journals' },
     { name: 'workbenchDatabases', labelKey: 'workbench.nav.databases', icon: 'table', match: 'workbenchDatabases' },
+    { name: 'workbenchInsights', labelKey: 'workbench.nav.insights', icon: 'chart-analytics', match: 'workbenchInsights' },
     { name: 'workbenchFavorites', labelKey: 'workbench.nav.favorites', icon: 'star', match: 'workbenchFavorites' },
     { name: 'workbenchTemplates', labelKey: 'workbench.nav.templates', icon: 'template', match: 'workbenchTemplates', gate: 'templates' },
     { name: 'workbenchTrash', labelKey: 'workbench.nav.trash', icon: 'delete', match: 'workbenchTrash' },

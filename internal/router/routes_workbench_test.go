@@ -101,7 +101,7 @@ func workbenchTestEngine(t *testing.T, apiKeyScope *types.TenantAPIKeyScope) *gi
 	RegisterWorkbenchRoutes(r.Group("/api/v1"), h, newWorkbenchFolderHandlerForTest(),
 		newWorkbenchArchiveHandlerForTest(), newWorkbenchJournalHandlerForTest(),
 		newWorkbenchNoticeHandlerForTest(), newWorkbenchAIHandlerForTest(),
-		newWorkbenchTemplateHandlerForTest(), newWorkbenchAssetHandlerForTest(),
+		newWorkbenchTemplateHandlerForTest(), newWorkbenchAssetHandlerForTest(), nil,
 		// 测试引擎把总开关与三个子门禁全部打开，覆盖到所有子路由。
 		WorkbenchFeatureFlags{Enabled: true, Templates: true, Journals: true, AI: true}, guards)
 	RegisterWorkbenchNoticeRoutes(r.Group("/api/v1"), newWorkbenchNoticeHandlerForTest())
@@ -188,7 +188,7 @@ func workbenchGatedEngine(t *testing.T, flags WorkbenchFeatureFlags) *gin.Engine
 	RegisterWorkbenchRoutes(r.Group("/api/v1"), h, newWorkbenchFolderHandlerForTest(),
 		newWorkbenchArchiveHandlerForTest(), newWorkbenchJournalHandlerForTest(),
 		newWorkbenchNoticeHandlerForTest(), newWorkbenchAIHandlerForTest(),
-		newWorkbenchTemplateHandlerForTest(), newWorkbenchAssetHandlerForTest(), flags, guards)
+		newWorkbenchTemplateHandlerForTest(), newWorkbenchAssetHandlerForTest(), nil, flags, guards)
 	return r
 }
 

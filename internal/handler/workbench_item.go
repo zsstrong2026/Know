@@ -200,6 +200,49 @@ func (h *WorkbenchItemHandler) SaveContent(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }
 
+// GetThumbnail GET /api/v1/workbench/items/:id/thumbnail
+//
+// 返回原始图片字节。没有封面时 404，前端回退到骨架封面；
+// 图片按版本号更新，这里只做短缓存，避免浏览器缓存住旧图。
+func (h *WorkbenchItemHandler) GetThumbnail(c *gin.Context) {
+	image, contentType, err := h.service.GetItemThumbnail(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	if len(image) == 0 || contentType == "" {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	c.Header("Cache-Control", "private, max-age=300")
+	c.Data(http.StatusOK, contentType, image)
+}
+
+// SaveThumbnail PUT /api/v1/workbench/items/:id/thumbnail?version=N
+//
+// body 是原始图片字节（前端已压缩成 JPEG），version 为截取时的 snapshot_version。
+// 用原始字节而不是 multipart：单张图很小，少一层解析；服务端仍会嗅探真实类型。
+func (h *WorkbenchItemHandler) SaveThumbnail(c *gin.Context) {
+	// 多留 64KB 给请求体，超过上限由 MaxBytesReader 直接截断。
+	c.Request.Body = http.MaxBytesReader(
+		c.Writer, c.Request.Body, types.WorkbenchMaxThumbnailBytes+64*1024)
+	image, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.Error(apperrors.NewValidationError("Invalid thumbnail data").WithDetails(err.Error()))
+		return
+	}
+	version, _ := strconv.Atoi(c.Query("version"))
+	savedVersion, err := h.service.SaveItemThumbnail(c.Request.Context(), c.Param("id"), image, version)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    gin.H{"thumbnail_version": savedVersion},
+	})
+}
+
 // ListVersions GET /api/v1/workbench/items/:id/versions?limit=20
 func (h *WorkbenchItemHandler) ListVersions(c *gin.Context) {
 	versions, err := h.service.ListVersions(

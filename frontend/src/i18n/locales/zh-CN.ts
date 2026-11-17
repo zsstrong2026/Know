@@ -9323,6 +9323,7 @@
       title: '墨匣',
       beta: 'BETA',
       recent: '最近',
+      insights: '洞察',
       databases: '事项',
       favorites: '收藏',
       templates: '模板',
@@ -9904,7 +9905,8 @@
       conflictReload: '重载最新版本',
       untitled: '未命名',
       addIcon: '添加图标',
-      addIconHint: '输入一个 emoji 作为条目标图（留空可清除）',
+      addIconHint: '选择一个 emoji 作为条目图标',
+      iconClear: '清除图标',
       docInfo: {
         updated: '更新于 {time}',
         words: '{count} 字',

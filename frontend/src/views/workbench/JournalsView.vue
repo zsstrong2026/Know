@@ -30,14 +30,13 @@
         <t-button v-if="currentEntry && ready" variant="text" size="small" @click="openCollect">
           {{ $t('workbench.collect.entry') }}
         </t-button>
-        <!-- 右侧抽屉：日历 / AI 共用同一面板，按钮只负责开合 -->
+        <!-- 日历 / AI 开关：默认开启右侧面板，取消选中即收起并恢复整宽编辑区 -->
         <t-button
-          v-if="currentEntry"
           variant="text"
           size="small"
           class="side-drawer-entry"
           :class="{ 'is-open': sideOpen }"
-          :aria-expanded="sideOpen"
+          :aria-pressed="sideOpen"
           :aria-label="$t('workbench.journals.panelSwitch')"
           @click="toggleSideDrawer"
         >
@@ -1315,8 +1314,10 @@ void (async () => {
   overflow-y: auto;
 }
 
-/* 顶栏「日历」入口：打开时保持高亮，和抽屉状态一致 */
+/* 顶栏「日历 / AI」开关：默认选中（浅绿底 + 品牌色），取消选中恢复普通文字按钮 */
 .side-drawer-entry {
+  border-radius: var(--app-radius-xs);
+
   &.is-open {
     background: var(--td-brand-color-1);
     color: var(--td-brand-color);

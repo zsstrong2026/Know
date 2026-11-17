@@ -36,7 +36,10 @@ CREATE TABLE IF NOT EXISTS workbench_items (
     last_opened_at DATETIME,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    deleted_at DATETIME
+    deleted_at DATETIME,
+    thumbnail BLOB,
+    thumbnail_content_type TEXT NOT NULL DEFAULT '',
+    thumbnail_version INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS workbench_item_versions (

@@ -11,17 +11,50 @@
       <t-button variant="text" shape="square" :aria-label="$t('workbench.editor.back')" @click="goBack">
         <t-icon name="chevron-left" size="18px" />
       </t-button>
-      <!-- 「添加图标」只在无图标且偏好开启时出现；点击不写数据，只是入口（§9.14.2） -->
-      <button
-        v-if="editorPrefs.showAddIcon && !item?.icon"
-        class="add-icon-btn"
-        type="button"
-        :aria-label="$t('workbench.editor.addIcon')"
-        @click="openIconPicker"
+      <!-- 图标入口：无图标且偏好开启时显示「添加」，已有图标时点击可更换；点击只开面板不写数据（§9.14.2） -->
+      <t-popup
+        v-if="editorPrefs.showAddIcon || item?.icon"
+        v-model="iconPickerOpen"
+        trigger="click"
+        placement="bottom-left"
       >
-        <t-icon name="image" size="14px" />
-      </button>
-      <span v-else-if="item?.icon" class="item-icon">{{ item.icon }}</span>
+        <button
+          v-if="editorPrefs.showAddIcon && !item?.icon"
+          class="add-icon-btn"
+          type="button"
+          :aria-label="$t('workbench.editor.addIcon')"
+        >
+          <t-icon name="image" size="14px" />
+        </button>
+        <button
+          v-else-if="item?.icon"
+          class="item-icon"
+          type="button"
+          :aria-label="$t('workbench.editor.addIcon')"
+        >
+          {{ item.icon }}
+        </button>
+        <template #content>
+          <div class="icon-picker" @click.stop>
+            <p class="icon-picker-title">{{ $t('workbench.editor.addIconHint') }}</p>
+            <div class="icon-picker-grid">
+              <button
+                v-for="emoji in ICON_EMOJI_OPTIONS"
+                :key="emoji"
+                type="button"
+                class="icon-picker-option"
+                :class="{ 'is-selected': item?.icon === emoji }"
+                @click="saveItemIcon(emoji)"
+              >
+                {{ emoji }}
+              </button>
+            </div>
+            <button v-if="item?.icon" type="button" class="icon-picker-clear" @click="saveItemIcon('')">
+              {{ $t('workbench.editor.iconClear') }}
+            </button>
+          </div>
+        </template>
+      </t-popup>
       <input
         class="title-input"
         :value="title"
@@ -329,11 +362,13 @@ import {
   requestItemCandidates,
   requestWorkbenchRelations,
   restoreWorkbenchVersion,
+  saveWorkbenchThumbnail,
   updateWorkbenchItem,
   workbenchErrorCode,
   WORKBENCH_ERROR,
 } from '@/api/workbench'
 import { useEditorSession } from '@/workbench/editor/use-editor-session'
+import { captureWorkbenchThumbnail } from '@/workbench/thumbnail'
 import { WB_NOTE_DETAIL_EVENT, noteCardTitle } from '@/workbench/editor/note-events'
 import { createPageAIAdapter, type PageAIAdapterOptions } from '@/workbench/ai/editor-adapter'
 import { useWorkbenchPrefs } from '@/workbench/use-workbench-prefs'
@@ -762,6 +797,60 @@ const wordCount = computed(() => {
   void saveState.value
   return session.markdownCount()
 })
+
+// ---- 列表封面缩略图：就绪/保存后延迟截取当前视口，失败静默回退骨架 ----
+let thumbnailTimer: number | null = null
+let thumbnailBusy = false
+
+function scheduleThumbnail(force = false) {
+  if (thumbnailTimer !== null) window.clearTimeout(thumbnailTimer)
+  // 等渲染稳定再截：刚保存时 BlockSuite 还在收尾光标/浮层。
+  thumbnailTimer = window.setTimeout(() => {
+    thumbnailTimer = null
+    void captureAndSaveThumbnail(force)
+  }, 1500)
+}
+
+async function captureAndSaveThumbnail(force: boolean) {
+  const current = item.value
+  if (!current || current.kind === 'database' || !ready.value || loadError.value || thumbnailBusy) {
+    return
+  }
+  if (document.visibilityState !== 'visible') return
+  const version = baseVersion.value
+  if (version <= 0) return
+  // 内容没变且已有同版本封面就不重拍；切换形态时 force 覆盖同一版本。
+  if (!force && (current.thumbnail_version ?? 0) >= version) return
+  // 空白文档截图只有底色，没有信息量，继续用骨架封面。
+  if (wordCount.value === 0) return
+
+  thumbnailBusy = true
+  try {
+    const blob = await captureWorkbenchThumbnail(hostRef.value, session.mode.value)
+    if (!blob) return
+    const saved = await saveWorkbenchThumbnail(current.id, blob, version)
+    if (item.value?.id === current.id) {
+      item.value.thumbnail_version = saved.thumbnail_version
+    }
+  } catch {
+    // 封面是展示增强，失败不打扰用户，卡片自动保留骨架封面。
+  } finally {
+    thumbnailBusy = false
+  }
+}
+
+// ready 覆盖“打开旧文档补拍”；savedAt 覆盖“编辑后内容变化”。
+watch([ready, savedAt], ([isReady]) => {
+  if (isReady) scheduleThumbnail()
+})
+
+// 形态切换不改内容版本，但画面完全不同，需要强制重拍。
+watch(
+  () => session.mode.value,
+  () => {
+    if (ready.value) scheduleThumbnail(true)
+  },
+)
 /**
  * AI 关闭时只隐藏入口，不影响编辑、归档与保存（§9.14.6）。
  * 同时受发布门禁约束：`workbench.ai.enabled` 关闭时整个 Page AI 入口不出现（§9.1）。
@@ -859,19 +948,27 @@ async function onTitleChange(event: Event) {
 }
 
 /**
- * 「添加图标」入口。
+ * 「图标」入口。
  *
- * P1 用浏览器内置输入收一个 emoji，写进条目的 icon 字段；
+ * 用 emoji 面板选择并写入条目的 icon 字段（空串即清除）；
  * 偏好只决定入口显隐，本身不写任何图标数据（§9.14.2）。
  */
-async function openIconPicker() {
-  const raw = window.prompt(t('workbench.editor.addIconHint'), item.value?.icon ?? '')
-  if (raw === null) return
-  const icon = raw.trim()
-  if (icon === (item.value?.icon ?? '')) return
+const ICON_EMOJI_OPTIONS = [
+  '📄', '📝', '📌', '📚', '💡', '🎯', '🚀', '⭐',
+  '✅', '🔥', '📊', '📈', '🗂️', '📁', '🔖', '🧠',
+  '💼', '🛠️', '🎨', '🌱', '🔍', '🧩', '🌍', '❤️',
+]
+const iconPickerOpen = ref(false)
+
+async function saveItemIcon(icon: string) {
+  if (icon === (item.value?.icon ?? '')) {
+    iconPickerOpen.value = false
+    return
+  }
   try {
     const updated = await updateWorkbenchItem(itemId.value, { icon })
     item.value = updated
+    iconPickerOpen.value = false
   } catch {
     MessagePlugin.error(t('workbench.item.renameFailed'))
   }
@@ -2000,6 +2097,11 @@ onBeforeUnmount(() => {
     clearTimeout(relationTimer)
     relationTimer = null
   }
+  // 未触发的封面截图直接丢弃：组件卸载后 host 已销毁，截图没有意义。
+  if (thumbnailTimer !== null) {
+    clearTimeout(thumbnailTimer)
+    thumbnailTimer = null
+  }
   stopRelationWatch?.()
   stopRelationWatch = null
   teardownDatabaseTools()
@@ -2067,8 +2169,75 @@ onBeforeUnmount(() => {
   flex: none;
   display: grid;
   place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--app-radius-xs);
+  background: transparent;
   font-size: var(--app-text-lg);
   line-height: 1;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--td-bg-color-container-hover);
+  }
+}
+
+/* emoji 选择面板：8 列固定格，选中有品牌色描边 */
+.icon-picker {
+  width: 264px;
+  padding: var(--app-space-3);
+
+  &-title {
+    margin: 0 0 var(--app-space-2);
+    font-size: var(--app-text-xs);
+    color: var(--td-text-color-secondary);
+  }
+
+  &-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: var(--app-space-1);
+  }
+
+  &-option {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: var(--app-radius-xs);
+    background: transparent;
+    font-size: var(--app-text-lg);
+    line-height: 1;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--td-bg-color-container-hover);
+    }
+
+    &.is-selected {
+      background: var(--td-brand-color-light);
+      box-shadow: inset 0 0 0 1px var(--td-brand-color);
+    }
+  }
+
+  &-clear {
+    width: 100%;
+    margin-top: var(--app-space-2);
+    padding: var(--app-space-1);
+    border: none;
+    border-radius: var(--app-radius-xs);
+    background: transparent;
+    font-size: var(--app-text-xs);
+    color: var(--td-text-color-secondary);
+    cursor: pointer;
+
+    &:hover {
+      background: var(--td-bg-color-container-hover);
+      color: var(--td-text-color-primary);
+    }
+  }
 }
 
 .doc-info {

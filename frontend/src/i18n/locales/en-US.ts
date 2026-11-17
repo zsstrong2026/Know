@@ -591,6 +591,7 @@
       title: 'Inkwell',
       beta: 'BETA',
       recent: 'Recent',
+      insights: 'Insights',
       databases: 'Items',
       favorites: 'Favorites',
       templates: 'Templates',
@@ -1172,7 +1173,8 @@
       conflictReload: 'Reload latest',
       untitled: 'Untitled',
       addIcon: 'Add icon',
-      addIconHint: 'Enter an emoji as the item icon (leave empty to clear)',
+      addIconHint: 'Choose an emoji as the item icon',
+      iconClear: 'Clear icon',
       docInfo: {
         updated: 'Updated {time}',
         words: '{count} characters',

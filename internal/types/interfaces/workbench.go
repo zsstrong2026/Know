@@ -87,6 +87,19 @@ type WorkbenchItemRepository interface {
 		baseVersion int, force bool, ydoc []byte, text string, schemaVersion int,
 	) (int, time.Time, error)
 
+	// SaveItemThumbnail 写入列表封面缩略图，不改 updated_at（否则会打乱“最近更新”）。
+	// 只接受不旧于当前 thumbnail_version 的写入；返回 false 表示版本已过期，
+	// 调用方按成功处理即可（说明已有更新的封面）。
+	SaveItemThumbnail(
+		ctx context.Context, tenantID uint64, ownerID, id string,
+		image []byte, contentType string, version int,
+	) (bool, error)
+
+	// GetItemThumbnail 读取缩略图字节与 Content-Type；没有缩略图时返回空字节与空类型。
+	GetItemThumbnail(
+		ctx context.Context, tenantID uint64, ownerID, id string,
+	) ([]byte, string, error)
+
 	// CountItems 统计未进回收站的条目数（Bootstrap 用）。
 	CountItems(ctx context.Context, tenantID uint64, ownerID string) (int64, error)
 

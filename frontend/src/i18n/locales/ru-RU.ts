@@ -9322,6 +9322,7 @@
       title: 'Чернильница',
       beta: 'BETA',
       recent: 'Недавние',
+      insights: 'Инсайты',
       databases: 'Пункты',
       favorites: 'Избранное',
       templates: 'Шаблоны',
@@ -9902,7 +9903,8 @@
       conflictReload: 'Загрузить последнюю версию',
       untitled: 'Без названия',
       addIcon: 'Добавить иконку',
-      addIconHint: 'Введите эмодзи как иконку элемента (пустое значение очистит её)',
+      addIconHint: 'Выберите эмодзи как иконку элемента',
+      iconClear: 'Удалить иконку',
       docInfo: {
         updated: 'Обновлено {time}',
         words: '{count} символов',

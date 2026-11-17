@@ -81,6 +81,8 @@ const (
 	WorkbenchMaxAssetBytes    = 20 << 20  // 单文件资产上限 20MB
 	WorkbenchMaxImageBytes    = 10 << 20  // 单张图片上限 10MB
 	WorkbenchMaxAssetsPerItem = 200       // 单条目资产数上限
+	// 列表卡片缩略图：前端截取编辑器视口后压缩上传，只用于封面展示。
+	WorkbenchMaxThumbnailBytes = 512 << 10 // 单张缩略图上限 512KB
 )
 
 // 条目标题上限（trim 后按 rune 计，§7.3）。
@@ -262,6 +264,11 @@ type WorkbenchItem struct {
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
 	DeletedAt    gorm.DeletedAt `json:"-" gorm:"index"`
+	// 列表封面缩略图：图片字节只在单独的缩略图接口读取，
+	// 列表只带版本号，避免每次翻页都传几十张图。
+	Thumbnail            []byte `json:"-" gorm:"column:thumbnail;type:bytea"`
+	ThumbnailContentType string `json:"-" gorm:"column:thumbnail_content_type;type:varchar(32)"`
+	ThumbnailVersion     int    `json:"thumbnail_version" gorm:"column:thumbnail_version;not null;default:0"`
 	// 只读展示字段：只在列表查询时批量填充，不落库；创建/更新/详情响应不返回（详情用 archives/state）。
 	ArchiveStatus   string `json:"archive_status,omitempty" gorm:"-"`
 	ArchivedVersion int    `json:"archived_version,omitempty" gorm:"-"`
@@ -338,20 +345,21 @@ func (it *WorkbenchItem) ToSummary() *WorkbenchItemSummary {
 		return nil
 	}
 	s := &WorkbenchItemSummary{
-		ID:              it.ID,
-		Kind:            it.Kind,
-		Title:           it.Title,
-		Icon:            it.Icon,
-		FolderID:        it.FolderID,
-		SnapshotVersion: it.SnapshotVersion,
-		Visibility:      it.Visibility,
-		IsFavorite:      it.IsFavorite,
-		JournalDate:     it.JournalDate,
-		LastOpenedAt:    it.LastOpenedAt,
-		CreatedAt:       it.CreatedAt,
-		UpdatedAt:       it.UpdatedAt,
-		ArchiveStatus:   it.ArchiveStatus,
-		ArchivedVersion: it.ArchivedVersion,
+		ID:               it.ID,
+		Kind:             it.Kind,
+		Title:            it.Title,
+		Icon:             it.Icon,
+		FolderID:         it.FolderID,
+		SnapshotVersion:  it.SnapshotVersion,
+		Visibility:       it.Visibility,
+		IsFavorite:       it.IsFavorite,
+		JournalDate:      it.JournalDate,
+		LastOpenedAt:     it.LastOpenedAt,
+		CreatedAt:        it.CreatedAt,
+		UpdatedAt:        it.UpdatedAt,
+		ThumbnailVersion: it.ThumbnailVersion,
+		ArchiveStatus:    it.ArchiveStatus,
+		ArchivedVersion:  it.ArchivedVersion,
 	}
 	if it.CurrentMode != nil {
 		mode := *it.CurrentMode
@@ -375,8 +383,10 @@ type WorkbenchItemSummary struct {
 	LastOpenedAt    *time.Time `json:"last_opened_at"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
-	ArchiveStatus   string     `json:"archive_status,omitempty"`
-	ArchivedVersion int        `json:"archived_version,omitempty"`
+	// 大于 0 表示服务端已有封面缩略图，前端据此决定是否请求图片。
+	ThumbnailVersion int    `json:"thumbnail_version"`
+	ArchiveStatus    string `json:"archive_status,omitempty"`
+	ArchivedVersion  int    `json:"archived_version,omitempty"`
 }
 
 // WorkbenchItemVersion 条目历史快照；列表不返回 Y.Doc 正文。

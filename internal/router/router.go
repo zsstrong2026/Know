@@ -112,7 +112,9 @@ type RouterParams struct {
 	WorkbenchTemplateHandler *handler.WorkbenchTemplateHandler
 	// WorkbenchAssetHandler 条目资产（§12.1）；未注入时不注册资产端点。
 	WorkbenchAssetHandler *handler.WorkbenchAssetHandler
-	HostSandbox              service.HostSandboxManager
+	// WorkbenchInsightHandler 工作台洞察（主题/运行/报告/自我洞悉）；未注入时不注册。
+	WorkbenchInsightHandler *handler.WorkbenchInsightHandler
+	HostSandbox             service.HostSandboxManager
 	// PMHandler PM 工作站端点聚合（项目/规划/需求/版本/功能清单/任务）
 	PMHandler *handler.PMHandler
 	// v0.9.0：自动化（定时任务）与操作分发
@@ -374,6 +376,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 			params.WorkbenchArchiveHandler, params.WorkbenchJournalHandler,
 			params.WorkbenchNoticeHandler, params.WorkbenchAIHandler,
 			params.WorkbenchTemplateHandler, params.WorkbenchAssetHandler,
+			params.WorkbenchInsightHandler,
 			workbenchFlags(params.Config), rbacGuards)
 		// 用户级通知同样受总开关控制：关闭后前端不再有工作台入口，
 		// 保留通知端点只会让“入口不存在但接口还在”的门禁语义自相矛盾。

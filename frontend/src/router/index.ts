@@ -343,6 +343,12 @@ const router = createRouter({
               meta: { requiresInit: true, requiresAuth: true },
             },
             {
+              path: "insights",
+              name: "workbenchInsights",
+              component: () => import("../views/workbench/InsightsView.vue"),
+              meta: { requiresInit: true, requiresAuth: true },
+            },
+            {
               path: "journals",
               name: "workbenchJournals",
               component: () => import("../views/workbench/JournalsView.vue"),

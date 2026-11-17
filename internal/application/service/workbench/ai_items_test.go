@@ -36,11 +36,10 @@ func TestExtractItems_ParsesFencedJSON(t *testing.T) {
 	assert.Equal(t, "m1", result.ModelID)
 }
 
-// 模型输出非法 / 空候选：按 2410 返回，前端提示重新识别。
+// 模型输出非法：按 2410 返回，前端提示重新识别。
 func TestExtractItems_RejectsInvalidOutput(t *testing.T) {
 	cases := map[string]string{
 		"非 JSON":   "我识别到三件事。",
-		"空 items":  `{"items":[]}`,
 		"标题为空":     `{"items":[{"title":"  "}]}`,
 		"缺 items 键": `{"foo":1}`,
 	}
@@ -58,6 +57,23 @@ func TestExtractItems_RejectsInvalidOutput(t *testing.T) {
 			assert.Equal(t, 2410, int(mustAppError(t, err).Code))
 		})
 	}
+}
+
+// 文档里确实没有待办时，模型返回空数组属于正常结果，不能当成 2410 报错，
+// 否则前端会把「没识别到」误提示成「识别失败」。
+func TestExtractItems_AllowsEmptyItems(t *testing.T) {
+	models := &fakeModels{
+		model:  &fakeChat{modelID: "m1", chunks: []string{`{"items":[]}`}},
+		models: []*types.Model{{ID: "m1", Type: types.ModelTypeKnowledgeQA}},
+	}
+	svc := newInlineService(models, &fakeAgents{}, map[string]bool{"doc-1": true})
+
+	result, err := svc.ExtractItems(inlineCtx(), types.WorkbenchAIItemsRequest{
+		ItemID: "doc-1", Markdown: "本文只是一段背景说明，没有待办。",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Empty(t, result.Items)
 }
 
 // 枚举值不在允许集合内时清空而不是整批作废；日期格式非法也清空。

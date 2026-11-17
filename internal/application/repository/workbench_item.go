@@ -16,7 +16,7 @@ import (
 // journal_date / current_mode 随 000139（P1-9）落地，两列均可空，列在存量行上是 NULL。
 const workbenchItemListColumns = `id, tenant_id, owner_id, kind, title, icon, folder_id,
 	text_content, snapshot_version, editor_schema_version, visibility, is_favorite,
-	journal_date, current_mode, last_opened_at, created_at, updated_at`
+	journal_date, current_mode, last_opened_at, created_at, updated_at, thumbnail_version`
 
 // workbenchItemMutableFields 是 UpdateItem 允许写的列白名单。
 // 白名单之外一律丢弃，防止调用方顺手改 owner_id / snapshot_version / visibility。
@@ -194,6 +194,54 @@ func (r *workbenchRepository) UpdateItemContent(
 		return 0, time.Time{}, err
 	}
 	return current.SnapshotVersion, current.UpdatedAt, nil
+}
+
+// SaveItemThumbnail 只更新封面三列，不动 updated_at：缩略图是展示增强，
+// 不应把条目顶到「最近更新」最前面。版本用 `<=` 比较，同一版本允许重拍（切换形态后覆盖）。
+func (r *workbenchRepository) SaveItemThumbnail(
+	ctx context.Context, tenantID uint64, ownerID, id string,
+	image []byte, contentType string, version int,
+) (bool, error) {
+	res := r.db.WithContext(ctx).
+		Table("workbench_items").
+		Where("id = ? AND tenant_id = ? AND owner_id = ? AND deleted_at IS NULL AND thumbnail_version <= ?",
+			id, tenantID, ownerID, version).
+		UpdateColumns(map[string]any{
+			"thumbnail":              image,
+			"thumbnail_content_type": contentType,
+			"thumbnail_version":      version,
+		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	if res.RowsAffected > 0 {
+		return true, nil
+	}
+	// 0 行有两种可能：条目不存在/越权，或已有更新的封面（版本过期）。
+	if _, err := r.GetItemMeta(ctx, tenantID, ownerID, id); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+// GetItemThumbnail 读取封面字节；没有封面时返回空值而不是错误。
+func (r *workbenchRepository) GetItemThumbnail(
+	ctx context.Context, tenantID uint64, ownerID, id string,
+) ([]byte, string, error) {
+	var row struct {
+		Thumbnail            []byte
+		ThumbnailContentType string
+		ThumbnailVersion     int
+	}
+	err := r.db.WithContext(ctx).
+		Table("workbench_items").
+		Select("thumbnail, thumbnail_content_type, thumbnail_version").
+		Where("id = ? AND tenant_id = ? AND owner_id = ? AND deleted_at IS NULL", id, tenantID, ownerID).
+		Take(&row).Error
+	if err != nil {
+		return nil, "", err
+	}
+	return row.Thumbnail, row.ThumbnailContentType, nil
 }
 
 // ListItems 按 filter 分页。cursor 是 "updated_at|id" 的 base64，用于稳定翻页。

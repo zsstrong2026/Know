@@ -9322,6 +9322,7 @@
       title: '인크웰',
       beta: 'BETA',
       recent: '최근',
+      insights: '인사이트',
       databases: '항목',
       favorites: '즐겨찾기',
       templates: '템플릿',
@@ -9902,7 +9903,8 @@
       conflictReload: '최신 버전 다시 불러오기',
       untitled: '제목 없음',
       addIcon: '아이콘 추가',
-      addIconHint: '이모지를 입력해 항목 아이콘으로 사용합니다(비우면 삭제)',
+      addIconHint: '이모지를 선택해 항목 아이콘으로 사용합니다',
+      iconClear: '아이콘 지우기',
       docInfo: {
         updated: '{time} 업데이트',
         words: '{count}자',

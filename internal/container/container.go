@@ -55,6 +55,7 @@ import (
 	chatpipeline "github.com/Tencent/WeKnora/internal/application/service/chat_pipeline"
 	docassistant "github.com/Tencent/WeKnora/internal/application/service/doc_assistant"
 	"github.com/Tencent/WeKnora/internal/application/service/file"
+	insightsvc "github.com/Tencent/WeKnora/internal/application/service/insight"
 	"github.com/Tencent/WeKnora/internal/application/service/memory"
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
 	"github.com/Tencent/WeKnora/internal/application/service/sandboxalloc"
@@ -215,6 +216,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewMemoryRepository))
 	// 工作台条目仓储（P0-4b spike：仅条目内容读写）
 	must(container.Provide(repository.NewWorkbenchRepository))
+	// 洞察仓储：主题/运行/证据/报告/自我洞悉，全部按 tenant_id + owner_id 隔离。
+	must(container.Provide(repository.NewInsightRepository))
 	// 工作台服务：归档写路径依赖知识库与知识服务，用显式构造注入，
 	// 避免 knowledgeService 反查 workbench 形成循环依赖。
 	// 注意：docAssistant 不能写进下面的构造参数。docAssistant 的构造链是
@@ -258,6 +261,16 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		kbService interfaces.KnowledgeBaseService,
 	) *workbenchservice.AIService {
 		return workbenchservice.NewAIServiceWithDeps(repo, models, agents, cfg, sessions, kbService)
+	}))
+	// 洞察服务：工作 KB + 知识/分块仓储 + 模型服务，全部用窄接口使用。
+	must(container.Provide(func(
+		repo interfaces.InsightRepository,
+		kbService interfaces.KnowledgeBaseService,
+		knowledgeRepo interfaces.KnowledgeRepository,
+		chunkRepo interfaces.ChunkRepository,
+		modelService interfaces.ModelService,
+	) *insightsvc.Service {
+		return insightsvc.NewService(repo, kbService, knowledgeRepo, chunkRepo, modelService)
 	}))
 	must(container.Provide(repository.NewTaskPendingOpsRepository))
 	must(container.Provide(repository.NewTaskDeadLetterRepository))
@@ -964,6 +977,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewWorkbenchAIHandler))
 	must(container.Provide(handler.NewWorkbenchTemplateHandler))
 	must(container.Provide(handler.NewWorkbenchAssetHandler))
+	// 工作台洞察 handler：个人资源，全部 JWT-only。
+	must(container.Provide(handler.NewWorkbenchInsightHandler))
 	// 工作台清理器：回收站 30 天硬删、孤儿清理与 7 天预警、归档对账（§5.6）。
 	must(container.Provide(workbenchservice.NewCleanupRunner))
 	must(container.Invoke(startWorkbenchCleanup))
