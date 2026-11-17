@@ -35,7 +35,7 @@ func (h *WorkbenchTemplateHandler) ListTemplates(c *gin.Context) {
 }
 
 // CreateTemplate POST /api/v1/workbench/templates
-// 从当前已保存的文档复制；服务端不接受客户端上传快照。
+// 两种来源：带 source_item_id 时从已保存文档复制；否则收下客户端提交的空白文档快照。
 func (h *WorkbenchTemplateHandler) CreateTemplate(c *gin.Context) {
 	var req types.CreateWorkbenchTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

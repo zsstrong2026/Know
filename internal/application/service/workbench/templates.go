@@ -18,8 +18,10 @@ import (
 // 关键约束（与条目服务不同的地方）：
 //   - 服务端**不做** apply-template：套用由客户端取快照后走普通保存链路，
 //     避免出现第二套 Y.Doc 写入路径；
-//   - 创建模板时服务端从**已落盘的**条目复制字节，不接受客户端上传快照，
+//   - 「从文档另存为模板」时服务端从**已落盘的**条目复制字节，不接受客户端上传快照，
 //     因此模板内容与文档版本天然一致；
+//   - 「模板管理页新建模板」没有源文档，空白快照只能由客户端提交；
+//     这条路径的字节同样过 schema / 体积 / base64 校验后才落库；
 //   - 模板硬删，且不参与归档/检索/AI，日志不记录名称、描述与 Y.Doc 内容。
 
 // ListTemplates 取当前用户的模板列表（不含 ydoc）。
@@ -31,7 +33,9 @@ func (s *Service) ListTemplates(ctx context.Context) ([]*types.WorkbenchTemplate
 	return s.repo.ListTemplates(ctx, tenantID, ownerID)
 }
 
-// CreateTemplate 从当前已保存的文档复制模板。
+// CreateTemplate 创建模板，两种来源：
+//   - 给了 source_item_id：从当前已保存的文档复制快照；
+//   - 没给 source_item_id：模板管理页「新建模板」，收下客户端提交的空白文档快照。
 func (s *Service) CreateTemplate(
 	ctx context.Context, req *types.CreateWorkbenchTemplateRequest,
 ) (*types.WorkbenchTemplateSummary, error) {
@@ -55,6 +59,48 @@ func (s *Service) CreateTemplate(
 		return nil, apperrors.NewBadRequestError("template quota exceeded")
 	}
 
+	if req.SourceItemID == "" {
+		return s.createTemplateFromSnapshot(ctx, tenantID, ownerID, req)
+	}
+	return s.createTemplateFromItem(ctx, tenantID, ownerID, req)
+}
+
+// createTemplateFromSnapshot 处理「新建模板」：没有源文档，快照由客户端提交。
+func (s *Service) createTemplateFromSnapshot(
+	ctx context.Context, tenantID uint64, ownerID string,
+	req *types.CreateWorkbenchTemplateRequest,
+) (*types.WorkbenchTemplateSummary, error) {
+	ydoc, err := decodeTemplateYDoc(req.YDoc)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	tpl := &types.WorkbenchTemplate{
+		ID:                  uuid.NewString(),
+		TenantID:            tenantID,
+		OwnerID:             ownerID,
+		Name:                req.Name,
+		Description:         req.Description,
+		YDoc:                ydoc,
+		SizeBytes:           len(ydoc),
+		EditorSchemaVersion: req.EditorSchemaVersion,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	if err := s.repo.CreateTemplate(ctx, tpl); err != nil {
+		return nil, err
+	}
+	logger.Infof(ctx,
+		"[workbench] template created from snapshot id=%s size=%d schema=%d",
+		tpl.ID, tpl.SizeBytes, tpl.EditorSchemaVersion)
+	return tpl.ToSummary(), nil
+}
+
+// createTemplateFromItem 从已落盘条目复制模板（原「另存为模板」路径）。
+func (s *Service) createTemplateFromItem(
+	ctx context.Context, tenantID uint64, ownerID string,
+	req *types.CreateWorkbenchTemplateRequest,
+) (*types.WorkbenchTemplateSummary, error) {
 	// 源条目必须存在、未进回收站、是 canvas，且已保存过内容。
 	source, err := s.repo.GetItem(ctx, tenantID, ownerID, req.SourceItemID)
 	if err != nil {

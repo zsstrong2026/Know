@@ -7,7 +7,18 @@
         <div class="page-sub">{{ t('workbench.templates.manage.subtitle') }}</div>
       </div>
       <span class="spacer" />
-      <span class="toolbar-meta">{{ t('workbench.templates.manage.quota', { left: rows.length, total: TEMPLATE_QUOTA }) }}</span>
+      <div class="head-actions">
+        <span class="toolbar-meta">{{ t('workbench.templates.manage.quota', { left: rows.length, total: TEMPLATE_QUOTA }) }}</span>
+        <t-button
+          size="small"
+          theme="primary"
+          :disabled="quotaLeft === 0"
+          @click="openCreate"
+        >
+          <template #icon><t-icon name="add" /></template>
+          {{ t('workbench.templates.manage.create') }}
+        </t-button>
+      </div>
     </header>
 
     <div class="list-toolbar">
@@ -40,6 +51,10 @@
     <div v-else-if="rows.length === 0" class="tpl-empty">
       <div class="empty-title">{{ t('workbench.templates.mineEmpty') }}</div>
       <div class="empty-sub">{{ t('workbench.templates.mineEmptyHint') }}</div>
+      <t-button size="small" theme="primary" :disabled="quotaLeft === 0" @click="openCreate">
+        <template #icon><t-icon name="add" /></template>
+        {{ t('workbench.templates.manage.create') }}
+      </t-button>
     </div>
 
     <div v-else-if="filteredRows.length === 0" class="tpl-empty">
@@ -115,6 +130,40 @@
       </div>
     </t-dialog>
 
+    <!-- 新建模板：先收名称/描述，再进空白模板编辑器；首次保存才真正落库 -->
+    <t-dialog
+      v-model:visible="createOpen"
+      :header="t('workbench.templates.manage.createTitle')"
+      :confirm-btn="t('workbench.templates.manage.createConfirm')"
+      :cancel-btn="t('workbench.templates.manage.cancel')"
+      width="480px"
+      @confirm="submitCreate"
+      @cancel="createOpen = false"
+      @close="createOpen = false"
+    >
+      <div class="edit-form">
+        <label class="edit-field">
+          <span class="edit-label">{{ t('workbench.templates.manage.name') }}</span>
+          <t-input
+            v-model="createName"
+            :maxlength="NAME_MAX"
+            :placeholder="t('workbench.templates.save.namePlaceholder')"
+            size="small"
+          />
+        </label>
+        <label class="edit-field">
+          <span class="edit-label">{{ t('workbench.templates.save.description') }}</span>
+          <t-textarea
+            v-model="createDescription"
+            :maxlength="DESC_MAX"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            :placeholder="t('workbench.templates.save.descriptionPlaceholder')"
+          />
+        </label>
+        <p class="edit-hint">{{ t('workbench.templates.manage.createHint') }}</p>
+      </div>
+    </t-dialog>
+
     <!-- 编辑正文：全屏浮层，内部挂一份 BlockSuite，保存即整体覆盖模板快照 -->
     <TemplateContentEditor
       v-if="contentTarget"
@@ -123,6 +172,16 @@
       @close="contentTarget = null"
       @saved="onContentSaved"
     />
+
+    <!-- 新建模板正文：同一浮层，mode=create 时从空白页开始 -->
+    <TemplateContentEditor
+      v-if="createTarget"
+      mode="create"
+      :template-name="createTarget.name"
+      :template-description="createTarget.description"
+      @close="createTarget = null"
+      @saved="onCreated"
+    />
   </section>
 </template>
 
@@ -130,7 +189,9 @@
 /**
  * 模板管理页。
  *
- * 两类编辑分开入口：
+ * 入口与两类编辑：
+ *   - 「新建模板」直接在这里起步：收名称/描述 → 打开空白模板编辑器 → 首次保存才落库；
+ *     不需要先建一份文档再去 ⋯ 里另存为模板；
  *   - 「编辑」只改名称/描述，走 PATCH /templates/:id；正文不在这个弹窗里改；
  *   - 「编辑内容」打开全屏模板编辑器，保存时整体覆盖模板快照；
  *     已用该模板创建的文档不受影响（copy-on-use）。
@@ -144,7 +205,7 @@ import {
   listWorkbenchTemplates,
   updateWorkbenchTemplate,
 } from '@/api/workbench'
-import { TEMPLATE_QUOTA } from '@/workbench/templates/apply'
+import { TEMPLATE_QUOTA, templateQuotaLeft } from '@/workbench/templates/apply'
 import { formatFileSize } from '@/utils/files'
 import type { WorkbenchTemplateSummary } from '@/types/workbench'
 
@@ -165,6 +226,15 @@ const editName = ref('')
 const editDescription = ref('')
 /** 正在编辑正文的模板；非空时渲染全屏模板编辑器 */
 const contentTarget = ref<WorkbenchTemplateSummary | null>(null)
+
+const createOpen = ref(false)
+const createName = ref('')
+const createDescription = ref('')
+/** 新建模板的「草稿」：名称/描述已确认，但正文还没保存落库 */
+const createTarget = ref<{ name: string; description: string } | null>(null)
+
+/** 配额已满时禁用新建，避免点进编辑器后才发现存不下。 */
+const quotaLeft = computed(() => templateQuotaLeft(rows.value.length))
 
 const columns = computed(() => [
   { colKey: 'name', title: t('workbench.templates.manage.columns.name'), ellipsis: true },
@@ -209,6 +279,31 @@ function openEdit(row: WorkbenchTemplateSummary) {
   editName.value = row.name
   editDescription.value = row.description ?? ''
   editOpen.value = true
+}
+
+/** 打开新建弹窗：每次重置输入，不复用上一次的值。 */
+function openCreate() {
+  if (quotaLeft.value === 0) return
+  createName.value = ''
+  createDescription.value = ''
+  createOpen.value = true
+}
+
+/** 确认名称/描述后进入空白模板编辑器；此时还没有落库，取消不会留下空模板。 */
+function submitCreate() {
+  const name = createName.value.trim()
+  if (!name) {
+    MessagePlugin.warning(t('workbench.templates.manage.nameRequired'))
+    return
+  }
+  createTarget.value = { name, description: createDescription.value.trim() }
+  createOpen.value = false
+}
+
+/** 新建保存成功：直接把新模板插到列表最前，不必重拉整个列表。 */
+function onCreated(created: WorkbenchTemplateSummary) {
+  rows.value = [created, ...rows.value]
+  createTarget.value = null
 }
 
 /** 打开模板正文编辑器；关闭/保存后由子组件回传。 */
@@ -282,7 +377,7 @@ onMounted(() => {
 
 .page-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--app-space-2);
   padding-bottom: var(--app-space-4);
   border-bottom: 1px solid var(--td-component-stroke);
@@ -302,6 +397,12 @@ onMounted(() => {
 
 .spacer {
   flex: 1;
+}
+
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-3);
 }
 
 .list-toolbar {
@@ -377,5 +478,11 @@ onMounted(() => {
 .edit-label {
   font-size: var(--app-text-sm);
   color: var(--td-text-color-primary);
+}
+
+.edit-hint {
+  margin: 0;
+  font-size: var(--app-text-2xs);
+  color: var(--td-text-color-placeholder);
 }
 </style>

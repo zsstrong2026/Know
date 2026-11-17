@@ -99,7 +99,8 @@
  * 三个不能动的约束（§9.16.2）：
  *   1. 只负责「选哪个模板」，套用由父组件用快照建 session；
  *   2. 打开期间不挂载编辑器，避免把模板合进已有 Y.Doc；
- *   3. 关闭 = 从空白文档开始，且保留工具栏的「使用模板」。
+ *   3. 关闭（×/遮罩/Esc）= 取消新建，由父组件决定是否撤销刚建的条目；
+ *      底部的「从空白文档开始」才是保留条目、不套模板。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -121,8 +122,10 @@ import { TemplateApplyError, type PreparedTemplateSnapshot } from '@/workbench/t
 const emit = defineEmits<{
   /** 选中并成功取得快照；父组件据此建 session */
   apply: [snapshot: PreparedTemplateSnapshot, card: TemplateCardItem]
-  /** 关闭选择器并从空白文档开始 */
+  /** 从空白文档开始（底部按钮）：保留条目，只是不套模板 */
   blank: []
+  /** 关闭（×/遮罩/Esc）：取消新建，父组件自行决定是否撤销条目 */
+  cancel: []
 }>()
 
 const { t } = useI18n()
@@ -165,7 +168,7 @@ async function onApply(card: TemplateCardItem) {
 }
 
 function onClose() {
-  emit('blank')
+  emit('cancel')
 }
 
 function onBlank() {

@@ -187,8 +187,13 @@
           @panel-change="onAiPanelChange"
         />
 
-        <!-- 模板选择器：只在空白页由「模板」模块打开 -->
-        <TemplatePicker v-if="pickerOpen" @apply="onTemplateApply" @blank="closeTemplatePicker" />
+        <!-- 模板选择器：只在空白页由「模板」模块打开；关闭只是取消套用，不动当天条目 -->
+        <TemplatePicker
+          v-if="pickerOpen"
+          @apply="onTemplateApply"
+          @blank="closeTemplatePicker"
+          @cancel="closeTemplatePicker"
+        />
       </div>
     </div>
 

@@ -105,6 +105,8 @@ async function createPage(withTemplate: boolean) {
       name: 'workbenchItem',
       params: { itemId: item.id },
       ...(withTemplate && store.features.templates ? { query: { template: '1' } } : {}),
+      // 标记这次是「新建跳转」：模板弹窗点关闭时要据此撤销这条空文档
+      state: { wbCreated: withTemplate },
     })
   } catch {
     MessagePlugin.error(t('workbench.editor.loadFailed'))

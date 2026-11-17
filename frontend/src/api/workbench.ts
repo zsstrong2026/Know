@@ -349,10 +349,18 @@ export function listWorkbenchTemplates(): Promise<WorkbenchTemplateSummary[]> {
   ).then((r) => r.data.templates ?? [])
 }
 
+/**
+ * 创建模板，两种来源二选一：
+ *   - 传 source_item_id：服务端从已保存的文档复制快照（「另存为模板」）；
+ *   - 不传 source_item_id：模板管理页「新建模板」，快照由客户端提交。
+ */
 export function createWorkbenchTemplate(payload: {
-  source_item_id: string
+  source_item_id?: string
   name: string
   description?: string
+  /** 仅新建模式使用，base64 编码的 Y.Doc 字节 */
+  ydoc?: string
+  editor_schema_version?: number
 }): Promise<WorkbenchTemplateSummary> {
   return post<{ success: boolean; data: WorkbenchTemplateSummary }>(`${BASE}/templates`, payload)
     .then((r) => r.data)

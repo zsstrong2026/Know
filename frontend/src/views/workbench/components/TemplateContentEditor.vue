@@ -1,7 +1,9 @@
 <template>
   <!--
     模板正文编辑器：模板管理页的全屏浮层，不是新路由。
-    模板没有源文档，正文只能在这里编辑后整体回写（PUT /templates/:id/content）。
+    两种入口：
+      - 编辑已有模板：先取快照，正文回写 PUT /templates/:id/content；
+      - 新建模板（mode=create）：空文档起步，保存时连同名称/描述一起 POST /templates。
   -->
   <div class="tpl-editor-mask">
     <section class="tpl-editor" role="dialog" aria-modal="true" :aria-label="t('workbench.templates.content.title')">
@@ -15,10 +17,10 @@
           <t-icon name="chevron-left" size="18px" />
         </t-button>
         <span class="tpl-editor-title" :title="templateName">{{ templateName }}</span>
-        <span class="save-state" :class="{ 'is-dirty': dirty }">{{ saveLabel }}</span>
+        <span v-if="saveLabel" class="save-state" :class="{ 'is-dirty': dirty }">{{ saveLabel }}</span>
         <span class="spacer" />
         <span class="tpl-editor-hint">{{ t('workbench.templates.content.savedHint') }}</span>
-        <t-button size="small" theme="primary" :loading="saving" :disabled="!dirty" @click="save">
+        <t-button size="small" theme="primary" :loading="saving" :disabled="!canSave" @click="save">
           {{ t('workbench.templates.content.save') }}
         </t-button>
       </header>
@@ -49,13 +51,18 @@
  * 关键约束：
  *   - 只用 mountEditor 挂一份 Y.Doc，不建保存队列：模板没有乐观锁与版本历史，
  *     保存就是整体覆盖；
+ *   - 新建模式没有已有快照，直接给一份空白页，首次保存时才 POST 创建模板；
  *   - 模板不复制图片/附件（§9.16.3），因此不注入资产解析器，缺图按占位渲染；
  *   - 关闭前有未保存修改时二次确认，绝不静默丢弃。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
-import { getWorkbenchTemplateContent, updateWorkbenchTemplateContent } from '@/api/workbench'
+import {
+  createWorkbenchTemplate,
+  getWorkbenchTemplateContent,
+  updateWorkbenchTemplateContent,
+} from '@/api/workbench'
 import {
   encodeTemplateBase64,
   prepareTemplateSnapshot,
@@ -66,10 +73,18 @@ import { noteStyleSeedFromPrefs } from '@/workbench/editor/prefs'
 import type { CanvasHandle } from '@/workbench/editor/blocksuite'
 import type { WorkbenchTemplateSummary } from '@/types/workbench'
 
-const props = defineProps<{
-  templateId: string
-  templateName: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    /** 编辑模式必填；新建模式下为空 */
+    templateId?: string
+    templateName: string
+    /** create：从空白页开始，首次保存才落库 */
+    mode?: 'edit' | 'create'
+    /** 仅新建模式使用：随模板一起提交的描述 */
+    templateDescription?: string
+  }>(),
+  { templateId: '', mode: 'edit', templateDescription: '' },
+)
 
 const emit = defineEmits<{
   close: []
@@ -79,6 +94,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const { editorPrefs } = useWorkbenchPrefs()
 
+const creating = computed(() => props.mode === 'create')
 const hostRef = ref<HTMLElement | null>(null)
 const ready = ref(false)
 const loadError = ref(false)
@@ -99,29 +115,38 @@ let armed = false
 
 const saveLabel = computed(() => {
   if (saving.value) return t('workbench.templates.content.saving')
-  return dirty.value ? t('workbench.templates.content.unsaved') : t('workbench.templates.content.savedState')
+  if (dirty.value) return t('workbench.templates.content.unsaved')
+  // 新建模式初始就是空白页，没有「已保存」可言，避免误导
+  return creating.value ? '' : t('workbench.templates.content.savedState')
 })
 
-/** 首次挂载：取快照 → 校验 → 建编辑器。 */
+/** 新建模式允许直接保存空白模板；编辑模式必须有改动才可保存。 */
+const canSave = computed(() => creating.value || dirty.value)
+
+/** 首次挂载：编辑模式先取快照，新建模式直接建空白页。 */
 async function mountEditorWithContent() {
   if (!hostRef.value) return
   try {
-    const content = await getWorkbenchTemplateContent(props.templateId)
-    const snapshot = prepareTemplateSnapshot({
-      name: content.name,
-      ydoc: content.ydoc,
-      editor_schema_version: content.editor_schema_version,
-    })
-    schemaVersion.value = snapshot.schemaVersion
+    let snapshotBytes: Uint8Array | null = null
+    if (!creating.value) {
+      const content = await getWorkbenchTemplateContent(props.templateId)
+      const snapshot = prepareTemplateSnapshot({
+        name: content.name,
+        ydoc: content.ydoc,
+        editor_schema_version: content.editor_schema_version,
+      })
+      schemaVersion.value = snapshot.schemaVersion
+      snapshotBytes = snapshot.bytes
+    }
     const { mountEditor } = await import('@/workbench/editor/blocksuite')
     editor = await mountEditor({
       element: hostRef.value,
       // 独立 workspace id：避免与同标签页里已打开的文档共用 store id
-      itemId: `template-${props.templateId}`,
+      itemId: creating.value ? `template-new-${Date.now()}` : `template-${props.templateId}`,
       kind: 'canvas',
       // 模板只做 Page（§9.16.3），与「另存为模板」的入口保持一致
       mode: 'page',
-      snapshot: snapshot.bytes,
+      snapshot: snapshotBytes,
       settings: {
         edgelessScrollZoom: editorPrefs.value.scrollZoom,
         codeBlockLineNumbers: editorPrefs.value.codeLineNumbers,
@@ -151,12 +176,24 @@ async function save() {
   if (saving.value || !editor) return
   saving.value = true
   try {
-    const summary = await updateWorkbenchTemplateContent(props.templateId, {
-      ydoc: encodeTemplateBase64(editor.getSnapshot()),
-      editor_schema_version: schemaVersion.value,
-    })
+    const ydoc = encodeTemplateBase64(editor.getSnapshot())
+    const summary = creating.value
+      ? await createWorkbenchTemplate({
+          name: props.templateName,
+          description: props.templateDescription,
+          ydoc,
+          editor_schema_version: schemaVersion.value,
+        })
+      : await updateWorkbenchTemplateContent(props.templateId, {
+          ydoc,
+          editor_schema_version: schemaVersion.value,
+        })
     dirty.value = false
-    MessagePlugin.success(t('workbench.templates.content.saved'))
+    MessagePlugin.success(
+      creating.value
+        ? t('workbench.templates.manage.created')
+        : t('workbench.templates.content.saved'),
+    )
     emit('saved', summary)
     close()
   } catch {
@@ -169,6 +206,7 @@ async function save() {
 /** 有未保存修改时先确认，避免返回/关闭丢掉编辑。 */
 function requestClose() {
   if (saving.value || closing) return
+  // 新建模式没改过内容时没有可丢弃的东西，直接退出
   if (!dirty.value) {
     close()
     return

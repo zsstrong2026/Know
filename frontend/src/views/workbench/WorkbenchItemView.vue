@@ -226,7 +226,12 @@
         {{ $t('workbench.database.focus.backToCanvas') }}
       </button>
       <!-- 模板选择器：打开期间不挂载编辑器（§9.16.2 规则 1） -->
-      <TemplatePicker v-if="pickerOpen" @apply="onTemplateApply" @blank="onTemplateBlank" />
+      <TemplatePicker
+        v-if="pickerOpen"
+        @apply="onTemplateApply"
+        @blank="onTemplateBlank"
+        @cancel="onTemplateCancel"
+      />
       <!-- Page AI：工具条/菜单/预览/侧栏；只读与回收站不出现（§9.15.1）。
            数据库条目的“页面”是数据视图，没有正文，不挂文档级 AI（数据库有自己的 AI 入口）。 -->
       <PageAILayer
@@ -1047,6 +1052,38 @@ async function onTemplateBlank() {
   } catch {
     loadError.value = 'failed'
   }
+}
+
+/**
+ * 关闭（×/遮罩/Esc）= 取消新建。
+ *
+ * 只有「新建入口 + ?template=1」这一跳才撤销刚建的条目，避免在列表或回收站
+ * 留下一条空文档；工具栏手动打开的浮层只收起，不动已有条目，也不重挂编辑器。
+ */
+async function onTemplateCancel() {
+  const createdByEntry = router.options.history.state.wbCreated === true
+  const isNewEntry = route.query.template === '1' && createdByEntry && snapshotVersion.value === 0
+  if (!isNewEntry) {
+    pickerOpen.value = false
+    // 直接带 ?template=1 打开链接时会话还没挂载，收起后按空白文档挂载
+    if (!ready.value) await onTemplateBlank()
+    return
+  }
+
+  pickerOpen.value = false
+  const createdId = itemId.value
+  try {
+    // 该条目尚未写入任何内容，直接硬删，避免在回收站留下空壳
+    await workbenchStore.removeItemPermanently(createdId)
+    // 新建时加过的文件夹计数要减回去，否则侧栏会多算一条
+    void workbenchStore.fetchFolders().catch(() => undefined)
+  } catch {
+    MessagePlugin.warning(t('workbench.item.deleteFailed'))
+  }
+  // 回到来源列表；直接打开链接进来时没有上一条站内历史，兜底回「最近」
+  const back = router.options.history.state.back
+  if (typeof back === 'string' && back.startsWith('/platform/')) router.back()
+  else void router.push({ name: 'workbenchRecent' })
 }
 
 /** 移除 ?template=1，之后刷新按普通文档打开。 */

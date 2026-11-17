@@ -512,3 +512,63 @@ func TestCreateTemplate_InvalidNameAndDescription(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+// 「模板管理页新建模板」：没有源文档，快照由客户端提交。
+func TestCreateTemplate_FromClientSnapshot(t *testing.T) {
+	s := newTemplateTestService()
+	tpl, err := s.CreateTemplate(ctxFor(1, "user-a"), &types.CreateWorkbenchTemplateRequest{
+		Name:                "会议模板",
+		Description:         "空白页",
+		YDoc:                "AQIDBAU=", // base64 of 1..5
+		EditorSchemaVersion: types.SupportedEditorSchemaVersion,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 5, tpl.SizeBytes)
+	assert.Nil(t, tpl.SourceItemID, "新建模板没有源文档")
+
+	stored := s.templates.rows[tpl.ID]
+	require.NotNil(t, stored)
+	assert.Equal(t, []byte{1, 2, 3, 4, 5}, stored.YDoc)
+}
+
+func TestCreateTemplate_FromClientSnapshotValidation(t *testing.T) {
+	s := newTemplateTestService()
+	ctx := ctxFor(1, "user-a")
+
+	// 既没有源文档，也没有快照：必须拒绝，否则会落一条空模板。
+	_, err := s.CreateTemplate(ctx, &types.CreateWorkbenchTemplateRequest{Name: "空"})
+	require.Error(t, err)
+
+	// schema 非法
+	_, err = s.CreateTemplate(ctx, &types.CreateWorkbenchTemplateRequest{
+		Name:                "T",
+		YDoc:                "AQID",
+		EditorSchemaVersion: types.SupportedEditorSchemaVersion + 1,
+	})
+	require.Error(t, err)
+
+	// 非法 base64
+	_, err = s.CreateTemplate(ctx, &types.CreateWorkbenchTemplateRequest{
+		Name:                "T",
+		YDoc:                "!!!not-base64!!!",
+		EditorSchemaVersion: 1,
+	})
+	require.Error(t, err)
+}
+
+func TestCreateTemplate_FromClientSnapshotQuota(t *testing.T) {
+	s := newTemplateTestService()
+	for i := 0; i < types.WorkbenchTemplateMaxPerOwner; i++ {
+		id := fmt.Sprintf("tpl-%03d", i)
+		s.templates.rows[id] = &types.WorkbenchTemplate{ID: id, TenantID: 1, OwnerID: "user-a"}
+	}
+	_, err := s.CreateTemplate(ctxFor(1, "user-a"), &types.CreateWorkbenchTemplateRequest{
+		Name:                "第 51 个",
+		YDoc:                "AQID",
+		EditorSchemaVersion: 1,
+	})
+	require.Error(t, err)
+	appErr, ok := apperrors.IsAppError(err)
+	require.True(t, ok)
+	assert.Equal(t, 400, appErr.HTTPCode)
+}

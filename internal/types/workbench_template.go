@@ -26,14 +26,14 @@ const (
 
 // WorkbenchTemplate 用户模板；YDoc 只存字节，不出现在列表响应里。
 type WorkbenchTemplate struct {
-	ID                  string    `json:"-" gorm:"type:varchar(36);primaryKey"`
-	TenantID            uint64    `json:"-" gorm:"not null"`
-	OwnerID             string    `json:"-" gorm:"type:varchar(36);not null"`
-	Name                string    `json:"name" gorm:"type:varchar(60);not null"`
-	Description         string    `json:"description" gorm:"type:varchar(200);not null;default:''"`
-	YDoc                []byte    `json:"-" gorm:"column:ydoc;type:bytea;not null"`
-	SizeBytes           int       `json:"size_bytes" gorm:"not null"`
-	EditorSchemaVersion int       `json:"editor_schema_version" gorm:"not null;default:1"`
+	ID                  string `json:"-" gorm:"type:varchar(36);primaryKey"`
+	TenantID            uint64 `json:"-" gorm:"not null"`
+	OwnerID             string `json:"-" gorm:"type:varchar(36);not null"`
+	Name                string `json:"name" gorm:"type:varchar(60);not null"`
+	Description         string `json:"description" gorm:"type:varchar(200);not null;default:''"`
+	YDoc                []byte `json:"-" gorm:"column:ydoc;type:bytea;not null"`
+	SizeBytes           int    `json:"size_bytes" gorm:"not null"`
+	EditorSchemaVersion int    `json:"editor_schema_version" gorm:"not null;default:1"`
 	// 只做溯源，不建外键、不级联：源条目删除不影响模板。
 	SourceItemID *string   `json:"source_item_id,omitempty" gorm:"type:varchar(36)"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -78,11 +78,18 @@ type WorkbenchTemplateContent struct {
 	SizeBytes           int    `json:"size_bytes"`
 }
 
-// CreateWorkbenchTemplateRequest 从**已保存的文档**复制模板，不接受客户端上传快照。
+// CreateWorkbenchTemplateRequest 创建模板的请求，两种来源互斥：
+//   - source_item_id 非空：从**已保存的文档**复制快照，服务端不接受客户端字节；
+//   - source_item_id 为空：模板管理页「新建模板」，没有源文档，快照由客户端提交
+//     （服务端无法合成合法的 Y.Doc，只能收下编辑器给出的空白文档快照）。
 type CreateWorkbenchTemplateRequest struct {
 	SourceItemID string `json:"source_item_id"`
 	Name         string `json:"name"`
 	Description  string `json:"description"`
+	// YDoc 仅在没有源文档时使用，base64 编码的 Y.Doc 字节。
+	YDoc string `json:"ydoc"`
+	// EditorSchemaVersion 与 YDoc 配套，缺省视为非法版本。
+	EditorSchemaVersion int `json:"editor_schema_version"`
 }
 
 // Validate 校验名称与描述；source_item_id 的归属与状态由服务层确认。
@@ -91,15 +98,24 @@ func (r *CreateWorkbenchTemplateRequest) Validate() error {
 		return ErrWorkbenchInvalidTemplateName
 	}
 	r.SourceItemID = strings.TrimSpace(r.SourceItemID)
+	r.YDoc = strings.TrimSpace(r.YDoc)
 	r.Name = strings.TrimSpace(r.Name)
 	r.Description = strings.TrimSpace(r.Description)
-	if r.SourceItemID == "" {
+	if r.SourceItemID == "" && r.YDoc == "" {
 		return fmt.Errorf("%w: empty source", ErrWorkbenchInvalidTemplateSource)
 	}
 	if err := validateTemplateName(r.Name); err != nil {
 		return err
 	}
-	return validateTemplateDescription(r.Description)
+	if err := validateTemplateDescription(r.Description); err != nil {
+		return err
+	}
+	// 客户端快照必须自带合法 schema，避免把未来版本的字节写进库。
+	if r.SourceItemID == "" &&
+		(r.EditorSchemaVersion < 1 || r.EditorSchemaVersion > SupportedEditorSchemaVersion) {
+		return fmt.Errorf("%w: %d", ErrWorkbenchInvalidEditorSchemaVersion, r.EditorSchemaVersion)
+	}
+	return nil
 }
 
 // UpdateWorkbenchTemplateContentRequest 只替换模板正文快照；名称与描述走 UpdateTemplate。

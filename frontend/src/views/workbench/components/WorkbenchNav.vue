@@ -200,6 +200,8 @@ async function createDocument() {
       name: 'workbenchItem',
       params: { itemId: item.id },
       ...(store.features.templates ? { query: { template: '1' } } : {}),
+      // 标记这次是「新建跳转」：模板弹窗点关闭时要据此撤销这条空文档
+      state: { wbCreated: store.features.templates },
     })
   } catch {
     MessagePlugin.error(t('workbench.editor.loadFailed'))
@@ -291,6 +293,8 @@ async function onCreateItemInFolder(payload: { folderId: string }) {
       name: 'workbenchItem',
       params: { itemId: item.id },
       ...(store.features.templates ? { query: { template: '1' } } : {}),
+      // 文件夹视图新建同样标记，关闭模板弹窗时撤销空文档
+      state: { wbCreated: store.features.templates },
     })
   } catch {
     MessagePlugin.error(t('workbench.editor.loadFailed'))
