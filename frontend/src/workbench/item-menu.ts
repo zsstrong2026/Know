@@ -5,6 +5,7 @@
  * 避免两个视图各自维护一套 value → 事件的 switch。
  */
 import type { WorkbenchItem } from '@/types/workbench'
+import { archiveBadge } from './archive-status'
 
 export type WorkbenchItemMenuAction =
   | 'open'
@@ -20,6 +21,8 @@ export type WorkbenchItemMenuAction =
 export interface WorkbenchItemMenuOption {
   content: string
   value: WorkbenchItemMenuAction
+  /** 置灰但保留入口：让用户看到「为什么现在不能做」，而不是选项凭空消失 */
+  disabled?: boolean
 }
 
 const MENU_ACTIONS: ReadonlySet<string> = new Set<WorkbenchItemMenuAction>([
@@ -38,6 +41,8 @@ const MENU_ACTIONS: ReadonlySet<string> = new Set<WorkbenchItemMenuAction>([
  * 生成菜单项。
  *
  * 回收站里只剩恢复/永久删除；「钉到某天」只对画布开放（Journals 只含 canvas）。
+ * 归档入口按当前状态取动作名（归档 / 更新归档 / 重试 / 重新归档），
+ * 不可操作时置灰而不是隐藏，避免菜单项忽有忽无。
  */
 export function buildItemMenuOptions(
   item: WorkbenchItem,
@@ -50,6 +55,14 @@ export function buildItemMenuOptions(
       { content: t('workbench.item.purge'), value: 'purge' },
     ]
   }
+  const badge = archiveBadge(item.archive_status, item.archived_version)
+  // create 之外的动作用「更新归档」这一套文案；处理中/源已删除只置灰
+  const archiveLabel =
+    badge.action === 'none' || badge.action === 'progress'
+      ? t('workbench.archive.action.update')
+      : t(`workbench.archive.action.${badge.action}`)
+  const archiveDisabled =
+    item.archive_status === 'processing' || item.archive_status === 'source_deleted'
   return [
     { content: t('workbench.item.open'), value: 'open' },
     { content: t('workbench.item.rename'), value: 'rename' },
@@ -61,7 +74,7 @@ export function buildItemMenuOptions(
     ...(item.kind === 'canvas'
       ? [{ content: t('workbench.item.pin'), value: 'pin' as const }]
       : []),
-    { content: t('workbench.archive.action.update'), value: 'archive' },
+    { content: archiveLabel, value: 'archive', disabled: archiveDisabled },
     { content: t('workbench.archive.deleteTitle'), value: 'deleteArchives' },
     { content: t('workbench.item.delete'), value: 'trash' },
   ]

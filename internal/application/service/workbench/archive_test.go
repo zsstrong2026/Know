@@ -23,6 +23,7 @@ type memArchiveRepo struct {
 	trashed *types.WorkbenchItem
 	rows    map[string]*types.WorkbenchArchive // 按 id 存
 	items   map[string]*types.WorkbenchItem    // 额外条目，供列表批量填充用例
+	folders []*types.WorkbenchFolder           // 归档时用于还原文件夹路径
 	order   int
 	// notices 记录归档失败通知，用于断言 archive_failed 只写一次。
 	notices []*types.WorkbenchNotice
@@ -225,6 +226,13 @@ func (m *memArchiveRepo) CountAnyBySource(
 	return count, nil
 }
 
+// ListFolders 只返回预置的文件夹，够归档解析路径使用。
+func (m *memArchiveRepo) ListFolders(
+	_ context.Context, _ uint64, _ string,
+) ([]*types.WorkbenchFolder, error) {
+	return m.folders, nil
+}
+
 // stubArchiveKB 只提供工作知识库；其余方法保持 nil（越界调用会 panic）。
 type stubArchiveKB struct{}
 
@@ -301,6 +309,22 @@ func (s *stubArchiveKnowledge) GetKnowledgeBatch(
 		}
 	}
 	return out, nil
+}
+
+// MoveKnowledgeToFolder 复刻知识库的文件夹归档：只改 folder_path，不动正文。
+func (s *stubArchiveKnowledge) MoveKnowledgeToFolder(
+	_ context.Context, kbID string, ids []string, folderPath string,
+) (int64, error) {
+	var affected int64
+	for _, id := range ids {
+		doc, ok := s.docs[id]
+		if !ok || doc.KnowledgeBaseID != kbID {
+			continue
+		}
+		doc.FolderPath = folderPath
+		affected++
+	}
+	return affected, nil
 }
 
 func newArchiveService() (*Service, *memArchiveRepo, *stubArchiveKnowledge) {
@@ -622,6 +646,42 @@ func TestFillDocArchiveStatus(t *testing.T) {
 	assert.Equal(t, 2, docs[1].ArchivedVersion)
 	assert.Equal(t, archiveStatusPartial, docs[2].ArchiveStatus)
 	assert.Equal(t, 3, docs[2].ArchivedVersion)
+}
+
+// 归档时把知识放进与墨匣文件夹一致的路径，文件夹改名或移回根目录后同步更新。
+func TestArchiveSyncsItemFolderPath(t *testing.T) {
+	svc, repo, knowledge := newArchiveService()
+	ctx := newTestContext()
+
+	parent := &types.WorkbenchFolder{ID: "folder-parent", Name: "产品"}
+	child := &types.WorkbenchFolder{ID: "folder-child", Name: "复盘", ParentID: &parent.ID}
+	repo.folders = []*types.WorkbenchFolder{parent, child}
+	repo.item.FolderID = &child.ID
+
+	markdown := "## 本周\n\n内容 A\n\n## 下周\n\n内容 B"
+	_, err := svc.Archive(ctx, archiveRequest(markdown))
+	require.NoError(t, err)
+	require.Len(t, knowledge.docs, 2)
+	for _, doc := range knowledge.docs {
+		assert.Equal(t, "产品/复盘", doc.FolderPath, "归档知识必须落在与墨匣一致的文件夹")
+	}
+
+	// 文件夹改名后再归档：内容没变，只移动知识，不重写正文。
+	child.Name = "周复盘"
+	_, err = svc.Archive(ctx, archiveRequest(markdown))
+	require.NoError(t, err)
+	assert.Equal(t, 0, knowledge.updated, "仅文件夹变化时不应重写知识正文")
+	for _, doc := range knowledge.docs {
+		assert.Equal(t, "产品/周复盘", doc.FolderPath)
+	}
+
+	// 条目移回根目录：归档要把它同步回知识库根目录。
+	repo.item.FolderID = nil
+	_, err = svc.Archive(ctx, archiveRequest(markdown))
+	require.NoError(t, err)
+	for _, doc := range knowledge.docs {
+		assert.Empty(t, doc.FolderPath)
+	}
 }
 
 // 多 part 归档标题必须带 (n/m) 后缀，且 part_no 从 1 连续编号。

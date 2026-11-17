@@ -30,6 +30,25 @@
         <t-button v-if="currentEntry && ready" variant="text" size="small" @click="openCollect">
           {{ $t('workbench.collect.entry') }}
         </t-button>
+        <!-- 一键排版：AI 按语义分段 + 标题层级 / 首行缩进 / 行距；排版前的快照写在文档里，可一键回退 -->
+        <t-button
+          v-if="currentEntry && ready"
+          variant="text"
+          size="small"
+          :disabled="formatting"
+          @click="onFormatDoc"
+        >
+          {{ formatting ? $t('workbench.editor.formatDoc.running') : $t('workbench.editor.formatDoc.apply') }}
+        </t-button>
+        <t-button
+          v-if="currentEntry && ready && formatActive"
+          variant="text"
+          size="small"
+          :disabled="formatting"
+          @click="onRevertFormat"
+        >
+          {{ $t('workbench.editor.formatDoc.revert') }}
+        </t-button>
         <!-- 日历 / AI 开关：默认开启右侧面板，取消选中即收起并恢复整宽编辑区 -->
         <t-button
           variant="text"
@@ -100,11 +119,14 @@
         </t-button>
       </div>
 
-      <div v-else class="j-editor has-format-bar">
+      <div v-else class="j-editor has-format-bar" :class="{ 'is-typeset': formatActive }">
         <div
           ref="hostRef"
           class="j-mount"
-          :class="{ 'is-hidden': !ready }"
+          :class="[
+            { 'is-hidden': !ready },
+            mode === 'page' ? 'affine-page-viewport' : 'affine-edgeless-viewport',
+          ]"
         />
         <div v-if="!ready" class="j-loading">{{ $t('workbench.editor.loading') }}</div>
 
@@ -331,6 +353,8 @@ import {
   type WorkbenchRelation,
 } from '@/api/workbench'
 import { useWorkbenchStore } from '@/stores/workbench'
+import { applyDocFormat, collectAiSegmentTargets, readDocFormatState, revertDocFormat, type DocFormatState } from '@/workbench/editor/doc-format'
+import { requestAISegments } from '@/workbench/ai/format-doc-ai'
 import { useEditorSession } from '@/workbench/editor/use-editor-session'
 import { WB_NOTE_DETAIL_EVENT, noteCardTitle } from '@/workbench/editor/note-events'
 import { createPageAIAdapter, type PageAIAdapterOptions } from '@/workbench/ai/editor-adapter'
@@ -367,6 +391,100 @@ const session = useEditorSession({
   onConflict: () => openConflictDialog(),
 })
 const { ready, baseVersion, saveState } = session
+
+// ---- 一键排版 / 回退 ----
+// 与条目页同一套实现：状态存在 Y.Doc 里，视图只负责决定按钮与阅读版式。
+const formatState = shallowRef<DocFormatState | null>(null)
+const formatActive = computed(() => formatState.value?.active === true)
+/** 排版在飞（可能包含 AI 语义分段），按钮据此显示进度并防重复点击 */
+const formatting = ref(false)
+
+function refreshFormatState() {
+  const handle = session.editor.value
+  formatState.value = handle?.doc ? readDocFormatState(handle.doc.spaceDoc) : null
+}
+
+/** 切换 Journal / 重载都会重建编辑器，就绪后重新读一次排版状态。 */
+watch(ready, (value) => {
+  if (value) refreshFormatState()
+})
+
+/**
+ * 先用 AI 按语义分段，再把结果交给排版。
+ *
+ * 任何失败（AI 关闭、超时、回复对不上原文）都返回 undefined，
+ * 由 applyDocFormat 回落到规则分段——排版本身不能被 AI 卡住。
+ */
+async function requestSegmentOverrides(store: any): Promise<Record<string, string[]> | undefined> {
+  if (!canUseAI.value) return undefined
+  const targets = collectAiSegmentTargets(store?.root)
+  if (targets.length === 0) return undefined
+
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 30000)
+  try {
+    const segments = await requestAISegments(
+      targets.map((target) => target.text),
+      {
+        itemId: currentItemId.value,
+        agentId: aiPrefs.value.defaultAgentId || undefined,
+        signal: controller.signal,
+      },
+    )
+    if (!segments) return undefined
+    const overrides: Record<string, string[]> = {}
+    segments.forEach((chunks, index) => {
+      if (chunks?.length) overrides[targets[index].id] = chunks
+    })
+    return Object.keys(overrides).length > 0 ? overrides : undefined
+  } catch {
+    // 超时/网络/模型错误：静默回落规则分段，只在结果里体现
+    return undefined
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
+async function onFormatDoc() {
+  const handle = session.editor.value
+  if (!handle?.store || formatting.value) return
+  formatting.value = true
+  try {
+    const segments = await requestSegmentOverrides(handle.store)
+    // AI 等待期间可能切换了 Journal/重建了编辑器：旧实例上不能再写
+    if (!ready.value || session.editor.value !== handle) return
+    const outcome = applyDocFormat(
+      handle.store,
+      handle.doc?.spaceDoc,
+      segments ? { segments } : undefined,
+    )
+    refreshFormatState()
+    if (outcome.reason === 'readonly') {
+      MessagePlugin.warning(t('workbench.editor.formatDoc.readonly'))
+      return
+    }
+    if (outcome.changed === 0) {
+      MessagePlugin.info(t('workbench.editor.formatDoc.nothing'))
+      return
+    }
+    MessagePlugin.success(t('workbench.editor.formatDoc.applied', { count: outcome.changed }))
+  } finally {
+    formatting.value = false
+  }
+}
+
+function onRevertFormat() {
+  const handle = session.editor.value
+  if (!handle?.store) return
+  const outcome = revertDocFormat(handle.store, handle.doc?.spaceDoc)
+  refreshFormatState()
+  if (outcome.reason === 'readonly') {
+    MessagePlugin.warning(t('workbench.editor.formatDoc.readonly'))
+    return
+  }
+  if (outcome.reason === 'no-state') return
+  MessagePlugin.success(t('workbench.editor.formatDoc.reverted'))
+}
 
 // ---- 空白页起始区与右侧面板（参考 AFFiNE 空白文档） ----
 const { aiPrefs } = useWorkbenchPrefs()
@@ -1300,6 +1418,17 @@ void (async () => {
   background: var(--td-bg-color-container);
   border-bottom: 1px solid var(--td-component-stroke);
   pointer-events: none;
+}
+
+/* 一键排版后的阅读版式：与条目页同一组变量，回退时移除类名即复原 */
+.j-editor.is-typeset {
+  --affine-font-h-1: 1.6em;
+  --affine-font-h-2: 1.35em;
+  --affine-font-h-3: 1.15em;
+  --affine-font-h-4: 1.05em;
+  --affine-font-h-5: 1em;
+  --affine-font-h-6: 0.95em;
+  --affine-line-height: 1.75;
 }
 
 .j-mount {

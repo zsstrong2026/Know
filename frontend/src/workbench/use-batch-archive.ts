@@ -13,6 +13,7 @@ import {
   reasonFromErrorCode,
   summarizeBatchResults,
   type BatchArchiveCandidate,
+  type BatchArchiveOp,
   type BatchArchivePlan,
   type BatchArchiveResult,
   type BatchArchiveSummary,
@@ -94,6 +95,54 @@ export async function runBatchArchive(
   if (options.signal?.aborted) aborted = true
 
   return { results, summary: summarizeBatchResults(results) }
+}
+
+/**
+ * 单条归档的动作口径。
+ *
+ * 与批量略有差异：这里是用户对单个条目显式点击「更新归档」，
+ * active 也允许强制重写（refresh 端点本来就带 force），
+ * 只有处理中与源已删除没有可执行的动作。
+ */
+function singleOp(status: BatchArchiveCandidate['status']): BatchArchiveOp | null {
+  switch (status) {
+    case 'none':
+      return 'create'
+    case 'stale':
+    case 'active':
+      return 'update'
+    case 'partial':
+      return 'retry'
+    case 'deleted':
+      return 'recreate'
+    default:
+      return null
+  }
+}
+
+/**
+ * 单条归档：列表「…」菜单直接执行，不再跳详情页。
+ *
+ * 与批量共用同一条执行路径（正文取服务端已存投影、同一端点、同一错误码口径）。
+ * 列表里的 base_version 可能已落后（例如另一个标签页刚保存过），命中 2405 时
+ * 回源最新快照版本重试一次，避免用户为了刷新版本再进一次详情页。
+ */
+export async function runSingleArchive(
+  candidate: BatchArchiveCandidate,
+): Promise<BatchArchiveResult> {
+  const op = singleOp(candidate.status)
+  if (!op) {
+    return { key: candidate.key, title: candidate.title, status: 'skipped', reason: 'up_to_date' }
+  }
+  const target = { ...candidate, op } as BatchArchivePlan['actionable'][number]
+  const result = await runOne(target)
+  if (result.reason !== 'changed') return result
+  try {
+    const content = await getWorkbenchContent(candidate.sourceId)
+    return await runOne({ ...target, baseVersion: content.snapshot_version })
+  } catch {
+    return result
+  }
 }
 
 /** 执行单条：create/recreate 走 createArchive，update/retry 走 refreshArchive。 */

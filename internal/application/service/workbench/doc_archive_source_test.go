@@ -189,3 +189,41 @@ func TestProcessDocArchiveIgnoresBadPayload(t *testing.T) {
 	require.NoError(t, svc.ProcessDocArchive(context.Background(), task))
 	assert.Empty(t, docSrc.marked)
 }
+
+// 章节文档没有墨匣文件夹归属：归档与更新归档不得覆盖用户在知识库里的手动归类。
+func TestArchiveDocKeepsManualFolderPath(t *testing.T) {
+	repo := newMemArchiveRepo()
+	knowledge := newStubArchiveKnowledge()
+	docSrc := &stubDocArchive{
+		task: &types.DocGenerationTask{
+			ID: "task-1", TenantID: 1, OwnerID: "user-a", Theme: "季度复盘",
+		},
+		docs:     []*types.DocDocument{{ID: "doc-1", TaskID: "task-1", Version: 1}},
+		markdown: "## 一、本周\n\n内容",
+	}
+	svc := NewService(repo).
+		WithArchiveServices(stubArchiveKB{}, knowledge).
+		WithDocArchive(docSrc)
+	ctx := newTestContext()
+
+	_, err := svc.Archive(ctx, &types.WorkbenchArchiveRequest{
+		SourceType: types.WorkbenchSourceDoc,
+		SourceID:   "task-1",
+	})
+	require.NoError(t, err)
+	require.Len(t, knowledge.docs, 1)
+
+	// 用户在知识库里手动把归档知识移进文件夹。
+	for _, doc := range knowledge.docs {
+		doc.FolderPath = "我的整理"
+	}
+	docSrc.docs = []*types.DocDocument{{ID: "doc-2", TaskID: "task-1", Version: 2}}
+	_, err = svc.RefreshArchive(ctx, &types.WorkbenchArchiveRequest{
+		SourceType: types.WorkbenchSourceDoc,
+		SourceID:   "task-1",
+	})
+	require.NoError(t, err)
+	for _, doc := range knowledge.docs {
+		assert.Equal(t, "我的整理", doc.FolderPath, "章节文档归档不得覆盖手动归类")
+	}
+}

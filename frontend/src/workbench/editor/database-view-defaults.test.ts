@@ -10,6 +10,7 @@ import {
   UNGROUPED_GROUP_KEY,
   planCardProperties,
   planColumnWidths,
+  planInheritedSortColumns,
   planKanbanUngroupVisible,
   planMissingViews,
   planTableGrouping,
@@ -149,6 +150,34 @@ test('planTableGrouping：表格不应按状态分组', () => {
   )
   assert.equal(planTableGrouping(undefined), null)
   assert.equal(planTableGrouping({ columnId: '' }), null)
+})
+
+test('planInheritedSortColumns：插入行要继承排序键，否则会掉到列表末尾', () => {
+  const sort = {
+    sortBy: [
+      { ref: { type: 'ref', name: C.date }, desc: true },
+      { ref: { type: 'ref', name: C.priority }, desc: false },
+    ],
+  }
+  assert.deepEqual(planInheritedSortColumns(sort), [C.date, C.priority])
+  // 标题列是行块自身文本，复制会造出同名行
+  assert.deepEqual(planInheritedSortColumns(sort, [C.title]), [C.date, C.priority])
+  assert.deepEqual(planInheritedSortColumns(sort, [C.date]), [C.priority])
+})
+
+test('planInheritedSortColumns：未排序或没有排序键时不动', () => {
+  assert.equal(planInheritedSortColumns(undefined), null)
+  assert.equal(planInheritedSortColumns({}), null)
+  assert.equal(planInheritedSortColumns({ sortBy: [] }), null)
+  // 排序键全是标题列（被跳过）时也不写入
+  assert.equal(planInheritedSortColumns({ sortBy: [{ ref: { name: C.title } }] }, [C.title]), null)
+  // 重复列只保留一次
+  assert.deepEqual(
+    planInheritedSortColumns({
+      sortBy: [{ ref: { name: C.date } }, { ref: { name: C.date } }],
+    }),
+    [C.date],
+  )
 })
 
 test('planCardProperties：遗留 [状态, 负责人] 换成原型卡片', () => {

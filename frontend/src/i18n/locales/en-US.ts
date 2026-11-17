@@ -632,6 +632,17 @@
       failed: 'Could not add documents',
       unfiled: 'Unfiled'
     },
+    moveToFolder: {
+      title: 'Move “{title}” to a folder',
+      searchPlaceholder: 'Search folders',
+      empty: 'No folders yet',
+      emptySearch: 'No matching folders',
+      current: 'Current',
+      cancel: 'Cancel',
+      confirm: 'Move',
+      success: 'Moved to “{folder}”',
+      failed: 'Could not move, please try again'
+    },
     new: {
       label: 'New',
       document: 'New document',
@@ -1179,6 +1190,16 @@
         updated: 'Updated {time}',
         words: '{count} characters',
         private: 'Only you can see this'
+      },
+      // One-click formatting: normalizes heading levels / alignment / line height; the pre-format snapshot lives in the document so it can be reverted.
+      formatDoc: {
+        apply: 'Auto format',
+        revert: 'Revert formatting',
+        applied: 'Formatting applied — {count} adjustments',
+        reverted: 'Formatting reverted',
+        nothing: 'Nothing to adjust in this document',
+        readonly: 'This document is read-only',
+        running: 'AI is analyzing paragraphs…'
       }
     },
     semantic: {

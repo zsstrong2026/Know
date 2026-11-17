@@ -1,6 +1,11 @@
 <template>
   <!-- 新建菜单（§9.5 / §9.16.2）：导航栏与列表页空态共用，触发器由父组件决定 -->
+  <!-- 文件夹视图只允许新建文档：不展开菜单，点击直接建文档并跳到编辑页 -->
+  <span v-if="documentOnly" class="create-menu-direct" @click="runDocument">
+    <slot />
+  </span>
   <t-dropdown
+    v-else
     :options="options"
     trigger="click"
     placement="bottom-right"
@@ -13,7 +18,7 @@
 
 <script setup lang="ts">
 /**
- * 新建菜单：文档 / 画布 / 数据库 / 文件夹四选。
+ * 新建菜单：文档 / 画布 / 数据库 / 文件夹四选；documentOnly 时只有文档一项。
  *
  * 四个入口的语义（与后端 kind 对照）：
  *   - 文档：kind=canvas + current_mode=page，带 ?template=1 让编辑页弹模板选择器；
@@ -32,8 +37,10 @@ const props = withDefaults(
   defineProps<{
     /** 新建条目落在哪个文件夹；空表示根级 */
     folderId?: string | null
+    /** 仅新建文档：文件夹视图使用，点击直接建文档，不弹类型菜单 */
+    documentOnly?: boolean
   }>(),
-  { folderId: null },
+  { folderId: null, documentOnly: false },
 )
 
 const emit = defineEmits<{
@@ -84,6 +91,11 @@ async function run(action: WorkbenchCreateAction) {
   }
 }
 
+/** 文件夹视图的「新建」：不经过下拉，直接走新建文档。 */
+function runDocument() {
+  void run('document')
+}
+
 /**
  * 新建文档 / 画布。
  *
@@ -128,3 +140,10 @@ async function openThings() {
   }
 }
 </script>
+
+<style lang="less" scoped>
+/* 直接新建时包一层，保持与下拉触发器一致的布局行为 */
+.create-menu-direct {
+  display: inline-flex;
+}
+</style>

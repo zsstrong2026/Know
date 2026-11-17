@@ -81,6 +81,25 @@
       <t-button v-if="!isDatabase && ready && !loadError" variant="text" size="small" @click="openCollect">
         {{ $t('workbench.collect.entry') }}
       </t-button>
+      <!-- 一键排版：AI 按语义分段 + 标题层级 / 首行缩进 / 行距；排版前的快照写在文档里，可一键回退 -->
+      <t-button
+        v-if="!isDatabase && ready && !loadError"
+        variant="text"
+        size="small"
+        :disabled="formatting"
+        @click="onFormatDoc"
+      >
+        {{ formatting ? $t('workbench.editor.formatDoc.running') : $t('workbench.editor.formatDoc.apply') }}
+      </t-button>
+      <t-button
+        v-if="!isDatabase && ready && !loadError && formatActive"
+        variant="text"
+        size="small"
+        :disabled="formatting"
+        @click="onRevertFormat"
+      >
+        {{ $t('workbench.editor.formatDoc.revert') }}
+      </t-button>
       <!-- 形态切换：只有画布条目出现，数据库条目的“页面”就是数据视图（§10.14.5） -->
       <ModeSwitch
         v-if="canSwitchMode"
@@ -184,6 +203,7 @@
         'is-ai-open': aiPanelOpen,
         'is-db-focus': dbFocused || isDatabase,
         'has-format-bar': !isDatabase,
+        'is-typeset': formatActive,
       }"
     >
       <!-- BlockSuite 挂载点：由 editor-session 注入宿主元素 -->
@@ -372,6 +392,8 @@ import {
   workbenchErrorCode,
   WORKBENCH_ERROR,
 } from '@/api/workbench'
+import { applyDocFormat, collectAiSegmentTargets, readDocFormatState, revertDocFormat, type DocFormatState } from '@/workbench/editor/doc-format'
+import { requestAISegments } from '@/workbench/ai/format-doc-ai'
 import { useEditorSession } from '@/workbench/editor/use-editor-session'
 import { captureWorkbenchThumbnail } from '@/workbench/thumbnail'
 import { WB_NOTE_DETAIL_EVENT, noteCardTitle } from '@/workbench/editor/note-events'
@@ -779,6 +801,100 @@ const session = useEditorSession({
 const { saveState, baseVersion, savedAt } = session
 // setup 里直接解构 ref 后，模板中的 ready 需要单独暴露（模板不会自动 unwrap 嵌套对象字段）。
 const ready = session.ready
+
+// ---- 一键排版 / 回退 ----
+// 状态存在 Y.Doc 里（随文档同步），视图只负责读出来决定按钮与字号样式。
+const formatState = shallowRef<DocFormatState | null>(null)
+const formatActive = computed(() => formatState.value?.active === true)
+/** 排版在飞（可能包含 AI 语义分段），按钮据此显示进度并防重复点击 */
+const formatting = ref(false)
+
+function refreshFormatState() {
+  const handle = session.editor.value
+  formatState.value = handle?.doc ? readDocFormatState(handle.doc.spaceDoc) : null
+}
+
+/** 编辑器重建（首次挂载、冲突重载）后重新读一次排版状态。 */
+watch(ready, (value) => {
+  if (value) refreshFormatState()
+})
+
+/**
+ * 先用 AI 按语义分段，再把结果交给排版。
+ *
+ * 任何失败（AI 关闭、超时、回复对不上原文）都返回 undefined，
+ * 由 applyDocFormat 回落到规则分段——排版本身不能被 AI 卡住。
+ */
+async function requestSegmentOverrides(store: any): Promise<Record<string, string[]> | undefined> {
+  if (!canUseAI.value) return undefined
+  const targets = collectAiSegmentTargets(store?.root)
+  if (targets.length === 0) return undefined
+
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 30000)
+  try {
+    const segments = await requestAISegments(
+      targets.map((target) => target.text),
+      {
+        itemId: itemId.value,
+        agentId: aiPrefs.value.defaultAgentId || undefined,
+        signal: controller.signal,
+      },
+    )
+    if (!segments) return undefined
+    const overrides: Record<string, string[]> = {}
+    segments.forEach((chunks, index) => {
+      if (chunks?.length) overrides[targets[index].id] = chunks
+    })
+    return Object.keys(overrides).length > 0 ? overrides : undefined
+  } catch {
+    // 超时/网络/模型错误：静默回落规则分段，只在结果里体现
+    return undefined
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
+async function onFormatDoc() {
+  const handle = session.editor.value
+  if (!handle?.store || formatting.value) return
+  formatting.value = true
+  try {
+    const segments = await requestSegmentOverrides(handle.store)
+    // AI 等待期间可能切换了条目/重建了编辑器：旧实例上不能再写
+    if (!ready.value || session.editor.value !== handle) return
+    const outcome = applyDocFormat(
+      handle.store,
+      handle.doc?.spaceDoc,
+      segments ? { segments } : undefined,
+    )
+    refreshFormatState()
+    if (outcome.reason === 'readonly') {
+      MessagePlugin.warning(t('workbench.editor.formatDoc.readonly'))
+      return
+    }
+    if (outcome.changed === 0) {
+      MessagePlugin.info(t('workbench.editor.formatDoc.nothing'))
+      return
+    }
+    MessagePlugin.success(t('workbench.editor.formatDoc.applied', { count: outcome.changed }))
+  } finally {
+    formatting.value = false
+  }
+}
+
+function onRevertFormat() {
+  const handle = session.editor.value
+  if (!handle?.store) return
+  const outcome = revertDocFormat(handle.store, handle.doc?.spaceDoc)
+  refreshFormatState()
+  if (outcome.reason === 'readonly') {
+    MessagePlugin.warning(t('workbench.editor.formatDoc.readonly'))
+    return
+  }
+  if (outcome.reason === 'no-state') return
+  MessagePlugin.success(t('workbench.editor.formatDoc.reverted'))
+}
 
 // ---- Page AI 偏好与适配器（§9.14.5） ----
 // 偏好来自共享单例：设置页改完立即生效，不用刷新（§9.14.6）。
@@ -2382,6 +2498,22 @@ onBeforeUnmount(() => {
   background: var(--td-bg-color-container);
   border-bottom: 1px solid var(--td-component-stroke);
   pointer-events: none;
+}
+
+/**
+ * 一键排版后的阅读版式（workbuddy-docx 版式规范的屏幕映射）。
+ *
+ * 只调 CSS 变量：标题字号按正文字号等比放大（em），行距 1.75；
+ * 「回退排版」移除这个类即可复原，不写任何块属性。
+ */
+.editor-host.is-typeset {
+  --affine-font-h-1: 1.6em;
+  --affine-font-h-2: 1.35em;
+  --affine-font-h-3: 1.15em;
+  --affine-font-h-4: 1.05em;
+  --affine-font-h-5: 1em;
+  --affine-font-h-6: 0.95em;
+  --affine-line-height: 1.75;
 }
 
 /**

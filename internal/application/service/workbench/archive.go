@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/application/access"
@@ -277,6 +278,11 @@ func (s *Service) archive(
 	if err != nil {
 		return nil, err
 	}
+	// 条目在墨匣里的文件夹决定归档知识落在知识库的哪个文件夹（§6.4）。
+	folderPath, err := s.archiveFolderPath(ctx, tenantID, ownerID, item.FolderID)
+	if err != nil {
+		return nil, err
+	}
 	src := &archiveSource{
 		TenantID:      item.TenantID,
 		OwnerID:       item.OwnerID,
@@ -284,6 +290,7 @@ func (s *Service) archive(
 		SourceID:      item.ID,
 		Title:         item.Title,
 		SourceVersion: item.SnapshotVersion,
+		FolderPath:    &folderPath,
 	}
 	// body 里的 force 与 refresh 端点等价：两者都表示“即使没变也重写”。
 	return s.writeParts(ctx, src, parts, force || req.Force)
@@ -300,6 +307,10 @@ type archiveSource struct {
 	SourceID      string
 	Title         string
 	SourceVersion int
+	// FolderPath 是来源在墨匣中维护的文件夹路径（"父/子"，根目录为空串）。
+	// nil 表示该来源不参与文件夹同步：章节文档没有墨匣文件夹归属，
+	// 此时保持用户在知识库里手动整理的位置不变。
+	FolderPath *string
 }
 
 // writeParts 逐 part 写入映射与知识；单 part 失败不影响其他 part（§6.6），
@@ -434,16 +445,27 @@ func (s *Service) archivePart(
 		return apperrors.NewWorkbenchArchiveInProgress(2 * time.Second)
 	}
 
-	exists, err := s.knowledgeExists(ctx, tenantID, row.KnowledgeID)
+	current, err := s.archiveKnowledge(ctx, tenantID, row.KnowledgeID)
 	if err != nil {
 		return err
 	}
-	// 幂等：版本与标题都没变且不是强制刷新，直接复用，不重复建知识。
-	if exists && row.SourceVersion == sourceVersion && row.Title == part.Title && !force {
+	exists := current != nil
+	// 文件夹也要参与幂等判定：墨匣里移动/改名文件夹后，即使内容没变，
+	// 「更新归档」也要把知识挪到新位置。
+	folderInSync := s.archiveFolderInSync(current, src.FolderPath)
+	// 幂等：版本、标题与文件夹都没变且不是强制刷新，直接复用，不重复建知识。
+	if exists && row.SourceVersion == sourceVersion && row.Title == part.Title &&
+		folderInSync && !force {
 		return nil
 	}
 	if exists {
-		if _, err := s.knowledge.UpdateManualKnowledge(ctx, row.KnowledgeID, payload); err != nil {
+		contentChanged := force || row.SourceVersion != sourceVersion || row.Title != part.Title
+		if contentChanged {
+			if _, err := s.knowledge.UpdateManualKnowledge(ctx, row.KnowledgeID, payload); err != nil {
+				return err
+			}
+		}
+		if err := s.moveArchiveToFolder(ctx, kb, row.KnowledgeID, current.FolderPath, src.FolderPath); err != nil {
 			return err
 		}
 		return s.repo.ActivatePart(ctx, row.ID, row.KnowledgeID, sourceVersion, part.Title)
@@ -453,6 +475,14 @@ func (s *Service) archivePart(
 	newKnowledgeID := uuid.NewString()
 	if _, err := s.knowledge.CreateKnowledgeFromManualWithID(
 		ctx, kb.ID, newKnowledgeID, payload, archiveChannel); err != nil {
+		return err
+	}
+	if err := s.moveArchiveToFolder(ctx, kb, newKnowledgeID, "", src.FolderPath); err != nil {
+		// 文件夹没同步成功就不换绑，避免留下“归档成功但位置不对”的知识。
+		if delErr := s.knowledge.DeleteKnowledge(ctx, newKnowledgeID); delErr != nil {
+			logger.Warnf(ctx, "workbench: failed to roll back rebuilt archive knowledge %s: %v",
+				newKnowledgeID, delErr)
+		}
 		return err
 	}
 	return s.repo.RebindKnowledge(ctx, row.ID, newKnowledgeID, sourceVersion, part.Title)
@@ -496,13 +526,123 @@ func (s *Service) createArchivePart(
 	if _, err := s.knowledge.CreateKnowledgeFromManualWithID(
 		ctx, kb.ID, pending.KnowledgeID, payload, archiveChannel); err != nil {
 		// 知识没建成：把 pending 行标 deleted，避免留下指向空知识的映射。
-		if _, markErr := s.repo.MarkDeletedBySourcePart(
-			ctx, src.TenantID, src.OwnerID, src.SourceType, src.SourceID, part.No); markErr != nil {
-			logger.Warnf(ctx, "workbench: failed to roll back pending archive part %d: %v", part.No, markErr)
+		s.rollbackArchivePart(ctx, src, part.No)
+		return err
+	}
+	// 新建知识默认为空文件夹，这里按墨匣来源直接放进目标文件夹；
+	// 同步失败按“本分片归档失败”处理，回滚知识并让调用方可重试。
+	if err := s.moveArchiveToFolder(ctx, kb, pending.KnowledgeID, "", src.FolderPath); err != nil {
+		if delErr := s.knowledge.DeleteKnowledge(ctx, pending.KnowledgeID); delErr != nil {
+			logger.Warnf(ctx, "workbench: failed to roll back archived knowledge %s: %v",
+				pending.KnowledgeID, delErr)
 		}
+		s.rollbackArchivePart(ctx, src, part.No)
 		return err
 	}
 	return s.repo.ActivatePart(ctx, created.ID, pending.KnowledgeID, src.SourceVersion, part.Title)
+}
+
+// rollbackArchivePart 把失败的 pending 映射标 deleted，避免留下指向空知识的映射。
+func (s *Service) rollbackArchivePart(ctx context.Context, src *archiveSource, partNo int) {
+	if _, err := s.repo.MarkDeletedBySourcePart(
+		ctx, src.TenantID, src.OwnerID, src.SourceType, src.SourceID, partNo); err != nil {
+		logger.Warnf(ctx, "workbench: failed to roll back pending archive part %d: %v", partNo, err)
+	}
+}
+
+// archiveFolderPath 把墨匣文件夹解析成知识库使用的相对路径（"父/子"）。
+// 文件夹名称与层级完全沿用墨匣侧维护的结构，根目录返回空串。
+func (s *Service) archiveFolderPath(
+	ctx context.Context, tenantID uint64, ownerID string, folderID *string,
+) (string, error) {
+	if folderID == nil || *folderID == "" {
+		return "", nil
+	}
+	folders, err := s.repo.ListFolders(ctx, tenantID, ownerID)
+	if err != nil {
+		return "", err
+	}
+	byID := make(map[string]*types.WorkbenchFolder, len(folders))
+	for _, folder := range folders {
+		byID[folder.ID] = folder
+	}
+	names := make([]string, 0, workbenchFolderMaxDepth)
+	seen := make(map[string]struct{}, workbenchFolderMaxDepth+1)
+	for next := *folderID; next != ""; {
+		if _, ok := seen[next]; ok {
+			// 脏数据造成的环：停止向上，避免死循环。
+			break
+		}
+		seen[next] = struct{}{}
+		folder, ok := byID[next]
+		if !ok {
+			// 文件夹已被删除：按仍然可见的祖先层级归档。
+			break
+		}
+		// "/" 与 "\" 会被知识库当成层级分隔符，替换成全角以保留原名单层语义。
+		name := strings.ReplaceAll(folder.Name, "\\", "＼")
+		names = append(names, strings.ReplaceAll(name, "/", "／"))
+		if folder.ParentID == nil {
+			break
+		}
+		next = *folder.ParentID
+	}
+	// 上面是自底向上收集，反转后得到从根到叶的路径。
+	for i, j := 0, len(names)-1; i < j; i, j = i+1, j-1 {
+		names[i], names[j] = names[j], names[i]
+	}
+	return types.NormalizeKnowledgeFolderPath(strings.Join(names, "/")), nil
+}
+
+// archiveKnowledge 读取归档知识当前状态；不存在（含被用户删除）时返回 nil。
+func (s *Service) archiveKnowledge(
+	ctx context.Context, tenantID uint64, knowledgeID string,
+) (*types.Knowledge, error) {
+	if knowledgeID == "" {
+		return nil, nil
+	}
+	rows, err := s.knowledge.GetKnowledgeBatch(ctx, tenantID, []string{knowledgeID})
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if row != nil && row.ID == knowledgeID {
+			return row, nil
+		}
+	}
+	return nil, nil
+}
+
+// archiveFolderInSync 判断知识当前文件夹是否已与来源一致。
+// 来源没有文件夹（FolderPath=nil）时不参与同步，永远视为一致。
+func (s *Service) archiveFolderInSync(knowledge *types.Knowledge, folderPath *string) bool {
+	if folderPath == nil {
+		return true
+	}
+	target := types.NormalizeKnowledgeFolderPath(*folderPath)
+	if knowledge == nil {
+		return false
+	}
+	return types.NormalizeKnowledgeFolderPath(knowledge.FolderPath) == target
+}
+
+// moveArchiveToFolder 把归档知识放进来源对应的文件夹。
+// 路径一致时不写库，避免每次归档都刷新知识更新时间。
+func (s *Service) moveArchiveToFolder(
+	ctx context.Context,
+	kb *types.KnowledgeBase,
+	knowledgeID, currentFolder string,
+	folderPath *string,
+) error {
+	if folderPath == nil {
+		return nil
+	}
+	target := types.NormalizeKnowledgeFolderPath(*folderPath)
+	if types.NormalizeKnowledgeFolderPath(currentFolder) == target {
+		return nil
+	}
+	_, err := s.knowledge.MoveKnowledgeToFolder(ctx, kb.ID, []string{knowledgeID}, target)
+	return err
 }
 
 // pruneStaleParts 把新集合里已不存在的旧 part 标 deleted 并删除对应知识。
@@ -537,19 +677,11 @@ func (s *Service) pruneStaleParts(
 func (s *Service) knowledgeExists(
 	ctx context.Context, tenantID uint64, knowledgeID string,
 ) (bool, error) {
-	if knowledgeID == "" {
-		return false, nil
-	}
-	rows, err := s.knowledge.GetKnowledgeBatch(ctx, tenantID, []string{knowledgeID})
+	row, err := s.archiveKnowledge(ctx, tenantID, knowledgeID)
 	if err != nil {
 		return false, err
 	}
-	for _, row := range rows {
-		if row != nil && row.ID == knowledgeID {
-			return true, nil
-		}
-	}
-	return false, nil
+	return row != nil, nil
 }
 
 // DeleteArchive 删除归档（§7.6）。

@@ -38,6 +38,11 @@ type archiveKnowledgeService interface {
 	) (*types.Knowledge, error)
 	DeleteKnowledge(ctx context.Context, id string) error
 	GetKnowledgeBatch(ctx context.Context, tenantID uint64, ids []string) ([]*types.Knowledge, error)
+	// MoveKnowledgeToFolder 把知识放进知识库的指定文件夹路径；
+	// 归档用它把知识同步到墨匣侧维护的文件夹（空路径表示知识库根目录）。
+	MoveKnowledgeToFolder(
+		ctx context.Context, kbID string, ids []string, folderPath string,
+	) (int64, error)
 }
 
 // docTaskLister 是离开预览所需的最小文档任务能力面。

@@ -29,11 +29,12 @@
         <template #icon><t-icon name="upload" /></template>
         {{ $t('workbench.import.entry') }}
       </t-button>
-      <!-- 新建四选（B5）：文档 / 画布 / 数据库 / 文件夹；最近页与收藏页不重复提供 -->
+      <!-- 新建（B5）：文档 / 画布 / 数据库 / 文件夹；文件夹视图只允许新建文档 -->
       <CreateMenu
         v-if="scope !== 'trash' && scope !== 'recent' && scope !== 'favorites'"
         class="create-menu-host"
         :folder-id="scope === 'folder' ? folderId ?? null : null"
+        :document-only="scope === 'folder'"
         @created="onCreated"
         @create-folder="requestCreateFolder"
       >
@@ -117,6 +118,7 @@
         <CreateMenu
           v-else-if="scope !== 'trash' && scope !== 'favorites'"
           :folder-id="scope === 'folder' ? folderId ?? null : null"
+          :document-only="scope === 'folder'"
           @created="onCreated"
           @create-folder="requestCreateFolder"
         >
@@ -164,9 +166,10 @@
           :trashed="scope === 'trash'"
           :selectable="selectMode"
           :selected="selectedIds.has(item.id)"
+          :busy="archivingIds.has(item.id)"
           @open="selectMode ? toggleCandidate(item) : open(item)"
           @favorite="toggleFavorite"
-          @archive="onArchive"
+          @archive="archiveItem"
           @menu="onItemMenu"
         />
       </section>
@@ -206,6 +209,13 @@
 
     <!-- 导入资料（P4-1）：列表页不需要 itemId，「作为附件」路径自动隐藏 -->
     <ImportMaterialDialog v-model:visible="importOpen" />
+
+    <!-- 移动到文件夹：从文件夹列表中选择目标，替代原生 prompt 输入名称 -->
+    <MoveToFolderDialog
+      v-model="moveDialogOpen"
+      :item="moveTarget"
+      @moved="onMoved"
+    />
     </template>
   </section>
 </template>
@@ -226,6 +236,7 @@ import WorkbenchItemRow from './components/WorkbenchItemRow.vue'
 import BatchArchiveBar from './components/BatchArchiveBar.vue'
 import BatchArchiveDialog from './components/BatchArchiveDialog.vue'
 import ImportMaterialDialog from './components/ImportMaterialDialog.vue'
+import MoveToFolderDialog from './components/MoveToFolderDialog.vue'
 import CreateMenu from './components/CreateMenu.vue'
 import { listWorkbenchTags } from '@/api/workbench'
 import type { WorkbenchItemSort, WorkbenchTag } from '@/types/workbench'
@@ -235,8 +246,8 @@ import { batchOpFor, capBatchSelection, type BatchArchiveCandidate } from '@/wor
 import { todayISO } from '@/workbench/journals/date-only'
 import { groupItemsByDay, todayStart } from '@/workbench/item-display'
 import type { WorkbenchItemMenuAction } from '@/workbench/item-menu'
-import { deleteArchive } from '@/api/workbench'
-import type { ArchiveBadgeAction } from '@/workbench/archive-status'
+import { deleteArchive, getArchiveState } from '@/api/workbench'
+import { runSingleArchive } from '@/workbench/use-batch-archive'
 import type { WorkbenchItem, WorkbenchScope } from '@/types/workbench'
 
 const props = defineProps<{
@@ -264,8 +275,13 @@ const importOpen = ref(false)
 const pinDialogOpen = ref(false)
 const pinTarget = ref<WorkbenchItem | null>(null)
 const pinDraft = ref('')
+/** 移动到文件夹对话框：从文件夹列表中选择目标，替代原生 prompt */
+const moveDialogOpen = ref(false)
+const moveTarget = ref<WorkbenchItem | null>(null)
 /** 一键清空回收站请求中：按钮 loading，避免重复提交 */
 const emptying = ref(false)
+/** 正在归档的条目 id：行内徽标按钮置灰，避免重复提交 */
+const archivingIds = ref(new Set<string>())
 
 /**
  * 列表视图分组：只在「最近更新」排序下按天分组。
@@ -310,7 +326,7 @@ function onItemMenu(item: WorkbenchItem, action: WorkbenchItemMenuAction) {
       void pinToDate(item)
       break
     case 'archive':
-      void onArchive(item, 'update')
+      void archiveItem(item)
       break
     case 'deleteArchives':
       deleteArchives(item)
@@ -610,24 +626,18 @@ async function rename(item: WorkbenchItem) {
 }
 
 async function move(item: WorkbenchItem) {
-  // “移动到文件夹”用原生 prompt 选名称：P1 不做拖拽树，避免为一次操作引入整套选择器。
-  const names = store.folders.map((folder) => folder.name)
-  if (names.length === 0) {
+  // 「移动到文件夹」改为弹窗选择，替代原生 prompt 输入名称。
+  if (store.folders.length === 0) {
     MessagePlugin.info(t('workbench.list.emptyTitle'))
     return
   }
-  const answer = window.prompt(`${t('workbench.item.move')}\n${names.join(' / ')}`, names[0])
-  if (!answer) return
-  const target = store.folders.find((folder) => folder.name === answer.trim())
-  if (!target) {
-    MessagePlugin.warning(t('workbench.item.renameFailed'))
-    return
-  }
-  try {
-    await store.moveItemToFolder(item.id, target.id)
-  } catch {
-    MessagePlugin.error(t('workbench.item.renameFailed'))
-  }
+  moveTarget.value = item
+  moveDialogOpen.value = true
+}
+
+/** 移动完成：条目可能已离开当前文件夹视图，重拉列表保证归属正确。 */
+function onMoved() {
+  load()
 }
 
 /** 钉到某天 / 改期：打开日历对话框；清空日期确认表示取消钉。 */
@@ -734,14 +744,57 @@ function deleteArchives(item: WorkbenchItem) {
 }
 
 /**
- * 归档动作。
+ * 归档动作：在列表里直接执行，不再跳到详情页。
  *
- * 列表页没有 Y.Doc，无法投影 Markdown，所以这里只做导航：
- * 归档/更新/重试都需要正文，必须在条目编辑页发起。
+ * 列表页没有 Y.Doc，正文取服务端已保存的 text_content（编辑器自动保存写下的
+ * Markdown 投影），与批量归档共用同一条执行路径；成功后只回写这一行的归档状态，
+ * 不整表重拉，避免滚动位置与选择态被打断。
  */
-async function onArchive(item: WorkbenchItem, action: ArchiveBadgeAction) {
-  if (action === 'none' || action === 'progress') return
-  await router.push({ name: 'workbenchItem', params: { itemId: item.id } })
+async function archiveItem(item: WorkbenchItem) {
+  const status = item.archive_status ?? 'none'
+  // 处理中/源已删除没有可执行的动作（与菜单置灰口径一致）
+  if (status === 'processing' || status === 'source_deleted') return
+  if (archivingIds.value.has(item.id)) return
+  archivingIds.value = new Set(archivingIds.value).add(item.id)
+  try {
+    const result = await runSingleArchive({
+      key: item.id,
+      sourceType: 'item',
+      sourceId: item.id,
+      title: item.title,
+      status,
+      baseVersion: item.snapshot_version,
+    })
+    if (result.status === 'skipped') {
+      MessagePlugin.warning(t('workbench.batchArchive.reason.up_to_date'))
+      return
+    }
+    if (result.status === 'failed') {
+      MessagePlugin.error(
+        `${t('workbench.batchArchive.status.failed')} · ${t(`workbench.batchArchive.reason.${result.reason ?? 'network'}`)}`,
+      )
+      return
+    }
+    // 首次归档与重新归档都算「归档」；其余是「更新归档」
+    const doneKey = status === 'none' || status === 'deleted' ? 'create' : 'update'
+    MessagePlugin.success(t(`workbench.archive.action.${doneKey}`))
+    // 归档后状态会变成 processing / active，徽标跟着变
+    try {
+      const state = await getArchiveState('item', item.id)
+      store.upsertItem({
+        ...item,
+        archive_status: state.status,
+        archived_version: state.archived_version ?? 0,
+      })
+    } catch {
+      // 状态刷新失败不影响归档结果，下次进入列表会回源
+    }
+    void store.fetchBootstrap().catch(() => undefined)
+  } finally {
+    const next = new Set(archivingIds.value)
+    next.delete(item.id)
+    archivingIds.value = next
+  }
 }
 </script>
 

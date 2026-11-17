@@ -9363,6 +9363,17 @@
       failed: '문서를 추가하지 못했습니다',
       unfiled: '미분류'
     },
+    moveToFolder: {
+      title: '«{title}»을(를) 폴더로 이동',
+      searchPlaceholder: '폴더 검색',
+      empty: '폴더가 없습니다',
+      emptySearch: '일치하는 폴더가 없습니다',
+      current: '현재 위치',
+      cancel: '취소',
+      confirm: '이동',
+      success: '«{folder}»로 이동했습니다',
+      failed: '이동에 실패했습니다. 다시 시도해주세요'
+    },
     new: {
       label: '새로 만들기',
       document: '새 문서',
@@ -9909,6 +9920,16 @@
         updated: '{time} 업데이트',
         words: '{count}자',
         private: '나만 볼 수 있음'
+      },
+      // 원클릭 서식 정리: 제목 단계·정렬·줄 간격을 통일하고, 정리 전 상태를 문서에 저장해 되돌릴 수 있습니다
+      formatDoc: {
+        apply: '원클릭 서식 정리',
+        revert: '서식 되돌리기',
+        applied: '서식 정리를 완료했습니다({count}곳 조정)',
+        reverted: '서식을 되돌렸습니다',
+        nothing: '조정할 내용이 없습니다',
+        readonly: '이 문서는 읽기 전용입니다',
+        running: 'AI가 단락을 분석하는 중…'
       }
     },
     semantic: {

@@ -9364,6 +9364,17 @@
       failed: '添加文档失败',
       unfiled: '未分类'
     },
+    moveToFolder: {
+      title: '移动「{title}」到文件夹',
+      searchPlaceholder: '搜索文件夹',
+      empty: '还没有文件夹',
+      emptySearch: '没有匹配的文件夹',
+      current: '当前所在',
+      cancel: '取消',
+      confirm: '移动',
+      success: '已移动到「{folder}」',
+      failed: '移动失败，请重试'
+    },
     new: {
       label: '新建',
       document: '新建文档',
@@ -9911,6 +9922,16 @@
         updated: '更新于 {time}',
         words: '{count} 字',
         private: '仅自己可见'
+      },
+      // 一键排版：统一标题层级 / 对齐 / 行距，排版前的快照存在文档里，可一键回退
+      formatDoc: {
+        apply: '一键排版',
+        revert: '回退排版',
+        applied: '已完成排版，共调整 {count} 处',
+        reverted: '已回退排版',
+        nothing: '当前文档无需调整',
+        readonly: '当前文档为只读，无法排版',
+        running: 'AI 正在识别分段…'
       }
     },
     semantic: {

@@ -9364,6 +9364,17 @@
       failed: '加入文件失敗',
       unfiled: '未分類'
     },
+    moveToFolder: {
+      title: '移動「{title}」到資料夾',
+      searchPlaceholder: '搜尋資料夾',
+      empty: '還沒有資料夾',
+      emptySearch: '沒有符合的資料夾',
+      current: '目前所在',
+      cancel: '取消',
+      confirm: '移動',
+      success: '已移動到「{folder}」',
+      failed: '移動失敗，請重試'
+    },
     new: {
       label: '新增',
       document: '新增文件',
@@ -9910,6 +9921,16 @@
         updated: '更新於 {time}',
         words: '{count} 字',
         private: '僅自己可見'
+      },
+      // 一鍵排版：統一標題層級 / 對齊 / 行距，排版前的快照存在文件裡，可一鍵復原
+      formatDoc: {
+        apply: '一鍵排版',
+        revert: '復原排版',
+        applied: '已完成排版，共調整 {count} 處',
+        reverted: '已復原排版',
+        nothing: '目前文件無需調整',
+        readonly: '目前文件為唯讀，無法排版',
+        running: 'AI 正在辨識分段…'
       }
     },
     semantic: {

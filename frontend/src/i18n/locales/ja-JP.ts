@@ -632,6 +632,17 @@
       failed: 'ドキュメントの追加に失敗しました',
       unfiled: '未分類'
     },
+    moveToFolder: {
+      title: '「{title}」をフォルダーに移動',
+      searchPlaceholder: 'フォルダーを検索',
+      empty: 'フォルダーがありません',
+      emptySearch: '一致するフォルダーがありません',
+      current: '現在の場所',
+      cancel: 'キャンセル',
+      confirm: '移動',
+      success: '「{folder}」に移動しました',
+      failed: '移動に失敗しました。もう一度お試しください'
+    },
     new: {
       label: '新規作成',
       document: '新しいドキュメント',
@@ -1178,6 +1189,16 @@
         updated: '{time} に更新',
         words: '{count} 文字',
         private: '自分のみ閲覧可能'
+      },
+      // ワンクリック整形：見出し階層・配置・行間を統一し、整形前の状態は文書内に保存して元に戻せる
+      formatDoc: {
+        apply: 'ワンクリック整形',
+        revert: '整形を元に戻す',
+        applied: '整形が完了しました（{count} 件を調整）',
+        reverted: '整形を元に戻しました',
+        nothing: '調整する箇所はありません',
+        readonly: 'このドキュメントは読み取り専用です',
+        running: 'AI が段落を解析中…'
       }
     },
     semantic: {

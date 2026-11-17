@@ -39,6 +39,7 @@ import {
   planKanbanHideEmpty,
   planMissingViews,
   planTableGrouping,
+  planInheritedSortColumns,
 } from './database-view-defaults'
 
 // 类型与占位状态放在 database-state.ts：条目页首屏要用常量，不应因此引入编辑器包。
@@ -622,6 +623,10 @@ export class DatabaseToolbarController {
    * 最终都会调 dataSource.rowAdd，逐个改不可维护，所以只在这里包一层。
    * AI 与归档同步的写入在各自路径里显式改成 `wb-src-ai` / `wb-src-archive`，
    * 这里只负责「没有特别声明的建行 = 手动录入」。
+   *
+   * 另外处理「向前方 / 向后方插入」：上游按参照行的物理位置插块，但表格渲染前
+   * 会按视图排序重排，新行缺排序键（截止日为空）会被排到末尾，看起来像加在最后。
+   * 因此这里把参照行的排序键值复制给新行，让它在排序后仍落在参照行前/后。
    */
   private patchRowAdd(): void {
     const dataSource = this.dataSource
@@ -630,9 +635,33 @@ export class DatabaseToolbarController {
     dataSource.rowAdd = (...args: any[]) => {
       const rowId = original(...args)
       this.applyDefaultSource(dataSource, rowId)
+      const anchorId = readAnchorRowId(args[0])
+      if (anchorId) this.inheritSortValues(anchorId, rowId)
       return rowId
     }
     dataSource.__wbRowAddPatched = true
+  }
+
+  /**
+   * 把参照行的排序键值复制给新行。
+   *
+   * 复制后两行排序键相同，稳定排序下新行紧跟在参照行前/后，视觉位置才符合
+   * 「向前方 / 向后方插入」。标题列是行块自身的文本（spacial property），
+   * 复制会造出同名行，因此明确跳过。
+   */
+  private inheritSortValues(anchorId: string, rowId: string): void {
+    if (!rowId || rowId === anchorId) return
+    const viewId = this.dataSource?.viewManager?.currentViewId$?.value
+    if (!viewId) return
+    const viewData = this.dataSource.viewDataGet(viewId)
+    const columns = planInheritedSortColumns(viewData?.sort, [WORKBENCH_DB_COLUMNS.title])
+    if (!columns) return
+    for (const columnId of columns) {
+      const value = this.dataSource.cellValueGet(anchorId, columnId)
+      // 参照行该列本身为空时没有可继承的排序键，保持新行原样。
+      if (value == null || value === '') continue
+      this.dataSource.cellValueChange(rowId, columnId, value)
+    }
   }
 
   /** 新建行补默认来源；选项被删掉时跳过，规则同 applyDefaultStatus。 */
@@ -911,6 +940,18 @@ function findDatabaseId(store: any): string {
     }
   }
   return ''
+}
+
+/**
+ * 从 `rowAdd` 的入参里取出「参照行 id」。
+ *
+ * 只有 `{ id, before }` 这种相对位置才参照某一行；`'start'` / `'end'` / 数字下标
+ * 没有参照行，返回空串（这些场景不需要继承排序键）。
+ */
+function readAnchorRowId(position: unknown): string {
+  if (!position || typeof position !== 'object') return ''
+  const id = (position as { id?: unknown }).id
+  return typeof id === 'string' ? id : ''
 }
 
 /**

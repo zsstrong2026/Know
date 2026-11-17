@@ -262,6 +262,34 @@ export function planKanbanUngroupVisible(
 export const REQUIRED_VIEW_MODES = ['table', 'kanban', 'calendar'] as const
 
 /**
+ * 「向前方 / 向后方插入」需要继承的排序键列。
+ *
+ * 表格视图有排序时，物理位置不再等于显示位置：上游 `rowAdd` 虽按参照行插入，
+ * 但渲染前会按 `sortBy` 重排，新行缺排序键（如截止日为空）就会被比较器判为
+ * 「空值最后」，视觉上直接掉到列表末尾——这正是「点了插入却加在最后」的原因。
+ *
+ * 因此插入到某行前后时，把参照行的排序键值复制给新行：同键值在稳定排序下
+ * 保持物理相邻，新行才会真的出现在参照行前/后。
+ *
+ * 返回 `null` 表示视图没有排序，不需要复制。
+ */
+export function planInheritedSortColumns(
+  sort: { sortBy?: Array<{ ref?: { name?: unknown } }> } | undefined | null,
+  skipColumns: readonly string[] = [],
+): string[] | null {
+  const sortBy = Array.isArray(sort?.sortBy) ? sort.sortBy : []
+  if (!sortBy.length) return null
+  const skip = new Set(skipColumns)
+  const columns: string[] = []
+  for (const entry of sortBy) {
+    const name = entry?.ref?.name
+    if (typeof name !== 'string' || !name || skip.has(name) || columns.includes(name)) continue
+    columns.push(name)
+  }
+  return columns.length ? columns : null
+}
+
+/**
  * 计算需要补建的视图；返回 `null` 表示三种都已存在（不需要动）。
  *
  * `existingModes` 传视图数据里的 `mode` 列表，顺序不影响判定；

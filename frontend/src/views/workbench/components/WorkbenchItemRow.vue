@@ -34,6 +34,7 @@
             :status="item.archive_status"
             :archived-version="item.archived_version"
             :readonly="trashed"
+            :busy="busy"
             @action="emit('archive', item, $event)"
           />
         </span>
@@ -93,8 +94,10 @@ const props = withDefaults(
     /** 批量归档选择模式下在行首显示勾选框 */
     selectable?: boolean
     selected?: boolean
+    /** 该条目正在归档：徽标主操作置灰并显示「同步中」 */
+    busy?: boolean
   }>(),
-  { trashed: false, selectable: false, selected: false },
+  { trashed: false, selectable: false, selected: false, busy: false },
 )
 
 const emit = defineEmits<{

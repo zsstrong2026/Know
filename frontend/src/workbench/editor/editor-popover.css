@@ -1218,18 +1218,26 @@ affine-database .affine-database-block-row .select-selected[data-wb-prio='p2']::
   background-color: #9aa29b;
 }
 
-/* 负责人：首字圆形头像（对应原型 .avatar）。 */
+/* 负责人：首字圆形头像（对应原型 .avatar）。
+   单元格是 flex 容器，伪元素会被当作 flex item 压缩：只写 width/height 时
+   实测被压成 18×22 的椭圆，所以这里用 flex: none + aspect-ratio 锁死正圆。 */
 affine-database [data-column-id='wb-col-owner'][data-wb-initial]::before {
   content: attr(data-wb-initial);
   display: inline-grid;
   place-items: center;
+  flex: none;
+  box-sizing: border-box;
   width: 22px;
   height: 22px;
+  min-width: 22px;
+  aspect-ratio: 1 / 1;
   margin-right: 5px;
+  padding: 0;
   border-radius: 50%;
   background-color: #d9f1e2;
   color: #0b5c36;
   font-size: 10px;
+  line-height: 1;
   font-weight: 600;
   vertical-align: -6px;
 }
@@ -1238,8 +1246,11 @@ affine-database [data-column-id='wb-col-owner'][data-wb-initial]::before {
 affine-database
   affine-data-view-kanban-card
   [data-column-id='wb-col-owner'][data-wb-initial]::before {
+  flex: none;
   width: 18px;
   height: 18px;
+  min-width: 18px;
+  aspect-ratio: 1 / 1;
   margin-right: 4px;
   font-size: 9px;
   vertical-align: -4px;
