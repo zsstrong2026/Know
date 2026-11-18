@@ -401,6 +401,7 @@ import { createPageAIAdapter, type PageAIAdapterOptions } from '@/workbench/ai/e
 import { useWorkbenchPrefs } from '@/workbench/use-workbench-prefs'
 import { useWorkbenchStore } from '@/stores/workbench'
 import { type ArchiveBadgeAction } from '@/workbench/archive-status'
+import { resolveWorkbenchBack } from '@/workbench/back-target'
 import { shouldAdoptTemplateTitle, type PreparedTemplateSnapshot } from '@/workbench/templates/apply'
 import type { TemplateCardItem } from '@/workbench/templates/picker'
 import type { ArchiveStatus, WorkbenchItem } from '@/types/workbench'
@@ -1189,7 +1190,10 @@ async function onTemplateCancel() {
   pickerOpen.value = false
   const createdId = itemId.value
   try {
-    // 该条目尚未写入任何内容，直接硬删，避免在回收站留下空壳
+    // 该条目尚未写入任何内容，直接硬删，避免在回收站留下空壳。
+    // purge 接口只受理回收站内的条目（后端借此防止误删正在编辑的画布），
+    // 因此必须先软删再硬删；软删失败（例如已在别处进回收站）不阻断后续硬删。
+    await workbenchStore.trashItem(createdId).catch(() => undefined)
     await workbenchStore.removeItemPermanently(createdId)
     // 新建时加过的文件夹计数要减回去，否则侧栏会多算一条
     void workbenchStore.fetchFolders().catch(() => undefined)
@@ -1768,7 +1772,23 @@ async function runAutoSync() {
   await submitArchive('update', { silent: true })
 }
 
+/**
+ * 返回墨匣：优先回退浏览历史（保留来源列表的文件夹与筛选），
+ * 没有可回退的列表页时按条目所属文件夹兜底，最后才回「最近」。
+ */
 function goBack() {
+  const target = resolveWorkbenchBack({
+    previous: router.options.history.state.back,
+    folderId: item.value?.folder_id ?? null,
+  })
+  if (target.kind === 'history') {
+    router.back()
+    return
+  }
+  if (target.kind === 'folder') {
+    void router.push({ name: 'workbenchFolder', params: { folderId: target.folderId } })
+    return
+  }
   void router.push({ name: 'workbenchRecent' })
 }
 

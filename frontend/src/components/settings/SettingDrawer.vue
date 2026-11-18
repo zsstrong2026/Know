@@ -7,8 +7,14 @@
       <div class="setting-drawer-resize-line" />
     </div>
   </teleport>
+  <!--
+    lazy：首次打开前不渲染抽屉节点。
+    TDesign 默认在 visible=false 时也会往 body 挂一个可聚焦的根容器（z-index 高于编辑器），
+    全局挂载的抽屉（如工作台编辑器旁的手动知识编辑器）会因此抢走键盘焦点，
+    表现为「点正文打不进字」。这里只在真正打开后挂载。
+  -->
   <t-drawer v-model:visible="drawerVisible" v-bind="drawerPassthroughAttrs" :size="effectiveWidth" :z-index="zIndex" placement="right"
-    attach="body" destroy-on-close :footer="!hideFooter"
+    attach="body" destroy-on-close lazy :footer="!hideFooter"
     :class="drawerClass" @before-close="blurActiveElementBeforeClose">
     <!--
       Custom header. We replace TDesign's default header so we can put a leading
