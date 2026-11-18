@@ -360,6 +360,20 @@ function createdBlockYText(spaceDoc: Y.Doc | undefined, blockId: string): any {
 }
 
 /**
+ * 读块在父块 Y.Array 里的实时下标。
+ *
+ * 模型上的 `children` 要等事务结束才更新（与上面同因），同一事务里前面的段落
+ * 已经插入了新块时，用模型下标会把后面的段落插到错误位置——顺序就乱了。
+ * Y.Array 是即时更新的，所以插入位置一律以它为准。
+ */
+function liveChildIndex(spaceDoc: Y.Doc | undefined, parentId: string, blockId: string): number {
+  const blocks = (spaceDoc as any)?.getMap?.('blocks')
+  const children = blocks?.get?.(parentId)?.get?.('sys:children')
+  const ids = children?.toArray?.()
+  return Array.isArray(ids) ? ids.indexOf(blockId) : -1
+}
+
+/**
  * 一键排版。
  *
  * 重复点击是安全的：已有快照里保存的是「最早一次排版前」的原值，再次排版只补充
@@ -411,9 +425,14 @@ export function applyDocFormat(
         if (edit.segments?.length) {
           const parent = model.parent
           const parentId = parent?.id
-          const index = parent
-            ? parent.children.findIndex((child: any) => child.id === edit.id)
-            : -1
+          // 优先用 Y.Array 的实时下标：模型 children 在本事务结束前看不到已插入的分段
+          const liveIndex = parentId ? liveChildIndex(spaceDoc, parentId, edit.id) : -1
+          const index =
+            liveIndex >= 0
+              ? liveIndex
+              : parent
+                ? parent.children.findIndex((child: any) => child.id === edit.id)
+                : -1
           if (!parentId || index < 0) {
             segmentsOk = false
           } else {

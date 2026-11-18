@@ -65,7 +65,12 @@ function asYText(text: ReturnType<typeof makeText>) {
   }
 }
 
-/** 只实现排版用到的那几个 store 接口；每次按 id 现场查找，中途新增的块也能命中。 */
+/**
+ * 模拟 BlockSuite 的 store：
+ *   - `addBlock` 立即写 Y 层（`sys:children`、`prop:text`），但模型树要等事务结束才更新，
+ *     与真实实现一致（Yjs 观察者是事务末回调）；
+ *   - 这样「同一事务里连续分段多个段落」的插入位置才可复现。
+ */
 function fakeStore(children: any[], doc: any, registerText = true) {
   const root = { id: 'root', flavour: 'affine:page', props: {}, children, parent: null as any }
   const linkParent = (parent: any) => {
@@ -75,7 +80,36 @@ function fakeStore(children: any[], doc: any, registerText = true) {
     }
   }
   linkParent(root)
+
+  /** Y 层结构：id → 子块 id 列表（即时更新） */
+  const yChildren = new Map<string, string[]>()
+  let pending: Array<{ parent: any; block: any; id: string }> = []
+  let depth = 0
   let seq = 0
+
+  const expose = (block: any) => {
+    const ids = (block.children ?? []).map((child: any) => child.id)
+    yChildren.set(block.id, ids)
+    doc.getMap('blocks').set(block.id, {
+      get: (key: string) => {
+        if (key === 'prop:text') return registerText ? asYText(block.text) : undefined
+        if (key === 'sys:children') {
+          return {
+            toArray: () => ids.slice(),
+            insert: (index: number, values: string[]) => ids.splice(index, 0, ...values),
+            delete: (index: number, count: number) => ids.splice(index, count),
+          }
+        }
+        return undefined
+      },
+    })
+  }
+  const register = (block: any) => {
+    expose(block)
+    for (const child of block.children ?? []) register(child)
+  }
+  register(root)
+
   const find = (id: string): any => {
     let found: any = null
     const walk = (blocks: any[]) => {
@@ -87,6 +121,18 @@ function fakeStore(children: any[], doc: any, registerText = true) {
     walk(root.children)
     return found
   }
+
+  /** 事务结束：把挂起的新块按 Y.Array 的当前顺序挂进模型树。 */
+  const flush = () => {
+    const queue = pending
+    pending = []
+    for (const item of queue) {
+      const ids = yChildren.get(item.parent.id) ?? []
+      const at = ids.indexOf(item.id)
+      if (at >= 0) item.parent.children.splice(at, 0, item.block)
+    }
+  }
+
   const store: any = {
     readonly: false,
     root,
@@ -108,14 +154,22 @@ function fakeStore(children: any[], doc: any, registerText = true) {
         children: [] as any[],
         parent,
       }
-      parent.children.splice(index, 0, created)
-      // 真实 store 在 addBlock 时就把 prop:text 写进块的 Y.Map；这里用同一个 Text 对象模拟
-      if (registerText) {
-        doc.getMap('blocks').set(created.id, { get: (key: string) => (key === 'prop:text' ? asYText(created.text) : undefined) })
-      }
+      const ids = yChildren.get(parentId)
+      if (ids) ids.splice(index, 0, created.id)
+      expose(created)
+      pending.push({ parent, block: created, id: created.id })
       return created.id
     },
     deleteBlock(id: string) {
+      for (const ids of yChildren.values()) {
+        const index = ids.indexOf(id)
+        if (index >= 0) ids.splice(index, 1)
+      }
+      const pendingIndex = pending.findIndex((item) => item.id === id)
+      if (pendingIndex >= 0) {
+        pending.splice(pendingIndex, 1)
+        return
+      }
       const target = find(id)
       const siblings = target?.parent?.children as any[] | undefined
       if (!siblings) return
@@ -124,7 +178,13 @@ function fakeStore(children: any[], doc: any, registerText = true) {
     },
     transact(fn: () => void) {
       store.transacts += 1
-      fn()
+      depth += 1
+      try {
+        fn()
+      } finally {
+        depth -= 1
+        if (depth === 0) flush()
+      }
     },
   }
   return store
@@ -332,9 +392,35 @@ test('applyDocFormat：AI 分段写入新块', () => {
   const note = noteOf([body])
   const doc = fakeDoc()
   const store = fakeStore([note], doc)
-  const aiChunks = ['这是用于测试自动分段功能的一句话内容。', LONG_TEXT.slice('这是用于测试自动分段功能的一句话内容。'.length)]
+  const aiChunks = [
+    '这是用于测试自动分段功能的一句话内容。',
+    LONG_TEXT.slice('这是用于测试自动分段功能的一句话内容。'.length),
+  ]
 
   applyDocFormat(store, doc, { segments: { p1: aiChunks } })
   assert.equal(body.text.toString(), PARAGRAPH_INDENT + aiChunks[0])
   assert.equal(note.children[1].text.toString(), PARAGRAPH_INDENT + aiChunks[1])
+})
+
+test('applyDocFormat：多个段落分段后仍按原顺序排列', () => {
+  const first = block('a', 'text', LONG_TEXT)
+  const second = block('b', 'text', LONG_TEXT)
+  const note = noteOf([first, second])
+  const doc = fakeDoc()
+  const store = fakeStore([note], doc)
+  const perParagraph = segmentParagraph(LONG_TEXT).length - 1
+
+  applyDocFormat(store, doc)
+
+  const shape = note.children.map((child) => (child.id.startsWith('new-') ? 'seg' : child.id))
+  assert.deepEqual(shape, [
+    'a',
+    ...Array(perParagraph).fill('seg'),
+    'b',
+    ...Array(perParagraph).fill('seg'),
+  ])
+  // 两个原块都保留了自己的首段
+  const head = PARAGRAPH_INDENT + segmentParagraph(LONG_TEXT)[0]
+  assert.equal(first.text.toString(), head)
+  assert.equal(second.text.toString(), head)
 })
