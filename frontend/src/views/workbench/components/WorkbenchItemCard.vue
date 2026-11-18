@@ -62,7 +62,11 @@
     </div>
 
     <div class="card-body">
-      <div class="card-title" :title="item.title">{{ item.title }}</div>
+      <!-- 标题前展示条目自选的 emoji 图标（与详情页、列表行同源：item.icon） -->
+      <div class="card-title" :title="item.title">
+        <span v-if="item.icon" class="card-title-icon" aria-hidden="true">{{ item.icon }}</span>
+        <span class="card-title-text">{{ item.title }}</span>
+      </div>
       <div class="card-desc">
         <t-icon :name="kindIcon" size="12px" />
         <span :title="describe">{{ describe }}</span>
@@ -423,10 +427,25 @@ onBeforeUnmount(() => observer?.disconnect())
 }
 
 .card-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
   font-size: var(--app-text-md);
   font-weight: 600;
   line-height: 18px;
   color: var(--td-text-color-primary);
+}
+
+/* emoji 图标固定宽度，不参与压缩，避免长标题把它挤没 */
+.card-title-icon {
+  flex: none;
+  font-size: 15px;
+  line-height: 18px;
+}
+
+.card-title-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

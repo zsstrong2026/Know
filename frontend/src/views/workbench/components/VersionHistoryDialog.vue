@@ -14,8 +14,8 @@
       {{ $t('workbench.version.empty') }}
     </div>
     <ul v-else class="vh-list">
-      <li v-for="row in versions" :key="row.version" class="vh-row">
-        <span class="vh-version">v{{ row.version }}</span>
+      <li v-for="row in rows" :key="row.version" class="vh-row">
+        <span class="vh-version">v{{ row.label }}</span>
         <span class="vh-time">{{ formatTime(row.created_at) }}</span>
         <span class="vh-size">{{ formatSize(row.size_bytes) }}</span>
         <span class="spacer" />
@@ -57,12 +57,25 @@ const loading = ref(false)
 const restoring = ref(0)
 const versions = ref<WorkbenchVersionSummary[]>([])
 
+/**
+ * 展示用列表：按时间正序编号 v1、v2、v3…
+ *
+ * 后端 version 是快照版本号（只有间隔检查点才会留档，所以会出现 v20、v19、v18、v1
+ * 这种跳号）；这里按检查点先后重新编号，恢复动作仍用 row.version。
+ * 服务端版本列表上限 100、保留策略也只保留最近的检查点，正常情况下取回的就是全量。
+ */
+const rows = computed(() =>
+  [...versions.value]
+    .sort((a, b) => a.version - b.version)
+    .map((row, index) => ({ ...row, label: index + 1 })),
+)
+
 /** 每次打开都重新拉一次，避免显示过期列表。 */
 watch(visible, async (open) => {
   if (!open) return
   loading.value = true
   try {
-    versions.value = await listWorkbenchVersions(props.itemId, 50)
+    versions.value = await listWorkbenchVersions(props.itemId, 100)
   } catch {
     versions.value = []
   } finally {
