@@ -225,6 +225,9 @@ type StartInsightRunRequest struct {
 	MaxDocs    int    `json:"max_docs"`
 	FolderPath string `json:"folder_path"`
 	RecentDays int    `json:"recent_days"`
+	// SkipEvidenceConfirm 为 true 时，阶段一结束直接进入阶段二生成报告，
+	// 不再要求用户手动确认证据集。
+	SkipEvidenceConfirm bool `json:"skip_evidence_confirm"`
 }
 
 // ScopeFilter 把请求里的范围字段收成一个筛选条件。

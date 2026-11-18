@@ -125,6 +125,26 @@ func (s *Service) insertCheckpoint(ctx context.Context, item *types.WorkbenchIte
 	})
 }
 
+// checkpointCurrentSnapshot 在归档前把条目当前快照补成一条历史版本。
+//
+// 版本历史只记录检查点（首版 / 显式保存 / 间隔 ≥10 分钟 / 强制覆盖）。
+// 归档的版本号取自 snapshot_version，若这个版本号恰好没有检查点，
+// 就会出现「已归档 v13」而版本历史只到 v10 的不一致。
+// 失败只记日志：归档本身不因此失败，缺一条检查点比归档失败影响小。
+func (s *Service) checkpointCurrentSnapshot(
+	ctx context.Context, tenantID uint64, ownerID, itemID string,
+) {
+	item, err := s.repo.GetItem(ctx, tenantID, ownerID, itemID)
+	if err != nil {
+		logger.Warnf(ctx, "workbench: load item %s for archive checkpoint failed: %v", itemID, err)
+		return
+	}
+	// 同版本已有检查点时 InsertVersion 会忽略，不会覆盖既有字节。
+	if err := s.insertCheckpoint(ctx, item); err != nil {
+		logger.Warnf(ctx, "workbench: insert archive checkpoint for item %s failed: %v", itemID, err)
+	}
+}
+
 // GetContent 读取条目内容，YDoc 以 base64 返回（与保存入参保持同一编码）。
 func (s *Service) GetContent(ctx context.Context, itemID string) (*types.WorkbenchItemContent, error) {
 	tenantID, ownerID, err := callerScope(ctx)
@@ -146,6 +166,11 @@ func (s *Service) GetContent(ctx context.Context, itemID string) (*types.Workben
 }
 
 // ListVersions 返回历史版本摘要（不含 Y.Doc）。
+//
+// 版本表只保存检查点（首版 / 显式保存 / 间隔 ≥10 分钟 / 强制覆盖），
+// 最新一次自动保存通常还没有对应的行。这里把「当前快照」补成最新一条，
+// 保证版本历史与条目、归档的最新版本一致（否则会出现「已归档 v13」
+// 而历史只到 v10 的错位）。
 func (s *Service) ListVersions(
 	ctx context.Context, itemID string, limit int,
 ) ([]*types.WorkbenchVersionSummary, error) {
@@ -155,10 +180,31 @@ func (s *Service) ListVersions(
 	}
 	// 先确认条目属于当前用户：否则不同 owner 的版本列表会返回空数组而不是 404，
 	// 变相暴露“该 id 可能是别人的条目”。
-	if _, err := s.repo.GetItemMeta(ctx, tenantID, ownerID, itemID); err != nil {
+	item, err := s.repo.GetItem(ctx, tenantID, ownerID, itemID)
+	if err != nil {
 		return nil, mapItemError(err)
 	}
-	return s.repo.ListVersions(ctx, tenantID, ownerID, itemID, limit)
+	versions, err := s.repo.ListVersions(ctx, tenantID, ownerID, itemID, limit)
+	if err != nil {
+		return nil, err
+	}
+	if item.SnapshotVersion <= 0 {
+		return versions, nil
+	}
+	if len(versions) > 0 && versions[0].Version >= item.SnapshotVersion {
+		return versions, nil
+	}
+	current := &types.WorkbenchVersionSummary{
+		Version:             item.SnapshotVersion,
+		EditorSchemaVersion: item.EditorSchemaVersion,
+		SizeBytes:           len(item.YDoc),
+		CreatedAt:           item.UpdatedAt,
+	}
+	versions = append([]*types.WorkbenchVersionSummary{current}, versions...)
+	if limit > 0 && len(versions) > limit {
+		versions = versions[:limit]
+	}
+	return versions, nil
 }
 
 // RestoreVersion 用历史快照生成一个新版本（版本号 = 当前 + 1）。

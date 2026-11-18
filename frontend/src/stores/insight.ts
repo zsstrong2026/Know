@@ -174,6 +174,12 @@ export const useInsightStore = defineStore('insight', () => {
     return run.value
   }
 
+  /** 接管一次既有运行：关页或换页后重新回到过程页时使用。 */
+  async function resumeRun(runId: string) {
+    run.value = await getInsightRun(runId)
+    return run.value
+  }
+
   async function cancelRun() {
     if (!run.value) return
     await cancelInsightRun(run.value.id)
@@ -198,10 +204,12 @@ export const useInsightStore = defineStore('insight', () => {
     evidenceExcluded.value = evidence.value.filter((item) => item.excluded).length
   }
 
-  async function confirmEvidence() {
-    if (!run.value) return
-    await confirmInsightRun(run.value.id)
-    await refreshRun()
+  /** 确认证据并进入阶段二；必须已有运行上下文，缺上下文时报错而不是静默无反应。 */
+  async function confirmEvidence(runId?: string) {
+    const id = runId ?? run.value?.id
+    if (!id) throw new Error('没有进行中的运行，请从运行记录重新进入')
+    await confirmInsightRun(id)
+    await refreshRun(id)
   }
 
   async function openReport(reportId: string, themeName: string) {
@@ -309,6 +317,7 @@ export const useInsightStore = defineStore('insight', () => {
     removeTheme,
     beginRun,
     refreshRun,
+    resumeRun,
     cancelRun,
     loadEvidence,
     setEvidenceExcluded,

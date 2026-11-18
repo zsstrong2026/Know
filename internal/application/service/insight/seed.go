@@ -15,7 +15,10 @@ type builtinThemeSeed struct {
 	Sensitive    bool
 	Glyph        string
 	Instructions string
-	Dimensions   []types.InsightDimension
+	// LegacyInstructions 是历史版本的内置口径。存量库里仍是这些文本时，
+	// 说明用户没改过，可以安全升级到最新 Instructions。
+	LegacyInstructions []string
+	Dimensions         []types.InsightDimension
 }
 
 // builtinThemes 是 6 个内置主题：思维模式、价值观、思维陷阱、价值澄清、MBTI、主要矛盾。
@@ -90,7 +93,17 @@ var builtinThemes = []builtinThemeSeed{
 		Glyph:       "i-table",
 		Instructions: "这是倾向估计而不是类型判定：只描述证据支持的方向与强度。" +
 			"每组维度都必须给出原文依据；证据不足时明确说“倾向不明显”。" +
-			"不要输出四字母类型标签，也不要用类型解释一切。",
+			"conclusion 的第一句必须给出四字母倾向组合，按 E/I、S/N、T/F、J/P 顺序书写，如“倾向类型：INFP”；" +
+			"某组证据不足时在该字母后用「?」标注，并在后文说明该组证据最弱。" +
+			"随后逐组说明该组的方向、强度与依据。" +
+			"scores 的 label 直接写该组倾向，如“偏 I”“偏 N”。" +
+			"类型只作参考，不要用类型解释一切，也不要用类型替代证据。",
+		// 旧口径明确禁止输出四字母标签，升级时按文本精确匹配替换。
+		LegacyInstructions: []string{
+			"这是倾向估计而不是类型判定：只描述证据支持的方向与强度。" +
+				"每组维度都必须给出原文依据；证据不足时明确说“倾向不明显”。" +
+				"不要输出四字母类型标签，也不要用类型解释一切。",
+		},
 		Dimensions: []types.InsightDimension{
 			{Name: "能量来源", Criteria: "独处恢复还是与人互动恢复，偏 E 还是偏 I", Scale: "0-100"},
 			{Name: "信息获取", Criteria: "关注具体事实还是模式可能性，偏 S 还是偏 N", Scale: "0-100"},
@@ -116,20 +129,19 @@ var builtinThemes = []builtinThemeSeed{
 }
 
 // seedBuiltinThemes 幂等种入内置主题：已存在的跳过，并发冲突时回读确认。
+// 内置口径随版本演进，存量行若仍是旧版内置文本，会升级到最新定义；
+// 用户自己改过的口径不覆盖。
 func (s *Service) seedBuiltinThemes(ctx context.Context, tenantID uint64, ownerID string) error {
 	existing, err := s.repo.ListThemes(ctx, tenantID, ownerID)
 	if err != nil {
 		return err
 	}
-	seen := make(map[string]struct{}, len(existing))
+	seen := make(map[string]*types.InsightTheme, len(existing))
 	for _, theme := range existing {
-		seen[theme.ID] = struct{}{}
+		seen[theme.ID] = theme
 	}
 	now := time.Now()
 	for _, seed := range builtinThemes {
-		if _, ok := seen[seed.ID]; ok {
-			continue
-		}
 		theme := &types.InsightTheme{
 			ID:           seed.ID,
 			Name:         seed.Name,
@@ -138,12 +150,23 @@ func (s *Service) seedBuiltinThemes(ctx context.Context, tenantID uint64, ownerI
 			Sensitive:    seed.Sensitive,
 			Glyph:        seed.Glyph,
 			Instructions: seed.Instructions,
-			CreatedAt:    now,
 			UpdatedAt:    now,
 		}
 		if err := theme.SetDimensions(seed.Dimensions); err != nil {
 			return err
 		}
+		if current, ok := seen[seed.ID]; ok {
+			if !shouldUpgradeInstructions(current, seed) {
+				continue
+			}
+			// 只升级口径，保留用户对名称、维度等其它字段的改动。
+			current.Instructions = seed.Instructions
+			if err := s.repo.UpdateTheme(ctx, tenantID, ownerID, current); err != nil {
+				return err
+			}
+			continue
+		}
+		theme.CreatedAt = now
 		if err := s.repo.CreateTheme(ctx, tenantID, ownerID, theme); err != nil {
 			// 并发首次请求可能同时种入；只要回读得到就视为成功。
 			if _, getErr := s.repo.GetTheme(ctx, tenantID, ownerID, seed.ID); getErr != nil {
@@ -152,4 +175,23 @@ func (s *Service) seedBuiltinThemes(ctx context.Context, tenantID uint64, ownerI
 		}
 	}
 	return nil
+}
+
+// shouldUpgradeInstructions 判断内置主题的口径是否需要升级。
+//
+// 只有文本精确等于某个历史内置版本时才升级：这样用户手动改过的口径不会被覆盖，
+// 已经是新口径的也无需写库。
+func shouldUpgradeInstructions(current *types.InsightTheme, seed builtinThemeSeed) bool {
+	if current == nil || !current.Builtin {
+		return false
+	}
+	if current.Instructions == seed.Instructions {
+		return false
+	}
+	for _, legacy := range seed.LegacyInstructions {
+		if current.Instructions == legacy {
+			return true
+		}
+	}
+	return false
 }

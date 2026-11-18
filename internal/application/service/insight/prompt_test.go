@@ -1,11 +1,75 @@
 package insight
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
 )
+
+// fakeChat 按脚本顺序返回响应，并记录每次调用的参数。
+type fakeChat struct {
+	responses []*types.ChatResponse
+	opts      []*chat.ChatOptions
+}
+
+func (f *fakeChat) Chat(
+	_ context.Context, _ []chat.Message, opts *chat.ChatOptions,
+) (*types.ChatResponse, error) {
+	f.opts = append(f.opts, opts)
+	if len(f.responses) == 0 {
+		return nil, errors.New("no scripted response")
+	}
+	resp := f.responses[0]
+	f.responses = f.responses[1:]
+	return resp, nil
+}
+
+func (f *fakeChat) ChatStream(
+	context.Context, []chat.Message, *chat.ChatOptions,
+) (<-chan types.StreamResponse, error) {
+	return nil, errors.New("not used")
+}
+
+func (f *fakeChat) GetModelName() string { return "fake" }
+func (f *fakeChat) GetModelID() string   { return "fake" }
+
+// 输出被 token 上限截断时必须换一条“只输出完整 JSON”的指令重试，而不是直接失败。
+func TestCallChatJSONRetriesTruncatedOutput(t *testing.T) {
+	model := &fakeChat{responses: []*types.ChatResponse{
+		{Content: `{"conclusion":"写到一半`, FinishReason: "length"},
+		{Content: `{"conclusion":"完整"}`, FinishReason: "stop"},
+	}}
+	var out reportOutput
+	if err := callChatJSON(context.Background(), model, nil, &out); err != nil {
+		t.Fatalf("truncated output should be retried, got error: %v", err)
+	}
+	if out.Conclusion != "完整" {
+		t.Fatalf("conclusion = %q, want 完整", out.Conclusion)
+	}
+	if len(model.opts) != 2 {
+		t.Fatalf("chat calls = %d, want 2", len(model.opts))
+	}
+	if model.opts[0].MaxCompletionTokens != jsonCompletionBudget {
+		t.Fatalf("json budget = %d, want %d", model.opts[0].MaxCompletionTokens, jsonCompletionBudget)
+	}
+}
+
+// 两次都被截断时要返回可识别的错误，供上层给出可重试的提示。
+func TestCallChatJSONReportsTruncation(t *testing.T) {
+	model := &fakeChat{responses: []*types.ChatResponse{
+		{Content: `{"conclusion":"写到一半`, FinishReason: "length"},
+		{Content: `{"conclusion":"还是写`, FinishReason: "length"},
+	}}
+	var out reportOutput
+	err := callChatJSON(context.Background(), model, nil, &out)
+	if !errors.Is(err, errInsightOutputTruncated) {
+		t.Fatalf("want truncation error, got %v", err)
+	}
+}
 
 // 追问的上下文必须严格限定为「这份报告 + 未排除的证据」，不能把被剔除的证据带进去。
 func TestBuildReportAskMessagesScope(t *testing.T) {

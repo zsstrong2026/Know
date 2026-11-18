@@ -25,6 +25,8 @@ type memArchiveRepo struct {
 	items   map[string]*types.WorkbenchItem    // 额外条目，供列表批量填充用例
 	folders []*types.WorkbenchFolder           // 归档时用于还原文件夹路径
 	order   int
+	// versionRows 记录归档前补写的检查点，用于断言归档版本与版本历史一致。
+	versionRows []*types.WorkbenchItemVersion
 	// notices 记录归档失败通知，用于断言 archive_failed 只写一次。
 	notices []*types.WorkbenchNotice
 }
@@ -68,6 +70,24 @@ func (m *memArchiveRepo) GetItemMeta(
 		return nil, gorm.ErrRecordNotFound
 	}
 	return m.item, nil
+}
+
+// GetItem 供归档前的检查点补写使用：内存仓储里条目本身就带内容。
+func (m *memArchiveRepo) GetItem(
+	context.Context, uint64, string, string,
+) (*types.WorkbenchItem, error) {
+	if m.item == nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return m.item, nil
+}
+
+// InsertVersion 记录归档前补写的检查点，便于断言「归档版本能在版本历史里找到」。
+func (m *memArchiveRepo) InsertVersion(
+	_ context.Context, v *types.WorkbenchItemVersion,
+) error {
+	m.versionRows = append(m.versionRows, v)
+	return nil
 }
 
 func (m *memArchiveRepo) GetTrashedItem(
@@ -414,6 +434,23 @@ func TestArchiveRejectsStaleBaseVersion(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, int(apperrors.ErrWorkbenchArchiveStale), int(appErr.Code))
 	assert.Empty(t, repo.rows)
+	assert.Empty(t, repo.versionRows, "版本不一致时不应补写检查点")
+}
+
+// 归档前必须把当前快照补成检查点：否则「已归档 v13」在版本历史里找不到 v13。
+func TestArchiveCheckpointsCurrentVersion(t *testing.T) {
+	svc, repo, _ := newArchiveService()
+	ctx := newTestContext()
+	repo.item.YDoc = []byte("snapshot-v5")
+
+	state, err := svc.Archive(ctx, archiveRequest("## 本周\n\n内容"))
+	require.NoError(t, err)
+	require.NotNil(t, state.ArchivedVersion)
+	assert.Equal(t, 5, *state.ArchivedVersion)
+
+	require.Len(t, repo.versionRows, 1, "归档前应补写一条检查点")
+	assert.Equal(t, 5, repo.versionRows[0].Version, "检查点版本必须等于归档版本")
+	assert.Equal(t, repo.item.YDoc, repo.versionRows[0].YDoc, "检查点内容必须是当前快照")
 }
 
 // 源版本前进但未刷新归档 → state 为 stale。

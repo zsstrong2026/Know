@@ -219,6 +219,8 @@ export interface StartRunPayload {
   max_docs: number
   folder_path?: string
   recent_days?: number
+  /** 为 true 时证据抽取完成后直接生成报告，不再等待手动确认。 */
+  skip_evidence_confirm?: boolean
 }
 
 /** 一次分析的范围筛选；零值表示全部归档。 */

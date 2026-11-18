@@ -12,8 +12,20 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
-// jsonRetryInstruction 是解析失败后追加给模型的唯一要求。
-const jsonRetryInstruction = "只输出 JSON 对象，不要任何解释、前缀或 Markdown 代码围栏。"
+const (
+	// jsonCompletionBudget 是 JSON 类输出（证据抽取、报告、自我说明书）的单次生成上限。
+	// 4096 会把长报告截断成不完整 JSON；推理模型的思考内容也占用同一预算，需留足余量。
+	jsonCompletionBudget = 16384
+	// textCompletionBudget 是追问等短文本回答的生成上限。
+	textCompletionBudget = 4096
+)
+
+// jsonRetryInstruction 是解析失败或被截断后追加给模型的唯一要求。
+const jsonRetryInstruction = "只输出完整、合法的单个 JSON 对象，不要任何解释、前缀或 Markdown 代码围栏；" +
+	"内容保持精炼，确保 JSON 在输出上限内闭合。"
+
+// errInsightOutputTruncated 表示模型输出达到 token 上限被截断，此时 JSON 必然不完整。
+var errInsightOutputTruncated = errors.New("model output truncated by token limit")
 
 // evidenceOutput 是阶段一的输出结构。
 type evidenceOutput struct {
@@ -196,11 +208,15 @@ func documentTitle(doc *types.Knowledge) string {
 	return "未命名文档"
 }
 
-// callChatJSON 调用模型并解析 JSON；解析失败时追加“只输出 JSON”重试一次。
+// callChatJSON 调用模型并解析 JSON；解析失败或被截断时追加“只输出完整 JSON”重试一次。
 func callChatJSON(ctx context.Context, model chat.Chat, messages []chat.Message, out interface{}) error {
-	raw, err := chatOnce(ctx, model, messages)
+	raw, finish, err := chatCall(ctx, model, messages, jsonCompletionBudget)
 	if err == nil {
-		if decodeErr := decodeJSONObject(raw, out); decodeErr == nil {
+		if isTruncatedFinish(finish) {
+			err = fmt.Errorf("%w (budget=%d)", errInsightOutputTruncated, jsonCompletionBudget)
+		} else if strings.TrimSpace(raw) == "" {
+			err = errors.New("model returned empty content")
+		} else if decodeErr := decodeJSONObject(raw, out); decodeErr == nil {
 			return nil
 		} else {
 			err = decodeErr
@@ -209,9 +225,16 @@ func callChatJSON(ctx context.Context, model chat.Chat, messages []chat.Message,
 	retryMessages := make([]chat.Message, 0, len(messages)+1)
 	retryMessages = append(retryMessages, messages...)
 	retryMessages = append(retryMessages, chat.Message{Role: "user", Content: jsonRetryInstruction})
-	rawRetry, retryErr := chatOnce(ctx, model, retryMessages)
+	rawRetry, finishRetry, retryErr := chatCall(ctx, model, retryMessages, jsonCompletionBudget)
 	if retryErr != nil {
 		return retryErr
+	}
+	if isTruncatedFinish(finishRetry) {
+		return fmt.Errorf("%w (budget=%d, first attempt: %v)",
+			errInsightOutputTruncated, jsonCompletionBudget, err)
+	}
+	if strings.TrimSpace(rawRetry) == "" {
+		return errors.New("model returned empty content")
 	}
 	if decodeErr := decodeJSONObject(rawRetry, out); decodeErr != nil {
 		return fmt.Errorf("decode model json: %w (first attempt: %v)", decodeErr, err)
@@ -219,19 +242,44 @@ func callChatJSON(ctx context.Context, model chat.Chat, messages []chat.Message,
 	return nil
 }
 
-// chatOnce 执行一次非流式调用。
-func chatOnce(ctx context.Context, model chat.Chat, messages []chat.Message) (string, error) {
+// isTruncatedFinish 判断是否因 token 上限被截断（OpenAI 系用 length，部分厂商用 max_tokens）。
+func isTruncatedFinish(reason string) bool {
+	switch strings.ToLower(strings.TrimSpace(reason)) {
+	case "length", "max_tokens":
+		return true
+	default:
+		return false
+	}
+}
+
+// chatCall 执行一次非流式调用，返回正文与 finish_reason 以识别截断。
+// 正文为空时仍返回 finish_reason，交给调用方区分“被截断”与“真的没内容”。
+func chatCall(
+	ctx context.Context, model chat.Chat, messages []chat.Message, maxTokens int,
+) (string, string, error) {
 	resp, err := model.Chat(ctx, messages, &chat.ChatOptions{
 		Temperature:         0.2,
-		MaxCompletionTokens: 4096,
+		MaxCompletionTokens: maxTokens,
 	})
 	if err != nil {
-		return "", fmt.Errorf("model call failed: %w", err)
+		return "", "", fmt.Errorf("model call failed: %w", err)
 	}
-	if resp == nil || strings.TrimSpace(resp.Content) == "" {
+	if resp == nil {
+		return "", "", errors.New("model returned empty response")
+	}
+	return resp.Content, resp.FinishReason, nil
+}
+
+// chatOnce 执行一次非流式短文本调用（追问回答）。
+func chatOnce(ctx context.Context, model chat.Chat, messages []chat.Message) (string, error) {
+	content, _, err := chatCall(ctx, model, messages, textCompletionBudget)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(content) == "" {
 		return "", errors.New("model returned empty content")
 	}
-	return resp.Content, nil
+	return content, nil
 }
 
 // decodeJSONObject 去掉代码围栏后截取第一个 { 到最后一个 }，再反序列化。
@@ -301,7 +349,8 @@ func buildReportAskMessages(
 - 找不到依据时直接说“这份报告里没有足够证据”，并指出缺什么，不要编造；
 - 引用证据时写成《文档名》第 N 段；
 - 不做人格诊断，不提供医疗或法律建议；
-- 先给结论再给依据，回答控制在 300 字以内。
+- 先给结论再给依据，回答控制在 300 字以内；
+- 只输出纯文本：不要 Markdown 标记（井号标题、星号加粗、减号列表、反引号、引用符号、表格、代码围栏），需要列举时用“1. 2. 3.”或直接分行。
 
 主题：%s
 报告标题：%s
@@ -372,7 +421,8 @@ func buildSelfAskMessages(
 - 找不到依据时直接说“这份说明书里没有足够证据”，并指出缺哪个维度，不要编造；
 - 引用来源时点明层级或维度名（如「行为层·决策模式」）；
 - 不做人格诊断，不提供医疗或法律建议，不使用 MBTI 之外的标签体系；
-- 先给结论再给依据，回答控制在 300 字以内。
+- 先给结论再给依据，回答控制在 300 字以内；
+- 只输出纯文本：不要 Markdown 标记（井号标题、星号加粗、减号列表、反引号、引用符号、表格、代码围栏），需要列举时用“1. 2. 3.”或直接分行。
 
 自我说明书（JSON）：
 %s

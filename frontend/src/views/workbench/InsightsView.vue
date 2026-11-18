@@ -179,6 +179,14 @@
             <button class="ins-btn small" @click="openScope">调整范围</button>
           </div>
 
+          <div v-if="selected.running" class="stale-bar">
+            <t-icon name="time" size="14px" />
+            <span>
+              这个主题有一次分析还没结束（可能停在证据确认），关闭页面不会中断后台任务。
+            </span>
+            <button class="ins-btn small primary" @click="resumeCurrentThemeRun">回到过程页</button>
+          </div>
+
           <div v-if="selected.updated_docs" class="stale-bar">
             <t-icon name="history" size="14px" />
             <span>
@@ -461,7 +469,7 @@
           >
             <template v-if="m.role === 'assistant'">
               <div class="ai-name">洞察助手</div>
-              <div class="ai-body">{{ m.content }}</div>
+              <div class="ai-body">{{ plainAnswer(m.content) }}</div>
             </template>
             <template v-else>{{ m.content }}</template>
           </div>
@@ -658,7 +666,7 @@
           >
             <template v-if="m.role === 'assistant'">
               <div class="ai-name">洞察助手</div>
-              <div class="ai-body">{{ m.content }}</div>
+              <div class="ai-body">{{ plainAnswer(m.content) }}</div>
             </template>
             <template v-else>{{ m.content }}</template>
           </div>
@@ -757,6 +765,9 @@
                 <b>{{ formatTime(item.created_at) }}</b>
                 <span>{{ item.docs_processed }}/{{ item.docs_total }} 篇 · {{ item.evidence_count }} 条证据 · {{ item.message || '—' }}</span>
               </div>
+              <button v-if="isRunningStatus(item.status)" class="ins-btn small primary" @click="resumeRunFlow(item)">
+                {{ item.status === 'waiting_confirm' ? '去确认证据' : '进入过程页' }}
+              </button>
               <button v-if="reportForRun(item.id)" class="ins-btn small" @click="openReportFromRun(item.id)">
                 查看报告
               </button>
@@ -807,6 +818,13 @@
             <div class="rule">
               <div class="rule-main"><b>先跑小样（最近 20 篇）</b><span>约 2 分钟，确认分析口径后再全量</span></div>
               <div class="switch" :class="{ on: sampleRun }" @click="sampleRun = !sampleRun" />
+            </div>
+            <div class="rule">
+              <div class="rule-main">
+                <b>无需确认证据，直接生成报告</b>
+                <span>跳过人工确认环节，证据抽取完成后自动生成；证据仍可在运行记录里查看</span>
+              </div>
+              <div class="switch" :class="{ on: skipConfirm }" @click="skipConfirm = !skipConfirm" />
             </div>
           </div>
           <div class="hint-box">
@@ -1007,10 +1025,12 @@ import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { useInsightStore } from '@/stores/insight'
 import { sanitizeHTML } from '@/utils/security'
 import { maskSensitiveTerms } from '@/workbench/insight-mask'
+import { plainAnswer } from '@/workbench/insight-plain'
 import { printMarkdown } from '@/workbench/insight-print'
 import type {
   CreateThemePayload,
   InsightEvidence,
+  InsightRun,
   InsightScope,
   InsightTheme,
 } from '@/api/insight'
@@ -1020,7 +1040,10 @@ const store = useInsightStore()
 const mode = ref<'topics' | 'self'>('topics')
 const screen = ref<'home' | 'run' | 'evidence' | 'report'>('home')
 const keyword = ref('')
-const sampleRun = ref(true)
+/** 分析前确认弹窗里的「先跑小样」开关：默认关闭，直接按全量素材分析。 */
+const sampleRun = ref(false)
+/** 分析前确认弹窗里的开关：开启后证据抽取完直接生成报告。 */
+const skipConfirm = ref(false)
 const runningThemeName = ref('')
 const runningThemeId = ref('')
 const acknowledged = ref<Set<string>>(new Set())
@@ -1474,6 +1497,52 @@ function openReportFromRun(runId: string) {
   openReport(matched.id)
 }
 
+/**
+ * 接管一次进行中的运行：等确认证据就跳证据页，其余状态回到过程页并继续轮询。
+ * 关页或刷新后从这里重新进入，避免流程卡死。
+ */
+async function resumeRunFlow(item: InsightRun) {
+  dialogs.runs = false
+  runningThemeId.value = item.theme_id
+  runningThemeName.value =
+    store.themes.find((t) => t.id === item.theme_id)?.name || runningThemeName.value
+  try {
+    await store.resumeRun(item.id)
+  } catch {
+    MessagePlugin.error('读取运行状态失败')
+    return
+  }
+  if (item.status === 'waiting_confirm') {
+    try {
+      await store.loadEvidence()
+    } catch {
+      MessagePlugin.error('读取证据失败')
+      return
+    }
+    screen.value = 'evidence'
+    return
+  }
+  screen.value = 'run'
+  startPolling()
+}
+
+/** 主题详情页顶部提示：该主题有未结束的运行，可直接回到过程页。 */
+async function resumeCurrentThemeRun() {
+  if (!selected.value) return
+  try {
+    await store.loadRuns(selected.value.id)
+  } catch {
+    MessagePlugin.error('读取运行记录失败')
+    return
+  }
+  const active = store.runs.find((item) => isRunningStatus(item.status))
+  if (!active) {
+    MessagePlugin.info('没有进行中的运行')
+    return
+  }
+  await resumeRunFlow(active)
+}
+
 function confirmDeleteRun(runId: string) {
   const dialog = DialogPlugin.confirm({
     header: '删除这次运行？',
@@ -1840,7 +1909,8 @@ async function startFlow() {
 async function openCheckup() {
   try {
     await store.loadCheckup(runningThemeId.value, scope)
-    sampleRun.value = true
+    // 每次打开弹窗都重置为默认关闭，避免沿用上次手动开启的状态。
+    sampleRun.value = false
     dialogs.checkup = true
   } catch {
     MessagePlugin.error('素材体检失败')
@@ -1862,6 +1932,7 @@ async function confirmCheckup() {
       max_docs: 300,
       folder_path: scope.folder_path || undefined,
       recent_days: scope.recent_days || undefined,
+      skip_evidence_confirm: skipConfirm.value,
     })
     startPolling()
   } catch {
@@ -1932,11 +2003,11 @@ async function toggleEvidence(item: InsightEvidence) {
 async function confirmEvidence() {
   confirming.value = true
   try {
-    await store.confirmEvidence()
+    await store.confirmEvidence(run.value?.id)
     screen.value = 'run'
     startPolling()
-  } catch {
-    MessagePlugin.error('生成报告失败')
+  } catch (e: any) {
+    MessagePlugin.error(e?.message || '生成报告失败')
   } finally {
     confirming.value = false
   }

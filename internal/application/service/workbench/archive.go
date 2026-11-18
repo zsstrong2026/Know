@@ -273,6 +273,10 @@ func (s *Service) archive(
 	if req.BaseVersion != item.SnapshotVersion {
 		return nil, apperrors.NewWorkbenchArchiveVersionStale(item.SnapshotVersion)
 	}
+	// 归档的版本要能在「版本历史」里找到：先把当前快照落成一条检查点，
+	// 让「已归档 vN」与版本历史里的 vN 指向同一份内容。
+	// 该版本已有检查点时 InsertVersion 会忽略，不会覆盖既有字节。
+	s.checkpointCurrentSnapshot(ctx, tenantID, ownerID, item.ID)
 
 	parts, err := splitArchiveMarkdown(item.Title, req.Markdown)
 	if err != nil {

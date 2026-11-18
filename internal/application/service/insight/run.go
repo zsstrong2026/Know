@@ -7,6 +7,7 @@ package insight
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -29,6 +30,9 @@ type runOptions struct {
 	FolderPath   string   `json:"folder_path"`
 	RecentDays   int      `json:"recent_days"`
 	KnowledgeIDs []string `json:"knowledge_ids"`
+	// AutoConfirm 为 true 时，阶段一结束不做人工确认，直接生成报告。
+	// 记录在运行参数里，后台重启或换页后仍按同一口径收尾。
+	AutoConfirm bool `json:"auto_confirm"`
 }
 
 // chatModelFor 取聊天模型：租户默认 KnowledgeQA 优先，没有可用模型返回 2408。
@@ -100,6 +104,7 @@ func (s *Service) StartRun(
 		FolderPath:   req.FolderPath,
 		RecentDays:   req.RecentDays,
 		KnowledgeIDs: ids,
+		AutoConfirm:  req.SkipEvidenceConfirm,
 	})
 	if err != nil {
 		return nil, apperrors.NewValidationError("invalid run options")
@@ -437,6 +442,21 @@ func (s *Service) executeStageOne(runID string, tenantID uint64, ownerID string)
 	engine.mu.Lock()
 	evidenceCount := engine.evidence
 	engine.mu.Unlock()
+	// 用户选择了「无需确认证据」：直接进入阶段二，避免必须回到页面点确认。
+	// 证据为空时仍然停在待确认，让用户能看到「没有证据」并决定是否重跑。
+	if options.AutoConfirm && evidenceCount > 0 {
+		if err := s.repo.UpdateRunFields(ctx, tenantID, ownerID, runID, map[string]interface{}{
+			"status":   types.InsightStatusStage2,
+			"stage":    types.InsightStageSynthesis,
+			"progress": 92,
+			"message":  "证据已生成，正在生成报告",
+		}); err != nil {
+			logger.Warnf(ctx, "insight stage1: auto confirm failed: %v", err)
+			return
+		}
+		s.executeStageTwo(runID, tenantID, ownerID)
+		return
+	}
 	// 即使证据为空也进入等待确认：让用户看到“没有证据”并可取消，
 	// 而不是把一次正常跑完的任务伪装成失败。
 	message := "证据已生成，请确认后生成报告"
@@ -599,7 +619,12 @@ func (s *Service) executeStageTwo(runID string, tenantID uint64, ownerID string)
 	messages := buildReportMessages(theme, evidence, run.DocsProcessed)
 	if err := callChatJSON(ctx, model, messages, &out); err != nil {
 		logger.Warnf(ctx, "insight stage2: generate report failed: %v", err)
-		s.failRun(ctx, tenantID, ownerID, runID, "报告生成失败")
+		// 截断（输出超 token 上限）是可重试的，单独提示，避免只看到笼统的失败原因。
+		reason := "报告生成失败"
+		if errors.Is(err, errInsightOutputTruncated) {
+			reason = "报告生成失败：模型输出超出上限被截断，请重试"
+		}
+		s.failRun(ctx, tenantID, ownerID, runID, reason)
 		return
 	}
 	if strings.TrimSpace(out.Conclusion) == "" || len(out.Scores) == 0 {
