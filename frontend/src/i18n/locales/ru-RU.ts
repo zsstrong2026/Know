@@ -11512,6 +11512,7 @@
     backToList: 'К списку',
     artifactBusy: 'Уже создаётся другой артефакт, подождите',
     artifactsEmptyNew: 'Артефактов пока нет. Нажмите «Создать артефакт»',
+    kindSolution: 'Решение',
     kindReportMarkdown: 'Отчёт Markdown',
     kindMinutes: 'Протокол встречи',
     kindTodoList: 'Список задач',

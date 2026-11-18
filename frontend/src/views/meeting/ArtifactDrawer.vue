@@ -22,19 +22,19 @@
                   <span class="ac-name">{{ cardTitle(a) }}</span>
                 </div>
                 <div class="ac-meta">
-                  <t-tag v-if="a.kind === 'solution'" size="small" variant="light">v{{ a.version }}</t-tag>
+                  <t-tag v-if="isSolution(a)" size="small" variant="light">v{{ a.version }}</t-tag>
                   <t-tag v-if="isCurrent(a)" size="small" theme="success" variant="light">
                     {{ $t('meeting.currentSolution') }}
                   </t-tag>
                   <t-tag size="small" :theme="statusTheme(a)" variant="light">{{ statusLabel(a) }}</t-tag>
-                  <span class="ac-time">{{ a.created_at }}</span>
+                  <span class="ac-time">{{ formatArtifactDateTime(a.created_at) }}</span>
                 </div>
                 <div v-if="a.status === 'failed' && a.error" class="ac-error">{{ a.error }}</div>
               </div>
               <div v-if="a.status === 'generating'" class="ac-loading"><t-loading size="small" /></div>
             </div>
             <div class="ac-actions" @click.stop>
-              <template v-if="a.kind === 'solution'">
+              <template v-if="isSolution(a) && a.status === 'ready'">
                 <t-button v-if="!isCurrent(a)" size="small" theme="primary" variant="text"
                   @click="rollback(a)">{{ $t('meeting.rollbackTo') }}</t-button>
                 <t-button size="small" theme="default" variant="text" @click="onExport(a)">
@@ -44,6 +44,10 @@
               <template v-else-if="a.status === 'ready'">
                 <t-button v-if="a.file_name" size="small" theme="primary" variant="text"
                   @click="onDownload(a)">{{ $t('meeting.download') }}</t-button>
+                <!-- 文本形态（Markdown 报告/纪要/待办，无文件）提供本地导出，历史产物也能落盘 -->
+                <t-button v-else size="small" theme="primary" variant="text" @click="onExport(a)">
+                  {{ $t('meeting.exportMd') }}
+                </t-button>
                 <t-button size="small" theme="default" variant="text" @click="onRegenerate(a)">
                   {{ $t('meeting.regenerate') }}
                 </t-button>
@@ -67,15 +71,20 @@
       <t-loading :loading="detailLoading" show-overlay>
         <div v-if="detail" class="detail-body">
           <div class="detail-meta">
-            <span v-if="detail.kind === 'solution'">v{{ detail.version }} · {{ $t('meeting.solution') }}</span>
+            <span v-if="isSolution(detail)">v{{ detail.version }} · {{ $t('meeting.solution') }}</span>
             <span v-else>{{ kindLabel(detail) }}</span>
-            <span class="ac-time">{{ detail.created_at }}</span>
+            <span class="ac-time">{{ formatArtifactDateTime(detail.created_at) }}</span>
           </div>
           <div v-if="detail.file_name" class="detail-file">
             <span class="file-name">{{ detail.file_name }}</span>
             <span class="file-size">{{ formatSize(detail.file_size) }}</span>
             <t-button v-if="detail.status === 'ready'" size="small" theme="primary" variant="text"
               @click="onDownload(detail)">{{ $t('meeting.download') }}</t-button>
+          </div>
+          <div v-if="detail.status === 'ready' && !detail.file_name" class="detail-file">
+            <t-button size="small" theme="primary" variant="text" @click="onExport(detail)">
+              {{ $t('meeting.exportMd') }}
+            </t-button>
           </div>
           <div v-if="detail.status === 'failed' && detail.error" class="ac-error">{{ detail.error }}</div>
           <div class="detail-content markdown-content" v-html="renderContent(detail.content)" />
@@ -98,6 +107,7 @@ import {
 import { useMeetingStore } from '@/stores/meeting';
 import ArtifactGenerateDialog from './components/ArtifactGenerateDialog.vue';
 import { createChatMarkdownRenderer, renderChatMarkdown } from '@/utils/chatMarkdownRenderer';
+import { formatArtifactDateTime } from '@/utils/sessionArtifacts';
 import { safeMarkdownToHTML, sanitizeMarkdownHTML } from '@/utils/security';
 
 const props = defineProps<{ visible: boolean; roomId: string; currentSolutionMessageId: string }>();
@@ -142,20 +152,25 @@ function closeDrawer() {
   detail.value = null;
 }
 
+// 是否方案类产物：历史 solution 行（kind）与并入产物通道后的 solution 形态（kind_type）同等对待
+function isSolution(a: MeetingArtifact): boolean {
+  return a.kind === 'solution' || a.kind_type === 'solution';
+}
+
 // 当前方案指针指向该产物的消息时视为“当前版本”
 function isCurrent(a: MeetingArtifact): boolean {
   return Boolean(props.currentSolutionMessageId) && a.solution_message_id === props.currentSolutionMessageId;
 }
 
-// 卡片标题：generated 用 title/file_name；solution 用「方案 vN」
+// 卡片标题：方案类用「方案 vN」；其余用 title/file_name
 function cardTitle(a: MeetingArtifact): string {
-  if (a.kind === 'solution') return `${t('meeting.solution')} v${a.version}`;
+  if (isSolution(a)) return `${t('meeting.solution')} v${a.version}`;
   return a.title || a.file_name || kindLabel(a);
 }
 
-// 形态标签：solution → 「方案」；generated → 8 形态文案
+// 形态标签：方案 → 「方案」；其余按 9 形态文案
 function kindLabel(a: MeetingArtifact): string {
-  if (a.kind === 'solution') return t('meeting.solution');
+  if (isSolution(a)) return t('meeting.kindSolution');
   switch (a.kind_type) {
     case 'report_markdown': return t('meeting.kindReportMarkdown');
     case 'minutes': return t('meeting.kindMinutes');
@@ -165,7 +180,7 @@ function kindLabel(a: MeetingArtifact): string {
     case 'pptx': return t('meeting.kindPptx');
     case 'html_report': return t('meeting.kindHtmlReport');
     case 'chart_image': return t('meeting.kindChartImage');
-    default: return t('meeting.solution');
+    default: return t('meeting.kindReportMarkdown');
   }
 }
 
@@ -237,14 +252,14 @@ function rollback(a: MeetingArtifact) {
   });
 }
 
-// 导出 solution 为 .md：blob 触发浏览器下载
+// 导出为本地 .md：solution 取方案正文，generated 取生成时的 agent 回答（后端按产物类型分流）
 async function onExport(a: MeetingArtifact) {
   try {
     const blob = await exportArtifact(props.roomId, a.id);
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `meeting-solution-v${a.version}.md`;
+    link.download = isSolution(a) ? `meeting-solution-v${a.version}.md` : `${cardTitle(a)}.md`;
     link.click();
     URL.revokeObjectURL(url);
   } catch (e) {

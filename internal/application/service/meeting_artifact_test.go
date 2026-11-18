@@ -252,6 +252,31 @@ func TestResolveArtifactDownload(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestExportGeneratedArtifact 文本形态产物（无文件）也要能本地导出：
+// 正文取后台会话 assistant 消息，文件名取产物标题；缺源消息时明确报错而不是导出空文件
+func TestExportGeneratedArtifact(t *testing.T) {
+	ctx := context.Background()
+	svc, _, arts, _ := artifactFixture(types.MeetingStatusActive, false)
+	require.NoError(t, arts.Create(ctx, &types.MeetingArtifact{
+		ID: "g1", MeetingRoomID: "r1", Version: 1,
+		Kind: types.MeetingArtifactKindGenerated, KindType: types.MeetingArtifactTypeReportMarkdown,
+		Title: "安防智能体应用范围", Status: types.MeetingArtifactStatusReady, SourceMessageID: "sm-1",
+	}))
+	svc.messageService = &fakeSessionMessageService{messages: map[string]*types.Message{
+		"sm-1": {ID: "sm-1", SessionID: "sess-1", Content: "# 报告正文"},
+	}}
+
+	filename, content, err := svc.ExportArtifact(ctx, 1, "r1", "g1")
+	require.NoError(t, err)
+	assert.Equal(t, "安防智能体应用范围.md", filename)
+	assert.Equal(t, "# 报告正文", content)
+
+	// 源消息缺失：明确报错，避免下载到空文件
+	svc.messageService = &fakeSessionMessageService{messages: map[string]*types.Message{}}
+	_, _, err = svc.ExportArtifact(ctx, 1, "r1", "g1")
+	assert.Error(t, err)
+}
+
 // TestArtifactReturnIsolatesBackgroundMutation 返回值与后台协程解耦：
 // RequestArtifact 必须返回快照，否则调用方持有的结构会被后台生成回写（数据竞争）
 func TestArtifactReturnIsolatesBackgroundMutation(t *testing.T) {

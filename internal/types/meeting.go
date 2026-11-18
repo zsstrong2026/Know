@@ -76,8 +76,9 @@ const (
 	MeetingArtifactSessionMarker = "meeting_artifact:"
 )
 
-// 8 种产物形态（本期硬编码集合，spec §1 G4）
+// 9 种产物形态（本期硬编码集合，spec §1 G4；方案为首个形态，取代原独立的「生成方案」入口）
 const (
+	MeetingArtifactTypeSolution       = "solution"
 	MeetingArtifactTypeReportMarkdown = "report_markdown"
 	MeetingArtifactTypeMinutes        = "minutes"
 	MeetingArtifactTypeTodoList       = "todo_list"
@@ -89,6 +90,7 @@ const (
 )
 
 var validMeetingArtifactTypes = map[string]bool{
+	MeetingArtifactTypeSolution:       true,
 	MeetingArtifactTypeReportMarkdown: true,
 	MeetingArtifactTypeMinutes:        true,
 	MeetingArtifactTypeTodoList:       true,

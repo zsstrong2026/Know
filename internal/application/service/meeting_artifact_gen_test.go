@@ -27,7 +27,7 @@ func TestNormalizeMeetingArtifact(t *testing.T) {
 
 func TestValidMeetingArtifactType(t *testing.T) {
 	for _, k := range []string{
-		types.MeetingArtifactTypeReportMarkdown, types.MeetingArtifactTypeMinutes,
+		types.MeetingArtifactTypeSolution, types.MeetingArtifactTypeReportMarkdown, types.MeetingArtifactTypeMinutes,
 		types.MeetingArtifactTypeTodoList, types.MeetingArtifactTypeDocx, types.MeetingArtifactTypeXlsx,
 		types.MeetingArtifactTypePptx, types.MeetingArtifactTypeHtmlReport, types.MeetingArtifactTypeChartImage,
 	} {
@@ -48,6 +48,7 @@ func TestArtifactKindHelpers(t *testing.T) {
 	assert.False(t, artifactNeedsFile(types.MeetingArtifactTypeReportMarkdown))
 	assert.False(t, artifactNeedsFile(types.MeetingArtifactTypeMinutes))
 	assert.False(t, artifactNeedsFile(types.MeetingArtifactTypeTodoList))
+	assert.False(t, artifactNeedsFile(types.MeetingArtifactTypeSolution), "方案为纯文本形态，不要求沙箱产出文件")
 
 	// 期望扩展名映射
 	assert.Equal(t, []string{".docx"}, artifactExpectedExts(types.MeetingArtifactTypeDocx))
@@ -107,12 +108,23 @@ func TestBuildArtifactPrompt(t *testing.T) {
 }
 
 func TestBuildMeetingArtifactAgent(t *testing.T) {
-	agent := buildMeetingArtifactAgent(7, "model-1", "sbx-1")
+	// 无知识库范围：保持 none，避开 AgentQA 的 rerank 模型硬性校验
+	agent := buildMeetingArtifactAgent(7, "model-1", "sbx-1", nil, "")
 	assert.Equal(t, "model-1", agent.Config.ModelID, "exec agent 必须显式绑定模型（resolveChatModelID 硬性要求）")
 	assert.Equal(t, "sbx-1", agent.Config.SandboxConfigID, "沙箱配置是 AgentConfig.SandboxConfigID 的唯一来源")
 	assert.Equal(t, "all", agent.Config.SkillsSelectionMode, "打开全部已装技能")
-	assert.Equal(t, "none", agent.Config.KBSelectionMode, "知识库不注入，且避开 AgentQA 的 rerank 模型硬性校验")
+	assert.Equal(t, "none", agent.Config.KBSelectionMode, "无知识库范围时不注入")
 	assert.False(t, agent.Config.MultiTurnEnabled, "单次生成不挂多轮历史")
 	assert.NotZero(t, agent.Config.MaxIterations)
 	assert.NotEmpty(t, agent.Config.SystemPrompt)
+
+	// 有参会智能体知识库：切 selected 并带 rerank 模型，产物可基于知识库补足事实
+	withKB := buildMeetingArtifactAgent(7, "model-1", "sbx-1", []string{"kb-1", "kb-2"}, "rr-1")
+	assert.Equal(t, "selected", withKB.Config.KBSelectionMode)
+	assert.Equal(t, []string{"kb-1", "kb-2"}, withKB.Config.KnowledgeBases)
+	assert.Equal(t, "rr-1", withKB.Config.RerankModelID, "检索工具要求 rerank 模型")
+
+	// 缺 rerank 模型时保持 none，避免整条生成链路因配置缺失报错
+	noRerank := buildMeetingArtifactAgent(7, "model-1", "sbx-1", []string{"kb-1"}, "")
+	assert.Equal(t, "none", noRerank.Config.KBSelectionMode)
 }

@@ -29,6 +29,12 @@ func (s *meetingService) RequestArtifact(ctx context.Context, tenantID uint64, r
 	if !types.ValidMeetingArtifactType(kindType) {
 		return nil, ErrInvalidArtifactKind
 	}
+	// 方案需基于真实讨论：空会议直接拒绝，避免生成无信息量的空方案
+	if kindType == types.MeetingArtifactTypeSolution {
+		if n, err := s.messageRepo.CountByRoom(ctx, roomID); err == nil && n == 0 {
+			return nil, ErrNoDiscussionMessages
+		}
+	}
 	if title == "" {
 		title = defaultArtifactTitle(kindType)
 	}

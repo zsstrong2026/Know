@@ -35,15 +35,16 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import { useMeetingStore } from '@/stores/meeting';
 import type { ArtifactKindType } from '@/api/meeting';
 
-const props = defineProps<{ visible: boolean }>();
+const props = defineProps<{ visible: boolean; initialKind?: ArtifactKindType }>();
 const emit = defineEmits<{ 'update:visible': [boolean]; requested: [] }>();
 
 const { t } = useI18n();
 const store = useMeetingStore();
 const submitting = ref(false);
 
-// 8 种形态（顺序即展示顺序；与后端白名单一致）
+// 9 种形态（顺序即展示顺序；与后端白名单一致）。方案排首位并作为默认项
 const KINDS: Array<{ value: ArtifactKindType; label: string }> = [
+  { value: 'solution', label: 'meeting.kindSolution' },
   { value: 'report_markdown', label: 'meeting.kindReportMarkdown' },
   { value: 'minutes', label: 'meeting.kindMinutes' },
   { value: 'todo_list', label: 'meeting.kindTodoList' },
@@ -55,15 +56,15 @@ const KINDS: Array<{ value: ArtifactKindType; label: string }> = [
 ];
 
 const form = reactive({
-  kindType: 'report_markdown' as ArtifactKindType,
+  kindType: 'solution' as ArtifactKindType,
   title: '',
   requirement: '',
 });
 
-// 每次打开重置表单，避免沿用上次残留
+// 每次打开重置表单，避免沿用上次残留；initialKind 让「生成方案」入口直达方案形态
 watch(() => props.visible, (v) => {
   if (v) {
-    form.kindType = 'report_markdown';
+    form.kindType = props.initialKind ?? 'solution';
     form.title = '';
     form.requirement = '';
   }

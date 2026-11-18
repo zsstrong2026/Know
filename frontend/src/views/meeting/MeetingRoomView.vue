@@ -7,14 +7,14 @@
         <div v-if="store.currentRoom?.description" class="tb-desc">{{ store.currentRoom.description }}</div>
       </div>
       <div class="tb-actions">
-        <t-button size="small" theme="primary" :loading="store.solutionGenerating"
-          :disabled="store.discussing || isArchived" @click="generateSolution">
+        <t-button size="small" theme="primary" :loading="artifactGenerating"
+          :disabled="store.discussing || isArchived" @click="openGenerate('solution')">
           {{ $t('meeting.generateSolution') }}
         </t-button>
         <t-button size="small" theme="default" variant="outline" :disabled="!store.discussing" @click="interrupt">
           {{ $t('meeting.interrupt') }}
         </t-button>
-        <t-button size="small" theme="default" variant="outline" :disabled="isArchived" @click="showGenerate = true">
+        <t-button size="small" theme="default" variant="outline" :disabled="isArchived" @click="openGenerate()">
           {{ $t('meeting.generateArtifact') }}
         </t-button>
         <t-button size="small" theme="default" variant="outline" @click="showArtifacts = true">
@@ -122,7 +122,8 @@
     <ArtifactDrawer v-model:visible="showArtifacts" :room-id="roomId"
       :current-solution-message-id="store.currentRoom?.current_solution_message_id ?? ''" />
 
-    <ArtifactGenerateDialog v-model:visible="showGenerate" @requested="showArtifacts = true" />
+    <ArtifactGenerateDialog v-model:visible="showGenerate" :initial-kind="generateKind"
+      @requested="onArtifactRequested" />
 
     <!-- 开场确认坞：待确认态常驻输入区上方，免去回滚消息找按钮；两种语义（澄清 / 确认）共用一处 -->
     <div v-if="isAwaiting" class="confirm-dock">
@@ -175,7 +176,7 @@
           </t-button>
         </template>
         <template v-else>
-          <t-button size="small" theme="primary" :loading="store.solutionGenerating" @click="generateSolution">
+          <t-button size="small" theme="primary" :loading="artifactGenerating" @click="openGenerate('solution')">
             {{ $t('meeting.nextStepGenerate') }}
           </t-button>
           <t-button v-if="store.agenda.length" size="small" theme="default" variant="outline" :loading="agendaActing"
@@ -268,7 +269,9 @@ import { useRoute } from 'vue-router';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { useMeetingStore } from '@/stores/meeting';
 import { interruptMeeting, openMeetingStream } from '@/api/meeting';
-import type { MeetingAttachmentStatus, MeetingMessage, MeetingParticipant } from '@/api/meeting';
+import type {
+  ArtifactKindType, MeetingAttachmentStatus, MeetingMessage, MeetingParticipant,
+} from '@/api/meeting';
 import { MAX_FILE_SIZE_MB } from '@/utils';
 import { createChatMarkdownRenderer, renderChatMarkdown } from '@/utils/chatMarkdownRenderer';
 import { safeMarkdownToHTML, sanitizeMarkdownHTML } from '@/utils/security';
@@ -291,6 +294,8 @@ const draftRef = ref<{ focus?: () => void } | null>(null); // 「调整流程」
 const mentions = ref<MeetingParticipant[]>([]);
 const showArtifacts = ref(false); // 历史产物抽屉可见性（视图本地状态，不入 store）
 const showGenerate = ref(false); // 产物生成弹窗可见性（视图本地状态）
+// 弹窗打开时的预选形态：顶部「生成方案」直达方案形态，其余入口用默认形态
+const generateKind = ref<ArtifactKindType | undefined>(undefined);
 const scrollRef = ref<HTMLElement | null>(null);
 let closeStream: (() => void) | null = null;
 
@@ -299,6 +304,9 @@ const roomId = computed(() => (route.params.roomId as string) || '');
 
 // 归档只读态：输入/发送/评审/生成方案全部禁用，SSE 仍保持接收（归档系统消息可推送到场）
 const isArchived = computed(() => store.currentRoom?.status === 'archived');
+
+// 方案与产物共用同一生成通道：任一产物在生成中都视为「正在生成」，按钮给出 loading
+const artifactGenerating = computed(() => store.artifacts.some((a) => a.status === 'generating'));
 
 // 主持人分析议题中的等待态；超时后不再阻塞确认坞，避免 SSE 断流时用户被永久卡在等待中
 const openingWaitTimedOut = ref(false);
@@ -695,13 +703,15 @@ function fileStatusText(status: MeetingAttachmentStatus): string {
   }
 }
 
-// 生成方案：错误提示在视图层（如无采纳消息的后端 400）；loading 复位在 store 的 finally 中完成
-async function generateSolution() {
-  try {
-    await store.generate();
-  } catch (e) {
-    toastError(e);
-  }
+// 打开产物生成弹窗：kind 为空时用弹窗默认形态（含方案）；方案形态即原「生成方案」
+function openGenerate(kind?: ArtifactKindType) {
+  generateKind.value = kind;
+  showGenerate.value = true;
+}
+
+// 产物提交成功：保持列表态观看 loading 卡片；方案形态同时打开历史产物抽屉便于查看进度
+function onArtifactRequested() {
+  showArtifacts.value = true;
 }
 
 // 主动打断进行中的讨论轮

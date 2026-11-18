@@ -33,6 +33,7 @@ type meetingEngine struct {
 	artifactRepo    interfaces.MeetingArtifactRepository
 	sessionService  interfaces.SessionService
 	modelService    interfaces.ModelService
+	kbService       interfaces.KnowledgeBaseService // 产物生成：展开参会智能体的 all 模式知识库范围
 	userService     interfaces.UserService              // 解析会议创建者用户名（供智能体 @用户名 向用户提问）
 	temporaryDocs   interfaces.TemporaryDocumentService // 会议文件：读取用户上传文件并注入发言上下文
 	redis           *redis.Client
@@ -57,6 +58,7 @@ func NewMeetingEngine(
 	artifactRepo interfaces.MeetingArtifactRepository,
 	sessionService interfaces.SessionService,
 	modelService interfaces.ModelService,
+	kbService interfaces.KnowledgeBaseService,
 	userService interfaces.UserService,
 	temporaryDocs interfaces.TemporaryDocumentService,
 	messageService interfaces.MessageService,
@@ -75,7 +77,9 @@ func NewMeetingEngine(
 		messageRepo: messageRepo, agendaRepo: agendaRepo, agentRepo: agentRepo,
 		artifactRepo:   artifactRepo,
 		sessionService: sessionService, modelService: modelService,
-		userService: userService, temporaryDocs: temporaryDocs,
+		kbService:    kbService,
+		userService:  userService,
+		temporaryDocs: temporaryDocs,
 		redis:         redisClient,
 		broadcaster:   NewMeetingBroadcaster(),
 		cfg:           cfg,

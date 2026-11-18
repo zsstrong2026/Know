@@ -46,15 +46,33 @@ func (s *meetingService) ArchiveRoom(ctx context.Context, tenantID uint64, roomI
 	return nil
 }
 
-// ExportArtifact 导出方案为 .md（返回文件名/正文；只读操作，归档房间允许导出）
+// ExportArtifact 导出产物为 .md（返回文件名/正文；只读操作，归档房间允许导出）。
+// solution 取方案消息正文；generated 取后台会话消息正文（文本形态即交付物正文，文件形态为生成说明）。
 func (s *meetingService) ExportArtifact(ctx context.Context, tenantID uint64, roomID, artifactID string) (string, string, error) {
-	if _, err := s.roomRepo.GetByID(ctx, roomID, tenantID); err != nil {
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID)
+	if err != nil {
 		return "", "", err // 租户校验（仓储按 tenant 过滤）
 	}
 	artifact, err := s.artifactRepo.GetByID(ctx, artifactID, roomID)
 	if err != nil {
 		return "", "", err
 	}
+	// 历史行 kind/status 可能为空，先归一避免把 generated 误判成 solution
+	artifact = types.NormalizeMeetingArtifact(artifact)
+
+	if artifact.SolutionMessageID == "" {
+		// generated：正文落在产物生成时的后台会话 assistant 消息里
+		if artifact.SourceMessageID == "" || room.ArtifactSessionID == "" || s.messageService == nil {
+			return "", "", errors.New("meeting: artifact has no downloadable content")
+		}
+		msg, err := s.messageService.GetMessage(meetingOwnerContext(ctx, room), room.ArtifactSessionID, artifact.SourceMessageID)
+		if err != nil {
+			return "", "", err
+		}
+		_ = s.artifactRepo.UpdateExportedFormat(ctx, artifactID, "md") // 记录导出格式；失败不阻断导出
+		return sanitizeArtifactFileName(artifact.Title) + ".md", msg.Content, nil
+	}
+
 	msg, err := s.messageRepo.GetByID(ctx, artifact.SolutionMessageID)
 	if err != nil {
 		return "", "", err

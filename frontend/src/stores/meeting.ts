@@ -2,7 +2,7 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import {
   listMeetings, getMeeting, listMessages, sendMessage,
-  generateSolution, rollbackSolution, confirmMeetingFlow,
+  rollbackSolution, confirmMeetingFlow,
   listArtifacts, requestArtifact as apiRequestArtifact, regenerateArtifact as apiRegenerateArtifact,
   listAgenda, advanceAgenda as apiAdvanceAgenda,
   appendAgenda as apiAppendAgenda, reopenAgenda as apiReopenAgenda,
@@ -25,7 +25,6 @@ export const useMeetingStore = defineStore('meetingStore', () => {
   const awaitingUser = ref<MeetingMessage | null>(null); // 智能体 @用户 提问后，等待用户回应
   const guardNotice = ref<unknown>(null); // 护栏触发提示（主持人介入）
   const consensusNotice = ref<unknown>(null); // 裁判判定收敛提示（consensus.created）
-  const solutionGenerating = ref(false);  // 方案生成中（按钮 loading 用）
   const artifacts = ref<MeetingArtifact[]>([]); // 当前房间产物（solution + generated 统一）
   const agenda = ref<MeetingAgendaItem[]>([]);  // 当前房间议程（结构性治理；未启用时为空）
   const attachments = ref<MeetingAttachment[]>([]); // 当前房间文件（解析状态轮询）
@@ -115,19 +114,6 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     }
   }
 
-  // 方案消息经 SSE message.created 回流，这里只控制 loading；
-  // LLM 失败时 HTTP 报错同样走 finally 复位（solution.generating 无配对终态事件）
-  async function generate() {
-    if (!currentRoom.value) return;
-    solutionGenerating.value = true;
-    try {
-      await generateSolution(currentRoom.value.id);
-      consensusNotice.value = null; // 已进入方案生成，下一步决策坞随之收起
-    } finally {
-      solutionGenerating.value = false;
-    }
-  }
-
   // 结束会议：归档后转只读，下一步决策坞与输入区一并禁用
   async function archive() {
     if (!currentRoom.value) return;
@@ -196,6 +182,7 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     if (!currentRoom.value) return;
     const a = await apiRequestArtifact(currentRoom.value.id, kindType, title, requirement);
     upsertArtifact(a);
+    consensusNotice.value = null; // 已进入生成，下一步决策坞随之收起
   }
 
   // 重新生成：原行重置为 generating
@@ -279,9 +266,15 @@ export const useMeetingStore = defineStore('meetingStore', () => {
         discussing.value = true;
       }
     } else if (event === 'solution.generating') {
-      solutionGenerating.value = true;
+      // 方案已并入产物通道：生成态由 artifact.generating/created 驱动卡片，这里仅清理决策坞
+      consensusNotice.value = null;
     } else if (event === 'solution.created') {
-      solutionGenerating.value = false;
+      // 方案产物已就绪：同步房间「当前方案」指针，抽屉里的「当前」标记随之正确
+      const d = data as { solution_message_id?: string } | null;
+      if (d?.solution_message_id && currentRoom.value) {
+        currentRoom.value = { ...currentRoom.value, current_solution_message_id: d.solution_message_id };
+      }
+      consensusNotice.value = null;
     } else if (event === 'discussion.turn_started') {
       discussing.value = true;
       thinkingSpeaker.value = null;
@@ -348,10 +341,10 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     attachmentUploading.value = false;
   }
 
-  return { rooms, currentRoom, messages, hasMore, discussing, loadingRoom, thinkingSpeaker, awaitingUser, guardNotice, consensusNotice, solutionGenerating, artifacts,
+  return { rooms, currentRoom, messages, hasMore, discussing, loadingRoom, thinkingSpeaker, awaitingUser, guardNotice, consensusNotice, artifacts,
     agenda, activeAgendaItem, agendaDoneCount, attachments, attachmentUploading,
     needsClarification, openingAnalyzing,
-    fetchRooms, enterRoom, loadEarlier, speak, confirm, generate, archive, rollback, applyStreamEvent, clearGuardNotice, clearConsensusNotice, leaveRoom,
+    fetchRooms, enterRoom, loadEarlier, speak, confirm, archive, rollback, applyStreamEvent, clearGuardNotice, clearConsensusNotice, leaveRoom,
     fetchArtifacts, requestArtifact, regenerateArtifact, advanceAgenda, appendAgenda, reopenAgenda,
     fetchAttachments, uploadAttachment, removeAttachment };
 });

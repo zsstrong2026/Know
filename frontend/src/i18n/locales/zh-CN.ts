@@ -11512,6 +11512,7 @@
     backToList: '返回列表',
     artifactBusy: '已有产物正在生成，请稍候',
     artifactsEmptyNew: '暂无产物，点击「生成产物」创建',
+    kindSolution: '方案',
     kindReportMarkdown: 'Markdown 报告',
     kindMinutes: '会议纪要',
     kindTodoList: '待办事项',

@@ -2663,6 +2663,7 @@
     backToList: 'Back to list',
     artifactBusy: 'An artifact is already generating, please wait',
     artifactsEmptyNew: 'No artifacts yet. Click "Generate Artifact" to create one',
+    kindSolution: 'Solution',
     kindReportMarkdown: 'Markdown Report',
     kindMinutes: 'Meeting Minutes',
     kindTodoList: 'To-do List',

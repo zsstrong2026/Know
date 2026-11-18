@@ -18,9 +18,9 @@ export type AgendaItemStatus = 'pending' | 'active' | 'done' | 'skipped';
 export type ArtifactKind = 'solution' | 'generated';
 // 产物生成状态机：generating → ready | failed
 export type ArtifactStatus = 'generating' | 'ready' | 'failed';
-// 8 种产物形态（与后端 types/meeting.go 常量一致）
+// 产物形态（与后端 types/meeting.go 常量一致；solution 为方案，取代原独立「生成方案」入口）
 export type ArtifactKindType =
-  | 'report_markdown' | 'minutes' | 'todo_list'
+  | 'solution' | 'report_markdown' | 'minutes' | 'todo_list'
   | 'docx' | 'xlsx' | 'pptx' | 'html_report' | 'chart_image';
 
 export interface MeetingRoom {

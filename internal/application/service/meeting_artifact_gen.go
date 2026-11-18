@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/Tencent/WeKnora/internal/agent/skills"
 	"github.com/Tencent/WeKnora/internal/common/redislock"
 	"github.com/Tencent/WeKnora/internal/event"
@@ -98,6 +96,8 @@ func sanitizeArtifactFileName(title string) string {
 // defaultArtifactTitle 未填标题时按形态回缺省名
 func defaultArtifactTitle(kindType string) string {
 	switch kindType {
+	case types.MeetingArtifactTypeSolution:
+		return "方案"
 	case types.MeetingArtifactTypeMinutes:
 		return "会议纪要"
 	case types.MeetingArtifactTypeTodoList:
@@ -120,6 +120,12 @@ func defaultArtifactTitle(kindType string) string {
 func artifactKindInstruction(kindType, title string) string {
 	base := sanitizeArtifactFileName(title)
 	switch kindType {
+	case types.MeetingArtifactTypeSolution:
+		return "请以主持人身份，将本次会议讨论汇总为一份结构化方案，固定包含以下小节：\n" +
+			"## 背景与目标\n## 分歧与未达成一致的点\n## 方案要点\n## 风险与待确认事项\n## 下一步行动\n" +
+			"要求：「## 分歧与未达成一致的点」必须逐条列出尚未形成一致意见的点及各方立场，不得只写共识；" +
+			"若确无分歧，须写明「本次讨论未出现分歧」并给出依据。其余小节不得引入讨论记录之外的新观点。" +
+			"直接在最终回答中输出完整 Markdown 正文，不要生成文件。"
 	case types.MeetingArtifactTypeReportMarkdown:
 		return "请在最终回答中直接输出完整的 Markdown 报告正文，不要生成文件。"
 	case types.MeetingArtifactTypeMinutes:
@@ -170,36 +176,58 @@ func buildArtifactPrompt(
 	}
 	b.WriteString("\n【执行要求】\n")
 	b.WriteString(instruction + "\n")
-	b.WriteString("内容必须忠于会议记录与采纳意见，不得编造未讨论过的事实。")
+	b.WriteString("内容必须忠于会议记录与采纳意见；需要补充事实、数据时，只能取自知识库检索结果并注明来源，不得编造。")
 	return b.String()
 }
 
 // buildMeetingArtifactAgent 构造产物执行智能体（合成、不落库）。
 // 模型 = 租户默认 KnowledgeQA（resolveChatModelID 对非空 ModelID 强校验类型）；
 // 沙箱 = 调用方解析的租户具名配置（空则 AgentQA 走部署级 lite/禁用策略）；
-// SkillsSelectionMode=all 打开沙箱内已装技能，兑现「可调用工具箱技能」。
-func buildMeetingArtifactAgent(tenantID uint64, modelID, sandboxConfigID string) *types.CustomAgent {
+// SkillsSelectionMode=all 打开沙箱内已装技能，兑现「可调用工具箱技能」；
+// kbIDs 非空时按 selected 模式注入，让产物可基于参会智能体关联知识库补足事实。
+func buildMeetingArtifactAgent(tenantID uint64, modelID, sandboxConfigID string, kbIDs []string, rerankModelID string) *types.CustomAgent {
+	cfg := types.CustomAgentConfig{
+		AgentMode:           "smart-reasoning",
+		ModelID:             modelID,
+		SandboxConfigID:     sandboxConfigID,
+		SystemPrompt:        "你是会议室的产物生成助手，负责把会议讨论沉淀为指定形态的交付物。严格遵循用户的形态与文件要求，善用可用的工具与技能，最终回答用中文。",
+		SkillsSelectionMode: "all",
+		MCPSelectionMode:    "none",
+		// 默认不注入知识库；调用方给出范围时切到 selected，并配套 rerank 模型（AgentQA 硬性校验）
+		KBSelectionMode: "none",
+		MaxIterations:   20,
+		Temperature:     0.3,
+	}
+	if len(kbIDs) > 0 && rerankModelID != "" {
+		// 检索工具强制要求 rerank 模型；租户未配置时保持不注入，避免整条生成链路报错
+		cfg.KBSelectionMode = "selected"
+		cfg.KnowledgeBases = kbIDs
+		cfg.RerankModelID = rerankModelID
+	}
 	agent := &types.CustomAgent{
 		ID:       "meeting-artifact-executor",
 		TenantID: tenantID,
 		Name:     "会议产物生成器",
-		Config: types.CustomAgentConfig{
-			AgentMode:           "smart-reasoning",
-			ModelID:             modelID,
-			SandboxConfigID:     sandboxConfigID,
-			SystemPrompt:        "你是会议室的产物生成助手，负责把会议讨论沉淀为指定形态的交付物。严格遵循用户的形态与文件要求，善用可用的工具与技能，最终回答用中文。",
-			SkillsSelectionMode: "all",
-			MCPSelectionMode:    "none",
-			// 产物素材仅来自会议记录与采纳意见，不注入知识库；同时避开 rerank 模型硬性校验
-			KBSelectionMode: "none",
-			MaxIterations:   20,
-			Temperature:     0.3,
-		},
+		Config:   cfg,
 	}
 	agent.EnsureDefaults()
 	// EnsureDefaults 对 smart-reasoning 会强制开启多轮历史；产物生成是单次任务，须在其后显式关闭
 	agent.Config.MultiTurnEnabled = false
 	return agent
+}
+
+// meetingArtifactRerankModelID 产物智能体启用知识库检索所需的 rerank 模型：
+// 取租户默认 rerank（同内置智能体的 workspace 回退策略），没有则返回空。
+func (e *meetingEngine) meetingArtifactRerankModelID(ctx context.Context) string {
+	if e.modelService == nil {
+		return ""
+	}
+	models, err := e.modelService.ListModels(ctx)
+	if err != nil {
+		logger.Warnf(ctx, "meeting artifact list models failed: %v", err)
+		return ""
+	}
+	return pickWorkspaceRerankModelID(models)
 }
 
 // ensureArtifactSession 懒创建（并持久化到房间）会议产物后台会话；已存在则直接复用。
@@ -237,8 +265,9 @@ func (e *meetingEngine) meetingArtifactSandboxConfigID(ctx context.Context, tena
 	return list[0].ID
 }
 
-// buildArtifactQuery 拉取会议上下文（最近记录 + 采纳意见）并组装产物生成 query
-func (e *meetingEngine) buildArtifactQuery(ctx context.Context, room *types.MeetingRoom, a *types.MeetingArtifact) string {
+// buildArtifactQuery 拉取会议上下文（最近记录 + 采纳意见）并组装产物生成 query。
+// kbIDs 非空时追加知识库使用要求：素材 = 会议讨论 + 参会智能体关联知识库。
+func (e *meetingEngine) buildArtifactQuery(ctx context.Context, room *types.MeetingRoom, a *types.MeetingArtifact, kbIDs []string) string {
 	recent, err := e.messageRepo.ListByRoom(ctx, room.ID, "", e.contextMax)
 	if err != nil {
 		logger.Warnf(ctx, "meeting artifact list messages failed, room=%s err=%v", room.ID, err)
@@ -254,8 +283,57 @@ func (e *meetingEngine) buildArtifactQuery(ctx context.Context, room *types.Meet
 		}
 		return senderLabel(m)
 	}
-	return buildArtifactPrompt(room, recent, adopted, a.KindType, a.Title, a.Requirement,
+	query := buildArtifactPrompt(room, recent, adopted, a.KindType, a.Title, a.Requirement,
 		labelOf, artifactKindInstruction(a.KindType, a.Title))
+	if len(kbIDs) > 0 {
+		query += "\n\n【知识库】已为你开放本次会议参会智能体关联的知识库。需要补充事实、数据或既有资料时，" +
+			"请先检索知识库再引用；知识库内容与会议讨论结论要区分表述，不得用知识库内容替换会议已达成的结论。"
+	}
+	return query
+}
+
+// meetingParticipantKnowledgeBaseIDs 参会智能体关联知识库 ∪ 会议级知识库，作为产物生成的知识来源。
+// 智能体为 all 模式时展开为该租户全部知识库；取不到时该智能体不贡献范围（不阻断生成）。
+func (e *meetingEngine) meetingParticipantKnowledgeBaseIDs(ctx context.Context, room *types.MeetingRoom) []string {
+	ids := append([]string{}, room.KnowledgeBaseIDs...)
+	if e.participantRepo == nil || e.agentRepo == nil {
+		return ids
+	}
+	ps, err := e.participantRepo.ListByRoom(ctx, room.ID)
+	if err != nil {
+		logger.Warnf(ctx, "meeting artifact load participants failed, room=%s err=%v", room.ID, err)
+		return ids
+	}
+	for _, p := range filterAgentParticipants(ps) {
+		agent, err := e.agentRepo.GetAgentByID(ctx, p.AgentID, room.TenantID)
+		if err != nil || agent == nil {
+			continue
+		}
+		ids = mergeUnique(ids, e.agentKnowledgeBaseIDs(ctx, agent))
+	}
+	return ids
+}
+
+// agentKnowledgeBaseIDs 单个智能体的知识库范围：all → 租户全部；其余 → 显式选择列表
+func (e *meetingEngine) agentKnowledgeBaseIDs(ctx context.Context, agent *types.CustomAgent) []string {
+	if agent.Config.KBSelectionMode != "all" {
+		return agent.Config.KnowledgeBases
+	}
+	if e.kbService == nil {
+		return nil
+	}
+	all, err := e.kbService.ListKnowledgeBases(ctx)
+	if err != nil {
+		logger.Warnf(ctx, "meeting artifact list knowledge bases failed, agent=%s err=%v", agent.ID, err)
+		return nil
+	}
+	ids := make([]string, 0, len(all))
+	for _, kb := range all {
+		if kb != nil {
+			ids = append(ids, kb.ID)
+		}
+	}
+	return ids
 }
 
 // runArtifactAgentQA 在后台会话上执行 AgentQA 并捕获最终回答（模式同 runAgentTurn）。
@@ -345,11 +423,32 @@ func (e *meetingEngine) RunArtifactGeneration(ctx context.Context, room *types.M
 	if e.collector == nil || e.messageService == nil {
 		return e.failArtifact(ctx, room, a, errors.New("meeting: artifact pipeline dependencies unavailable"))
 	}
-	execAgent := buildMeetingArtifactAgent(room.TenantID, modelID, e.meetingArtifactSandboxConfigID(ctx, room.TenantID))
+	// 知识来源 = 参会智能体关联知识库 ∪ 会议级知识库；无任何范围时退回纯文本生成
+	kbIDs := e.meetingParticipantKnowledgeBaseIDs(ctx, room)
+	execAgent := buildMeetingArtifactAgent(
+		room.TenantID, modelID, e.meetingArtifactSandboxConfigID(ctx, room.TenantID),
+		kbIDs, e.meetingArtifactRerankModelID(ctx),
+	)
 
-	assistantMsgID := uuid.New().String()
-	answer, err := e.runArtifactAgentQA(ctx, room, execAgent, sessionID, assistantMsgID, e.buildArtifactQuery(ctx, room, a))
+	// 先落占位 assistant 消息再执行：Message.BeforeCreate 会强制重新生成 UUID，
+	// 若拿本地 uuid 当 assistantMsgID，会与落库行失配（source_message_id 指向不存在的消息），
+	// 导致详情取不到正文、下载定位不到文件。必须先落库拿到真实 ID（同聊天主链路）。
+	assistantMsg, err := e.messageService.CreateMessage(ctx, &types.Message{
+		SessionID: sessionID, AgentTenantID: room.TenantID,
+		Role: "assistant", AgentID: execAgent.ID, IsCompleted: false,
+	})
 	if err != nil {
+		return e.failArtifact(ctx, room, a, err)
+	}
+	assistantMsgID := assistantMsg.ID
+
+	answer, err := e.runArtifactAgentQA(ctx, room, execAgent, sessionID, assistantMsgID,
+		e.buildArtifactQuery(ctx, room, a, kbIDs))
+	if err != nil {
+		// 执行失败：清掉占位消息，避免后台会话残留空消息
+		if derr := e.messageService.DeleteMessage(ctx, sessionID, assistantMsgID); derr != nil {
+			logger.Warnf(ctx, "meeting artifact delete placeholder message failed, room=%s msg=%s err=%v", room.ID, assistantMsgID, derr)
+		}
 		return e.failArtifact(ctx, room, a, err)
 	}
 
@@ -366,18 +465,22 @@ func (e *meetingEngine) RunArtifactGeneration(ctx context.Context, room *types.M
 		}
 	}
 
-	// 落后台会话 assistant 消息：产物行按 (session, message) JOIN 寻址的前提（GetSessionArtifacts 联 messages）
+	// 回写占位 assistant 消息：产物行按 (session, message) JOIN 寻址的前提（GetSessionArtifacts 联 messages）
 	// AgentTenantID 记有效租户：产物下载鉴权在缺 resource 行时以其作为属主兜底（access/files.go）
-	msg := &types.Message{
+	if err := e.messageService.UpdateMessage(ctx, &types.Message{
 		ID: assistantMsgID, SessionID: sessionID, AgentTenantID: room.TenantID,
 		Role: "assistant", Content: answer, AgentID: execAgent.ID, IsCompleted: true,
 		Artifacts: collected,
-	}
-	if _, err := e.messageService.CreateMessage(ctx, msg); err != nil {
-		return e.failArtifact(ctx, room, a, err)
+	}); err != nil {
+		// 回写失败不阻断交付：正文与产物行已在库，详情/下载仍可用，仅记录便于排查
+		logger.Warnf(ctx, "meeting artifact update assistant message failed, room=%s msg=%s err=%v", room.ID, assistantMsgID, err)
 	}
 
 	file, hasFile := pickArtifactFile(collected, a.KindType)
+	// 方案为纯文本形态：即便沙箱里残留文件也不挂为交付物，避免方案卡片出现无关附件
+	if a.KindType == types.MeetingArtifactTypeSolution {
+		hasFile = false
+	}
 	if artifactNeedsFile(a.KindType) && !hasFile {
 		return e.failArtifact(ctx, room, a, fmt.Errorf("meeting: expected %s file but sandbox produced none", a.KindType))
 	}
@@ -389,10 +492,42 @@ func (e *meetingEngine) RunArtifactGeneration(ctx context.Context, room *types.M
 		a.FileName, a.FileType, a.FileSize = file.FileName, file.FileType, file.FileSize
 		a.URL, a.ContentHash = file.URL, file.ContentHash
 	}
+	// 方案形态：正文同时落一条 is_solution 会议消息，并推进房间「当前方案」指针，
+	// 让历史产物里的方案与会议室内的版本/回滚语义保持一致（失败不阻断产物交付）
+	if a.KindType == types.MeetingArtifactTypeSolution {
+		e.attachSolutionMessage(ctx, room, a, answer)
+	}
 	if err := e.artifactRepo.Update(ctx, a); err != nil {
 		// 末次回写失败同样置 failed 并广播：否则产物永久停在 generating，前端无法重试
 		return e.failArtifact(ctx, room, a, err)
 	}
 	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventArtifactCreated, Data: a})
 	return nil
+}
+
+// attachSolutionMessage 把方案形态产物的正文落为方案消息（版本号沿用产物行），
+// 并把房间当前方案指针指向它；任一步失败仅记录，产物本身仍可交付。
+func (e *meetingEngine) attachSolutionMessage(
+	ctx context.Context, room *types.MeetingRoom, a *types.MeetingArtifact, content string,
+) {
+	msg := &types.MeetingMessage{
+		MeetingRoomID:   room.ID,
+		SenderKind:      types.MeetingSenderHost,
+		Content:         content,
+		IsSolution:      true,
+		SolutionVersion: a.Version,
+		ReviewState:     types.ReviewStateNone,
+	}
+	if err := e.messageRepo.Create(ctx, msg); err != nil {
+		logger.Warnf(ctx, "meeting artifact create solution message failed, room=%s artifact=%s err=%v", room.ID, a.ID, err)
+		return
+	}
+	// 方案产物同时挂 SolutionMessageID：导出/详情/回滚沿用既有 solution 读路径
+	a.SolutionMessageID = msg.ID
+	room.CurrentSolutionMessageID = msg.ID
+	if err := e.roomRepo.Update(ctx, room); err != nil {
+		logger.Warnf(ctx, "meeting artifact update current solution failed, room=%s err=%v", room.ID, err)
+	}
+	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventMessageCreated, Data: msg})
+	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventSolutionCreated, Data: a})
 }

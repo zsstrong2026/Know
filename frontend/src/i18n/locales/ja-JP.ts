@@ -2662,6 +2662,7 @@
     backToList: '一覧に戻る',
     artifactBusy: '別のアーティファクトを生成中です。しばらくお待ちください',
     artifactsEmptyNew: 'アーティファクトがありません。「アーティファクト生成」から作成できます',
+    kindSolution: '案',
     kindReportMarkdown: 'Markdown レポート',
     kindMinutes: '議事録',
     kindTodoList: 'ToDo リスト',

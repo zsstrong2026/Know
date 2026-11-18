@@ -384,7 +384,8 @@ func (h *MeetingHandler) DeleteMeeting(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "deleted"})
 }
 
-// ExportArtifact GET /api/v1/meetings/:id/artifacts/:aid/export —— 下载方案 .md（只读，归档房间可导出）
+// ExportArtifact GET /api/v1/meetings/:id/artifacts/:aid/export —— 下载产物 .md
+// （solution 为方案正文；generated 为生成时 agent 最终回答。只读，归档房间可导出）
 func (h *MeetingHandler) ExportArtifact(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID, _ := types.TenantIDFromContext(ctx)
@@ -393,7 +394,8 @@ func (h *MeetingHandler) ExportArtifact(c *gin.Context) {
 		c.Error(errors.NewNotFoundError("artifact not found"))
 		return
 	}
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	// 中文标题需 RFC 2184 编码，否则浏览器下载会丢文件名
+	c.Header("Content-Disposition", exportContentDisposition(filename))
 	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(content))
 }
 
@@ -537,7 +539,8 @@ func (h *MeetingHandler) writeArtifactError(c *gin.Context, err error) {
 		c.Error(errors.NewForbiddenError("会议已归档，仅可查看"))
 	case err == service.ErrArtifactBusy:
 		c.Error(errors.NewConflictError("已有产物正在生成，请稍候再试"))
-	case err == service.ErrInvalidArtifactKind, err == service.ErrNotRegenerable:
+	case err == service.ErrInvalidArtifactKind, err == service.ErrNotRegenerable,
+		err == service.ErrNoDiscussionMessages:
 		c.Error(errors.NewBadRequestError(err.Error()))
 	case stderrors.Is(err, apprepo.ErrMeetingRoomNotFound), stderrors.Is(err, apprepo.ErrMeetingArtifactNotFound):
 		// 会议不存在/跨租户与产物不存在统一 404：与守卫契约及读路径语义保持一致，避免回传内部错误原文

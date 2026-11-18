@@ -11512,6 +11512,7 @@
     backToList: '목록으로',
     artifactBusy: '다른 산출물을 생성 중입니다. 잠시만 기다려 주세요',
     artifactsEmptyNew: '산출물이 없습니다. "산출물 생성"을 눌러 만들어 보세요',
+    kindSolution: '안',
     kindReportMarkdown: 'Markdown 보고서',
     kindMinutes: '회의록',
     kindTodoList: '할 일 목록',
