@@ -49,11 +49,28 @@ func (r *SopItemRepo) ListByProjectNo(ctx context.Context, tenantID uint64, proj
 	return list, err
 }
 
-// Update 全列保存事项的「可编辑字段」。
-// 状态列不参与写入（Omit("status")）：UpdateStatus 是唯一状态写入口，
-// 这样即使并发迁移已提交，本方法也不会把旧状态写回去；库中原值只回填到入参，
-// 保证调用方拿回的对象与库一致。条件强制拼接 tenant_id（与 pmUpdateByID 同构），
-// 未命中返回 gorm.ErrRecordNotFound。
+// sopItemEditableColumns 是 Update 允许写入的列白名单（用户可编辑的业务字段）。
+//
+// 其余列一律不由 Update 改动：
+//   - status：唯一写入口是 UpdateStatus；
+//   - project_id/no/is_big/parent_id/split_source：归属与两级拆分结构，部分 DTO 的零值
+//     会把库里现值冲掉（跨项目重挂父项会绕过两级规则）；
+//   - last_run_id：执行情况派生链路的键，被零值冲掉会让工单与运行失联；
+//   - tenant_id/id/created_at/deleted_at/created_by：不可变列。
+//
+// updated_at 随每次更新刷新，见 sopItemUpdateColumns。
+var sopItemEditableColumns = []string{
+	"title", "description", "kind", "priority", "source", "proposer", "owner",
+	"tags", "template_id", "kb_id", "knowledge_id", "outcome", "domain_data",
+}
+
+// sopItemUpdateColumns 是 Update 实际下发的 SET 列：可编辑列 + updated_at。
+var sopItemUpdateColumns = append(append([]string{}, sopItemEditableColumns...), "updated_at")
+
+// Update 只写「可编辑字段」白名单（sopItemUpdateColumns）。
+// 状态列不参与写入：UpdateStatus 是唯一状态写入口，这样即使并发迁移已提交，
+// 本方法也不会把旧状态写回去；库中原状态只回填到入参，保证调用方拿回的对象与库一致。
+// 条件强制拼接 tenant_id（与 pmUpdateByID 同构），未命中返回 gorm.ErrRecordNotFound。
 func (r *SopItemRepo) Update(ctx context.Context, it *types.SopItem) error {
 	if it.Tags == nil {
 		it.Tags = []string{}
@@ -73,8 +90,7 @@ func (r *SopItemRepo) Update(ctx context.Context, it *types.SopItem) error {
 		it.UpdatedAt = time.Now()
 		res := tx.Model(it).
 			Where("id = ? AND tenant_id = ?", it.ID, it.TenantID).
-			Select("*").
-			Omit("id", "tenant_id", "created_at", "deleted_at", "status").
+			Select(sopItemUpdateColumns).
 			Updates(it)
 		if res.Error != nil {
 			return res.Error
