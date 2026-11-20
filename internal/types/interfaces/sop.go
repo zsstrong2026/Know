@@ -32,3 +32,29 @@ type SopProjectRepository interface {
 	// 实现随 sop_runs 表（Task 5）补齐。
 	CountActiveRuns(ctx context.Context, tenantID uint64, projectID string) (int64, error)
 }
+
+// SopItemRepository 事项仓储（实现：repository.SopItemRepo）。
+type SopItemRepository interface {
+	Create(ctx context.Context, it *types.SopItem) error
+	GetByID(ctx context.Context, tenantID uint64, id string) (*types.SopItem, error)
+	// ListWithDerived 列表 + 派生字段（current_node/progress/exec_state）。
+	// runStatusByItem 与 nodeRunsByItem 由 service 层按「每个事项最近一次运行」聚合后注入，
+	// 元素形如 "<节点状态>|<节点名>"；exec 过滤在派生字段组装后进行。
+	ListWithDerived(
+		ctx context.Context, tenantID uint64, projectID string, f types.SopItemFilter,
+		runStatusByItem map[string]string, nodeRunsByItem map[string][]string,
+	) ([]types.SopItemWithDerived, error)
+	// Update 全列保存可编辑字段；状态不随此方法落库（唯一写入口是 UpdateStatus）。
+	Update(ctx context.Context, it *types.SopItem) error
+	Delete(ctx context.Context, tenantID uint64, id string) error
+	// UpdateStatus 唯一的状态写入口：内部过 CanTransitSopItem，非法迁移不落库。
+	UpdateStatus(ctx context.Context, tenantID uint64, id, to string) error
+	// BulkUpdateStatus 批量迁移状态；skipRunning 命中的 id 与非法/不存在的一并进 skipped。
+	BulkUpdateStatus(
+		ctx context.Context, tenantID uint64, ids []string, to string, skipRunning map[string]bool,
+	) (updated, skipped []string)
+	AddAttachment(ctx context.Context, a *types.SopItemAttachment) error
+	ListAttachments(ctx context.Context, tenantID uint64, itemID string) ([]types.SopItemAttachment, error)
+	// ListByProjectNo 按项目列出全部未软删事项（created_at, no 升序）。
+	ListByProjectNo(ctx context.Context, tenantID uint64, projectID string) ([]types.SopItem, error)
+}

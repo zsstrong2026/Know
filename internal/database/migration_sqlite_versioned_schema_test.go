@@ -58,6 +58,8 @@ var versionedSQLiteTables = []string{
 	"session_sandbox_assignments",
 	"sandbox_user_machines",
 	"sop_projects",
+	"sop_items",
+	"sop_item_attachments",
 }
 
 // versionedSQLiteColumns maps each existing table to the columns that the
@@ -105,9 +107,10 @@ var versionedSQLiteColumns = map[string][]string{
 		"principal_type", "principal_id", "sandbox_config_id", "skill_id", "name", "value",
 	}, // 000028
 	"sop_projects": {"kb_owner", "brief_knowledge_id", "brief_rendered_seq"}, // 000068
+	"sop_items":    {"parent_id", "split_source"},                            // 000069
 }
 
-const expectedSQLiteMigrationVersion = 68
+const expectedSQLiteMigrationVersion = 69
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)
