@@ -295,3 +295,82 @@ func (r *knowledgeBaseRepository) ListModelUsages(
 	}
 	return usages, nil
 }
+
+// CountModelBindings aggregates how many active KBs reference the model in
+// each binding without the list cap.
+func (r *knowledgeBaseRepository) CountModelBindings(
+	ctx context.Context, db *gorm.DB, tenantID uint64, modelID string,
+) (map[types.ModelUsageBinding]int64, error) {
+	if db == nil {
+		db = r.db
+	}
+	return countModelBindings(
+		ctx, db, "knowledge_bases", tenantID, modelID, knowledgeBaseModelBindingSQL,
+	)
+}
+
+// CountKnowledgeBasesWithDocumentsByEmbeddingModel counts non-work KBs that
+// use modelID as their embedding model and already contain documents.
+func (r *knowledgeBaseRepository) CountKnowledgeBasesWithDocumentsByEmbeddingModel(
+	ctx context.Context, db *gorm.DB, tenantID uint64, modelID string,
+) (int64, error) {
+	if db == nil {
+		db = r.db
+	}
+	var count int64
+	err := db.WithContext(ctx).
+		Table("knowledge_bases AS kb").
+		Where("kb.tenant_id = ? AND kb.embedding_model_id = ?", tenantID, modelID).
+		Where("kb.deleted_at IS NULL").
+		// 工作知识库允许更换 Embedding 模型，与 rejectEmbeddingModelChange 保持一致。
+		Where("COALESCE(kb.system_key, '') <> ?", types.KBSystemKeyWork).
+		Where("EXISTS (SELECT 1 FROM knowledges k " +
+			"WHERE k.knowledge_base_id = kb.id AND k.deleted_at IS NULL)").
+		Count(&count).Error
+	return count, err
+}
+
+// CountKnowledgeDocumentsByEmbeddingModel counts documents whose vectors were
+// produced by modelID, excluding work knowledge bases (which may switch
+// embedding models) and soft-deleted rows.
+func (r *knowledgeBaseRepository) CountKnowledgeDocumentsByEmbeddingModel(
+	ctx context.Context, db *gorm.DB, tenantID uint64, modelID string,
+) (int64, error) {
+	if db == nil {
+		db = r.db
+	}
+	var count int64
+	err := db.WithContext(ctx).
+		Table("knowledges AS k").
+		Joins("JOIN knowledge_bases AS kb ON kb.id = k.knowledge_base_id").
+		Where("k.tenant_id = ? AND k.embedding_model_id = ?", tenantID, modelID).
+		Where("k.deleted_at IS NULL AND kb.deleted_at IS NULL").
+		Where("COALESCE(kb.system_key, '') <> ?", types.KBSystemKeyWork).
+		Count(&count).Error
+	return count, err
+}
+
+// ReassignModelReferences rewrites every model-binding column equal to modelID.
+// Columns not present in targets keep their value.
+func (r *knowledgeBaseRepository) ReassignModelReferences(
+	ctx context.Context, tx *gorm.DB, tenantID uint64, modelID string,
+	targets map[types.ModelUsageBinding]string,
+) error {
+	if tx == nil {
+		return errors.New("transaction is required")
+	}
+	updates := make(map[string]interface{}, len(targets))
+	for _, def := range knowledgeBaseModelBindingSQL {
+		target := targets[def.Binding]
+		if target == "" || target == modelID {
+			continue
+		}
+		updates[def.Column] = modelBindingReassignExpr(tx, def, modelID, target)
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	query := tx.WithContext(ctx).Model(&types.KnowledgeBase{}).Where("tenant_id = ?", tenantID)
+	query = scopeKnowledgeBasesByModelID(query, modelID)
+	return query.Updates(updates).Error
+}

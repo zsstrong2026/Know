@@ -257,6 +257,39 @@ type KnowledgeBaseRepository interface {
 	// must cap the result at types.ModelUsageListLimit; callers that need the
 	// untruncated size should use CountByModelID.
 	ListModelUsages(ctx context.Context, tenantID uint64, modelID string) ([]types.ModelUsageResource, error)
+
+	// CountModelBindings aggregates how many active KBs reference the model in
+	// each binding. It is the untruncated source used by the reassignment plan.
+	// db == nil falls back to the repository's default handle; pass a
+	// transaction handle to read within the caller's transaction.
+	CountModelBindings(
+		ctx context.Context, db *gorm.DB, tenantID uint64, modelID string,
+	) (map[types.ModelUsageBinding]int64, error)
+
+	// CountKnowledgeBasesWithDocumentsByEmbeddingModel counts non-work KBs that
+	// use the model as their embedding model and already contain documents.
+	// Such a KB cannot switch embedding models without re-indexing, so the
+	// model must not be deleted or reassigned. Mirrors
+	// knowledgeBaseService.rejectEmbeddingModelChange.
+	CountKnowledgeBasesWithDocumentsByEmbeddingModel(
+		ctx context.Context, db *gorm.DB, tenantID uint64, modelID string,
+	) (int64, error)
+
+	// CountKnowledgeDocumentsByEmbeddingModel counts documents whose stored
+	// vectors were produced by modelID, excluding those in work knowledge
+	// bases (which are allowed to switch embedding models). Such documents
+	// cannot be reassigned to another embedding model without re-indexing.
+	CountKnowledgeDocumentsByEmbeddingModel(
+		ctx context.Context, db *gorm.DB, tenantID uint64, modelID string,
+	) (int64, error)
+
+	// ReassignModelReferences rewrites every model-binding field equal to
+	// modelID to targets[binding], in one WHERE-scoped batch per column. It
+	// must run inside tx and must not be limited by list pagination.
+	ReassignModelReferences(
+		ctx context.Context, tx *gorm.DB, tenantID uint64, modelID string,
+		targets map[types.ModelUsageBinding]string,
+	) error
 	// SetUserKBPin inserts or removes a row in user_kb_pins for the given
 	// (tenant, user, kb) triple. Returns the resulting pinned_at (nil when
 	// pinned=false) and an error. The tenant_id is captured to support

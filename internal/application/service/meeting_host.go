@@ -177,6 +177,10 @@ func (e *meetingEngine) chooseNextSpeaker(
 	if len(candidates) == 1 {
 		return candidates[0], ""
 	}
+	// 自由模式没有主持人可调用：按参会顺序直接选下一位，完全不依赖主持人模型
+	if isFreeMeeting(room) {
+		return candidates[0], ""
+	}
 
 	// 模型层：在 2~3 个候选里选一人，并给出具体问题
 	views := make([]speakerCandidate, len(candidates))

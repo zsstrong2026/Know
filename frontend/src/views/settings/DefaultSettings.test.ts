@@ -18,19 +18,29 @@ function setup(t: TestContext, read = async () => ({ data: { ...initial } })) {
     updateTenantDefaultSettings: t.mock.fn(async (_settings: DefaultSettings) => ({})),
     patchWebSearchProvider: t.mock.fn(async (_id: string, _patch: { is_default: boolean }) => ({})),
   }
+  const parserApi = {
+    getParserEngineConfig: t.mock.fn(async () => ({ data: {} })),
+    updateParserEngineConfig: t.mock.fn(async (config: Record<string, unknown>) => ({ data: config })),
+  }
   const store = reactive({
     allModels: [], webSearchProviders: [{ id: 'search', name: 'Search', is_default: false }] as WebSearchProviderEntity[],
     ensureModels: t.mock.fn(async (_force?: boolean) => {}),
     ensureWebSearchProviders: t.mock.fn(async (_force?: boolean) => {}),
+  })
+  const editorStore = reactive({
+    parserEngineDefaultRules: [] as unknown[],
+    ensureParserEngines: t.mock.fn(async (_force?: boolean) => {}),
   })
   const { vm } = f.component(new URL('./DefaultSettings.vue', import.meta.url), {
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
     'tdesign-vue-next': { MessagePlugin: { success() {}, error() {} } },
     '@/api/default-settings': api,
     '@/api/web-search-provider': api,
+    '@/api/system': parserApi,
     '@/stores/auth': { useAuthStore: () => ({ hasRole: () => true }) },
     '@/stores/ui': { useUIStore: () => ({}) },
     '@/stores/chatResources': { useChatResourcesStore: () => store },
+    '@/stores/editorResources': { useEditorResourcesStore: () => editorStore },
     '@/stores/deploymentCapabilities': { useDeploymentCapabilitiesStore: () => ({ isSupported: () => true }) },
   })
   return { vm, store, api }

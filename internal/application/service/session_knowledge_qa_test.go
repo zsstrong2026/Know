@@ -105,6 +105,18 @@ func (s *stubModelService) DeleteModel(context.Context, string) error {
 	return nil
 }
 
+func (s *stubModelService) GetModelReassignmentPlan(
+	context.Context, string,
+) (*types.ModelReassignmentPlan, error) {
+	return nil, nil
+}
+
+func (s *stubModelService) DeleteModelWithReassignment(
+	context.Context, string,
+) (*types.ModelReassignmentPlan, error) {
+	return nil, nil
+}
+
 func (s *stubModelService) UpdateModelCredentials(
 	context.Context, string, *string, *string,
 ) (*types.Model, error) {

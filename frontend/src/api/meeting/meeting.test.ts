@@ -5,7 +5,7 @@ import {
   artifactDownloadUrl, type CreateMeetingInput,
 } from './index';
 
-test('buildCreatePayload 只提交名称、补充背景与参会智能体', () => {
+test('buildCreatePayload 提交名称、补充背景、会议模式与参会智能体', () => {
   const p = buildCreatePayload({
     title: '  新客服方案评审  ',
     description: '客服机器人选型',
@@ -13,9 +13,15 @@ test('buildCreatePayload 只提交名称、补充背景与参会智能体', () =
   });
   assert.equal(p.title, '新客服方案评审'); // 标题去首尾空格
   assert.equal(p.description, '客服机器人选型');
+  assert.equal(p.mode, 'hosted'); // 未指定时默认主持模式
   assert.deepEqual(p.agent_ids, ['a1', 'a2']);
   // 其余治理参数由后端统一内置，前端不再提交
-  assert.deepEqual(Object.keys(p).sort(), ['agent_ids', 'description', 'title']);
+  assert.deepEqual(Object.keys(p).sort(), ['agent_ids', 'description', 'mode', 'title']);
+});
+
+test('buildCreatePayload 透传自由模式', () => {
+  const p = buildCreatePayload({ title: '自由讨论', agentIds: ['a1'], mode: 'free' });
+  assert.equal(p.mode, 'free');
 });
 
 test('buildCreatePayload 拒绝空标题/空智能体', () => {

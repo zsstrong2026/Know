@@ -3,7 +3,12 @@
     <!-- 顶栏：会议标题 + 元信息 + 操作按钮（排版对齐「新对话」的 topbar） -->
     <header class="room-topbar">
       <div class="tb-main">
-        <div class="tb-title">{{ store.currentRoom?.title }}</div>
+        <div class="tb-title-row">
+          <div class="tb-title">{{ store.currentRoom?.title }}</div>
+          <t-tag v-if="isFreeMode" size="small" theme="warning" variant="light">
+            {{ $t('meeting.modeFree') }}
+          </t-tag>
+        </div>
         <div v-if="store.currentRoom?.description" class="tb-desc">{{ store.currentRoom.description }}</div>
       </div>
       <div class="tb-actions">
@@ -234,8 +239,8 @@
             {{ $t('meeting.clarifyMode') }}
           </t-tag>
         </div>
-        <!-- t-textarea 的 keyup 会以组件参数回调（非原生事件），故在其外层原生 div 上监听并借冒泡触发 -->
-        <div class="editor" @keyup.ctrl.enter="send">
+        <!-- t-textarea 的键盘事件会以组件参数回调（非原生事件），故在其外层原生 div 上监听并借冒泡触发 -->
+        <div class="editor" @keydown="onEditorKeydown">
           <t-textarea ref="draftRef" v-model="draft" :autosize="{ minRows: 2, maxRows: 6 }"
             :disabled="isArchived" :placeholder="inputPlaceholder" />
         </div>
@@ -304,6 +309,8 @@ const roomId = computed(() => (route.params.roomId as string) || '');
 
 // 归档只读态：输入/发送/评审/生成方案全部禁用，SSE 仍保持接收（归档系统消息可推送到场）
 const isArchived = computed(() => store.currentRoom?.status === 'archived');
+// 自由模式：没有主持人开场与议程，顶栏给出模式标识
+const isFreeMode = computed(() => store.currentRoom?.mode === 'free');
 
 // 方案与产物共用同一生成通道：任一产物在生成中都视为「正在生成」，按钮给出 loading
 const artifactGenerating = computed(() => store.artifacts.some((a) => a.status === 'generating'));
@@ -627,6 +634,15 @@ async function startMeeting() {
   }
 }
 
+// 输入框键盘约定：Enter 直接发送，Ctrl+Enter（及 Shift+Enter）换行；输入法组合中不拦截
+function onEditorKeydown(e: KeyboardEvent) {
+  if (e.isComposing || e.keyCode === 229) return;
+  if (e.key !== 'Enter' || e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return;
+  e.preventDefault();
+  if (isArchived.value) return;
+  void send();
+}
+
 async function send() {
   const content = draft.value.trim();
   if (!content) return;
@@ -756,7 +772,15 @@ async function interrupt() {
   justify-content: center;
 }
 
+.tb-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  min-width: 0;
+}
+
 .tb-title {
+  min-width: 0;
   font-size: var(--app-text-lg);
   font-weight: 600;
   color: var(--td-text-color-primary);

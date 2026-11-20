@@ -447,6 +447,25 @@ func (s *knowledgeService) getParserEngineOverridesFromContext(ctx context.Conte
 	return nil
 }
 
+// mergeWorkspaceDefaultParserRules fills the file types the knowledge base did
+// not pin with the workspace default routing table, so a KB without its own
+// rules keeps following the maintainable default instead of the built-in
+// fallback. KB (or per-upload) rules always win.
+func (s *knowledgeService) mergeWorkspaceDefaultParserRules(
+	ctx context.Context,
+	kbRules []types.ParserEngineRule,
+) []types.ParserEngineRule {
+	v := ctx.Value(types.TenantInfoContextKey)
+	tenant, ok := v.(*types.Tenant)
+	if !ok || tenant == nil || tenant.ParserEngineConfig == nil {
+		return kbRules
+	}
+	if len(tenant.ParserEngineConfig.DefaultParserEngineRules) == 0 {
+		return kbRules
+	}
+	return types.MergeParserEngineRules(tenant.ParserEngineConfig.DefaultParserEngineRules, kbRules)
+}
+
 // GetRepository gets the knowledge repository
 // Parameters:
 //   - ctx: Context with authentication and request information

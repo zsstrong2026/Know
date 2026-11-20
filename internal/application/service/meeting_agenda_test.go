@@ -96,15 +96,16 @@ func TestBuildAgendaQueryFocusesOnItem(t *testing.T) {
 	}
 	participants := []*types.MeetingParticipant{{Kind: types.ParticipantKindAgent, AgentID: "a1", DisplayName: "架构师"}}
 
-	q := buildAgendaQuery(room, items[1], items, "兼容性怎么看？", itemMsgs, participants, "张三")
+	q := buildAgendaQuery(room, items[1], items, "兼容性怎么看？", "产品助理", itemMsgs, participants, "张三")
 
 	assert.Contains(t, q, "评估 v2 发布风险", "必须使用收敛后的主题")
 	assert.Contains(t, q, "【当前子议题】兼容性")
 	assert.Contains(t, q, "列出不兼容项", "必须带出本议题的目标")
 	assert.Contains(t, q, "老版本客户端会失败", "带出本议题记录")
+	assert.Contains(t, q, "架构师: 老版本客户端会失败", "讨论记录必须用展示名标注发言者，否则模型无法判断谁说了什么")
 	assert.Contains(t, q, "[已完成] 成本", "其他议题以小结形式出现")
 	assert.NotContains(t, q, "【讨论记录】", "不应再注入全量讨论记录")
-	assert.Contains(t, q, "【待回应的发言】兼容性怎么看？")
+	assert.Contains(t, q, "【待回应的发言】产品助理：兼容性怎么看？", "待回应发言必须标注发言人")
 }
 
 // ---- 发言准入 ----

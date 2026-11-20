@@ -80,13 +80,106 @@ type ModelUsageDetails struct {
 	LongTermMemory     ModelUsageMemory     `json:"long_term_memory"`
 	KnowledgeBaseTotal int64                `json:"knowledge_base_total"`
 	AgentTotal         int64                `json:"agent_total"`
+	// DocumentTotal counts documents whose vectors were produced by the model.
+	// Their vector space cannot be migrated, so they block deletion.
+	DocumentTotal int64 `json:"document_total"`
+	// ChatHistoryEmbedding reports whether the tenant's chat-history index is
+	// pinned to the model. Indexed messages cannot switch embedding models.
+	ChatHistoryEmbedding bool `json:"chat_history_embedding"`
 }
 
 // InUse reports whether at least one active object references the model.
 func (d ModelUsageDetails) InUse() bool {
 	return d.KnowledgeBaseTotal > 0 || d.AgentTotal > 0 ||
 		len(d.KnowledgeBases) > 0 || len(d.Agents) > 0 ||
-		len(d.LongTermMemory.Bindings) > 0
+		len(d.LongTermMemory.Bindings) > 0 ||
+		d.DocumentTotal > 0 || d.ChatHistoryEmbedding
+}
+
+// 模型改写目标的来源。
+const (
+	// ModelReassignmentTargetWorkspaceDefault 表示目标来自工作空间的默认配置槽位。
+	ModelReassignmentTargetWorkspaceDefault = "workspace_default"
+	// ModelReassignmentTargetDeploymentDefault 表示目标来自部署级默认模型（is_default）。
+	ModelReassignmentTargetDeploymentDefault = "deployment_default"
+)
+
+// 模型改写阻塞项的错误码，前端据此本地化提示。
+const (
+	// ModelReassignmentBlockerNoDefaultModel 表示该类型没有可用默认模型。
+	ModelReassignmentBlockerNoDefaultModel = "no_default_model"
+	// ModelReassignmentBlockerEmbeddingHasDocuments 表示知识库已有文档，
+	// 不能替换其 Embedding 模型（向量空间会不兼容）。
+	ModelReassignmentBlockerEmbeddingHasDocuments = "embedding_model_has_documents"
+	// ModelReassignmentBlockerEmbeddingInDocuments 表示已有文档记录使用该
+	// Embedding 模型生成向量（即使所属知识库已不再引用它），不能替换。
+	ModelReassignmentBlockerEmbeddingInDocuments = "embedding_model_in_documents"
+	// ModelReassignmentBlockerChatHistoryEmbedding 表示工作空间的聊天历史索引
+	// 正在使用该 Embedding 模型；已索引消息需要重建索引才能换模型。
+	ModelReassignmentBlockerChatHistoryEmbedding = "embedding_model_in_chat_history"
+)
+
+// ModelReassignmentItem 描述某一类引用将从被删除模型改为哪个默认模型。
+type ModelReassignmentItem struct {
+	Binding            ModelUsageBinding `json:"binding"`
+	ModelType          ModelType         `json:"model_type"`
+	TargetModelID      string            `json:"target_model_id"`
+	TargetModelName    string            `json:"target_model_name"`
+	TargetSource       string            `json:"target_source"`
+	KnowledgeBaseCount int64             `json:"knowledge_base_count"`
+	AgentCount         int64             `json:"agent_count"`
+	LongTermMemory     bool              `json:"long_term_memory"`
+}
+
+// ModelReassignmentBlocker 描述阻止删除的原因。
+type ModelReassignmentBlocker struct {
+	Code               string            `json:"code"`
+	Binding            ModelUsageBinding `json:"binding,omitempty"`
+	ModelType          ModelType         `json:"model_type,omitempty"`
+	KnowledgeBaseCount int64             `json:"knowledge_base_count,omitempty"`
+	DocumentCount      int64             `json:"document_count,omitempty"`
+}
+
+// ModelReassignmentPlan 是删除前的引用改写预览。
+// CanDelete 为 false 时 Blockers 说明原因；Items 仍会列出可解析的改写项，
+// 便于前端展示“哪些能改、哪些卡住”。
+type ModelReassignmentPlan struct {
+	ModelID            string                     `json:"model_id"`
+	ModelName          string                     `json:"model_name"`
+	CanDelete          bool                       `json:"can_delete"`
+	Items              []ModelReassignmentItem    `json:"items"`
+	Blockers           []ModelReassignmentBlocker `json:"blockers"`
+	KnowledgeBaseTotal int64                      `json:"knowledge_base_total"`
+	AgentTotal         int64                      `json:"agent_total"`
+	LongTermMemory     ModelUsageMemory           `json:"long_term_memory"`
+	// SessionModelCount 是仍把该模型作为“上次输入栏选择”的会话数。
+	SessionModelCount int64 `json:"session_model_count"`
+	// SessionTargetModelID 为会话记忆改写目标；空表示删除后清空选择
+	// （没有可用默认对话模型）。会话记忆不阻塞删除。
+	SessionTargetModelID   string `json:"session_target_model_id,omitempty"`
+	SessionTargetModelName string `json:"session_target_model_name,omitempty"`
+}
+
+// ModelUsageBindingModelType 把 API 层的引用标识映射到默认模型类型。
+// 未识别的 binding 返回 false，调用方应忽略。
+func ModelUsageBindingModelType(binding ModelUsageBinding) (ModelType, bool) {
+	switch binding {
+	case ModelUsageBindingEmbeddingModel:
+		return ModelTypeEmbedding, true
+	case ModelUsageBindingChatModel, ModelUsageBindingSummaryModel,
+		ModelUsageBindingWikiSynthesisModel, ModelUsageBindingAutoTagModel,
+		ModelUsageBindingQueryUnderstandModel, ModelUsageBindingFollowUpModel,
+		ModelUsageBindingExtractModel:
+		return ModelTypeKnowledgeQA, true
+	case ModelUsageBindingRerankModel:
+		return ModelTypeRerank, true
+	case ModelUsageBindingVLMModel, ModelUsageBindingImageProcessingModel:
+		return ModelTypeVLLM, true
+	case ModelUsageBindingASRModel:
+		return ModelTypeASR, true
+	default:
+		return "", false
+	}
 }
 
 // ModelSource represents the source of the model

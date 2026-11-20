@@ -36,7 +36,7 @@ func patchModel(t *testing.T, stub *stubPatchModelService, body string) *httptes
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(middleware.ErrorHandler())
-	router.PATCH("/models/:id", NewModelHandler(stub).PatchModel)
+	router.PATCH("/models/:id", NewModelHandler(stub, nil).PatchModel)
 	req := httptest.NewRequest(http.MethodPatch, "/models/m1", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()

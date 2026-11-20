@@ -31,6 +31,45 @@ func NewSessionRepository(db *gorm.DB) interfaces.SessionRepository {
 	return &sessionRepository{db: db}
 }
 
+// lastRequestModelBinding 指向 sessions.agent_config 中保存的
+// SessionLastRequestState.model_id（仅用于恢复输入栏的 UI 记忆）。
+var lastRequestModelBinding = modelUsageBindingSQL{
+	Column: "agent_config", JSONKey: "model_id",
+}
+
+// CountSessionsByLastRequestModel counts sessions whose agent_config pins modelID.
+// GORM's soft-delete scope filters deleted_at automatically.
+func (r *sessionRepository) CountSessionsByLastRequestModel(
+	ctx context.Context, db *gorm.DB, tenantID uint64, modelID string,
+) (int64, error) {
+	if db == nil {
+		db = r.db
+	}
+	var count int64
+	err := db.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("tenant_id = ?", tenantID).
+		Where(modelBindingHitExpr(db, lastRequestModelBinding), modelID).
+		Count(&count).Error
+	return count, err
+}
+
+// ReassignLastRequestModel rewrites or clears the pinned model of every
+// session's last input-bar state. An empty target clears it.
+func (r *sessionRepository) ReassignLastRequestModel(
+	ctx context.Context, tx *gorm.DB, tenantID uint64, modelID, target string,
+) error {
+	if tx == nil {
+		return stderrors.New("transaction is required")
+	}
+	query := tx.WithContext(ctx).
+		Model(&types.Session{}).
+		Where("tenant_id = ?", tenantID).
+		Where(modelBindingHitExpr(tx, lastRequestModelBinding), modelID)
+	expr := modelBindingJSONSetExpr(tx, "agent_config", "model_id", target)
+	return query.Update("agent_config", expr).Error
+}
+
 // Create creates a new session. A canonical web owner is locked first so the
 // insert cannot land between account deletion's session list and the user
 // row's soft-delete. A deleted owner returns errWebUserDeleted.

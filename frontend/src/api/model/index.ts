@@ -1,6 +1,13 @@
 import { get, post, postUpload, put, del } from '../../utils/request';
 import i18n from '@/i18n'
-import { ModelInUseError, modelInUseErrorFromRequest } from './modelUsage'
+import {
+  ModelInUseError,
+  ModelReassignmentBlockedError,
+  modelInUseErrorFromRequest,
+  modelReassignmentPlanFromRequest,
+  parseModelReassignmentPlan,
+  type ModelReassignmentPlan,
+} from './modelUsage'
 
 export * from './modelUsage'
 
@@ -226,6 +233,58 @@ export function deleteModel(id: string): Promise<void> {
         reject(error);
       });
   });
+}
+
+// 获取删除模型前的引用改写计划
+export function getModelReassignmentPlan(id: string): Promise<ModelReassignmentPlan> {
+  return new Promise((resolve, reject) => {
+    get(`/api/v1/models/${id}/reassignment-plan`)
+      .then((response: any) => {
+        const plan = response?.success
+          ? parseModelReassignmentPlan(response.data)
+          : null
+        if (plan) {
+          resolve(plan)
+          return
+        }
+        reject(new Error(response?.message || t('error.model.deleteFailed')))
+      })
+      .catch((error: any) => {
+        console.error('Failed to load model reassignment plan:', error)
+        reject(error)
+      })
+  })
+}
+
+// 改写引用后删除模型
+export function deleteModelWithReassignment(id: string): Promise<ModelReassignmentPlan> {
+  return new Promise((resolve, reject) => {
+    post(`/api/v1/models/${id}/delete-with-reassign`, {})
+      .then((response: any) => {
+        if (response?.success) {
+          const plan = parseModelReassignmentPlan(response.data)
+          if (plan) {
+            resolve(plan)
+            return
+          }
+        }
+        const blocked = modelReassignmentPlanFromRequest(response)
+        if (blocked) {
+          reject(new ModelReassignmentBlockedError(blocked))
+          return
+        }
+        reject(new Error(response?.message || t('error.model.deleteFailed')))
+      })
+      .catch((error: any) => {
+        console.error('Failed to delete model with reassignment:', error)
+        const blocked = modelReassignmentPlanFromRequest(error)
+        if (blocked) {
+          reject(new ModelReassignmentBlockedError(blocked))
+          return
+        }
+        reject(error)
+      })
+  })
 }
 
 export interface ModelDebugOptions {

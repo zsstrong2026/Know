@@ -25,6 +25,8 @@ const details = {
   long_term_memory: { bindings: ['extract_model'] },
   knowledge_base_total: 2,
   agent_total: 1,
+  document_total: 0,
+  chat_history_embedding: false,
 }
 
 test('parses grouped model usage details without dropping multiple bindings', () => {
@@ -91,6 +93,19 @@ test('rejects malformed details instead of guessing from the server message', ()
       details: null,
     },
   }), null)
+})
+
+test('parses document-level and chat history embedding references', () => {
+  const parsed = parseModelUsageDetails({
+    knowledge_bases: [],
+    agents: [],
+    long_term_memory: { bindings: [] },
+    document_total: 7,
+    chat_history_embedding: true,
+  })
+  assert.ok(parsed)
+  assert.equal(parsed.document_total, 7)
+  assert.equal(parsed.chat_history_embedding, true)
 })
 
 test('keeps navigation and localization stable for all resource kinds', () => {

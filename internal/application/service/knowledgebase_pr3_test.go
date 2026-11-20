@@ -162,6 +162,31 @@ func (r *fakeKBRepo) ListModelUsages(_ context.Context, _ uint64, _ string) ([]t
 	return []types.ModelUsageResource{}, nil
 }
 
+func (r *fakeKBRepo) CountModelBindings(
+	_ context.Context, _ *gorm.DB, _ uint64, _ string,
+) (map[types.ModelUsageBinding]int64, error) {
+	return map[types.ModelUsageBinding]int64{}, nil
+}
+
+func (r *fakeKBRepo) CountKnowledgeBasesWithDocumentsByEmbeddingModel(
+	_ context.Context, _ *gorm.DB, _ uint64, _ string,
+) (int64, error) {
+	return 0, nil
+}
+
+func (r *fakeKBRepo) CountKnowledgeDocumentsByEmbeddingModel(
+	_ context.Context, _ *gorm.DB, _ uint64, _ string,
+) (int64, error) {
+	return 0, nil
+}
+
+func (r *fakeKBRepo) ReassignModelReferences(
+	_ context.Context, _ *gorm.DB, _ uint64, _ string,
+	_ map[types.ModelUsageBinding]string,
+) error {
+	return nil
+}
+
 func (r *fakeKBRepo) SetUserKBPin(_ context.Context, _ uint64, _ string, _ string, _ bool) (*time.Time, error) {
 	return nil, nil
 }

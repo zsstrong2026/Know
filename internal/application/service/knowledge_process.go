@@ -4334,6 +4334,12 @@ func (s *knowledgeService) convert(
 	s.beginStage(ctx, knowledge.ID, types.StageDocReader, docInput)
 	isURL := payload.URL != ""
 	fileType := payload.FileType
+	// Workspace defaults back the types this KB (and this upload) did not pin.
+	// Resolve them before any rule lookup so engine routing, XLSX options and
+	// the parsing trace all see the same effective table.
+	eff.ChunkingConfig.ParserEngineRules = s.mergeWorkspaceDefaultParserRules(
+		ctx, eff.ChunkingConfig.ParserEngineRules,
+	)
 	tenantOverrides := s.getParserEngineOverridesFromContext(ctx)
 	var uploadOverrides map[string]string
 	if processOverrides, err := knowledge.ProcessOverrides(); err == nil && processOverrides != nil {

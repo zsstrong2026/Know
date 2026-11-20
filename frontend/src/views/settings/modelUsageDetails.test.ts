@@ -15,7 +15,22 @@ test('model deletion renders structured usage groups and localized fallback erro
   assert.match(source, /usageConflict\.knowledge_bases/)
   assert.match(source, /usageConflict\.agents/)
   assert.match(source, /usageConflict\.long_term_memory\.bindings/)
+  assert.match(source, /usageConflict\.document_total/)
+  assert.match(source, /usageConflict\.chat_history_embedding/)
   assert.match(source, /MessagePlugin\.error\(error\.message \|\| t\('modelSettings\.toasts\.deleteFailed'\)\)/)
+})
+
+test('model deletion offers a reference reassignment preview before retrying', () => {
+  assert.match(source, /getModelReassignmentPlan/)
+  assert.match(source, /deleteModelWithReassignment/)
+  assert.match(source, /reassignPlan\.items/)
+  assert.match(source, /reassignPlan\.blockers/)
+  assert.match(source, /reassignPlan\.session_model_count/)
+  assert.match(source, /embedding_model_in_documents/)
+  assert.match(source, /embedding_model_in_chat_history/)
+  assert.match(source, /reassignAcknowledged/)
+  assert.match(source, /confirmReassignDelete/)
+  assert.match(source, /error instanceof ModelReassignmentBlockedError/)
 })
 
 test('referenced knowledge bases and agents open their relevant configuration pages', () => {

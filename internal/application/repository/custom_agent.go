@@ -104,6 +104,46 @@ func (r *customAgentRepository) ListModelUsages(
 	return usages, nil
 }
 
+// CountModelBindings aggregates how many active agents reference modelID in
+// each config binding without the list cap.
+func (r *customAgentRepository) CountModelBindings(
+	ctx context.Context, db *gorm.DB, tenantID uint64, modelID string,
+) (map[types.ModelUsageBinding]int64, error) {
+	if db == nil {
+		db = r.db
+	}
+	return countModelBindings(
+		ctx, db, "custom_agents", tenantID, modelID, customAgentModelBindingSQL,
+	)
+}
+
+// ReassignModelReferences rewrites every config model field equal to modelID.
+// The config column holds several paths, so each binding is a separate
+// statement; all of them run on the caller's transaction.
+func (r *customAgentRepository) ReassignModelReferences(
+	ctx context.Context, tx *gorm.DB, tenantID uint64, modelID string,
+	targets map[types.ModelUsageBinding]string,
+) error {
+	if tx == nil {
+		return errors.New("transaction is required")
+	}
+	for _, def := range customAgentModelBindingSQL {
+		target := targets[def.Binding]
+		if target == "" || target == modelID {
+			continue
+		}
+		query := tx.WithContext(ctx).
+			Model(&types.CustomAgent{}).
+			Where("tenant_id = ?", tenantID).
+			Where(modelBindingHitExpr(tx, def), modelID)
+		expr := modelBindingJSONSetExpr(tx, def.Column, def.JSONKey, target)
+		if err := query.Update(def.Column, expr).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // CountBySandboxConfigID counts agents pointing at a sandbox config.
 //
 // Used only to warn the admin which agents reference a config; never use it to

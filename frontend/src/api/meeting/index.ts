@@ -1,5 +1,7 @@
 // ===== 类型定义（与后端 internal/types/meeting.go 对齐）=====
 
+// 会议模式：主持模式（主持人开场分析与控场）/ 自由模式（无主持人，智能体自主讨论）
+export type MeetingMode = 'hosted' | 'free';
 // 广播模式：顺序发言 / 并行发言
 export type BroadcastMode = 'sequential' | 'parallel';
 // 发言权路由模式：主持人指派 / 提及驱动 / 自由抢麦
@@ -27,6 +29,8 @@ export interface MeetingRoom {
   id: string;
   title: string;
   description: string;
+  // 会议模式：hosted 主持模式 / free 自由模式
+  mode: MeetingMode;
   // 收敛后的会议主题：主持人开场澄清后落库；为空表示未澄清（沿用原始 title/description）
   topic_brief: string;
   // 会议级联网总闸：开启后全部参会智能体在检索知识库之外可联网搜索
@@ -163,6 +167,8 @@ export interface UpdateMeetingRequest {
 export interface CreateMeetingInput {
   title: string;
   description?: string;
+  // 会议模式：默认主持模式
+  mode?: MeetingMode;
   agentIds: string[];
 }
 
@@ -177,6 +183,7 @@ export function buildCreatePayload(input: CreateMeetingInput) {
   return {
     title,
     description: (input.description ?? '').trim(),
+    mode: input.mode ?? 'hosted',
     agent_ids: agentIds,
   };
 }

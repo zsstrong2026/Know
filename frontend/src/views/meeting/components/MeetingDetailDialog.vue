@@ -75,6 +75,8 @@ const upgrading = ref(false);
 const needsRuleUpgrade = computed(() => {
   const r = props.room;
   if (!r || isArchived.value) return false;
+  // 自由模式本就不使用主持人治理，不能按主持模式默认值提示升级
+  if (r.mode === 'free') return false;
   return !r.consensus_detection_enabled
     || !r.agenda_enabled
     || !r.web_search_enabled

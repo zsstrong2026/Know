@@ -9,6 +9,7 @@ import {
   type PromptTemplatesConfig,
   type StorageEngineStatusItem,
   type ParserEngineInfo,
+  type ParserEngineRule,
   type SystemInfo,
 } from '@/api/system'
 import { listMCPServices, type MCPService } from '@/api/mcp-service'
@@ -79,6 +80,8 @@ export const useEditorResourcesStore = defineStore('editorResources', () => {
   const placeholders = ref<PlaceholdersResponse | null>(null)
   const tenantRetrievalConfig = ref<Record<string, unknown> | null>(null)
   const parserEngines = ref<ParserEngineInfo[]>([])
+  // 空间默认解析路由：与引擎目录同一次请求返回，供知识库编辑器显示“跟随默认”
+  const parserEngineDefaultRules = ref<ParserEngineRule[]>([])
   const systemInfo = ref<SystemInfo | null>(null)
 
   const storageEngineResource = createCachedResource(
@@ -218,10 +221,14 @@ export const useEditorResourcesStore = defineStore('editorResources', () => {
   const parserEnginesResource = createCachedResource(
     async () => {
       const resp = await getParserEngines()
-      return resp?.data && Array.isArray(resp.data) ? resp.data : []
+      return {
+        rows: resp?.data && Array.isArray(resp.data) ? resp.data : [],
+        defaults: resp?.default_parser_engine_rules ?? [],
+      }
     },
-    (rows) => {
+    ({ rows, defaults }) => {
       parserEngines.value = rows
+      parserEngineDefaultRules.value = defaults
     },
   )
 
@@ -354,6 +361,7 @@ export const useEditorResourcesStore = defineStore('editorResources', () => {
       placeholders.value = null
       tenantRetrievalConfig.value = null
       parserEngines.value = []
+      parserEngineDefaultRules.value = []
       systemInfo.value = null
       return
     }
@@ -374,6 +382,7 @@ export const useEditorResourcesStore = defineStore('editorResources', () => {
     placeholders,
     tenantRetrievalConfig,
     parserEngines,
+    parserEngineDefaultRules,
     systemInfo,
     ensureStorageEngine,
     resolveUsableStorageProvider,

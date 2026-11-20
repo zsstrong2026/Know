@@ -50,28 +50,55 @@ func NewMeetingService(
 // meetingAttachmentScope 会议文件的作用域键：与聊天附件共用临时文档表，但按会议隔离。
 func meetingAttachmentScope(roomID string) string { return "meeting:" + roomID }
 
-// applyMeetingRuleDefaults 创建会议时统一套用内置规则。
+// normalizeMeetingMode 会议模式白名单归一：仅 free 生效，其余（含空值/非法值）回退主持模式。
+func normalizeMeetingMode(mode string) string {
+	if mode == types.MeetingModeFree {
+		return types.MeetingModeFree
+	}
+	return types.MeetingModeHosted
+}
+
+// isFreeMeeting 是否自由模式（无主持人参与讨论）。
+func isFreeMeeting(room *types.MeetingRoom) bool {
+	return room != nil && room.Mode == types.MeetingModeFree
+}
+
+// applyRuleDefaults 创建会议时统一套用内置规则（按会议模式区分）。
 // 用户只需提供会议名称与参会智能体，其余治理参数不再要求用户理解或配置：
-//   - 讨论按"动态选人"推进，默认主持人不按固定轮次介入；
-//   - 议题拆解、共识检测、发言观察默认开启；
+//   - 主持模式：讨论按"动态选人"推进，默认主持人不按固定轮次介入；议题拆解、共识检测、发言观察默认开启；
+//   - 自由模式：无主持人，关闭议题拆解与共识检测，全员自由发言并自主向用户挖掘信息；
 //   - 联网默认允许（是否真的检索由智能体按需决定，来源以引用呈现）；
 //   - 会议级知识库下线，各智能体使用自身知识库，共享资料走会议文件。
 //
 // 字段仍保留是为了兼容历史数据与 PATCH 调试，但创建入口不再采用请求中的值。
 func applyRuleDefaults(room *types.MeetingRoom) {
+	room.Mode = normalizeMeetingMode(room.Mode)
 	room.BroadcastMode = types.MeetingBroadcastSequential
-	room.RoutingMode = types.MeetingRoutingHostAssign
 	room.GuardMaxExchange = 3
 	room.HostEveryNRounds = 0
+	room.WebSearchEnabled = true
+	room.KnowledgeBaseIDs = nil
+	if isFreeMeeting(room) {
+		// 自由模式：没有主持人拆题、点名与裁判判定，全员自由发言
+		room.RoutingMode = types.MeetingRoutingFree
+		room.ConsensusDetectionEnabled = false
+		room.AgendaEnabled = false
+		room.AdmissionMode = types.MeetingAdmissionOff
+		return
+	}
+	room.RoutingMode = types.MeetingRoutingHostAssign
 	room.ConsensusDetectionEnabled = true
 	room.AgendaEnabled = true
 	room.AdmissionMode = types.MeetingAdmissionObserve
-	room.WebSearchEnabled = true
-	room.KnowledgeBaseIDs = nil
 }
 
 func applyMeetingRuleDefaults(room *types.MeetingRoom) {
 	applyRuleDefaults(room)
+	if isFreeMeeting(room) {
+		// 自由模式没有主持人开场，创建即进入讨论
+		room.Status = types.MeetingStatusActive
+		return
+	}
 	room.Status = types.MeetingStatusAwaitingConfirmation // 创建即待确认；开场后自动开始
 }
 
@@ -98,11 +125,13 @@ func (s *meetingService) CreateMeeting(ctx context.Context, room *types.MeetingR
 	}
 	// 校验智能体归属本租户并取显示名/头像
 	participants := make([]*types.MeetingParticipant, 0, len(agentIDs)+1)
-	// 主持人（系统自动担任，唯一不可移除）
-	participants = append(participants, &types.MeetingParticipant{
-		MeetingRoomID: room.ID, Kind: types.ParticipantKindHost,
-		DisplayName: "主持人", OrderIndex: 0,
-	})
+	// 主持模式由系统自动担任主持人（唯一不可移除）；自由模式没有主持人
+	if !isFreeMeeting(room) {
+		participants = append(participants, &types.MeetingParticipant{
+			MeetingRoomID: room.ID, Kind: types.ParticipantKindHost,
+			DisplayName: "主持人", OrderIndex: 0,
+		})
+	}
 	for i, agentID := range agentIDs {
 		agent, err := s.agentRepo.GetAgentByID(ctx, agentID, room.TenantID)
 		if err != nil {
@@ -122,6 +151,19 @@ func (s *meetingService) CreateMeeting(ctx context.Context, room *types.MeetingR
 	if err := s.participantRepo.CreateBatch(ctx, participants); err != nil {
 		return nil, err
 	}
+	if isFreeMeeting(room) {
+		// 自由模式没有主持人开场：落一条开题系统消息后直接开跑首轮讨论
+		go func() {
+			bgCtx := logger.CloneContext(ctx)
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Errorf(bgCtx, "meeting free mode start panic, room=%s recover=%v", room.ID, r)
+				}
+			}()
+			s.startFreeModeDiscussion(bgCtx, room)
+		}()
+		return room, nil
+	}
 	// 创建成功即异步触发主持人开场（M3）：不阻塞创建返回；失败由引擎落 system 兜底，房间保持待确认
 	go func() {
 		bgCtx := logger.CloneContext(ctx)
@@ -135,6 +177,31 @@ func (s *meetingService) CreateMeeting(ctx context.Context, room *types.MeetingR
 		}
 	}()
 	return room, nil
+}
+
+// startFreeModeDiscussion 自由模式的开题：没有主持人分析，落一条系统开题消息并直接开跑讨论轮。
+// 参会智能体据此了解会议已开始，并在 prompt 引导下主动向用户提问、相互讨论。
+func (s *meetingService) startFreeModeDiscussion(ctx context.Context, room *types.MeetingRoom) {
+	if s.engine == nil {
+		return
+	}
+	msg := &types.MeetingMessage{
+		MeetingRoomID: room.ID,
+		SenderKind:    types.MeetingSenderSystem,
+		Content: fmt.Sprintf(
+			"【会议开始】本次为自由讨论模式，没有主持人。请各位围绕「%s」自行展开讨论："+
+				"先说明你对议题的理解与关键假设，信息不足时直接向用户提问，用户会随时补充、纠正或收束讨论。",
+			room.Title,
+		),
+	}
+	if err := s.messageRepo.Create(ctx, msg); err != nil {
+		logger.Errorf(ctx, "meeting free mode kickoff message failed, room=%s err=%v", room.ID, err)
+		return
+	}
+	publishEvent(s.engine, room.ID, MeetingEvent{Type: MeetingEventMessageCreated, Data: msg})
+	if err := s.engine.RunTurn(ctx, room.ID, msg.ID); err != nil {
+		logger.Errorf(ctx, "meeting free mode RunTurn failed, room=%s err=%v", room.ID, err)
+	}
 }
 
 var (

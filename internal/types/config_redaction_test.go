@@ -89,6 +89,23 @@ func TestMergeParserEngineConfigForUpdate_PreservesLegacyChatParserRules(t *test
 	assert.Equal(t, "mineru", merged.ChatParserEngineRules[0].Engine)
 }
 
+func TestMergeParserEngineConfigForUpdate_PreservesDefaultParserRules(t *testing.T) {
+	existing := &ParserEngineConfig{
+		DefaultParserEngineRules: []ParserEngineRule{
+			{FileTypes: []string{"pdf"}, Engine: "mineru"},
+		},
+	}
+	// The engine-connection form omits the field, so it must survive the save.
+	merged := MergeParserEngineConfigForUpdate(&ParserEngineConfig{MinerUEndpoint: "http://mineru-new"}, existing)
+	require.Len(t, merged.DefaultParserEngineRules, 1)
+	assert.Equal(t, "mineru", merged.DefaultParserEngineRules[0].Engine)
+
+	// An explicit empty array clears the defaults.
+	cleared := MergeParserEngineConfigForUpdate(&ParserEngineConfig{DefaultParserEngineRules: []ParserEngineRule{}}, existing)
+	require.NotNil(t, cleared.DefaultParserEngineRules)
+	assert.Empty(t, cleared.DefaultParserEngineRules)
+}
+
 func TestMergeStorageEngineConfigForUpdate_PreservesRedactedSecrets(t *testing.T) {
 	existing := &StorageEngineConfig{
 		DefaultProvider: "minio",

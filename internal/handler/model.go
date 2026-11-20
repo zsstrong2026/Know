@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,16 +30,18 @@ import (
 // It implements the necessary methods to create, retrieve, update, and delete models
 type ModelHandler struct {
 	service interfaces.ModelService
+	audit   interfaces.AuditLogService
 }
 
 // NewModelHandler creates a new instance of ModelHandler
 // It requires a model service implementation that handles business logic
 // Parameters:
 //   - service: An implementation of the ModelService interface
+//   - audit: optional audit sink for destructive reassignment deletes
 //
 // Returns a pointer to the newly created ModelHandler
-func NewModelHandler(service interfaces.ModelService) *ModelHandler {
-	return &ModelHandler{service: service}
+func NewModelHandler(service interfaces.ModelService, audit interfaces.AuditLogService) *ModelHandler {
+	return &ModelHandler{service: service, audit: audit}
 }
 
 // Per-response redaction/stripping for Model now lives in
@@ -993,6 +996,124 @@ func (h *ModelHandler) DeleteModel(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Model deleted",
+	})
+}
+
+// GetModelReassignmentPlan godoc
+// @Summary      获取删除模型的引用改写计划
+// @Description  预览知识库、智能体和长期记忆中的模型引用将被改写为哪个默认模型；blockers 非空时不可删除
+// @Tags         模型管理
+// @Produce      json
+// @Param        id   path      string  true  "模型ID"  extensions(x-agent=model_id)
+// @Success      200  {object}  map[string]interface{}  "改写计划"
+// @Failure      400  {object}  errors.AppError         "模型不可删除"
+// @Failure      404  {object}  errors.AppError         "模型不存在"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @x-agent      {"id":"model.reassignment_plan","risk":"read","role":"admin","target":"model.get","label":"name"}
+// @x-agent-hint "Shows which default model each knowledge-base, agent and long-term-memory reference would switch to before the model is deleted."
+// @Router       /models/{id}/reassignment-plan [get]
+func (h *ModelHandler) GetModelReassignmentPlan(c *gin.Context) {
+	ctx := c.Request.Context()
+	id := secutils.SanitizeForLog(c.Param("id"))
+	if id == "" {
+		c.Error(errors.NewBadRequestError("Model ID cannot be empty"))
+		return
+	}
+
+	plan, err := h.service.GetModelReassignmentPlan(ctx, id)
+	if err != nil {
+		h.respondModelError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    plan,
+	})
+}
+
+// DeleteModelWithReassignment godoc
+// @Summary      改写引用后删除模型
+// @Description  在一个事务内把知识库、智能体和长期记忆中的引用改为默认模型，清空指向该模型的默认槽位，然后删除模型
+// @Tags         模型管理
+// @Accept       json
+// @Produce      json
+// @Param        id   path      string  true  "模型ID"  extensions(x-agent=model_id)
+// @Success      200  {object}  map[string]interface{}  "删除成功，返回已执行的改写计划"
+// @Failure      400  {object}  errors.AppError         "存在阻塞项或目标模型不可用"
+// @Failure      404  {object}  errors.AppError         "模型不存在"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @x-agent      {"id":"model.delete_with_reassign","risk":"destructive","role":"admin","target":"model.get","label":"name"}
+// @x-agent-hint "Deletes the model after switching every knowledge-base, agent and long-term-memory reference to the default models. Requires explicit user confirmation in the UI. Cannot be undone."
+// @Router       /models/{id}/delete-with-reassign [post]
+func (h *ModelHandler) DeleteModelWithReassignment(c *gin.Context) {
+	ctx := c.Request.Context()
+	id := secutils.SanitizeForLog(c.Param("id"))
+	if id == "" {
+		c.Error(errors.NewBadRequestError("Model ID cannot be empty"))
+		return
+	}
+
+	plan, err := h.service.DeleteModelWithReassignment(ctx, id)
+	if err != nil {
+		h.respondModelError(c, err)
+		return
+	}
+	h.logReassignmentAudit(ctx, plan)
+	logger.Infof(ctx, "Model deleted with reassignment, ID: %s", id)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Model deleted",
+		"data":    plan,
+	})
+}
+
+// respondModelError maps service-layer errors to the shared HTTP envelope.
+func (h *ModelHandler) respondModelError(c *gin.Context, err error) {
+	if err == service.ErrModelNotFound {
+		c.Error(errors.NewNotFoundError("Model not found"))
+		return
+	}
+	if appErr, ok := errors.IsAppError(err); ok {
+		c.Error(appErr)
+		return
+	}
+	logger.ErrorWithFields(c.Request.Context(), err, nil)
+	c.Error(errors.NewInternalServerError(err.Error()))
+}
+
+// logReassignmentAudit writes a best-effort audit row after the transaction
+// commits. Audit failures never change the business result.
+func (h *ModelHandler) logReassignmentAudit(ctx context.Context, plan *types.ModelReassignmentPlan) {
+	if h.audit == nil || plan == nil {
+		return
+	}
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok {
+		return
+	}
+	actorID, _ := types.UserIDFromContext(ctx)
+	raw, err := json.Marshal(map[string]interface{}{
+		"items":                plan.Items,
+		"knowledge_base_total": plan.KnowledgeBaseTotal,
+		"agent_total":          plan.AgentTotal,
+		"long_term_memory":     plan.LongTermMemory.Bindings,
+	})
+	if err != nil {
+		return
+	}
+	_ = h.audit.Log(ctx, &types.AuditLog{
+		TenantID:    tenantID,
+		ActorUserID: actorID,
+		ActorRole:   string(types.TenantRoleFromContext(ctx)),
+		Action:      types.AuditActionModelDeletedWithReassignment,
+		ScopeType:   "model",
+		ScopeID:     plan.ModelID,
+		TargetType:  "model",
+		TargetID:    plan.ModelID,
+		Outcome:     types.AuditOutcomeSuccess,
+		Details:     types.JSON(raw),
 	})
 }
 

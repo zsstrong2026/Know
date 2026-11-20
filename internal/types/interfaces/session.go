@@ -6,6 +6,7 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/types"
+	"gorm.io/gorm"
 )
 
 // SessionService defines the session service interface
@@ -140,4 +141,16 @@ type SessionRepository interface {
 	DeleteForkSnapshotLease(ctx context.Context, snapshotID string) error
 	// ListStaleForkSnapshotLeases returns leases older than olderThan.
 	ListStaleForkSnapshotLeases(ctx context.Context, olderThan time.Time) ([]*types.ForkSnapshotLease, error)
+	// CountSessionsByLastRequestModel counts sessions whose last input-bar
+	// state still pins modelID. This is UI-only memory and must not block
+	// model deletion; callers rewrite or clear it instead.
+	CountSessionsByLastRequestModel(
+		ctx context.Context, db *gorm.DB, tenantID uint64, modelID string,
+	) (int64, error)
+	// ReassignLastRequestModel rewrites the pinned model of every session's
+	// last input-bar state from modelID to target. An empty target clears the
+	// selection so the chat UI falls back to the workspace default.
+	ReassignLastRequestModel(
+		ctx context.Context, tx *gorm.DB, tenantID uint64, modelID, target string,
+	) error
 }

@@ -68,6 +68,17 @@
         </div>
       </div>
     </template>
+
+    <!-- 解析引擎：空间默认路由，知识库未单独配置时按文件类型继承 -->
+    <h3 class="group-title">{{ t('defaultSettings.parserGroup') }}</h3>
+    <p class="group-desc">{{ t('defaultSettings.parserDescription') }}</p>
+    <KBParserSettings
+      hide-header
+      :parser-engine-rules="parserRules"
+      :disabled="!canEdit || parserSaving"
+      :show-inherit-controls="false"
+      @update:parser-engine-rules="onParserRulesChange"
+    />
   </div>
 </template>
 
@@ -76,7 +87,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import ModelSelector from '@/components/ModelSelector.vue'
+import KBParserSettings from '@/views/knowledge/settings/KBParserSettings.vue'
 import type { ModelConfig } from '@/api/model'
+import {
+  getParserEngineConfig,
+  updateParserEngineConfig,
+  type ParserEngineConfig,
+  type ParserEngineRule,
+} from '@/api/system'
 import {
   getTenantDefaultSettings,
   updateTenantDefaultSettings,
@@ -87,6 +105,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useUIStore } from '@/stores/ui'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import { useDeploymentCapabilitiesStore } from '@/stores/deploymentCapabilities'
+import { useEditorResourcesStore } from '@/stores/editorResources'
 import {
   effectiveModelDefault,
   effectiveUtilityDefault,
@@ -116,6 +135,7 @@ const authStore = useAuthStore()
 const uiStore = useUIStore()
 const chatResources = useChatResourcesStore()
 const deploymentCapabilities = useDeploymentCapabilitiesStore()
+const editorResources = useEditorResourcesStore()
 
 const canEdit = computed(() => authStore.hasRole('admin'))
 const saving = ref(false)
@@ -262,9 +282,47 @@ const openModels = (type: DefaultModelType) => {
   )
 }
 
+// ---- 解析引擎默认路由 ----
+// 引擎目录接口对所有成员开放，默认路由随它一起返回；保存需要管理员，
+// 因此编辑前再取一次完整配置，避免覆盖引擎连接参数。
+const parserRules = ref<ParserEngineRule[]>([])
+const parserConfig = ref<ParserEngineConfig | null>(null)
+const parserSaving = ref(false)
+
+const loadParserDefaults = async () => {
+  try {
+    await editorResources.ensureParserEngines(true)
+    parserRules.value = [...editorResources.parserEngineDefaultRules]
+  } catch (error) {
+    console.error('Failed to load parser engine defaults:', error)
+  }
+}
+
+const onParserRulesChange = async (rules: ParserEngineRule[]) => {
+  if (!canEdit.value || parserSaving.value) return
+  const previous = parserRules.value
+  parserRules.value = rules
+  parserSaving.value = true
+  try {
+    const base = parserConfig.value ?? (await getParserEngineConfig())?.data ?? {}
+    const res = await updateParserEngineConfig({ ...base, default_parser_engine_rules: rules })
+    parserConfig.value = res?.data ?? base
+    parserRules.value = res?.data?.default_parser_engine_rules ?? rules
+    // 知识库编辑器读的是引擎目录的缓存快照，保存后刷新一次才能立即看到新默认
+    await editorResources.ensureParserEngines(true).catch(() => {})
+    MessagePlugin.success(t('defaultSettings.toasts.saveSuccess'))
+  } catch (error: any) {
+    parserRules.value = previous
+    MessagePlugin.error(t('defaultSettings.toasts.saveFailed', { message: error?.message || '' }))
+  } finally {
+    parserSaving.value = false
+  }
+}
+
 onMounted(() => {
   void chatResources.ensureModels(true).catch(() => {})
   void loadSettings()
+  void loadParserDefaults()
   if (webSearchSupported.value) void loadWebSearchProviders()
 })
 </script>
@@ -320,6 +378,13 @@ onMounted(() => {
   font-size: var(--app-text-base);
   font-weight: 600;
   color: var(--td-text-color-primary);
+}
+
+.group-desc {
+  margin: 6px 0 12px;
+  font-size: var(--app-text-md);
+  line-height: 1.6;
+  color: var(--td-text-color-secondary);
 }
 
 .settings-group {

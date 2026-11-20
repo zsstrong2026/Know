@@ -26,6 +26,10 @@ const (
 	MeetingRoutingMention    = "mention"
 	MeetingRoutingFree       = "free"
 
+	// 会议模式：hosted 主持模式（默认，主持人开场分析并控场）/ free 自由模式（无主持人，智能体自组织讨论）
+	MeetingModeHosted = "hosted"
+	MeetingModeFree   = "free"
+
 	// 主持人介入间隔上限（子轮数）：超过该值视为非法/关闭，防止过于稀疏或异常配置
 	MeetingHostEveryNRoundsMax = 10
 
@@ -151,6 +155,8 @@ type MeetingRoom struct {
 	CreatedBy   string `gorm:"type:varchar(36);index" json:"created_by"`
 	Title       string `gorm:"type:varchar(255)" json:"title"`
 	Description string `gorm:"type:text" json:"description"`
+	// Mode 会议模式：hosted 主持模式（默认）/ free 自由模式（无主持人，智能体自主提问与讨论）
+	Mode string `gorm:"type:varchar(16);default:hosted" json:"mode"`
 	// TopicBrief 主持人澄清后收敛的一句话主题；澄清未完成或用户跳过时为空（讨论回退到 Title+Description）
 	TopicBrief       string `gorm:"type:text" json:"topic_brief"`
 	Status           string `gorm:"type:varchar(32);default:active" json:"status"`

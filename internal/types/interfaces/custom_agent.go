@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/Tencent/WeKnora/internal/types"
+	"gorm.io/gorm"
 )
 
 // CustomAgentService defines the custom agent service interface
@@ -144,6 +145,21 @@ type CustomAgentRepository interface {
 	// Implementations must cap the result at types.ModelUsageListLimit;
 	// callers that need the untruncated size should use CountByModelID.
 	ListModelUsages(ctx context.Context, tenantID uint64, modelID string) ([]types.ModelUsageResource, error)
+
+	// CountModelBindings aggregates how many active agents reference the model
+	// in each config binding. db == nil falls back to the repository's default
+	// handle; pass a transaction handle to read within the caller's transaction.
+	CountModelBindings(
+		ctx context.Context, db *gorm.DB, tenantID uint64, modelID string,
+	) (map[types.ModelUsageBinding]int64, error)
+
+	// ReassignModelReferences rewrites every config model field equal to
+	// modelID to targets[binding]. It must run inside tx and must not be
+	// limited by list pagination.
+	ReassignModelReferences(
+		ctx context.Context, tx *gorm.DB, tenantID uint64, modelID string,
+		targets map[types.ModelUsageBinding]string,
+	) error
 
 	// CountBySandboxConfigID counts agents pointing at a sandbox config.
 	//

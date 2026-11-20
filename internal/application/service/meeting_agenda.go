@@ -403,7 +403,7 @@ func agendaProgressText(items []*types.MeetingAgendaItem) string {
 // 只带本议题记录，其他议题以进度摘要代替。
 func buildAgendaQuery(
 	room *types.MeetingRoom, item *types.MeetingAgendaItem, items []*types.MeetingAgendaItem,
-	triggerContent string, itemMsgs []*types.MeetingMessage, participants []*types.MeetingParticipant,
+	triggerContent, triggerSpeaker string, itemMsgs []*types.MeetingMessage, participants []*types.MeetingParticipant,
 	userName string,
 ) string {
 	var b strings.Builder
@@ -430,6 +430,7 @@ func buildAgendaQuery(
 	if userName != "" {
 		b.WriteString("\n【用户】" + userName + "（可 @用户名 向用户提问）")
 	}
+	agentNames := agentNamesByID(participants)
 	if len(itemMsgs) > 0 {
 		b.WriteString("\n【本议题讨论记录】")
 		for _, m := range itemMsgs {
@@ -438,17 +439,22 @@ func buildAgendaQuery(
 				continue
 			}
 			// 会议是对话不是报告：上下文只保留近期短片段，避免模型跟着写长文
-			fmt.Fprintf(&b, "\n%s: %s", senderLabel(m), truncate(m.Content, 300))
+			fmt.Fprintf(&b, "\n%s: %s", senderLabelWithNames(m, agentNames), truncate(m.Content, 300))
 		}
 	}
-	b.WriteString("\n【待回应的发言】" + triggerContent)
+	// 标注待回应发言的发言人：否则模型只能看到一段无主语的内容，容易 @ 错对象（甚至 @ 自己）
+	if triggerSpeaker != "" {
+		b.WriteString("\n【待回应的发言】" + triggerSpeaker + "：" + triggerContent)
+	} else {
+		b.WriteString("\n【待回应的发言】" + triggerContent)
+	}
 	b.WriteString("\n请像在会议桌前发言一样回应【待回应的发言】，只围绕【当前子议题】：")
 	b.WriteString("\n- 常态 1-3 句话、不超过 120 字；被追问或关键论证可放宽到 200 字，不要每条都一样长；")
 	b.WriteString("\n- 先表态再给理由；不要用标题、列表或代码块，也不要复述背景；")
 	b.WriteString("\n- 不要重复本议题讨论记录里已有的内容，优先补充新事实、新约束或明确的分歧理由；")
 	b.WriteString("\n- 可以明确反对；不同意就说清反对点和能改变你立场的证据，不要为了和气而附和；")
 	b.WriteString("\n- 强烈不同意上一位时，可以用「先打断一下」开头直接反驳并 @ 对方；")
-	b.WriteString("\n- 要请某位参会人接话，在句末 @对方姓名；")
+	b.WriteString("\n- 要请某位参会人接话，在句末 @对方姓名；只能 @ 其他参会智能体，不要 @ 自己；")
 	if userName != "" {
 		b.WriteString("\n- 需要用户拍板或补充，在句末 @" + userName + "（或 @用户）提一个问题；")
 	} else {

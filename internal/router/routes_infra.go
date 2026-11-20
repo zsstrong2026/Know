@@ -42,6 +42,10 @@ func RegisterModelRoutes(
 		models.PATCH("/:id", g.AdminOrSystemAdmin(), handler.PatchModel)
 		// 删除模型 — Admin+
 		models.DELETE("/:id", g.Admin(), handler.DeleteModel)
+		// 删除前预览引用改写方案 — Admin+
+		models.GET("/:id/reassignment-plan", g.Admin(), handler.GetModelReassignmentPlan)
+		// 改写引用后删除模型（事务）— Admin+
+		models.POST("/:id/delete-with-reassign", g.Admin(), handler.DeleteModelWithReassignment)
 		// Per-field credential subresource (see internal/handler/model_credentials.go) — Admin+
 		models.PUT("/:id/credentials", g.AdminOrSystemAdmin(), credHandler.Put)
 		models.DELETE("/:id/credentials/:field", g.AdminOrSystemAdmin(), credHandler.DeleteField)

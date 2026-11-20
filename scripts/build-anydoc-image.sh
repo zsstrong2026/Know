@@ -11,13 +11,14 @@
 #
 # 用法：scripts/build-anydoc-image.sh [选项]
 #   --rebuild-lib    强制重建 Rust 归档（默认复用已有 libanydoc_go.a）
+#   --binary-only    只编出带 -tags anydoc 的 WeKnora 二进制并留在仓库根，不打镜像
 #   --restart        构建完成后重建 app 容器
 #   --keep-context   保留构建上下文目录，便于排查
 #   -h, --help       显示帮助
 #
 # 环境变量：
 #   BASE_IMAGE    继承的基础镜像，默认 weknora-app:local
-#   TARGET_IMAGE  产物镜像 tag，默认与 BASE_IMAGE 相同（就地升级）
+#   TARGET_IMAGE  产物镜像 tag，默认 weknora-app:anydoc（独立于 compose 的 local tag）
 #   ARCH          目标架构，默认 amd64
 #   GO_IMAGE      编译用镜像，默认 golang:1.26-bookworm
 
@@ -32,7 +33,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 BASE_IMAGE="${BASE_IMAGE:-weknora-app:local}"
-TARGET_IMAGE="${TARGET_IMAGE:-$BASE_IMAGE}"
+# 独立 tag：与 docker compose build app 产出的 weknora-app:local 分开，
+# 避免一次常规重建就覆盖掉带 anydoc 的镜像。
+TARGET_IMAGE="${TARGET_IMAGE:-weknora-app:anydoc}"
 ARCH="${ARCH:-amd64}"
 GO_IMAGE="${GO_IMAGE:-golang:1.26-bookworm}"
 
@@ -40,10 +43,15 @@ GO_IMAGE="${GO_IMAGE:-golang:1.26-bookworm}"
 # 之后每次都从它继承，避免在已烘过 anydoc 的镜像上反复叠层。
 CLEAN_BASE="${CLEAN_BASE:-${BASE_IMAGE}-clean-base}"
 
+# app 的三份 compose 叠加文件。基础与本地覆盖来自仓库，最后一份只把
+# app.image 指向 anydoc tag，因此不看构建历史、也不影响常规构建。
+COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.override.yml -f docker-compose.anydoc.yml)
+
 REBUILD_LIB=0
 SQUASH=0
 RESTART=0
 KEEP_CONTEXT=0
+BINARY_ONLY=0
 
 log()  { printf '\033[0;34m[anydoc-image]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[anydoc-image]\033[0m %s\n' "$*" >&2; }
@@ -55,6 +63,8 @@ usage() {
 
 用法：scripts/build-anydoc-image.sh [选项]
   --rebuild-lib    强制重建 Rust 归档（默认复用 third_party/anydoc-go/lib 下的产物）
+  --binary-only    只编出带 -tags anydoc 的 WeKnora 二进制（留在仓库根），
+                   供 docker cp 进运行中的容器做快速迭代；不打镜像
   --squash         构建后扁平化为单层镜像，消除历史二进制层（镜像约 3.3GB -> 2.5GB）
   --restart        构建完成后重建 app 容器并等待健康检查
   --keep-context   保留 .tmp/anydoc-image-context 便于排查
@@ -62,7 +72,7 @@ usage() {
 
 环境变量：
   BASE_IMAGE    继承的基础镜像，默认 weknora-app:local
-  TARGET_IMAGE  产物镜像 tag，默认与 BASE_IMAGE 相同（就地升级）
+  TARGET_IMAGE  产物镜像 tag，默认 weknora-app:anydoc（与 compose 的 local tag 隔离）
   ARCH          目标架构，默认 amd64（可选 arm64）
   GO_IMAGE      编译用镜像，默认 golang:1.26-bookworm
 TXT
@@ -72,6 +82,7 @@ TXT
 while [ $# -gt 0 ]; do
   case "$1" in
     --rebuild-lib)  REBUILD_LIB=1 ;;
+    --binary-only)  BINARY_ONLY=1 ;;
     --squash)       SQUASH=1 ;;
     --restart)      RESTART=1 ;;
     --keep-context) KEEP_CONTEXT=1 ;;
@@ -297,8 +308,10 @@ squash_image() {
 }
 
 restart_app() {
-  log "重建 app 容器以启用新镜像"
-  ( cd "$ROOT_DIR" && docker compose up -d --no-deps --force-recreate app )
+  log "重建 app 容器以启用新镜像（$TARGET_IMAGE）"
+  # 必须显式带三份 compose 文件：只跑 `docker compose up -d` 会用
+  # weknora-app:local（普通镜像），anydoc 立刻失效。
+  ( cd "$ROOT_DIR" && docker compose "${COMPOSE_FILES[@]}" up -d --no-deps --force-recreate app )
   log "等待健康检查（最多 150 秒）"
   for _ in $(seq 1 30); do
     if docker ps --filter name=WeKnora-app --format '{{.Status}}' | grep -q healthy; then
@@ -311,8 +324,9 @@ restart_app() {
 }
 
 cleanup() {
-  # 编译失败时上下文不存在，宿主机根目录会残留 WeKnora；先清残留再删上下文
-  if [ -f "$ROOT_DIR/WeKnora" ] && [ ! -f "$CONTEXT_DIR/WeKnora" ]; then
+  # 编译失败时上下文不存在，宿主机根目录会残留 WeKnora；先清残留再删上下文。
+  # --binary-only 的产物就是根目录那份二进制，必须保留。
+  if [ "$BINARY_ONLY" -eq 0 ] && [ -f "$ROOT_DIR/WeKnora" ] && [ ! -f "$CONTEXT_DIR/WeKnora" ]; then
     rm -f "$ROOT_DIR/WeKnora"
   fi
   if [ "$KEEP_CONTEXT" -eq 0 ]; then
@@ -324,10 +338,25 @@ cleanup() {
 trap cleanup EXIT
 
 main() {
+  if [ "$BINARY_ONLY" -eq 1 ] && { [ "$RESTART" -eq 1 ] || [ "$SQUASH" -eq 1 ]; }; then
+    die "--binary-only 不再构建镜像，不能与 --restart / --squash 同用"
+  fi
+
   require_docker
-  require_base_image
+  if [ "$BINARY_ONLY" -eq 0 ]; then
+    require_base_image
+  fi
   build_anydoc_lib
   build_binary
+
+  # --binary-only：产物就是仓库根目录的 WeKnora（已带 -tags anydoc），
+  # 直接 docker cp 进容器即可，不走镜像与上下文，避免日常迭代掉 tag。
+  if [ "$BINARY_ONLY" -eq 1 ]; then
+    log "完成：$ROOT_DIR/WeKnora（已链接 anydoc）"
+    log "部署：docker cp WeKnora WeKnora-app:/app/WeKnora && docker restart WeKnora-app"
+    return
+  fi
+
   prepare_context
   build_image
   if [ "$SQUASH" -eq 1 ]; then
@@ -339,7 +368,8 @@ main() {
   if [ "$RESTART" -eq 1 ]; then
     restart_app
   else
-    log "让容器生效：docker compose up -d --no-deps --force-recreate app"
+    log "让容器生效：docker compose ${COMPOSE_FILES[*]} up -d --no-deps --force-recreate app"
+    log "注意：不带上述文件执行 docker compose up -d 会回到 weknora-app:local（无 anydoc）"
     log "验证接口：curl -H 'X-API-Key: <key>' http://localhost:8080/api/v1/system/parser-engines"
   fi
 }

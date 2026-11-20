@@ -36,7 +36,27 @@ func TestValidateMeetingCreate(t *testing.T) {
 	assert.Equal(t, types.MeetingAdmissionObserve, room.AdmissionMode)
 	assert.True(t, room.WebSearchEnabled)
 	assert.Nil(t, room.KnowledgeBaseIDs) // 会议级知识库下线
+	assert.Equal(t, types.MeetingModeHosted, room.Mode, "未指定模式默认主持模式")
 	assert.Equal(t, types.MeetingStatusAwaitingConfirmation, room.Status)
+}
+
+// TestValidateMeetingCreateFreeMode 自由模式：无主持人治理，创建即进入讨论
+func TestValidateMeetingCreateFreeMode(t *testing.T) {
+	room := &types.MeetingRoom{Title: "x", Mode: types.MeetingModeFree}
+	err := validateMeetingCreate(room, []string{"a1"})
+	assert.NoError(t, err)
+	assert.Equal(t, types.MeetingModeFree, room.Mode)
+	assert.Equal(t, types.MeetingRoutingFree, room.RoutingMode)
+	assert.False(t, room.AgendaEnabled, "自由模式不拆议题")
+	assert.False(t, room.ConsensusDetectionEnabled, "自由模式不做裁判收敛")
+	assert.Equal(t, types.MeetingAdmissionOff, room.AdmissionMode)
+	assert.Equal(t, 0, room.HostEveryNRounds)
+	assert.Equal(t, types.MeetingStatusActive, room.Status, "自由模式没有开场待确认环节")
+
+	// 非法模式归一为主持模式
+	invalid := &types.MeetingRoom{Title: "x", Mode: "bogus"}
+	assert.NoError(t, validateMeetingCreate(invalid, []string{"a1"}))
+	assert.Equal(t, types.MeetingModeHosted, invalid.Mode)
 }
 
 // TestApplyMeetingRuleDefaultsPreservesStatus 旧会议升级只重置治理规则，不改变状态/标题
@@ -55,6 +75,17 @@ func TestApplyMeetingRuleDefaultsPreservesStatus(t *testing.T) {
 	assert.True(t, room.WebSearchEnabled)
 	assert.Equal(t, types.MeetingAdmissionObserve, room.AdmissionMode)
 	assert.Nil(t, room.KnowledgeBaseIDs)
+
+	// 自由模式旧会议升级：保持无主持人治理，且不改状态
+	free := &types.MeetingRoom{
+		Title: "自由会议", Mode: types.MeetingModeFree, Status: types.MeetingStatusActive,
+		AgendaEnabled: true, ConsensusDetectionEnabled: true,
+	}
+	ApplyMeetingRuleDefaults(free)
+	assert.Equal(t, types.MeetingStatusActive, free.Status)
+	assert.False(t, free.AgendaEnabled)
+	assert.False(t, free.ConsensusDetectionEnabled)
+	assert.Equal(t, types.MeetingRoutingFree, free.RoutingMode)
 }
 
 // stubRoomRepo 仅覆写 GetByID；其余方法由嵌入接口提供（本测试不会调用）

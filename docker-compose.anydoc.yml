@@ -1,0 +1,19 @@
+# 把 app 切到带 anydoc 解析引擎的独立镜像（weknora-app:anydoc）。
+#
+# 为什么单独一份：docker compose build app 的产物 tag 取自 service.image。
+# 若 anydoc 镜像也打 weknora-app:local，任何一次常规重建都会把它覆盖成
+# 不带 -tags anydoc 的 stub 二进制，引擎随即显示不可用。改用独立 tag 后，
+# 常规构建只写 weknora-app:local，anydoc 镜像不受影响。
+#
+# 该文件故意不定义 build：避免 `docker compose ... -f 本文件 build app`
+# 把 anydoc tag 重新构建覆盖。
+#
+# 用法（三份文件缺一不可，最后一份负责切换镜像）：
+#   docker compose -f docker-compose.yml -f docker-compose.override.yml \
+#                  -f docker-compose.anydoc.yml up -d app
+#
+# 产物由 scripts/build-anydoc-image.sh 生成；只想编二进制做 docker cp 时用
+# `scripts/build-anydoc-image.sh --binary-only`，不动镜像。
+services:
+  app:
+    image: weknora-app:anydoc

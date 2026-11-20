@@ -122,6 +122,71 @@ func (r *tenantRepository) UpdateTenant(ctx context.Context, tenant *types.Tenan
 	return r.db.WithContext(ctx).Model(&types.Tenant{}).Where("id = ?", tenant.ID).Updates(tenant).Error
 }
 
+// defaultModelSlotFields 是 tenants.default_settings 中的模型槽位字段。
+var defaultModelSlotFields = []string{
+	"chat_model_id",
+	"utility_model_id",
+	"embedding_model_id",
+	"rerank_model_id",
+	"vlm_model_id",
+	"asr_model_id",
+}
+
+// ClearDefaultModelSlots empties every default-model slot pointing at modelID.
+func (r *tenantRepository) ClearDefaultModelSlots(
+	ctx context.Context, tx *gorm.DB, tenantID uint64, modelID string,
+) error {
+	if tx == nil {
+		return errors.New("transaction is required")
+	}
+	for _, field := range defaultModelSlotFields {
+		def := modelUsageBindingSQL{Column: "default_settings", JSONKey: field}
+		query := tx.WithContext(ctx).
+			Model(&types.Tenant{}).
+			Where("id = ?", tenantID).
+			Where(modelBindingHitExpr(tx, def), modelID)
+		// 空字符串让槽位回退到部署默认（is_default）。
+		expr := modelBindingJSONSetExpr(tx, "default_settings", field, "")
+		if err := query.Update("default_settings", expr).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ReassignMemoryModelReferences rewrites long-term-memory model pins.
+func (r *tenantRepository) ReassignMemoryModelReferences(
+	ctx context.Context, tx *gorm.DB, tenantID uint64, modelID string,
+	targets map[types.ModelUsageBinding]string,
+) error {
+	if tx == nil {
+		return errors.New("transaction is required")
+	}
+	pins := []struct {
+		binding types.ModelUsageBinding
+		field   string
+	}{
+		{types.ModelUsageBindingEmbeddingModel, "embedding_model_id"},
+		{types.ModelUsageBindingExtractModel, "extract_model_id"},
+	}
+	for _, pin := range pins {
+		target := targets[pin.binding]
+		if target == "" || target == modelID {
+			continue
+		}
+		def := modelUsageBindingSQL{Column: "memory_config", JSONKey: pin.field}
+		query := tx.WithContext(ctx).
+			Model(&types.Tenant{}).
+			Where("id = ?", tenantID).
+			Where(modelBindingHitExpr(tx, def), modelID)
+		expr := modelBindingJSONSetExpr(tx, "memory_config", pin.field, target)
+		if err := query.Update("memory_config", expr).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *tenantRepository) UpdateTenantProfile(ctx context.Context, id uint64, name, description *string) error {
 	fields := map[string]interface{}{}
 	if name != nil {

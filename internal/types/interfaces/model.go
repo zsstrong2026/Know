@@ -27,6 +27,14 @@ type ModelService interface {
 	UpdateModel(ctx context.Context, model *types.Model) error
 	// DeleteModel deletes a model
 	DeleteModel(ctx context.Context, id string) error
+	// GetModelReassignmentPlan previews how references to the model would be
+	// rewritten to workspace/deployment default models, and why the model
+	// cannot be deleted when blockers exist.
+	GetModelReassignmentPlan(ctx context.Context, id string) (*types.ModelReassignmentPlan, error)
+	// DeleteModelWithReassignment rewrites all supported references to the
+	// model in one transaction, clears default slots pointing at it, then
+	// deletes it. Returns the plan that was applied.
+	DeleteModelWithReassignment(ctx context.Context, id string) (*types.ModelReassignmentPlan, error)
 
 	// UpdateModelCredentials writes one or more credential fields on the
 	// model's Parameters. Nil pointer means "do not touch this field";

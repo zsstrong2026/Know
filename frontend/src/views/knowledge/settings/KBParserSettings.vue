@@ -1,6 +1,6 @@
 <template>
   <div class="kb-parser-settings" :class="{ 'kb-parser-settings--embedded': embedded }">
-    <div v-if="!embedded" class="section-header">
+    <div v-if="!embedded && !hideHeader" class="section-header">
       <h2>{{ $t('kbSettings.parser.title') }}</h2>
       <p class="section-description">{{ $t('kbSettings.parser.description') }}</p>
     </div>
@@ -33,6 +33,7 @@
           <div class="parser-control-stack">
             <t-select
               :value="getEngineForGroup(group.extensions) || undefined"
+              :disabled="disabled"
               @change="(val: string) => handleEngineChange(group.extensions, val)"
               :style="embedded ? undefined : { width: '280px' }"
               :class="{ 'parser-engine-select--embedded': embedded }"
@@ -50,6 +51,7 @@
             <t-checkbox
               v-if="group.extensions.includes('xlsx') && getEngineForGroup(group.extensions) === 'builtin'"
               class="xlsx-header-option"
+              :disabled="disabled"
               :checked="getXLSXFirstRowAsHeader(group.extensions)"
               @change="(checked: boolean) => handleXLSXFirstRowAsHeaderChange(group.extensions, checked)"
             >
@@ -58,6 +60,19 @@
             <div v-if="!hasAvailableEngine(group.extensions)" class="no-engine-warning">
               <a class="go-settings" @click.prevent="goToParserSettings">{{ $t('kbSettings.parser.goConfig') }}</a>
             </div>
+            <!-- 继承态提示：没有单独配置时说明当前值来自空间默认，并允许显式恢复 -->
+            <template v-if="showInheritControls">
+              <div v-if="isInheriting(group.extensions)" class="inherit-hint">
+                <span>{{ $t('kbSettings.parser.inheritHint') }}</span>
+              </div>
+              <a
+                v-if="hasExplicitRule(group.extensions)"
+                class="restore-default"
+                @click.prevent="handleResetToDefault(group.extensions)"
+              >
+                {{ $t('kbSettings.parser.followDefault') }}
+              </a>
+            </template>
           </div>
         </div>
       </div>
@@ -68,7 +83,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { type ParserEngineInfo } from '@/api/system'
+import { type ParserEngineInfo, type ParserEngineRule } from '@/api/system'
 import { useEditorResourcesStore } from '@/stores/editorResources'
 import { useUIStore } from '@/stores/ui'
 import { storeToRefs } from 'pinia'
@@ -82,11 +97,7 @@ function getEngineDisplayName(engineName: string): string {
   return translated !== key ? translated : engineName
 }
 
-export interface ParserEngineRule {
-  file_types: string[]
-  engine: string
-  xlsx_first_row_as_header?: boolean
-}
+export type { ParserEngineRule }
 
 interface EngineOption {
   value: string
@@ -105,12 +116,21 @@ interface Props {
   embedded?: boolean
   /** When set, only show file-type groups matching these extensions */
   relevantExtensions?: string[]
+  /** Read-only rendering (e.g. a viewer on the workspace defaults page) */
+  disabled?: boolean
+  /** Hide the inherit hint / restore link when this form edits the defaults themselves */
+  showInheritControls?: boolean
+  /** 页面内嵌使用时隐藏自带标题，避免与页面分组标题重复 */
+  hideHeader?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   parserEngineRules: () => [],
   embedded: false,
   relevantExtensions: () => [],
+  disabled: false,
+  showInheritControls: true,
+  hideHeader: false,
 })
 
 const emit = defineEmits<{
@@ -266,16 +286,35 @@ function getDefaultEngine(extensions: string[]): string {
 }
 
 function getEngineForGroup(extensions: string[]): string {
-  for (const rule of localEngineRules.value) {
+  const explicit = getRuleForGroup(extensions)
+  if (explicit) return explicit.engine
+  // 空间默认优先于内置路由，保证界面显示值与实际解析结果一致
+  const inherited = getWorkspaceDefaultEngine(extensions)
+  if (inherited) return inherited
+  return getDefaultEngine(extensions)
+}
+
+/** 空间默认配置中该文件类型对应的引擎；未配置时返回空 */
+function getWorkspaceDefaultEngine(extensions: string[]): string {
+  for (const rule of editorResources.parserEngineDefaultRules) {
     if (rule.file_types.some(ft => extensions.includes(ft))) {
       return rule.engine
     }
   }
-  return getDefaultEngine(extensions)
+  return ''
+}
+
+function hasExplicitRule(extensions: string[]): boolean {
+  return getRuleForGroup(extensions) !== undefined
+}
+
+function isInheriting(extensions: string[]): boolean {
+  return !hasExplicitRule(extensions) && getWorkspaceDefaultEngine(extensions) !== ''
 }
 
 function handleEngineChange(extensions: string[], engine: string) {
   const currentRule = getRuleForGroup(extensions)
+  // 只保留显式规则，未改动的文件类型继续跟随空间默认
   const otherRules = localEngineRules.value.filter(
     r => !r.file_types.some(ft => extensions.includes(ft))
   )
@@ -289,7 +328,7 @@ function handleEngineChange(extensions: string[], engine: string) {
     })
   }
   localEngineRules.value = otherRules
-  emit('update:parserEngineRules', buildCompleteRules())
+  emit('update:parserEngineRules', otherRules)
 }
 
 function getRuleForGroup(extensions: string[]): ParserEngineRule | undefined {
@@ -303,31 +342,27 @@ function getXLSXFirstRowAsHeader(extensions: string[]): boolean {
 }
 
 function handleXLSXFirstRowAsHeaderChange(extensions: string[], checked: boolean) {
-  const rules = buildCompleteRules()
-  const rule = rules.find(item => item.file_types.some(fileType => extensions.includes(fileType)))
-  if (!rule) return
-
-  rule.xlsx_first_row_as_header = checked
+  const engine = getEngineForGroup(extensions)
+  if (!engine) return
+  const rules = localEngineRules.value.filter(
+    r => !r.file_types.some(ft => extensions.includes(ft))
+  )
+  rules.push({
+    file_types: [...extensions],
+    engine,
+    xlsx_first_row_as_header: checked,
+  })
   localEngineRules.value = rules
   emit('update:parserEngineRules', rules)
 }
 
-function buildCompleteRules(): ParserEngineRule[] {
-  const rules: ParserEngineRule[] = []
-  for (const group of fileTypeGroups.value) {
-    const engine = getEngineForGroup(group.extensions)
-    if (engine) {
-      const currentRule = getRuleForGroup(group.extensions)
-      rules.push({
-        file_types: [...group.extensions],
-        engine,
-        ...(currentRule?.xlsx_first_row_as_header !== undefined
-          ? { xlsx_first_row_as_header: currentRule.xlsx_first_row_as_header }
-          : {}),
-      })
-    }
-  }
-  return rules
+/** 清除该文件类型的显式规则，恢复跟随空间默认 */
+function handleResetToDefault(extensions: string[]) {
+  const rules = localEngineRules.value.filter(
+    r => !r.file_types.some(ft => extensions.includes(ft))
+  )
+  localEngineRules.value = rules
+  emit('update:parserEngineRules', rules)
 }
 
 function goToParserSettings() {
@@ -346,8 +381,9 @@ async function loadEngines(force = false) {
   }
 }
 
-// Missing rules display getDefaultEngine() without turning a read-only visit
-// into a form edit. Only explicit user changes emit the completed rules.
+// Missing rules display the inherited workspace default (or the built-in
+// routing) without turning a read-only visit into a form edit. Only explicit
+// user changes emit rules.
 onMounted(loadEngines)
 
 const { showSettingsModal } = storeToRefs(uiStore)
@@ -515,6 +551,25 @@ watch(() => props.parserEngineRules, (v) => {
     &:hover {
       text-decoration: underline;
     }
+  }
+}
+
+.inherit-hint {
+  font-size: var(--app-text-sm);
+  color: var(--td-text-color-placeholder);
+  line-height: 1.4;
+  text-align: right;
+}
+
+.restore-default {
+  align-self: flex-end;
+  font-size: var(--app-text-sm);
+  color: var(--td-brand-color);
+  cursor: pointer;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
   }
 }
 

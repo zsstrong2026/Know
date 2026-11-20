@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
+	"gorm.io/gorm"
 )
 
 // TenantService defines the tenant service interface
@@ -56,6 +57,17 @@ type TenantRepository interface {
 	SearchTenants(ctx context.Context, keyword string, tenantID uint64, page, pageSize int) ([]*types.Tenant, int64, error)
 	// UpdateTenant updates a tenant
 	UpdateTenant(ctx context.Context, tenant *types.Tenant) error
+	// ClearDefaultModelSlots empties every workspace default-model slot that
+	// currently points at modelID, so the slot falls back to the deployment
+	// default. Must run inside tx.
+	ClearDefaultModelSlots(ctx context.Context, tx *gorm.DB, tenantID uint64, modelID string) error
+	// ReassignMemoryModelReferences rewrites the long-term-memory model pins
+	// (embedding and extract) from modelID to targets[binding]. Must run
+	// inside tx.
+	ReassignMemoryModelReferences(
+		ctx context.Context, tx *gorm.DB, tenantID uint64, modelID string,
+		targets map[types.ModelUsageBinding]string,
+	) error
 	// UpdateTenantProfile changes only supplied display fields.
 	UpdateTenantProfile(ctx context.Context, id uint64, name, description *string) error
 	// DeleteTenant deletes a tenant

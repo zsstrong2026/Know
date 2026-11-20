@@ -8,6 +8,7 @@ import (
 
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -17,6 +18,10 @@ type stubKBRepoForModelDelete struct {
 	usages   []types.ModelUsageResource
 	count    *int64
 	usageErr error
+	bindings map[types.ModelUsageBinding]int64
+	docCount int64
+	// docModelCount 是文档级 embedding 引用数（knowledges.embedding_model_id）。
+	docModelCount int64
 }
 
 func (s *stubKBRepoForModelDelete) UpdateKnowledgeBaseGeneratedProfile(
@@ -77,6 +82,33 @@ func (s *stubKBRepoForModelDelete) ListModelUsages(
 	return s.usages, s.usageErr
 }
 
+func (s *stubKBRepoForModelDelete) CountModelBindings(
+	context.Context, *gorm.DB, uint64, string,
+) (map[types.ModelUsageBinding]int64, error) {
+	if s.bindings == nil {
+		return map[types.ModelUsageBinding]int64{}, nil
+	}
+	return s.bindings, nil
+}
+
+func (s *stubKBRepoForModelDelete) CountKnowledgeBasesWithDocumentsByEmbeddingModel(
+	context.Context, *gorm.DB, uint64, string,
+) (int64, error) {
+	return s.docCount, nil
+}
+
+func (s *stubKBRepoForModelDelete) CountKnowledgeDocumentsByEmbeddingModel(
+	context.Context, *gorm.DB, uint64, string,
+) (int64, error) {
+	return s.docModelCount, nil
+}
+
+func (s *stubKBRepoForModelDelete) ReassignModelReferences(
+	context.Context, *gorm.DB, uint64, string, map[types.ModelUsageBinding]string,
+) error {
+	return nil
+}
+
 func (s *stubKBRepoForModelDelete) SetUserKBPin(context.Context, uint64, string, string, bool) (*time.Time, error) {
 	return nil, nil
 }
@@ -89,6 +121,7 @@ type stubAgentRepoForModelDelete struct {
 	usages   []types.ModelUsageResource
 	count    *int64
 	usageErr error
+	bindings map[types.ModelUsageBinding]int64
 }
 
 func (s *stubAgentRepoForModelDelete) CreateAgent(context.Context, *types.CustomAgent) error {
@@ -120,6 +153,21 @@ func (s *stubAgentRepoForModelDelete) ListModelUsages(
 	return s.usages, s.usageErr
 }
 
+func (s *stubAgentRepoForModelDelete) CountModelBindings(
+	context.Context, *gorm.DB, uint64, string,
+) (map[types.ModelUsageBinding]int64, error) {
+	if s.bindings == nil {
+		return map[types.ModelUsageBinding]int64{}, nil
+	}
+	return s.bindings, nil
+}
+
+func (s *stubAgentRepoForModelDelete) ReassignModelReferences(
+	context.Context, *gorm.DB, uint64, string, map[types.ModelUsageBinding]string,
+) error {
+	return nil
+}
+
 func (s *stubAgentRepoForModelDelete) CountBySandboxConfigID(context.Context, uint64, string) (int64, error) {
 	return 0, nil
 }
@@ -128,8 +176,31 @@ func (s *stubAgentRepoForModelDelete) ListNamesBySandboxConfigID(context.Context
 	return nil, nil
 }
 
+// stubSessionRepoForModelDelete 只实现模型删除用到的会话方法。
+type stubSessionRepoForModelDelete struct {
+	interfaces.SessionRepository
+	count      int64
+	reassigned bool
+	target     string
+}
+
+func (s *stubSessionRepoForModelDelete) CountSessionsByLastRequestModel(
+	context.Context, *gorm.DB, uint64, string,
+) (int64, error) {
+	return s.count, nil
+}
+
+func (s *stubSessionRepoForModelDelete) ReassignLastRequestModel(
+	_ context.Context, _ *gorm.DB, _ uint64, _, target string,
+) error {
+	s.reassigned = true
+	s.target = target
+	return nil
+}
+
 type stubModelRepoForDelete struct {
 	model  *types.Model
+	models []*types.Model
 	delete func(id string) error
 	update func(model *types.Model) error
 }
@@ -143,7 +214,7 @@ func (s *stubModelRepoForDelete) GetByID(_ context.Context, _ uint64, id string)
 }
 
 func (s *stubModelRepoForDelete) List(context.Context, uint64, types.ModelType, types.ModelSource) ([]*types.Model, error) {
-	return nil, nil
+	return s.models, nil
 }
 
 func (s *stubModelRepoForDelete) Update(_ context.Context, model *types.Model) error {
@@ -175,7 +246,7 @@ func TestDeleteModel_RejectsWhenReferenced(t *testing.T) {
 			{ID: "kb-2", Name: "Engineering", Bindings: []types.ModelUsageBinding{types.ModelUsageBindingVLMModel}},
 		}},
 		&stubAgentRepoForModelDelete{},
-		nil, nil, nil,
+		nil, nil, nil, nil, nil, nil,
 	)
 
 	err := svc.DeleteModel(ctx, modelID)
@@ -205,7 +276,7 @@ func TestDeleteModel_RejectsWhenUsedByAgent(t *testing.T) {
 			{ID: "agent-1", Name: "Support", Bindings: []types.ModelUsageBinding{types.ModelUsageBindingChatModel}},
 			{ID: "agent-2", Name: "Writer", Bindings: []types.ModelUsageBinding{types.ModelUsageBindingFollowUpModel}},
 		}},
-		nil, nil, nil,
+		nil, nil, nil, nil, nil, nil,
 	)
 
 	err := svc.DeleteModel(ctx, modelID)
@@ -236,7 +307,7 @@ func TestDeleteModel_SucceedsWhenUnreferenced(t *testing.T) {
 		},
 		&stubKBRepoForModelDelete{},
 		&stubAgentRepoForModelDelete{},
-		nil, nil, nil,
+		nil, nil, nil, nil, nil, nil,
 	)
 
 	require.NoError(t, svc.DeleteModel(ctx, modelID))
@@ -248,7 +319,7 @@ func TestGetModelUsageDetails_NormalizesEmptyCollections(t *testing.T) {
 		&stubModelRepoForDelete{},
 		&stubKBRepoForModelDelete{},
 		&stubAgentRepoForModelDelete{},
-		nil, nil, nil,
+		nil, nil, nil, nil, nil, nil,
 	)
 
 	details, err := svc.(*modelService).getModelUsageDetails(context.Background(), 1, "unused-model")
@@ -276,7 +347,7 @@ func TestDeleteModel_DoesNotDeleteWhenUsageLookupFails(t *testing.T) {
 		},
 		&stubKBRepoForModelDelete{usageErr: wantErr},
 		&stubAgentRepoForModelDelete{},
-		nil, nil, nil,
+		nil, nil, nil, nil, nil, nil,
 	)
 
 	err := svc.DeleteModel(ctx, modelID)
@@ -305,7 +376,7 @@ func TestDeleteModel_ReportsUntruncatedTotalsWhenListsAreCapped(t *testing.T) {
 				{ID: "agent-1", Name: "Support", Bindings: []types.ModelUsageBinding{types.ModelUsageBindingChatModel}},
 			},
 		},
-		nil, nil, nil,
+		nil, nil, nil, nil, nil, nil,
 	)
 
 	err := svc.DeleteModel(ctx, modelID)
@@ -374,13 +445,14 @@ func TestDeleteModel_RejectsWhenUsedByMemory(t *testing.T) {
 		&stubModelRepoForDelete{model: &types.Model{ID: modelID, TenantID: 1}},
 		&stubKBRepoForModelDelete{},
 		&stubAgentRepoForModelDelete{},
-		nil, nil,
+		nil, nil, nil,
 		&stubTenantServiceForModelDelete{
 			tenant: &types.Tenant{
 				ID:           1,
 				MemoryConfig: &types.MemoryConfig{Enabled: true, EmbeddingModelID: modelID},
 			},
 		},
+		nil, nil,
 	)
 
 	err := svc.DeleteModel(ctx, modelID)
@@ -406,7 +478,7 @@ func TestDeleteModel_RejectsWhenUsedByMemoryExtraction(t *testing.T) {
 		&stubModelRepoForDelete{model: &types.Model{ID: modelID, TenantID: 1}},
 		&stubKBRepoForModelDelete{},
 		&stubAgentRepoForModelDelete{},
-		nil, nil,
+		nil, nil, nil,
 		&stubTenantServiceForModelDelete{
 			tenant: &types.Tenant{
 				ID: 1,
@@ -415,6 +487,7 @@ func TestDeleteModel_RejectsWhenUsedByMemoryExtraction(t *testing.T) {
 				},
 			},
 		},
+		nil, nil,
 	)
 
 	err := svc.DeleteModel(ctx, modelID)
@@ -436,7 +509,7 @@ func TestDeleteModel_ReportsAllMemoryBindings(t *testing.T) {
 		&stubModelRepoForDelete{model: &types.Model{ID: modelID, TenantID: 1}},
 		&stubKBRepoForModelDelete{},
 		&stubAgentRepoForModelDelete{},
-		nil, nil,
+		nil, nil, nil,
 		&stubTenantServiceForModelDelete{
 			tenant: &types.Tenant{
 				ID: 1,
@@ -445,6 +518,7 @@ func TestDeleteModel_ReportsAllMemoryBindings(t *testing.T) {
 				},
 			},
 		},
+		nil, nil,
 	)
 
 	err := svc.DeleteModel(ctx, modelID)
@@ -459,23 +533,265 @@ func TestDeleteModel_ReportsAllMemoryBindings(t *testing.T) {
 	}, details.LongTermMemory.Bindings)
 }
 
+func TestGetModelReassignmentPlan_ResolvesDefaults(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
+	svc := NewModelService(
+		&stubModelRepoForDelete{
+			model: &types.Model{
+				ID: "old", TenantID: 1, Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive,
+			},
+			models: []*types.Model{
+				{ID: "chat-default", Name: "Chat", Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive},
+				{ID: "utility-default", Name: "Utility", Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive},
+				{ID: "embed-default", Name: "Embed", Type: types.ModelTypeEmbedding, Status: types.ModelStatusActive},
+			},
+		},
+		&stubKBRepoForModelDelete{bindings: map[types.ModelUsageBinding]int64{
+			types.ModelUsageBindingSummaryModel:   2,
+			types.ModelUsageBindingEmbeddingModel: 1,
+		}},
+		&stubAgentRepoForModelDelete{bindings: map[types.ModelUsageBinding]int64{
+			types.ModelUsageBindingChatModel: 1,
+		}},
+		nil, nil, nil,
+		&stubTenantServiceForModelDelete{tenant: &types.Tenant{
+			ID: 1,
+			DefaultSettings: &types.DefaultSettings{
+				ChatModelID:      "chat-default",
+				UtilityModelID:   "utility-default",
+				EmbeddingModelID: "embed-default",
+			},
+		}},
+		nil, nil,
+	)
+
+	plan, err := svc.GetModelReassignmentPlan(ctx, "old")
+	require.NoError(t, err)
+	require.True(t, plan.CanDelete)
+	require.Empty(t, plan.Blockers)
+
+	targets := map[types.ModelUsageBinding]string{}
+	for _, item := range plan.Items {
+		targets[item.Binding] = item.TargetModelID
+		assert.Equal(t, types.ModelReassignmentTargetWorkspaceDefault, item.TargetSource)
+	}
+	assert.Equal(t, "utility-default", targets[types.ModelUsageBindingSummaryModel])
+	assert.Equal(t, "embed-default", targets[types.ModelUsageBindingEmbeddingModel])
+	assert.Equal(t, "chat-default", targets[types.ModelUsageBindingChatModel])
+}
+
+func TestGetModelReassignmentPlan_BlocksWithoutDefault(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
+	svc := NewModelService(
+		&stubModelRepoForDelete{
+			model: &types.Model{
+				ID: "old", TenantID: 1, Type: types.ModelTypeVLLM, Status: types.ModelStatusActive,
+			},
+		},
+		&stubKBRepoForModelDelete{bindings: map[types.ModelUsageBinding]int64{
+			types.ModelUsageBindingVLMModel: 1,
+		}},
+		&stubAgentRepoForModelDelete{},
+		nil, nil, nil, nil, nil, nil,
+	)
+
+	plan, err := svc.GetModelReassignmentPlan(ctx, "old")
+	require.NoError(t, err)
+	require.False(t, plan.CanDelete)
+	require.Len(t, plan.Blockers, 1)
+	assert.Equal(t, types.ModelReassignmentBlockerNoDefaultModel, plan.Blockers[0].Code)
+	assert.Equal(t, types.ModelUsageBindingVLMModel, plan.Blockers[0].Binding)
+	assert.Equal(t, types.ModelTypeVLLM, plan.Blockers[0].ModelType)
+}
+
+func TestGetModelReassignmentPlan_BlocksEmbeddingWithDocuments(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
+	svc := NewModelService(
+		&stubModelRepoForDelete{
+			model: &types.Model{
+				ID: "old", TenantID: 1, Type: types.ModelTypeEmbedding, Status: types.ModelStatusActive,
+			},
+			models: []*types.Model{
+				{ID: "embed-default", Name: "Embed", Type: types.ModelTypeEmbedding, Status: types.ModelStatusActive},
+			},
+		},
+		&stubKBRepoForModelDelete{
+			bindings: map[types.ModelUsageBinding]int64{
+				types.ModelUsageBindingEmbeddingModel: 1,
+			},
+			docCount: 3,
+		},
+		&stubAgentRepoForModelDelete{},
+		nil, nil, nil,
+		&stubTenantServiceForModelDelete{tenant: &types.Tenant{
+			ID:              1,
+			DefaultSettings: &types.DefaultSettings{EmbeddingModelID: "embed-default"},
+		}},
+		nil, nil,
+	)
+
+	plan, err := svc.GetModelReassignmentPlan(ctx, "old")
+	require.NoError(t, err)
+	require.False(t, plan.CanDelete)
+	require.Len(t, plan.Blockers, 1)
+	assert.Equal(t, types.ModelReassignmentBlockerEmbeddingHasDocuments, plan.Blockers[0].Code)
+	assert.Equal(t, int64(3), plan.Blockers[0].KnowledgeBaseCount)
+	// 仍返回可解析的改写项，便于前端展示。
+	require.Len(t, plan.Items, 1)
+	assert.Equal(t, "embed-default", plan.Items[0].TargetModelID)
+}
+
+func TestGetModelReassignmentPlan_RewritesSessionMemory(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
+	svc := NewModelService(
+		&stubModelRepoForDelete{
+			model: &types.Model{
+				ID: "old", TenantID: 1, Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive,
+			},
+			models: []*types.Model{
+				{ID: "chat-default", Name: "Chat", Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive},
+			},
+		},
+		&stubKBRepoForModelDelete{},
+		&stubAgentRepoForModelDelete{},
+		nil, nil, nil,
+		&stubTenantServiceForModelDelete{tenant: &types.Tenant{
+			ID:              1,
+			DefaultSettings: &types.DefaultSettings{ChatModelID: "chat-default"},
+		}},
+		nil,
+		&stubSessionRepoForModelDelete{count: 2},
+	)
+
+	plan, err := svc.GetModelReassignmentPlan(ctx, "old")
+	require.NoError(t, err)
+	assert.True(t, plan.CanDelete)
+	assert.Equal(t, int64(2), plan.SessionModelCount)
+	assert.Equal(t, "chat-default", plan.SessionTargetModelID)
+	assert.Equal(t, "Chat", plan.SessionTargetModelName)
+}
+
+func TestGetModelReassignmentPlan_ClearsSessionMemoryWithoutDefault(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
+	svc := NewModelService(
+		&stubModelRepoForDelete{
+			model: &types.Model{
+				ID: "old", TenantID: 1, Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive,
+			},
+		},
+		&stubKBRepoForModelDelete{},
+		&stubAgentRepoForModelDelete{},
+		nil, nil, nil, nil,
+		nil,
+		&stubSessionRepoForModelDelete{count: 1},
+	)
+
+	plan, err := svc.GetModelReassignmentPlan(ctx, "old")
+	require.NoError(t, err)
+	// 会话记忆不阻塞删除，删除时清空选择。
+	assert.True(t, plan.CanDelete)
+	assert.Equal(t, int64(1), plan.SessionModelCount)
+	assert.Empty(t, plan.SessionTargetModelID)
+}
+
+func TestGetModelReassignmentPlan_BlocksEmbeddingInDocuments(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
+	svc := NewModelService(
+		&stubModelRepoForDelete{
+			model: &types.Model{
+				ID: "old", TenantID: 1, Type: types.ModelTypeEmbedding, Status: types.ModelStatusActive,
+			},
+		},
+		&stubKBRepoForModelDelete{docModelCount: 4},
+		&stubAgentRepoForModelDelete{},
+		nil, nil, nil, nil, nil, nil,
+	)
+
+	plan, err := svc.GetModelReassignmentPlan(ctx, "old")
+	require.NoError(t, err)
+	require.False(t, plan.CanDelete)
+	require.Len(t, plan.Blockers, 1)
+	assert.Equal(t, types.ModelReassignmentBlockerEmbeddingInDocuments, plan.Blockers[0].Code)
+	assert.Equal(t, int64(4), plan.Blockers[0].DocumentCount)
+}
+
+func TestGetModelReassignmentPlan_BlocksChatHistoryEmbedding(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
+	svc := NewModelService(
+		&stubModelRepoForDelete{
+			model: &types.Model{
+				ID: "old", TenantID: 1, Type: types.ModelTypeEmbedding, Status: types.ModelStatusActive,
+			},
+		},
+		&stubKBRepoForModelDelete{},
+		&stubAgentRepoForModelDelete{},
+		nil, nil, nil,
+		&stubTenantServiceForModelDelete{tenant: &types.Tenant{
+			ID: 1,
+			ChatHistoryConfig: &types.ChatHistoryConfig{
+				Enabled: true, EmbeddingModelID: "old", KnowledgeBaseID: "kb-chat",
+			},
+		}},
+		nil, nil,
+	)
+
+	plan, err := svc.GetModelReassignmentPlan(ctx, "old")
+	require.NoError(t, err)
+	require.False(t, plan.CanDelete)
+	require.Len(t, plan.Blockers, 1)
+	assert.Equal(t, types.ModelReassignmentBlockerChatHistoryEmbedding, plan.Blockers[0].Code)
+}
+
+func TestDeleteModelWithReassignment_RejectsBlockedPlan(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
+	svc := NewModelService(
+		&stubModelRepoForDelete{
+			model: &types.Model{
+				ID: "old", TenantID: 1, Type: types.ModelTypeEmbedding, Status: types.ModelStatusActive,
+			},
+		},
+		&stubKBRepoForModelDelete{
+			bindings: map[types.ModelUsageBinding]int64{
+				types.ModelUsageBindingEmbeddingModel: 1,
+			},
+			docCount: 1,
+		},
+		&stubAgentRepoForModelDelete{},
+		nil, nil, nil, nil, nil, nil,
+	)
+
+	plan, err := svc.DeleteModelWithReassignment(ctx, "old")
+	require.Error(t, err)
+	require.Nil(t, plan)
+	appErr, ok := apperrors.IsAppError(err)
+	require.True(t, ok)
+	assert.Equal(t, apperrors.ErrBadRequest, appErr.Code)
+	details, ok := appErr.Details.(*types.ModelReassignmentPlan)
+	require.True(t, ok)
+	assert.False(t, details.CanDelete)
+}
+
 func TestFormatModelInUseMessage(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t,
 		"model is used by 1 knowledge base(s); reconfigure or remove those references before deleting",
-		formatModelInUseMessage(1, 0, false),
+		formatModelInUseMessage(1, 0, 0, false, false),
 	)
 	assert.Equal(t,
 		"model is used by 2 agent(s); reconfigure or remove those references before deleting",
-		formatModelInUseMessage(0, 2, false),
+		formatModelInUseMessage(0, 2, 0, false, false),
 	)
 	assert.Equal(t,
 		"model is used by 1 knowledge base(s) and 1 agent(s); reconfigure or remove those references before deleting",
-		formatModelInUseMessage(1, 1, false),
+		formatModelInUseMessage(1, 1, 0, false, false),
 	)
 	assert.Equal(t,
 		"model is used by long-term memory; reconfigure or remove those references before deleting",
-		formatModelInUseMessage(0, 0, true),
+		formatModelInUseMessage(0, 0, 0, true, false),
+	)
+	assert.Equal(t,
+		"model is used by 3 document(s) and chat history index; reconfigure or remove those references before deleting",
+		formatModelInUseMessage(0, 0, 3, false, true),
 	)
 }
 

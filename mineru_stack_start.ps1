@@ -88,6 +88,9 @@ $env:MODELSCOPE_CACHE = 'd:\知识库\Know\.cache\ms-real'
 # 会直接 PermissionError 启动即崩，表现为 8001 起不来、WeKnora 判定 MinerU 不可用。
 $uploadDir = 'C:\mineru-venv\uploads'
 New-Item -ItemType Directory -Force -Path $uploadDir | Out-Null
+# 注意：不要加 --concurrency >1。MinerU 4.0.11 单机部署下开启后 /v1/uploads
+# 与 /v1/parse/jobs 会直接返回 502（无响应体），解析全部失败；并发只能靠
+# 多实例 + 上层负载均衡，不能用该参数。
 $apiArgs = '--host 0.0.0.0 --port 8001 --tier standard --vlm-server-url http://127.0.0.1:18899 --upload-dir "{0}"' -f $uploadDir
 $ok2 = Start-StackService -Name 'mineru_api' -Exe 'C:\mineru-venv\Scripts\mineru-api.exe' -Arguments $apiArgs -Port 8001 -WorkDir $PSScriptRoot -WaitSec 240
 

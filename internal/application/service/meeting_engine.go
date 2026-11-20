@@ -33,7 +33,7 @@ type meetingEngine struct {
 	artifactRepo    interfaces.MeetingArtifactRepository
 	sessionService  interfaces.SessionService
 	modelService    interfaces.ModelService
-	kbService       interfaces.KnowledgeBaseService // 产物生成：展开参会智能体的 all 模式知识库范围
+	kbService       interfaces.KnowledgeBaseService     // 产物生成：展开参会智能体的 all 模式知识库范围
 	userService     interfaces.UserService              // 解析会议创建者用户名（供智能体 @用户名 向用户提问）
 	temporaryDocs   interfaces.TemporaryDocumentService // 会议文件：读取用户上传文件并注入发言上下文
 	redis           *redis.Client
@@ -77,8 +77,8 @@ func NewMeetingEngine(
 		messageRepo: messageRepo, agendaRepo: agendaRepo, agentRepo: agentRepo,
 		artifactRepo:   artifactRepo,
 		sessionService: sessionService, modelService: modelService,
-		kbService:    kbService,
-		userService:  userService,
+		kbService:     kbService,
+		userService:   userService,
 		temporaryDocs: temporaryDocs,
 		redis:         redisClient,
 		broadcaster:   NewMeetingBroadcaster(),
@@ -272,9 +272,6 @@ func shouldRunParallel(mode string, speakerCount int) bool {
 // errAgentPass 智能体弃权（回复 PASS）：静默跳过，不落库、不提示，不占用讨论产出
 var errAgentPass = errors.New("meeting: agent passed")
 
-// mentionTokenRe 匹配 @某人（@ 后接连续的字母/数字/下划线/连字符/汉字）
-var mentionTokenRe = regexp.MustCompile(`@([\p{L}\p{N}_\-]+)`)
-
 // passReplyRe 判定弃权回复：整条回复除空白/标点/符号（含全角与 Markdown 强调符）外只剩 PASS
 var passReplyRe = regexp.MustCompile(`(?i)^[\s\p{Z}\p{P}\p{S}]*pass[\s\p{Z}\p{P}\p{S}]*$`)
 
@@ -285,25 +282,18 @@ func isPassReply(content string) bool {
 }
 
 // parseMentionedAgentIDs 从回复文本解析 @展示名 提及并映射为 agentID（按参会顺序去重，排除自己）。
-// participants 为空或无有效匹配时返回 nil。
+// 直接用展示名做子串匹配：展示名可能含空格或标点（如 "AI 智能体专家"），
+// 用正则按词边界切分会把名字截断，导致 @ 提及丢失。
 func parseMentionedAgentIDs(content string, participants []*types.MeetingParticipant, selfID string) []string {
 	if content == "" || len(participants) == 0 {
 		return nil
-	}
-	matches := mentionTokenRe.FindAllStringSubmatch(content, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	names := make(map[string]struct{}, len(matches))
-	for _, m := range matches {
-		names[m[1]] = struct{}{}
 	}
 	var out []string
 	for _, p := range participants {
 		if p.Kind != types.ParticipantKindAgent || p.AgentID == "" || p.AgentID == selfID || p.DisplayName == "" {
 			continue
 		}
-		if _, ok := names[p.DisplayName]; ok {
+		if strings.Contains(content, "@"+p.DisplayName) {
 			out = append(out, p.AgentID)
 		}
 	}
@@ -433,6 +423,10 @@ func (e *meetingEngine) runDiscussion(
 	maxRounds := e.guardMaxExchange(room)
 	if room.AgendaEnabled {
 		maxRounds = meetingMaxTotalSubRounds
+	} else if isFreeMeeting(room) {
+		// 自由模式没有议题推进与裁判收束，给足子轮让智能体相互讨论；
+		// 用户每次发言会重新开启一轮，因此这里是单次触发内的硬上限。
+		maxRounds = meetingFreeModeMaxSubRounds
 	}
 	everyN := room.HostEveryNRounds // 主持人介入间隔：0 表示不介入
 	if !hostInDiscussion(room) {
@@ -733,9 +727,9 @@ func shouldHostIntervene(everyN, completed int) bool {
 }
 
 // canAutoContinue 无人被 @ 时是否允许引擎自动选下一位接话。
-// 仅新规则会议（启用议题治理）启用；历史房间保持"没人 @ 就停"的原有节奏。
+// 新规则会议（启用议题治理）与自由模式启用；历史房间保持"没人 @ 就停"的原有节奏。
 func canAutoContinue(room *types.MeetingRoom) bool {
-	return room.AgendaEnabled
+	return room.AgendaEnabled || isFreeMeeting(room)
 }
 
 // publishHostIntervention 每 N 轮介入：主持人生成阶段总结/重定向消息并落库广播。
@@ -828,6 +822,10 @@ func (e *meetingEngine) runAgentTurnWithHint(ctx context.Context, room *types.Me
 	// 会议创建者用户名：注入 query 供智能体 @用户名 称呼用户；取不到时退回通用 @用户
 	userName := e.meetingUserName(ctx, room)
 	query, agendaItemID, kbIDs := e.buildTurnQuery(ctx, room, replyTo, participants, kbIDs, userName)
+	// 明确告知智能体自己的参会展示名：否则模型不知道自己是谁，容易在 @ 时点到自己
+	if selfName := agentNamesByID(participants)[agent.ID]; selfName != "" {
+		query += "\n【你的参会名】" + selfName + "（不要 @ 自己）"
+	}
 	if h := strings.TrimSpace(hint); h != "" {
 		query += "\n【主持人点名】请优先回应这个问题：" + h
 	}
@@ -911,7 +909,10 @@ func (e *meetingEngine) buildTurnQuery(
 	if len(active.KnowledgeBaseIDs) > 0 {
 		kbIDs = mergeUnique(kbIDs, active.KnowledgeBaseIDs)
 	}
-	return attachmentCtx + buildAgendaQuery(room, active, items, replyTo.Content, itemMsgs, participants, userName), active.ID, kbIDs
+	return attachmentCtx + buildAgendaQuery(
+		room, active, items, replyTo.Content, replyToSenderName(replyTo, agentNamesByID(participants)),
+		itemMsgs, participants, userName,
+	), active.ID, kbIDs
 }
 
 // meetingAttachmentContext 把本会议已解析完成的文件内容渲染为发言上下文。
@@ -1010,6 +1011,12 @@ func (e *meetingEngine) runAgentOnce(
 		return nil
 	})
 
+	// 聚焦约束对全部参会智能体一致生效（追加到系统提示词尾部，不替换平台默认提示词）；
+	// 自由模式额外补充"主动向用户挖掘信息、相互讨论、服从用户收束"的协议。
+	runNote := meetingFocusSystemPrompt
+	if isFreeMeeting(room) {
+		runNote += meetingFreeModeRunNote
+	}
 	req := &types.QARequest{
 		Session:            &types.Session{ID: uuid.New().String(), TenantID: room.TenantID}, // 内存态会话：AgentQA 不落库消息
 		Query:              query,
@@ -1018,8 +1025,7 @@ func (e *meetingEngine) runAgentOnce(
 		KnowledgeBaseIDs:   kbIDs,
 		// 会议级联网总闸：与 meetingAgent.Config.WebSearchEnabled 同时为真时联网工具才注册
 		WebSearchEnabled: room.WebSearchEnabled,
-		// 聚焦约束对全部参会智能体一致生效（追加到系统提示词尾部，不替换平台默认提示词）
-		RunNote: meetingFocusSystemPrompt,
+		RunNote:          runNote,
 	}
 	if err := e.sessionService.AgentQA(ctx, req, eventBus); err != nil {
 		return "", err
@@ -1115,8 +1121,13 @@ func (e *meetingEngine) appendConsensusMessageForItem(ctx context.Context, roomI
 	return msg, nil
 }
 
-// handleInterrupt 用户打断（"回到正题"）的收尾：落系统提示 + 主持人生成收敛消息并广播 guard.triggered
+// handleInterrupt 用户打断（"回到正题"）的收尾：落系统提示 + 主持人生成收敛消息并广播 guard.triggered。
+// 自由模式没有主持人，只落系统提示，把发言权直接交还用户。
 func (e *meetingEngine) handleInterrupt(ctx context.Context, room *types.MeetingRoom, roomID string) {
+	if isFreeMeeting(room) {
+		e.publishSystemMessage(ctx, roomID, "讨论已被用户打断，请继续输入你的指示")
+		return
+	}
 	e.publishSystemMessage(ctx, roomID, "讨论已被用户打断")
 	recent, err := e.messageRepo.ListByRoom(ctx, roomID, "", e.contextMax)
 	if err != nil {
@@ -1249,15 +1260,24 @@ const meetingFocusSystemPrompt = "【会议发言要求】你正在参加一场�
 	"3. 禁止使用标题、编号列表、表格、代码块；不要复述背景，也不要重复别人刚说过的内容；\n" +
 	"4. 可以明确反对；不同意就说出反对点和能改变你立场的证据，不要为了和气而附和；\n" +
 	"5. 如果你强烈不同意上一位，可以用「先打断一下」开头直接反驳并 @ 对方，这是允许的抢话；\n" +
-	"6. 直接回应上一位发言者或用户；想让某位参会人接话，就在句末用 @对方姓名；\n" +
+	"6. 直接回应上一位发言者或用户；想让某位参会人接话，就在句末用 @对方姓名；只能 @ 其他参会人，不要 @ 自己；\n" +
 	"7. 需要用户拍板或补充信息时，在句末 @用户姓名（用会议信息【用户】给出的名字；没有名字时写 @用户）提一个问题，然后停下等用户回答；\n" +
 	"8. 所有发言围绕【当前子议题】；若相较已有讨论没有新增观点，仅回复 PASS。"
+
+// meetingFreeModeRunNote 自由模式补充协议：没有主持人，智能体自行推进讨论并向用户挖掘信息。
+const meetingFreeModeRunNote = "\n【自由讨论补充】本次会议没有主持人，由智能体自行推进：" +
+	"请主动说明对议题的理解与假设，信息不足时向用户提出具体问题；" +
+	"可以与其他参会智能体相互追问、补充或反驳；用户输入优先，" +
+	"随时根据用户的最新指示纠正或收束讨论，不要等待主持人点名。"
 
 // meetingAwaitUserToken 智能体向用户提问的显式标记（提示词协议约定）
 const meetingAwaitUserToken = "@用户"
 
 // meetingMaxTotalSubRounds 单次讨论轮的总子轮上限（跨议题累计），防止一次异步任务失控
 const meetingMaxTotalSubRounds = 30
+
+// meetingFreeModeMaxSubRounds 自由模式单次讨论轮的子轮上限：没有议题收束，给足轮次让智能体相互讨论
+const meetingFreeModeMaxSubRounds = 8
 
 const (
 	meetingAgendaRoundsMin = 3
@@ -1312,14 +1332,15 @@ func filterAgentParticipants(ps []*types.MeetingParticipant) []*types.MeetingPar
 }
 
 // hostInDiscussion 讨论过程中主持人是否需要介入（阶段总结 / 互呛打断 / 偏离重定向）。
-// 自由抢麦的语义是智能体自行争抢发言、不需要主持人调度，故一律不介入；
+// 自由模式没有主持人；自由抢麦的语义同样是智能体自行争抢发言、不需要主持人调度，故一律不介入；
 // 其余路由模式仍按房间配置生效（是否每 N 轮介入由 HostEveryNRounds 单独控制）。
 func hostInDiscussion(room *types.MeetingRoom) bool {
-	return room.RoutingMode != types.MeetingRoutingFree
+	return !isFreeMeeting(room) && room.RoutingMode != types.MeetingRoutingFree
 }
 
 // selectSpeakers 选择本轮首位发言人：
-//   - 显式 @ 优先（free 模式除外），@ 了几个就回应几个；
+//   - 显式 @ 优先（自由抢麦路由除外），@ 了几个就回应几个；
+//   - 自由模式虽然是全员发言，但用户显式 @ 时仍优先点名对象，便于用户收束讨论；
 //   - free 模式保留"全员自由抢麦"的历史语义；
 //   - 其余情况只选一人：规则排除上一位发言者并优先未发言者，再由小模型选人并附具体问题。
 //
@@ -1328,7 +1349,8 @@ func (e *meetingEngine) selectSpeakers(ctx context.Context, room *types.MeetingR
 	if len(agents) == 0 {
 		return nil
 	}
-	if room.RoutingMode != types.MeetingRoutingFree && len(trigger.MentionedAgentIDs) > 0 {
+	mentionFirst := room.RoutingMode != types.MeetingRoutingFree || isFreeMeeting(room)
+	if mentionFirst && len(trigger.MentionedAgentIDs) > 0 {
 		if picked := filterByIDs(agents, trigger.MentionedAgentIDs); len(picked) > 0 {
 			return picked
 		}
@@ -1378,6 +1400,15 @@ func buildMeetingQuery(
 	if room.ContextSummary != "" {
 		b.WriteString("\n【早期讨论摘要】" + room.ContextSummary)
 	}
+	if isFreeMeeting(room) {
+		// 自由模式：没有主持人拆题与点名，智能体需要自己推进讨论并主动向用户挖掘信息
+		b.WriteString("\n【自由讨论模式】本次会议没有主持人，由参会智能体自行推进：")
+		b.WriteString("\n- 先基于【会议主题】与【会议描述】说明你的理解与关键假设；")
+		b.WriteString("\n- 信息不足时，直接 @用户名（或 @用户）向用户提出一个最关键的具体问题，挖掘目标、背景、范围、约束与评价标准；")
+		b.WriteString("\n- 可以 @其他参会智能体 追问、补充或反驳，推动讨论逐步收敛；")
+		b.WriteString("\n- 用户会随时输入来纠正或收束讨论，用户发言优先，请先响应并服从用户的最新指示；")
+		b.WriteString("\n- 不要等待主持人点名，也不要输出会议流程或长篇报告。")
+	}
 	// 参会智能体名册：仅列出可被 @ 的 agent 展示名（主持人不是 @ 目标，不列入）
 	if names := collectAgentDisplayNames(participants); len(names) > 0 {
 		b.WriteString("\n【参会智能体】" + strings.Join(names, "、"))
@@ -1386,6 +1417,7 @@ func buildMeetingQuery(
 	if userName != "" {
 		b.WriteString("\n【用户】" + userName + "（可 @用户名 向用户提问）")
 	}
+	agentNames := agentNamesByID(participants)
 	if len(contextMsgs) > 0 {
 		b.WriteString("\n【讨论记录】")
 		for _, m := range contextMsgs {
@@ -1393,16 +1425,20 @@ func buildMeetingQuery(
 			if m.Content == triggerContent && m.SenderKind == types.MeetingSenderUser {
 				continue
 			}
-			b.WriteString(fmt.Sprintf("\n%s: %s", senderLabel(m), m.Content))
+			b.WriteString(fmt.Sprintf("\n%s: %s", senderLabelWithNames(m, agentNames), m.Content))
 		}
 	}
 	b.WriteString("\n【当前议题】" + triggerContent)
-	b.WriteString("\n请像在会议桌前发言一样，直接回应【当前议题】：")
+	if isFreeMeeting(room) {
+		b.WriteString("\n请围绕会议主题主动推进讨论，直接回应上一条发言或用户的最新指示：")
+	} else {
+		b.WriteString("\n请像在会议桌前发言一样，直接回应【当前议题】：")
+	}
 	b.WriteString("\n- 常态 1-3 句话、不超过 120 字；被追问或关键论证可放宽到 200 字，不要每条都一样长；")
 	b.WriteString("\n- 先表态再给理由；不要用标题、列表或代码块，也不要复述背景；")
 	b.WriteString("\n- 可以明确反对；不同意就说清反对点和能改变你立场的证据，不要为了和气而附和；")
 	b.WriteString("\n- 强烈不同意上一位时，可以用「先打断一下」开头直接反驳并 @ 对方；")
-	b.WriteString("\n- 要请某位参会人接话，在句末 @对方姓名；")
+	b.WriteString("\n- 要请某位参会人接话，在句末 @对方姓名；只能 @ 其他参会智能体，不要 @ 自己；")
 	if userName != "" {
 		b.WriteString("\n- 需要用户拍板或补充，在句末 @" + userName + "（或 @用户）提一个问题；")
 	} else {
@@ -1427,6 +1463,37 @@ func collectAgentDisplayNames(participants []*types.MeetingParticipant) []string
 		names = append(names, p.DisplayName)
 	}
 	return names
+}
+
+// agentNamesByID 构建 agentID -> 参会展示名 映射。
+// 讨论记录必须用展示名标注发言者，否则模型只能看到 UUID，无从判断是谁在说话，容易 @ 错对象。
+func agentNamesByID(participants []*types.MeetingParticipant) map[string]string {
+	names := make(map[string]string, len(participants))
+	for _, p := range participants {
+		if p.Kind != types.ParticipantKindAgent || p.AgentID == "" || p.DisplayName == "" {
+			continue
+		}
+		names[p.AgentID] = p.DisplayName
+	}
+	return names
+}
+
+// senderLabelWithNames 与 senderLabel 相同，但智能体发言优先显示参会展示名。
+func senderLabelWithNames(m *types.MeetingMessage, names map[string]string) string {
+	if m.SenderKind == types.MeetingSenderAgent {
+		if name := names[m.SenderID]; name != "" {
+			return name
+		}
+	}
+	return senderLabel(m)
+}
+
+// replyToSenderName 返回待回应消息的发言者展示名（用户/主持人/智能体展示名）。
+func replyToSenderName(replyTo *types.MeetingMessage, names map[string]string) string {
+	if replyTo == nil {
+		return ""
+	}
+	return senderLabelWithNames(replyTo, names)
 }
 
 func senderLabel(m *types.MeetingMessage) string {

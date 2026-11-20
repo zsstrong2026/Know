@@ -975,6 +975,28 @@ func (r *realKBRepo) CountByModelID(_ context.Context, _ uint64, _ string) (int6
 func (r *realKBRepo) ListModelUsages(_ context.Context, _ uint64, _ string) ([]types.ModelUsageResource, error) {
 	return []types.ModelUsageResource{}, nil
 }
+func (r *realKBRepo) CountModelBindings(
+	_ context.Context, _ *gorm.DB, _ uint64, _ string,
+) (map[types.ModelUsageBinding]int64, error) {
+	return map[types.ModelUsageBinding]int64{}, nil
+}
+func (r *realKBRepo) CountKnowledgeBasesWithDocumentsByEmbeddingModel(
+	_ context.Context, _ *gorm.DB, _ uint64, _ string,
+) (int64, error) {
+	return 0, nil
+}
+
+func (r *realKBRepo) CountKnowledgeDocumentsByEmbeddingModel(
+	_ context.Context, _ *gorm.DB, _ uint64, _ string,
+) (int64, error) {
+	return 0, nil
+}
+func (r *realKBRepo) ReassignModelReferences(
+	_ context.Context, _ *gorm.DB, _ uint64, _ string,
+	_ map[types.ModelUsageBinding]string,
+) error {
+	return nil
+}
 
 // The remaining methods are not called by the tested code paths; declare them
 // so realKBRepo satisfies interfaces.KnowledgeBaseRepository.

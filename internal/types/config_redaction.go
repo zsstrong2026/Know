@@ -177,6 +177,12 @@ func MergeParserEngineConfigForUpdate(incoming, existing *ParserEngineConfig) *P
 	if incoming.ChatParserEngineRules == nil && existing != nil {
 		out.ChatParserEngineRules = existing.ChatParserEngineRules
 	}
+	// The engine-connection form does not send the default routing table, so an
+	// update that omits the field must not wipe the workspace defaults. An
+	// explicit empty array still clears them.
+	if incoming.DefaultParserEngineRules == nil && existing != nil {
+		out.DefaultParserEngineRules = existing.DefaultParserEngineRules
+	}
 	return &out
 }
 

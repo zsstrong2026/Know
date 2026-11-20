@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Tencent/WeKnora/internal/infrastructure/docparser/anydoc"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/utils"
 )
@@ -164,4 +165,27 @@ func formatEnvValue(s envVarSpec, val string) string {
 		return fmt.Sprintf("set (%d chars)", len(val))
 	}
 	return val
+}
+
+// LogParserEngines states at boot whether the in-process anydoc engine is
+// actually linked into this binary.
+//
+// anydoc is opt-in at compile time: without `-tags anydoc` the stub in
+// backend_stub.go is compiled instead, the server starts normally and /health
+// stays ok, so the engine only shows up as unavailable on the settings page or
+// when a document fails to parse. That silent degradation has repeatedly
+// surfaced as "anydoc disappeared after a rebuild" (a binary built without the
+// tag copied into a running container), so the availability is stated
+// explicitly, with the command that restores it.
+func LogParserEngines(ctx context.Context) {
+	if anydoc.Available() {
+		logger.Infof(ctx, "[parser-engines] anydoc=%s (in-process, %d formats)",
+			anydoc.Version(), len(anydoc.SupportedFileTypes()))
+		return
+	}
+	logger.Warnf(ctx,
+		"[parser-engines] anydoc is NOT linked into this binary: %s. "+
+			"Rebuild with the tag: `scripts/build-anydoc-image.sh --binary-only` then "+
+			"`docker cp WeKnora WeKnora-app:/app/WeKnora`, or build the image with WITH_ANYDOC=1",
+		anydoc.UnavailableReason())
 }

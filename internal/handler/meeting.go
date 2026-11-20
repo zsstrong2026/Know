@@ -42,6 +42,7 @@ func (h *MeetingHandler) ensureMeetingAccess(c *gin.Context, tenantID uint64) bo
 type createMeetingRequest struct {
 	Title                     string   `json:"title" binding:"required"`
 	Description               string   `json:"description"`
+	Mode                      string   `json:"mode" binding:"omitempty,oneof=hosted free"`
 	BroadcastMode             string   `json:"broadcast_mode"`
 	RoutingMode               string   `json:"routing_mode"`
 	GuardMaxExchange          int      `json:"guard_max_exchange"`
@@ -66,7 +67,7 @@ func (h *MeetingHandler) CreateMeeting(c *gin.Context) {
 	userID, _ := types.UserIDFromContext(ctx)
 	room := &types.MeetingRoom{
 		TenantID: tenantID, CreatedBy: userID,
-		Title: req.Title, Description: req.Description,
+		Title: req.Title, Description: req.Description, Mode: req.Mode,
 		BroadcastMode: req.BroadcastMode, GuardMaxExchange: req.GuardMaxExchange,
 		RoutingMode: req.RoutingMode, HostEveryNRounds: req.HostEveryNRounds,
 		ConsensusDetectionEnabled: req.ConsensusDetectionEnabled,

@@ -100,6 +100,28 @@ func TestCreateMeetingBuildsParticipants(t *testing.T) {
 	assert.ErrorContains(t, err, "agent not found: ghost")
 }
 
+// TestCreateMeetingFreeMode 自由模式：不创建主持人、创建即 active、无议题治理
+func TestCreateMeetingFreeMode(t *testing.T) {
+	ctx := context.Background()
+	agents := map[string]*types.CustomAgent{
+		"a1": {ID: "a1", Name: "架构师"},
+		"a2": {ID: "a2", Name: "测试专家"},
+	}
+	svc, _, parts := crudFixture(agents)
+
+	room := &types.MeetingRoom{ID: "r-free", TenantID: 1, Title: "自由讨论", Mode: types.MeetingModeFree}
+	created, err := svc.CreateMeeting(ctx, room, []string{"a1", "a2"})
+	require.NoError(t, err)
+	assert.Equal(t, types.MeetingStatusActive, created.Status)
+	assert.False(t, created.AgendaEnabled)
+	assert.False(t, created.ConsensusDetectionEnabled)
+	require.Len(t, parts.batched, 2, "自由模式不创建主持人参会者")
+	for _, p := range parts.batched {
+		assert.Equal(t, types.ParticipantKindAgent, p.Kind)
+	}
+	assert.Equal(t, "架构师", parts.batched[0].DisplayName)
+}
+
 // TestUpdateMeetingPassthrough 更新会议透传仓储（T6.2 前端 PATCH 链路的服务层等价）
 func TestUpdateMeetingPassthrough(t *testing.T) {
 	ctx := context.Background()

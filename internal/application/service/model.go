@@ -20,6 +20,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/Tencent/WeKnora/internal/utils"
+	"gorm.io/gorm"
 )
 
 // ErrModelNotFound is returned when a model cannot be found in the repository
@@ -30,26 +31,36 @@ type modelService struct {
 	repo          interfaces.ModelRepository
 	kbRepo        interfaces.KnowledgeBaseRepository
 	agentRepo     interfaces.CustomAgentRepository
+	tenantRepo    interfaces.TenantRepository
+	sessionRepo   interfaces.SessionRepository
 	ollamaService *ollama.OllamaService
 	pooler        embedding.EmbedderPooler
 	tenantService interfaces.TenantService
+	// db 用于“改写引用 + 删除模型”的跨表事务。
+	db *gorm.DB
 }
 
 // NewModelService creates a new model service instance
 func NewModelService(repo interfaces.ModelRepository,
 	kbRepo interfaces.KnowledgeBaseRepository,
 	agentRepo interfaces.CustomAgentRepository,
+	tenantRepo interfaces.TenantRepository,
 	ollamaService *ollama.OllamaService,
 	pooler embedding.EmbedderPooler,
 	tenantService interfaces.TenantService,
+	db *gorm.DB,
+	sessionRepo interfaces.SessionRepository,
 ) interfaces.ModelService {
 	return &modelService{
 		repo:          repo,
 		kbRepo:        kbRepo,
 		agentRepo:     agentRepo,
+		tenantRepo:    tenantRepo,
+		sessionRepo:   sessionRepo,
 		ollamaService: ollamaService,
 		pooler:        pooler,
 		tenantService: tenantService,
+		db:            db,
 	}
 }
 
@@ -504,9 +515,12 @@ func (s *modelService) DeleteModel(ctx context.Context, id string) error {
 			agentCount = int64(len(usage.Agents))
 		}
 		memoryInUse := len(usage.LongTermMemory.Bindings) > 0
-		logger.Warnf(ctx, "Model %s is in use: kb=%d agent=%d memory=%t", id, kbCount, agentCount, memoryInUse)
+		logger.Warnf(ctx, "Model %s is in use: kb=%d agent=%d doc=%d memory=%t chatHistory=%t",
+			id, kbCount, agentCount, usage.DocumentTotal, memoryInUse, usage.ChatHistoryEmbedding)
 		return apperrors.NewModelInUseError(
-			formatModelInUseMessage(kbCount, agentCount, memoryInUse),
+			formatModelInUseMessage(
+				kbCount, agentCount, usage.DocumentTotal, memoryInUse, usage.ChatHistoryEmbedding,
+			),
 			usage,
 		)
 	}
@@ -520,6 +534,9 @@ func (s *modelService) DeleteModel(ctx context.Context, id string) error {
 		})
 		return err
 	}
+
+	// 会话里的输入栏记忆不阻塞删除，但删除后必须清理，避免前端恢复出悬空模型。
+	s.reassignSessionModelMemory(ctx, tenantID, id)
 
 	logger.Infof(ctx, "Model deleted successfully: %s", id)
 	return nil
@@ -564,6 +581,13 @@ func (s *modelService) getModelUsageDetails(
 		}
 	}
 
+	// 文档级向量引用无法迁移，必须计入删除守卫。
+	docCount, err := s.kbRepo.CountKnowledgeDocumentsByEmbeddingModel(ctx, nil, tenantID, modelID)
+	if err != nil {
+		return details, err
+	}
+	details.DocumentTotal = docCount
+
 	if s.tenantService == nil {
 		return details, nil
 	}
@@ -571,7 +595,16 @@ func (s *modelService) getModelUsageDetails(
 	if err != nil {
 		return details, err
 	}
-	if tenant == nil || tenant.MemoryConfig == nil {
+	if tenant == nil {
+		return details, nil
+	}
+
+	// 聊天历史索引一旦建立索引就不能更换 Embedding 模型。
+	if cfg := tenant.ChatHistoryConfig; cfg != nil &&
+		cfg.Enabled && strings.TrimSpace(cfg.EmbeddingModelID) == modelID {
+		details.ChatHistoryEmbedding = true
+	}
+	if tenant.MemoryConfig == nil {
 		return details, nil
 	}
 
@@ -590,6 +623,568 @@ func (s *modelService) getModelUsageDetails(
 		)
 	}
 	return details, nil
+}
+
+// modelReassignmentBindingOrder 固定改写项的返回顺序，便于前端与测试断言。
+var modelReassignmentBindingOrder = []types.ModelUsageBinding{
+	types.ModelUsageBindingEmbeddingModel,
+	types.ModelUsageBindingSummaryModel,
+	types.ModelUsageBindingImageProcessingModel,
+	types.ModelUsageBindingVLMModel,
+	types.ModelUsageBindingASRModel,
+	types.ModelUsageBindingWikiSynthesisModel,
+	types.ModelUsageBindingAutoTagModel,
+	types.ModelUsageBindingChatModel,
+	types.ModelUsageBindingRerankModel,
+	types.ModelUsageBindingQueryUnderstandModel,
+	types.ModelUsageBindingFollowUpModel,
+	types.ModelUsageBindingExtractModel,
+}
+
+// GetModelReassignmentPlan 计算删除模型前，各引用可改写到的默认模型。
+func (s *modelService) GetModelReassignmentPlan(
+	ctx context.Context, id string,
+) (*types.ModelReassignmentPlan, error) {
+	tenantID := types.MustTenantIDFromContext(ctx)
+	model, err := s.loadDeletableModel(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+
+	kbCounts, err := s.kbRepo.CountModelBindings(ctx, nil, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	agentCounts, err := s.agentRepo.CountModelBindings(ctx, nil, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	kbTotal, err := s.kbRepo.CountByModelID(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	agentTotal, err := s.agentRepo.CountByModelID(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	memoryBindings := s.memoryModelBindings(ctx, tenantID, id)
+	sessionCount, err := s.countSessionModelBindings(ctx, nil, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+
+	plan := &types.ModelReassignmentPlan{
+		ModelID:            id,
+		ModelName:          model.Name,
+		CanDelete:          true,
+		Items:              make([]types.ModelReassignmentItem, 0),
+		Blockers:           make([]types.ModelReassignmentBlocker, 0),
+		KnowledgeBaseTotal: kbTotal,
+		AgentTotal:         agentTotal,
+		LongTermMemory:     types.ModelUsageMemory{Bindings: memoryBindings},
+		SessionModelCount:  sessionCount,
+	}
+
+	// 知识库已有文档时，Embedding 模型不能替换。
+	if kbCounts[types.ModelUsageBindingEmbeddingModel] > 0 {
+		count, err := s.kbRepo.CountKnowledgeBasesWithDocumentsByEmbeddingModel(ctx, nil, tenantID, id)
+		if err != nil {
+			return nil, err
+		}
+		if count > 0 {
+			plan.Blockers = append(plan.Blockers, types.ModelReassignmentBlocker{
+				Code:               types.ModelReassignmentBlockerEmbeddingHasDocuments,
+				Binding:            types.ModelUsageBindingEmbeddingModel,
+				ModelType:          types.ModelTypeEmbedding,
+				KnowledgeBaseCount: count,
+			})
+		}
+	}
+	// 文档级向量引用（例如知识库已换模型但旧文档仍指向该模型）同样不可迁移。
+	docCount, err := s.kbRepo.CountKnowledgeDocumentsByEmbeddingModel(ctx, nil, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if docCount > 0 {
+		plan.Blockers = append(plan.Blockers, types.ModelReassignmentBlocker{
+			Code:          types.ModelReassignmentBlockerEmbeddingInDocuments,
+			Binding:       types.ModelUsageBindingEmbeddingModel,
+			ModelType:     types.ModelTypeEmbedding,
+			DocumentCount: docCount,
+		})
+	}
+	// 聊天历史索引已使用该 Embedding 模型时不能替换。
+	if s.chatHistoryUsesModel(ctx, tenantID, id) {
+		plan.Blockers = append(plan.Blockers, types.ModelReassignmentBlocker{
+			Code:      types.ModelReassignmentBlockerChatHistoryEmbedding,
+			Binding:   types.ModelUsageBindingEmbeddingModel,
+			ModelType: types.ModelTypeEmbedding,
+		})
+	}
+
+	models, err := s.repo.List(ctx, tenantID, "", "")
+	if err != nil {
+		return nil, err
+	}
+	settings := s.workspaceDefaultSettings(ctx, tenantID)
+
+	// 会话记忆改写为默认对话模型；没有可用默认时留空表示清空选择。
+	if sessionCount > 0 {
+		if target, _ := resolveReassignmentTarget(
+			models, settings, types.ModelUsageBindingChatModel, id,
+		); target != nil {
+			plan.SessionTargetModelID = target.ID
+			plan.SessionTargetModelName = target.Name
+		}
+	}
+
+	memorySet := make(map[types.ModelUsageBinding]bool, len(memoryBindings))
+	for _, binding := range memoryBindings {
+		memorySet[binding] = true
+	}
+
+	for _, binding := range modelReassignmentBindingOrder {
+		kbCount := kbCounts[binding]
+		agentCount := agentCounts[binding]
+		inMemory := memorySet[binding]
+		if kbCount == 0 && agentCount == 0 && !inMemory {
+			continue
+		}
+		modelType, ok := types.ModelUsageBindingModelType(binding)
+		if !ok {
+			continue
+		}
+		target, source := resolveReassignmentTarget(models, settings, binding, id)
+		if target == nil {
+			plan.Blockers = append(plan.Blockers, types.ModelReassignmentBlocker{
+				Code:      types.ModelReassignmentBlockerNoDefaultModel,
+				Binding:   binding,
+				ModelType: modelType,
+			})
+			continue
+		}
+		plan.Items = append(plan.Items, types.ModelReassignmentItem{
+			Binding:            binding,
+			ModelType:          modelType,
+			TargetModelID:      target.ID,
+			TargetModelName:    target.Name,
+			TargetSource:       source,
+			KnowledgeBaseCount: kbCount,
+			AgentCount:         agentCount,
+			LongTermMemory:     inMemory,
+		})
+	}
+
+	plan.CanDelete = len(plan.Blockers) == 0
+	return plan, nil
+}
+
+// loadDeletableModel 读取模型并拒绝内置模型。
+func (s *modelService) loadDeletableModel(
+	ctx context.Context, tenantID uint64, id string,
+) (*types.Model, error) {
+	model, err := s.repo.GetByID(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if model == nil {
+		return nil, ErrModelNotFound
+	}
+	if model.IsBuiltin {
+		return nil, apperrors.NewBadRequestError("builtin models cannot be deleted")
+	}
+	return model, nil
+}
+
+// memoryModelBindings 返回长期记忆中引用该模型的绑定。
+func (s *modelService) memoryModelBindings(
+	ctx context.Context, tenantID uint64, modelID string,
+) []types.ModelUsageBinding {
+	bindings := make([]types.ModelUsageBinding, 0)
+	if s.tenantService == nil {
+		return bindings
+	}
+	tenant, err := s.tenantService.GetTenantByID(ctx, tenantID)
+	if err != nil || tenant == nil || tenant.MemoryConfig == nil {
+		return bindings
+	}
+	if strings.TrimSpace(tenant.MemoryConfig.EmbeddingModelID) == modelID {
+		bindings = append(bindings, types.ModelUsageBindingEmbeddingModel)
+	}
+	if strings.TrimSpace(tenant.MemoryConfig.ExtractModelID) == modelID {
+		bindings = append(bindings, types.ModelUsageBindingExtractModel)
+	}
+	return bindings
+}
+
+// reassignSessionModelMemory 清理删除模型后会话输入栏里的悬空引用。
+// 只影响 UI 记忆，失败仅记录日志，不影响删除结果。
+func (s *modelService) reassignSessionModelMemory(
+	ctx context.Context, tenantID uint64, modelID string,
+) {
+	if s.sessionRepo == nil || s.db == nil {
+		return
+	}
+	targetID := ""
+	if models, err := s.repo.List(ctx, tenantID, "", ""); err == nil {
+		if target, _ := resolveReassignmentTarget(
+			models, s.workspaceDefaultSettings(ctx, tenantID),
+			types.ModelUsageBindingChatModel, modelID,
+		); target != nil {
+			targetID = target.ID
+		}
+	}
+	if err := s.sessionRepo.ReassignLastRequestModel(
+		ctx, s.db, tenantID, modelID, targetID,
+	); err != nil {
+		logger.Warnf(ctx, "failed to clear session model memory for %s: %v", modelID, err)
+	}
+}
+
+// countSessionModelBindings 统计把该模型作为“上次输入栏选择”的会话数。
+func (s *modelService) countSessionModelBindings(
+	ctx context.Context, db *gorm.DB, tenantID uint64, modelID string,
+) (int64, error) {
+	if s.sessionRepo == nil {
+		return 0, nil
+	}
+	return s.sessionRepo.CountSessionsByLastRequestModel(ctx, db, tenantID, modelID)
+}
+
+// chatHistoryUsesModel 判断工作空间的聊天历史索引是否绑定该 Embedding 模型。
+func (s *modelService) chatHistoryUsesModel(
+	ctx context.Context, tenantID uint64, modelID string,
+) bool {
+	cfg := s.tenantChatHistoryConfig(ctx, tenantID)
+	return cfg != nil && cfg.Enabled && strings.TrimSpace(cfg.EmbeddingModelID) == modelID
+}
+
+// tenantChatHistoryConfig 读取租户聊天历史配置；读取失败按未配置处理。
+func (s *modelService) tenantChatHistoryConfig(
+	ctx context.Context, tenantID uint64,
+) *types.ChatHistoryConfig {
+	if s.tenantService == nil {
+		return nil
+	}
+	tenant, err := s.tenantService.GetTenantByID(ctx, tenantID)
+	if err != nil || tenant == nil {
+		return nil
+	}
+	return tenant.ChatHistoryConfig
+}
+
+// appendBindingOnce 追加去重后的绑定，保持调用方顺序稳定。
+func appendBindingOnce(
+	bindings []types.ModelUsageBinding, binding types.ModelUsageBinding,
+) []types.ModelUsageBinding {
+	for _, existing := range bindings {
+		if existing == binding {
+			return bindings
+		}
+	}
+	return append(bindings, binding)
+}
+
+// resolveReassignmentTarget 按“工作空间默认 → 部署默认”的顺序解析目标模型。
+// 目标必须 active、支持该类型，且不能是被删除的模型本身。
+func resolveReassignmentTarget(
+	models []*types.Model, settings *types.DefaultSettings,
+	binding types.ModelUsageBinding, deletedID string,
+) (*types.Model, string) {
+	modelType, ok := types.ModelUsageBindingModelType(binding)
+	if !ok {
+		return nil, ""
+	}
+	for _, candidateID := range workspaceTargetIDs(settings, binding) {
+		if candidateID == "" || candidateID == deletedID {
+			continue
+		}
+		for _, model := range models {
+			if model != nil && model.ID == candidateID && usableReassignmentTarget(model, modelType) {
+				return model, types.ModelReassignmentTargetWorkspaceDefault
+			}
+		}
+	}
+	for _, model := range models {
+		if model == nil || model.ID == deletedID || !model.IsDefault {
+			continue
+		}
+		if usableReassignmentTarget(model, modelType) {
+			return model, types.ModelReassignmentTargetDeploymentDefault
+		}
+	}
+	return nil, ""
+}
+
+// workspaceTargetIDs 返回该绑定的工作空间默认槽位候选（按优先级）。
+func workspaceTargetIDs(
+	settings *types.DefaultSettings, binding types.ModelUsageBinding,
+) []string {
+	if settings == nil {
+		return nil
+	}
+	switch binding {
+	case types.ModelUsageBindingEmbeddingModel:
+		return []string{strings.TrimSpace(settings.EmbeddingModelID)}
+	case types.ModelUsageBindingChatModel:
+		return []string{strings.TrimSpace(settings.ChatModelID)}
+	case types.ModelUsageBindingSummaryModel, types.ModelUsageBindingWikiSynthesisModel,
+		types.ModelUsageBindingAutoTagModel, types.ModelUsageBindingQueryUnderstandModel,
+		types.ModelUsageBindingFollowUpModel, types.ModelUsageBindingExtractModel:
+		// 后台轻量任务优先使用 Utility 模型，未配置时回落到对话默认。
+		return []string{
+			strings.TrimSpace(settings.UtilityModelID),
+			strings.TrimSpace(settings.ChatModelID),
+		}
+	case types.ModelUsageBindingRerankModel:
+		return []string{strings.TrimSpace(settings.RerankModelID)}
+	case types.ModelUsageBindingVLMModel, types.ModelUsageBindingImageProcessingModel:
+		return []string{strings.TrimSpace(settings.VLMModelID)}
+	case types.ModelUsageBindingASRModel:
+		return []string{strings.TrimSpace(settings.ASRModelID)}
+	default:
+		return nil
+	}
+}
+
+func usableReassignmentTarget(model *types.Model, modelType types.ModelType) bool {
+	return model.Status == types.ModelStatusActive && model.SupportsType(modelType)
+}
+
+// DeleteModelWithReassignment 在一个事务内改写引用、清空默认槽位并删除模型。
+func (s *modelService) DeleteModelWithReassignment(
+	ctx context.Context, id string,
+) (*types.ModelReassignmentPlan, error) {
+	tenantID := types.MustTenantIDFromContext(ctx)
+	plan, err := s.GetModelReassignmentPlan(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !plan.CanDelete {
+		return nil, apperrors.NewBadRequestError(
+			formatModelReassignmentBlockMessage(plan),
+		).WithDetails(plan)
+	}
+	if s.db == nil {
+		return nil, apperrors.NewInternalServerError("database is not configured")
+	}
+
+	targets := make(map[types.ModelUsageBinding]string, len(plan.Items))
+	for _, item := range plan.Items {
+		targets[item.Binding] = item.TargetModelID
+	}
+	memoryBindings := plan.LongTermMemory.Bindings
+
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 事务内重新确认引用仍然存在，避免 plan 过期后漏改。
+		kbCounts, err := s.kbRepo.CountModelBindings(ctx, tx, tenantID, id)
+		if err != nil {
+			return err
+		}
+		agentCounts, err := s.agentRepo.CountModelBindings(ctx, tx, tenantID, id)
+		if err != nil {
+			return err
+		}
+		docCount, err := s.kbRepo.CountKnowledgeBasesWithDocumentsByEmbeddingModel(
+			ctx, tx, tenantID, id,
+		)
+		if err != nil {
+			return err
+		}
+		docModelCount, err := s.kbRepo.CountKnowledgeDocumentsByEmbeddingModel(
+			ctx, tx, tenantID, id,
+		)
+		if err != nil {
+			return err
+		}
+		sessionCount, err := s.countSessionModelBindings(ctx, tx, tenantID, id)
+		if err != nil {
+			return err
+		}
+		if docCount > 0 || docModelCount > 0 {
+			blocked := *plan
+			blocked.CanDelete = false
+			blocked.Blockers = append([]types.ModelReassignmentBlocker{}, plan.Blockers...)
+			if docCount > 0 {
+				blocked.Blockers = append(blocked.Blockers, types.ModelReassignmentBlocker{
+					Code:               types.ModelReassignmentBlockerEmbeddingHasDocuments,
+					Binding:            types.ModelUsageBindingEmbeddingModel,
+					ModelType:          types.ModelTypeEmbedding,
+					KnowledgeBaseCount: docCount,
+				})
+			}
+			if docModelCount > 0 {
+				blocked.Blockers = append(blocked.Blockers, types.ModelReassignmentBlocker{
+					Code:          types.ModelReassignmentBlockerEmbeddingInDocuments,
+					Binding:       types.ModelUsageBindingEmbeddingModel,
+					ModelType:     types.ModelTypeEmbedding,
+					DocumentCount: docModelCount,
+				})
+			}
+			return apperrors.NewBadRequestError(
+				formatModelReassignmentBlockMessage(&blocked),
+			).WithDetails(&blocked)
+		}
+
+		// 事务内复查长期记忆与聊天历史，避免缓存过期导致漏改写/漏阻塞。
+		var tenantRow types.Tenant
+		if err := tx.WithContext(ctx).
+			Select("memory_config", "chat_history_config").
+			Where("id = ?", tenantID).
+			First(&tenantRow).Error; err != nil {
+			return err
+		}
+		if cfg := tenantRow.ChatHistoryConfig; cfg != nil &&
+			cfg.Enabled && strings.TrimSpace(cfg.EmbeddingModelID) == id {
+			blocked := *plan
+			blocked.CanDelete = false
+			blocked.Blockers = append(
+				append([]types.ModelReassignmentBlocker{}, plan.Blockers...),
+				types.ModelReassignmentBlocker{
+					Code:      types.ModelReassignmentBlockerChatHistoryEmbedding,
+					Binding:   types.ModelUsageBindingEmbeddingModel,
+					ModelType: types.ModelTypeEmbedding,
+				},
+			)
+			return apperrors.NewBadRequestError(
+				formatModelReassignmentBlockMessage(&blocked),
+			).WithDetails(&blocked)
+		}
+		if tenantRow.MemoryConfig != nil {
+			if strings.TrimSpace(tenantRow.MemoryConfig.EmbeddingModelID) == id {
+				if _, ok := targets[types.ModelUsageBindingEmbeddingModel]; !ok {
+					return apperrors.NewBadRequestError(
+						"model references changed during deletion; please retry",
+					).WithDetails(plan)
+				}
+				memoryBindings = appendBindingOnce(
+					memoryBindings, types.ModelUsageBindingEmbeddingModel,
+				)
+			}
+			if strings.TrimSpace(tenantRow.MemoryConfig.ExtractModelID) == id {
+				if _, ok := targets[types.ModelUsageBindingExtractModel]; !ok {
+					return apperrors.NewBadRequestError(
+						"model references changed during deletion; please retry",
+					).WithDetails(plan)
+				}
+				memoryBindings = appendBindingOnce(
+					memoryBindings, types.ModelUsageBindingExtractModel,
+				)
+			}
+		}
+
+		for binding, targetID := range targets {
+			modelType, ok := types.ModelUsageBindingModelType(binding)
+			if !ok {
+				continue
+			}
+			var target types.Model
+			if err := tx.WithContext(ctx).
+				Where("id = ?", targetID).
+				Where("(tenant_id = ? OR is_builtin = true)", tenantID).
+				First(&target).Error; err != nil {
+				return err
+			}
+			if !usableReassignmentTarget(&target, modelType) {
+				return apperrors.NewBadRequestError(
+					"reassignment target model is no longer usable",
+				).WithDetails(plan)
+			}
+		}
+
+		if err := s.tenantRepo.ClearDefaultModelSlots(ctx, tx, tenantID, id); err != nil {
+			return err
+		}
+		if len(kbCounts) > 0 {
+			if err := s.kbRepo.ReassignModelReferences(ctx, tx, tenantID, id, targets); err != nil {
+				return err
+			}
+		}
+		if len(agentCounts) > 0 {
+			if err := s.agentRepo.ReassignModelReferences(ctx, tx, tenantID, id, targets); err != nil {
+				return err
+			}
+		}
+		if len(memoryBindings) > 0 {
+			if err := s.tenantRepo.ReassignMemoryModelReferences(
+				ctx, tx, tenantID, id, targets,
+			); err != nil {
+				return err
+			}
+		}
+		// 会话记忆不阻塞删除：有默认对话模型时改写，否则清空选择。
+		if sessionCount > 0 && s.sessionRepo != nil {
+			if err := s.sessionRepo.ReassignLastRequestModel(
+				ctx, tx, tenantID, id, plan.SessionTargetModelID,
+			); err != nil {
+				return err
+			}
+		}
+
+		// 提交前复查，防止并发保存把旧模型 ID 写回。
+		kbAfter, err := s.kbRepo.CountModelBindings(ctx, tx, tenantID, id)
+		if err != nil {
+			return err
+		}
+		agentAfter, err := s.agentRepo.CountModelBindings(ctx, tx, tenantID, id)
+		if err != nil {
+			return err
+		}
+		sessionAfter, err := s.countSessionModelBindings(ctx, tx, tenantID, id)
+		if err != nil {
+			return err
+		}
+		if len(kbAfter) > 0 || len(agentAfter) > 0 || sessionAfter > 0 {
+			return apperrors.NewBadRequestError(
+				"model references changed during deletion; please retry",
+			).WithDetails(plan)
+		}
+
+		result := tx.WithContext(ctx).
+			Where("id = ? AND tenant_id = ?", id, tenantID).
+			Delete(&types.Model{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrModelNotFound
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	logger.Infof(ctx, "Model deleted with reassignment: %s", id)
+	return plan, nil
+}
+
+func formatModelReassignmentBlockMessage(plan *types.ModelReassignmentPlan) string {
+	parts := make([]string, 0, len(plan.Blockers))
+	for _, blocker := range plan.Blockers {
+		switch blocker.Code {
+		case types.ModelReassignmentBlockerEmbeddingHasDocuments:
+			parts = append(parts, fmt.Sprintf(
+				"%d knowledge base(s) already contain documents and use this embedding model",
+				blocker.KnowledgeBaseCount,
+			))
+		case types.ModelReassignmentBlockerEmbeddingInDocuments:
+			parts = append(parts, fmt.Sprintf(
+				"%d document(s) still store vectors from this embedding model",
+				blocker.DocumentCount,
+			))
+		case types.ModelReassignmentBlockerChatHistoryEmbedding:
+			parts = append(parts,
+				"chat history index uses this embedding model and requires re-indexing")
+		case types.ModelReassignmentBlockerNoDefaultModel:
+			parts = append(parts, fmt.Sprintf(
+				"no usable default %s model for binding %s",
+				blocker.ModelType, blocker.Binding,
+			))
+		default:
+			parts = append(parts, blocker.Code)
+		}
+	}
+	return "model cannot be deleted: " + strings.Join(parts, "; ")
 }
 
 // GetEmbeddingModel retrieves and initializes an embedding model instance
@@ -812,7 +1407,9 @@ func (s *modelService) GetASRModel(ctx context.Context, modelId string) (asr.ASR
 	return sttModel, nil
 }
 
-func formatModelInUseMessage(kbCount, agentCount int64, memory bool) string {
+func formatModelInUseMessage(
+	kbCount, agentCount, docCount int64, memory, chatHistory bool,
+) string {
 	var parts []string
 	if kbCount > 0 {
 		parts = append(parts, fmt.Sprintf("%d knowledge base(s)", kbCount))
@@ -820,8 +1417,14 @@ func formatModelInUseMessage(kbCount, agentCount int64, memory bool) string {
 	if agentCount > 0 {
 		parts = append(parts, fmt.Sprintf("%d agent(s)", agentCount))
 	}
+	if docCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d document(s)", docCount))
+	}
 	if memory {
 		parts = append(parts, "long-term memory")
+	}
+	if chatHistory {
+		parts = append(parts, "chat history index")
 	}
 	joined := strings.Join(parts, " and ")
 	return fmt.Sprintf(

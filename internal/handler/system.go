@@ -412,10 +412,14 @@ func (h *SystemHandler) getDocReaderConnInfo() (addr, transport string) {
 // @Router       /system/parser-engines [get]
 func (h *SystemHandler) ListParserEngines(c *gin.Context) {
 	var overrides map[string]string
+	// Workspace default routing is returned alongside the engine catalog so any
+	// KB editor can render the inherited value without admin-only settings reads.
+	var defaultRules []types.ParserEngineRule
 	if v, exists := c.Get(types.TenantInfoContextKey.String()); exists {
 		if tenant, ok := v.(*types.Tenant); ok && tenant != nil {
 			if tenant.ParserEngineConfig != nil {
 				overrides = tenant.ParserEngineConfig.ToOverridesMap()
+				defaultRules = tenant.ParserEngineConfig.DefaultParserEngineRules
 			}
 			if creds := tenant.Credentials.GetWeKnoraCloud(); creds != nil {
 				if overrides == nil {
@@ -430,7 +434,7 @@ func (h *SystemHandler) ListParserEngines(c *gin.Context) {
 	connected := reader != nil && reader.IsConnected()
 	remoteEngines := h.fetchRemoteEngines(c.Request.Context(), reader, overrides)
 	engines := docparser.ListAllEngines(connected, overrides, remoteEngines)
-	c.JSON(200, gin.H{"code": 0, "msg": "success", "data": engines, "docreader_addr": docreaderAddr, "docreader_transport": docreaderTransport, "connected": connected})
+	c.JSON(200, gin.H{"code": 0, "msg": "success", "data": engines, "docreader_addr": docreaderAddr, "docreader_transport": docreaderTransport, "connected": connected, "default_parser_engine_rules": defaultRules})
 }
 
 // ReconnectDocReader reconnects the document converter to a new (or same) DocReader address.

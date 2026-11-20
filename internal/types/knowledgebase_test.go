@@ -360,6 +360,35 @@ func TestDefaultParserEngineIgnoresEmptyPreference(t *testing.T) {
 	}
 }
 
+func TestMergeParserEngineRules(t *testing.T) {
+	defaults := []ParserEngineRule{
+		{FileTypes: []string{"pdf", "docx"}, Engine: "mineru"},
+		{FileTypes: []string{"csv"}, Engine: "simple"},
+	}
+	overrides := []ParserEngineRule{
+		{FileTypes: []string{"docx"}, Engine: "anydoc"},
+	}
+	merged := MergeParserEngineRules(defaults, overrides)
+	cfg := ChunkingConfig{ParserEngineRules: merged}
+
+	if got := cfg.ResolveParserEngine("pdf"); got != "mineru" {
+		t.Fatalf("pdf = %q, want the workspace default mineru", got)
+	}
+	if got := cfg.ResolveParserEngine("docx"); got != "anydoc" {
+		t.Fatalf("docx = %q, want the KB override anydoc", got)
+	}
+	if got := cfg.ResolveParserEngine("csv"); got != "simple" {
+		t.Fatalf("csv = %q, want the workspace default simple", got)
+	}
+
+	if got := MergeParserEngineRules(defaults, nil); len(got) != 2 {
+		t.Fatalf("empty overrides should keep every default rule, got %#v", got)
+	}
+	if got := MergeParserEngineRules(nil, overrides); len(got) != 1 || got[0].Engine != "anydoc" {
+		t.Fatalf("empty defaults should keep the overrides, got %#v", got)
+	}
+}
+
 func TestChunkingConfigResolveParserEngineDefaults(t *testing.T) {
 	var empty ChunkingConfig
 	if got := empty.ResolveParserEngine("pptx"); got != "markitdown" {

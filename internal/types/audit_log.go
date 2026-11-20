@@ -71,6 +71,13 @@ const (
 	// the store_id for forensic traceability.
 	AuditActionVectorStoreDeleted AuditAction = "vector_store.deleted"
 
+	// AuditActionModelDeletedWithReassignment fires when an admin deletes a
+	// model after its knowledge-base, agent and long-term-memory references
+	// were rewritten to the workspace/deployment default models. Details
+	// carries each binding's old → new model IDs and the cleared default
+	// slots.
+	AuditActionModelDeletedWithReassignment AuditAction = "model.deleted_with_reassignment"
+
 	// OpenSearch-specific actions emitted by the driver shipped in
 	// Phase 3. The OpenSearch index is a derived resource of the
 	// VectorStore — these events capture cluster-side side effects

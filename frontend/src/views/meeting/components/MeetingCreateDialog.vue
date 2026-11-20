@@ -14,6 +14,13 @@
         <t-textarea v-model="form.description" :autosize="{ minRows: 2, maxRows: 4 }"
           :placeholder="$t('meeting.topicPlaceholder')" />
       </t-form-item>
+      <t-form-item :label="$t('meeting.mode')">
+        <!-- 会议模式：primary-filled 让选中项为品牌色滑块 + 反白色文字，与全局选中态一致 -->
+        <t-radio-group v-model="form.mode" variant="primary-filled" class="mode-group">
+          <t-radio-button value="hosted">{{ $t('meeting.modeHosted') }}</t-radio-button>
+          <t-radio-button value="free">{{ $t('meeting.modeFree') }}</t-radio-button>
+        </t-radio-group>
+      </t-form-item>
       <t-form-item :label="$t('meeting.selectAgents')" required>
         <div class="agent-picker">
           <t-select v-model="form.agentIds" multiple filterable :placeholder="$t('meeting.selectAgents')">
@@ -29,7 +36,7 @@
           </div>
         </div>
       </t-form-item>
-      <p class="rules-hint">{{ $t('meeting.autoRulesHint') }}</p>
+      <p class="rules-hint">{{ form.mode === 'free' ? $t('meeting.modeFreeHint') : $t('meeting.autoRulesHint') }}</p>
     </t-form>
   </t-dialog>
 </template>
@@ -38,7 +45,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { MessagePlugin } from 'tdesign-vue-next';
-import { createMeeting, isModelHomogeneous, type MeetingRoom } from '@/api/meeting';
+import { createMeeting, isModelHomogeneous, type MeetingMode, type MeetingRoom } from '@/api/meeting';
 import { listAgents, type CustomAgent } from '@/api/agent';   // 复用既有智能体列表接口
 
 const props = defineProps<{ visible: boolean }>();
@@ -50,9 +57,10 @@ const agents = ref<CustomAgent[]>([]);
 const submitting = ref(false);
 let optionsLoaded = false; // 选项数据仅需拉取一次
 
-// 创建会议只需要名称、可选补充背景与参会智能体
+// 创建会议只需要名称、可选补充背景、会议模式与参会智能体
 const form = reactive({
   title: '', description: '',
+  mode: 'hosted' as MeetingMode, // 默认主持模式
   agentIds: [] as string[],
 });
 
@@ -89,6 +97,7 @@ async function loadOptions() {
 function resetForm() {
   form.title = '';
   form.description = '';
+  form.mode = 'hosted';
   form.agentIds = [];
 }
 
@@ -103,10 +112,11 @@ async function submit() {
   }
   submitting.value = true;
   try {
-    // 只提交名称、可选背景与参会智能体；其余规则由后端统一内置
+    // 只提交名称、可选背景、会议模式与参会智能体；其余规则由后端统一内置
     const room = await createMeeting({
       title: form.title,
       description: form.description,
+      mode: form.mode,
       agentIds: form.agentIds,
     });
     resetForm();
@@ -148,5 +158,17 @@ async function submit() {
   font-size: 12px;
   line-height: 18px;
   color: var(--td-text-color-placeholder);
+}
+
+/* 会议模式选择：品牌色底由滑块（bg-block）统一绘制，按钮自身与悬停态保持透明，避免双层背景错位或色差 */
+.mode-group {
+  :deep(.t-radio-button) {
+    font-weight: 500;
+  }
+
+  :deep(.t-radio-button.t-is-checked),
+  :deep(.t-radio-button.t-is-checked:hover:not(.t-is-disabled)) {
+    background: transparent;
+  }
 }
 </style>

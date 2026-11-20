@@ -293,10 +293,118 @@
               </div>
             </div>
           </section>
+
+          <section
+            v-if="usageConflict.document_total || usageConflict.chat_history_embedding"
+            class="model-usage-group"
+          >
+            <h3>{{ $t('modelSettings.usage.embeddingIndexes') }}</h3>
+            <ul>
+              <li v-if="usageConflict.document_total">
+                {{ $t('modelSettings.usage.documents', { count: usageConflict.document_total }) }}
+              </li>
+              <li v-if="usageConflict.chat_history_embedding">
+                {{ $t('modelSettings.usage.chatHistory') }}
+              </li>
+            </ul>
+          </section>
         </div>
 
         <div class="model-usage-dialog__actions">
           <t-button @click="showUsageDialog = false">{{ $t('common.close') }}</t-button>
+        </div>
+      </div>
+    </t-dialog>
+
+    <t-dialog
+      v-model:visible="showReassignDialog"
+      :header="$t('modelSettings.reassign.title')"
+      :footer="false"
+      width="680px"
+      destroy-on-close
+    >
+      <div v-if="reassignPlan" class="model-usage-dialog">
+        <p class="model-usage-dialog__description">
+          {{ $t('modelSettings.reassign.description', { name: reassignModelName }) }}
+        </p>
+
+        <div class="model-usage-dialog__content">
+          <section v-if="reassignPlan.items.length" class="model-usage-group">
+            <h3>{{ $t('modelSettings.reassign.replacements') }}</h3>
+            <ul>
+              <li v-for="item in reassignPlan.items" :key="item.binding">
+                <div class="model-usage-resource">
+                  <strong>{{ $t(modelUsageBindingI18nKey(item.binding)) }}</strong>
+                  <div class="model-usage-bindings">
+                    <t-tag size="small" theme="primary" variant="light">
+                      {{ item.target_model_name || item.target_model_id }}
+                    </t-tag>
+                    <t-tag v-if="item.knowledge_base_count" size="small" variant="outline">
+                      {{ $t('modelSettings.reassign.knowledgeBaseCount', { count: item.knowledge_base_count }) }}
+                    </t-tag>
+                    <t-tag v-if="item.agent_count" size="small" variant="outline">
+                      {{ $t('modelSettings.reassign.agentCount', { count: item.agent_count }) }}
+                    </t-tag>
+                    <t-tag v-if="item.long_term_memory" size="small" variant="outline">
+                      {{ $t('modelSettings.usage.longTermMemory') }}
+                    </t-tag>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </section>
+
+          <section v-if="reassignPlan.session_model_count" class="model-usage-group">
+            <h3>{{ $t('modelSettings.reassign.sessionMemoryTitle') }}</h3>
+            <p class="model-usage-truncated">
+              {{ reassignPlan.session_target_model_id
+                ? $t('modelSettings.reassign.sessionMemoryTarget', {
+                    count: reassignPlan.session_model_count,
+                    target: reassignPlan.session_target_model_name || reassignPlan.session_target_model_id,
+                  })
+                : $t('modelSettings.reassign.sessionMemoryClear', {
+                    count: reassignPlan.session_model_count,
+                  }) }}
+            </p>
+          </section>
+
+          <section v-if="reassignPlan.blockers.length" class="model-usage-group">
+            <h3>{{ $t('modelSettings.reassign.blockersTitle') }}</h3>
+            <p
+              v-for="(blocker, index) in reassignPlan.blockers"
+              :key="`${blocker.code}-${index}`"
+              class="model-usage-truncated"
+            >
+              {{ blockerText(blocker) }}
+            </p>
+          </section>
+        </div>
+
+        <t-checkbox
+          v-if="reassignPlan.can_delete"
+          v-model="reassignAcknowledged"
+          class="model-usage-dialog__ack"
+        >
+          {{ $t('modelSettings.reassign.acknowledge') }}
+        </t-checkbox>
+
+        <div class="model-usage-dialog__actions">
+          <t-button
+            v-if="reassignUsageDetails"
+            variant="text"
+            @click="viewUsageFromReassign"
+          >
+            {{ $t('modelSettings.reassign.viewUsage') }}
+          </t-button>
+          <t-button @click="showReassignDialog = false">{{ $t('common.cancel') }}</t-button>
+          <t-button
+            theme="danger"
+            :disabled="!reassignPlan.can_delete || !reassignAcknowledged"
+            :loading="reassignSubmitting"
+            @click="confirmReassignDelete"
+          >
+            {{ $t('modelSettings.reassign.confirm') }}
+          </t-button>
         </div>
       </div>
     </t-dialog>
@@ -325,13 +433,18 @@ import {
   copyModelConfig,
   updateModel as updateModelAPI,
   deleteModel as deleteModelAPI,
+  getModelReassignmentPlan,
+  deleteModelWithReassignment,
   ModelInUseError,
+  ModelReassignmentBlockedError,
   modelUsageBindingI18nKey,
   modelUsageKnowledgeBaseSection,
   modelUsageListTruncated,
   modelUsageResourceCount,
   modelUsageResourceRoute,
   type ModelConfig,
+  type ModelReassignmentBlocker,
+  type ModelReassignmentPlan,
   type ModelUsageDetails,
   type ModelUsageResourceKind,
 } from '@/api/model'
@@ -366,6 +479,14 @@ const showDebugDrawer = ref(false)
 const showUsageDialog = ref(false)
 const usageConflict = ref<ModelUsageDetails | null>(null)
 const usageConflictModelName = ref('')
+const showReassignDialog = ref(false)
+const reassignPlan = ref<ModelReassignmentPlan | null>(null)
+const reassignModelId = ref('')
+const reassignModelName = ref('')
+const reassignAcknowledged = ref(false)
+const reassignSubmitting = ref(false)
+// 从删除冲突弹窗进入时保留引用详情，供“查看引用详情”回退使用。
+const reassignUsageDetails = ref<ModelUsageDetails | null>(null)
 const currentModelType = ref<ModelType>('chat')
 const editingModel = ref<any>(null)
 const modelDraft = ref<Record<string, unknown> | null>(null)
@@ -789,12 +910,112 @@ const deleteModel = async (_type: ModelType, modelId: string) => {
   } catch (error: any) {
     console.error('删除模型失败:', error)
     if (error instanceof ModelInUseError) {
-      usageConflict.value = error.details
-      usageConflictModelName.value = model?.display_name || model?.name || modelId
+      const modelName = model?.display_name || model?.name || modelId
+      usageConflictModelName.value = modelName
+      await openReassignPlan(modelId, modelName, error.details)
+      return
+    }
+    if (error instanceof ModelReassignmentBlockedError) {
+      reassignPlan.value = error.plan
+      reassignModelId.value = modelId
+      reassignModelName.value = model?.display_name || model?.name || modelId
+      reassignAcknowledged.value = false
+      showReassignDialog.value = true
+      return
+    }
+    MessagePlugin.error(error.message || t('modelSettings.toasts.deleteFailed'))
+  }
+}
+
+// 获取并展示“引用改写为默认模型”的预览；失败时回退到旧的引用详情弹窗。
+const openReassignPlan = async (
+  modelId: string,
+  modelName: string,
+  usage?: ModelUsageDetails,
+) => {
+  reassignModelId.value = modelId
+  reassignModelName.value = modelName
+  reassignAcknowledged.value = false
+  reassignUsageDetails.value = usage ?? null
+  try {
+    const plan = await getModelReassignmentPlan(modelId)
+    if (plan.items.length === 0 && plan.blockers.length === 0) {
+      if (usage) {
+        usageConflict.value = usage
+        usageConflictModelName.value = modelName
+        showUsageDialog.value = true
+      } else {
+        MessagePlugin.warning(t('modelSettings.reassign.emptyPlan'))
+      }
+      return
+    }
+    reassignPlan.value = plan
+    showReassignDialog.value = true
+  } catch (error: any) {
+    console.error('获取模型改写计划失败:', error)
+    if (usage) {
+      usageConflict.value = usage
+      usageConflictModelName.value = modelName
       showUsageDialog.value = true
       return
     }
     MessagePlugin.error(error.message || t('modelSettings.toasts.deleteFailed'))
+  }
+}
+
+const blockerText = (blocker: ModelReassignmentBlocker) => {
+  if (blocker.code === 'embedding_model_has_documents') {
+    return t('modelSettings.reassign.blockedEmbeddingDocuments', {
+      count: blocker.knowledge_base_count || 0,
+    })
+  }
+  if (blocker.code === 'embedding_model_in_documents') {
+    return t('modelSettings.reassign.blockedEmbeddingDocumentsModel', {
+      count: blocker.document_count || 0,
+    })
+  }
+  if (blocker.code === 'embedding_model_in_chat_history') {
+    return t('modelSettings.reassign.blockedChatHistoryEmbedding')
+  }
+  if (blocker.code === 'no_default_model') {
+    const binding = blocker.binding
+      ? t(modelUsageBindingI18nKey(blocker.binding))
+      : t('modelSettings.usage.bindings.unknown')
+    return t('modelSettings.reassign.blockedNoDefault', { binding })
+  }
+  return t('modelSettings.reassign.blockedUnknown')
+}
+
+const viewUsageFromReassign = () => {
+  if (!reassignUsageDetails.value) return
+  usageConflict.value = reassignUsageDetails.value
+  usageConflictModelName.value = reassignModelName.value
+  showReassignDialog.value = false
+  showUsageDialog.value = true
+}
+
+const confirmReassignDelete = async () => {
+  const plan = reassignPlan.value
+  if (!plan?.can_delete || !reassignAcknowledged.value || reassignSubmitting.value) return
+  reassignSubmitting.value = true
+  try {
+    await deleteModelWithReassignment(reassignModelId.value)
+    MessagePlugin.success(t('modelSettings.toasts.deleted'))
+    showReassignDialog.value = false
+    reassignPlan.value = null
+    reassignUsageDetails.value = null
+    await loadModels()
+  } catch (error: any) {
+    console.error('改写引用后删除模型失败:', error)
+    if (error instanceof ModelReassignmentBlockedError) {
+      reassignPlan.value = error.plan
+      reassignAcknowledged.value = false
+      MessagePlugin.warning(t('modelSettings.reassign.blockedToast'))
+      return
+    }
+    MessagePlugin.error(error.message || t('modelSettings.toasts.deleteFailed'))
+  } finally {
+    reassignSubmitting.value = false
   }
 }
 
@@ -1493,5 +1714,10 @@ useAssistantDataChange(() => { void loadModels() }, { areas: ['model'] })
   display: flex;
   justify-content: flex-end;
   margin-top: 20px;
+}
+
+.model-usage-dialog__ack {
+  display: block;
+  margin-top: 16px;
 }
 </style>

@@ -3399,6 +3399,17 @@ func (s *installModelService) ListModels(context.Context) ([]*types.Model, error
 }
 func (s *installModelService) UpdateModel(context.Context, *types.Model) error { return nil }
 func (s *installModelService) DeleteModel(context.Context, string) error       { return nil }
+func (s *installModelService) GetModelReassignmentPlan(
+	context.Context, string,
+) (*types.ModelReassignmentPlan, error) {
+	return nil, nil
+}
+
+func (s *installModelService) DeleteModelWithReassignment(
+	context.Context, string,
+) (*types.ModelReassignmentPlan, error) {
+	return nil, nil
+}
 func (s *installModelService) UpdateModelCredentials(context.Context, string, *string, *string) (*types.Model, error) {
 	return nil, nil
 }

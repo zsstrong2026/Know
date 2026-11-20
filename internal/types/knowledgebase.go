@@ -386,6 +386,44 @@ func (c ChunkingConfig) ResolveParserEngineRule(fileType string) *ParserEngineRu
 	return nil
 }
 
+// MergeParserEngineRules layers knowledge-base (or per-upload) rules over the
+// workspace defaults: an override wins for every file type it names, and the
+// default fills the rest. Overrides lead the merged slice because rule lookup
+// keeps its first-match semantics.
+func MergeParserEngineRules(defaults, overrides []ParserEngineRule) []ParserEngineRule {
+	if len(defaults) == 0 {
+		return overrides
+	}
+	if len(overrides) == 0 {
+		return defaults
+	}
+	covered := make(map[string]struct{})
+	for _, rule := range overrides {
+		for _, ft := range rule.FileTypes {
+			covered[normalizeParserFileType(ft)] = struct{}{}
+		}
+	}
+	merged := make([]ParserEngineRule, 0, len(overrides)+len(defaults))
+	merged = append(merged, overrides...)
+	for _, rule := range defaults {
+		kept := make([]string, 0, len(rule.FileTypes))
+		for _, ft := range rule.FileTypes {
+			if _, ok := covered[normalizeParserFileType(ft)]; !ok {
+				kept = append(kept, ft)
+			}
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		merged = append(merged, ParserEngineRule{
+			FileTypes:            kept,
+			Engine:               rule.Engine,
+			XLSXFirstRowAsHeader: rule.XLSXFirstRowAsHeader,
+		})
+	}
+	return merged
+}
+
 func normalizeParserFileType(fileType string) string {
 	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fileType)), ".")
 }

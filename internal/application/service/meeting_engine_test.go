@@ -56,6 +56,8 @@ func TestBuildMeetingQuery(t *testing.T) {
 	assert.Contains(t, q, msgs[0].Content)
 	// 关键回归断言：名册必须注入 agent 展示名，否则模型无从产出可命中的 @展示名
 	assert.Contains(t, q, "乙")
+	// 讨论记录必须用展示名标注发言者，否则模型只能看到 UUID，容易 @ 错对象
+	assert.Contains(t, q, "乙: 我建议用蓝绿发布")
 	// 用户姓名必须注入，智能体才能用 @用户名 直接称呼用户
 	assert.Contains(t, q, "【用户】张三")
 	assert.Contains(t, q, "@张三")
@@ -72,6 +74,40 @@ func TestBuildMeetingQueryNoAgentRoster(t *testing.T) {
 	}
 	q := buildMeetingQuery(room, "讨论下部署方案", msgs, participants, "")
 	assert.NotContains(t, q, "【参会智能体】")
+}
+
+// TestFreeMeetingModeBehaviors 自由模式：无主持人介入、可自动接话、显式 @ 优先，prompt 引导主动挖掘信息
+func TestFreeMeetingModeBehaviors(t *testing.T) {
+	room := &types.MeetingRoom{
+		Title: "产品方向讨论", Mode: types.MeetingModeFree, RoutingMode: types.MeetingRoutingFree,
+	}
+	assert.False(t, hostInDiscussion(room), "自由模式没有主持人介入")
+	assert.True(t, canAutoContinue(room), "自由模式允许无人 @ 时自动接话")
+
+	agents := []*types.CustomAgent{{ID: "a1"}, {ID: "a2"}}
+	e := &meetingEngine{}
+	// 用户显式 @：优先点名对象，便于用户收束讨论
+	got := e.selectSpeakers(context.Background(), room,
+		&types.MeetingMessage{MentionedAgentIDs: []string{"a2"}}, agents)
+	assert.Equal(t, []*types.CustomAgent{agents[1]}, got)
+	// 无 @：保留全员自由发言
+	got = e.selectSpeakers(context.Background(), room, &types.MeetingMessage{}, agents)
+	assert.Equal(t, agents, got)
+
+	// 自动接话不依赖主持人模型：按参会顺序选人，不附带点名问题
+	next, hint := e.chooseNextSpeaker(context.Background(), room, &types.MeetingMessage{}, agents, nil, "")
+	assert.Equal(t, agents[0], next)
+	assert.Empty(t, hint)
+
+	// prompt 必须注入自由讨论协议：主动提问、相互讨论、服从用户收束
+	q := buildMeetingQuery(room, "会议开始", nil, []*types.MeetingParticipant{
+		{Kind: types.ParticipantKindAgent, AgentID: "a1", DisplayName: "产品"},
+		{Kind: types.ParticipantKindAgent, AgentID: "a2", DisplayName: "技术"},
+	}, "张三")
+	assert.Contains(t, q, "自由讨论模式")
+	assert.Contains(t, q, "没有主持人")
+	assert.Contains(t, q, "@用户")
+	assert.Contains(t, q, "用户会随时输入来纠正或收束讨论")
 }
 
 func roomFixture() *types.MeetingRoom {
@@ -374,6 +410,13 @@ func TestParseMentionedAgentIDs(t *testing.T) {
 	assert.Nil(t, parseMentionedAgentIDs("没有提及任何人", ps, "agent-A"))
 	// 参与者为空：不 panic、返回 nil
 	assert.Nil(t, parseMentionedAgentIDs("@甲", nil, "agent-A"))
+	// 展示名含空格（如 "AI 智能体专家"）：按全名匹配，不能被空格截断
+	ps2 := []*types.MeetingParticipant{
+		{Kind: types.ParticipantKindAgent, AgentID: "agent-A", DisplayName: "AI 智能体专家"},
+		{Kind: types.ParticipantKindAgent, AgentID: "agent-B", DisplayName: "产品助理"},
+	}
+	assert.Equal(t, []string{"agent-B"}, parseMentionedAgentIDs("我建议按行业平铺。@产品助理 你认这个分类轴吗？", ps2, "agent-A"))
+	assert.Nil(t, parseMentionedAgentIDs("@AI 智能体专家 我自己补充一句", ps2, "agent-A"))
 }
 
 // TestRunTurnConsumesQueuedTriggers 循环级行为：RunTurn 消费排队输入直至清空

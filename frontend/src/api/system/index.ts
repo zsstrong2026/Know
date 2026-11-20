@@ -114,9 +114,18 @@ export interface ParserEngineInfo {
 /** 解析引擎配置（引擎连接参数存空间；聊天附件解析策略在智能体中配置） */
 export type MinerUParseMethod = 'auto' | 'ocr' | 'txt'
 
+/** 一组文件类型对应的解析引擎路由规则 */
+export interface ParserEngineRule {
+  file_types: string[]
+  engine: string
+  xlsx_first_row_as_header?: boolean
+}
+
 export interface ParserEngineConfig {
   docreader_addr?: string
   docreader_transport?: string
+  /** 空间默认解析引擎路由：知识库未单独配置的文件类型跟随它 */
+  default_parser_engine_rules?: ParserEngineRule[]
   mineru_endpoint?: string
   mineru_api_key?: string
   // MinerU 自建参数（协议自动识别：4.0+ 走 V1 API）
@@ -149,6 +158,8 @@ export interface ParserEngineConfig {
 
 export interface ParserEnginesResponse {
   data: ParserEngineInfo[]
+  /** 空间默认解析路由，随引擎目录一并返回，供任意知识库编辑器展示继承值 */
+  default_parser_engine_rules?: ParserEngineRule[] | null
   docreader_addr?: string
   /** 连接方式：grpc | http，由服务端环境/配置决定 */
   docreader_transport?: string
@@ -162,6 +173,35 @@ export function getParserEngines(): Promise<ParserEnginesResponse> {
 /** 使用当前填写的参数检测引擎可用性（不保存），用于填写新参数后即时测试 */
 export function checkParserEngines(config: ParserEngineConfig): Promise<ParserEnginesResponse> {
   return post('/api/v1/system/parser-engines/check', config)
+}
+
+/** 自建解析引擎的运行状态（由宿主机 engine_supervisor.py 提供） */
+export interface EnginePowerState {
+  running: boolean
+  ports: number[]
+  last_active_at: number
+  idle_sec: number
+  started_at?: number | null
+}
+
+export interface EnginePowerStatus {
+  supervisor_available: boolean
+  idle_timeout_sec: number
+  engines: Record<string, EnginePowerState>
+}
+
+export function getEnginePowerStatus(): Promise<{ data: EnginePowerStatus }> {
+  return get('/api/v1/system/parser-engines/power')
+}
+
+/** 启停自建引擎：action 仅支持 start / stop */
+export function setEnginePower(engine: string, action: 'start' | 'stop'): Promise<{ code: number; msg?: string }> {
+  return post('/api/v1/system/parser-engines/power', { engine, action })
+}
+
+/** 更新空闲自动停止时长，0 表示关闭 */
+export function updateEnginePowerConfig(idleTimeoutSec: number): Promise<{ code: number; msg?: string }> {
+  return put('/api/v1/system/parser-engines/power/config', { idle_timeout_sec: idleTimeoutSec })
 }
 
 export function getParserEngineConfig(): Promise<{ data: ParserEngineConfig }> {

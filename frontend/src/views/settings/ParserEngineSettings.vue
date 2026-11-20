@@ -21,6 +21,8 @@
     </div>
 
     <template v-else>
+      <!-- 自建引擎显存开关：控制宿主机上的 MinerU / PaddleOCR-VL 进程 -->
+      <EnginePowerPanel />
       <div v-if="engines.length === 0 && !hasBuiltinEngine" class="empty-state">
         <p class="empty-text">{{ $t('settings.parser.noEngineDetected') }}</p>
       </div>
@@ -415,6 +417,7 @@ import { useUIStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 import { MessagePlugin } from 'tdesign-vue-next'
 import SettingDrawer from '@/components/settings/SettingDrawer.vue'
+import EnginePowerPanel from '@/components/EnginePowerPanel.vue'
 import {
   getParserEngines,
   getParserEngineConfig,
