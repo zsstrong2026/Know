@@ -58,3 +58,22 @@ type SopItemRepository interface {
 	// ListByProjectNo 按项目列出全部未软删事项（created_at, no 升序）。
 	ListByProjectNo(ctx context.Context, tenantID uint64, projectID string) ([]types.SopItem, error)
 }
+
+// SopItemExtraRepository 事项澄清与活动日志仓储（实现：repository.SopItemExtraRepo）。
+//
+// 只增不改不删：本接口刻意不提供 Update / Delete，活动一旦写入不可变更；
+// 澄清唯一的状态变化是 AnswerClarification 的 open → answered 单向迁移。
+// 写入方法在事务内校验事项属于该租户，跨租户或不存在时返回 gorm.ErrRecordNotFound。
+type SopItemExtraRepository interface {
+	AddClarification(ctx context.Context, c *types.SopItemClarification) error
+	// ListClarifications 列事项澄清，created_at 升序。
+	ListClarifications(ctx context.Context, tenantID uint64, itemID string) ([]types.SopItemClarification, error)
+	// AnswerClarification 仅当 status=open 时写答案并转 answered；
+	// 已回答再答返回错误（ErrSopClarificationNotOpen，定义在 repository 包）。
+	AnswerClarification(ctx context.Context, tenantID uint64, id, answer string) error
+	// SeedAnswered 批量写入已答澄清（新建事项 AI 拆解问答 seeding）。
+	SeedAnswered(ctx context.Context, tenantID uint64, itemID string, qas []types.SopItemClarification) error
+	AddActivity(ctx context.Context, a *types.SopItemActivity) error
+	// ListActivities 列事项活动，created_at 升序；kind 为空表示不过滤。
+	ListActivities(ctx context.Context, tenantID uint64, itemID, kind string) ([]types.SopItemActivity, error)
+}
