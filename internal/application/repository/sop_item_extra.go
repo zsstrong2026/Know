@@ -29,11 +29,16 @@ type SopItemExtraRepo struct{ db *gorm.DB }
 func NewSopItemExtraRepo(db *gorm.DB) *SopItemExtraRepo { return &SopItemExtraRepo{db: db} }
 
 // AddClarification 新增澄清（初始 open）；事务内先确认事项属于该租户。
+// 状态、答案与回答时间被强制清零：澄清不能生而 answered，否则可绕过
+// open → answered 单向状态机（BeforeCreate 只兜空值，不管脏值）。
 func (r *SopItemExtraRepo) AddClarification(ctx context.Context, c *types.SopItemClarification) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := requireSopItemInTenant(tx, c.TenantID, c.ItemID); err != nil {
 			return err
 		}
+		c.Status = types.SopClarificationStatusOpen
+		c.Answer = ""
+		c.AnsweredAt = nil
 		return tx.Create(c).Error
 	})
 }

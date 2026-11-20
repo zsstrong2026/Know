@@ -55,6 +55,27 @@ func TestClarificationAnswerOneWay(t *testing.T) {
 	require.Error(t, repo.AnswerClarification(ctx, 1, c.ID, "二次覆盖"), "已回答不可再改")
 }
 
+// 新建澄清必须落在 open 初始态：调用方即使传入终态、答案与回答时间，
+// 也不得直接落成 answered，否则可绕过 open → answered 单向状态机。
+func TestAddClarificationForcesOpen(t *testing.T) {
+	db := newSopExtraTestDB(t)
+	repo := NewSopItemExtraRepo(db)
+	ctx := context.Background()
+	answeredAt := time.Now().Add(-time.Hour)
+	c := &types.SopItemClarification{
+		TenantID: 1, ItemID: "it1", Question: "提前答好了？",
+		Status: "answered", Answer: "x", AnsweredAt: &answeredAt,
+	}
+	require.NoError(t, repo.AddClarification(ctx, c))
+
+	got, err := repo.ListClarifications(ctx, 1, "it1")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, types.SopClarificationStatusOpen, got[0].Status, "新建澄清只能是 open")
+	require.Empty(t, got[0].Answer, "新建澄清不得带答案")
+	require.Nil(t, got[0].AnsweredAt, "新建澄清不得带 answered_at")
+}
+
 func TestSeedAnswered(t *testing.T) {
 	db := newSopExtraTestDB(t)
 	repo := NewSopItemExtraRepo(db)
