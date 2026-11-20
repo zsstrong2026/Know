@@ -31,6 +31,14 @@ func newSopTplTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+// seedBuiltinTemplate 直接落库一行内置模板，绕过仓储 Create 的内置写入拒绝。
+// 对应 T7 以 tenant_id=0 的 SQL migration seed 内置模板的路径（仓储方法不是种子入口）。
+func seedBuiltinTemplate(t *testing.T, db *gorm.DB, tpl *types.SopTemplate) {
+	t.Helper()
+	tpl.IsBuiltin = true
+	require.NoError(t, db.Create(tpl).Error)
+}
+
 func TestPublishImmutableRevision(t *testing.T) {
 	db := newSopTplTestDB(t)
 	repo := NewSopTemplateRepo(db)
@@ -52,12 +60,33 @@ func TestPublishImmutableRevision(t *testing.T) {
 	require.Equal(t, 2, rev2.Revision)
 }
 
+// 内置模板必须 seed-only：Create 收到 IsBuiltin=true 一律拒绝且不落库。
+// 读路径带 `OR is_builtin = true`，若放行任意调用方建内置行，就能让一行模板对所有租户可见。
+func TestCreateRejectsBuiltinFlag(t *testing.T) {
+	db := newSopTplTestDB(t)
+	repo := NewSopTemplateRepo(db)
+	ctx := context.Background()
+
+	tpl := &types.SopTemplate{TenantID: 3, Name: "想冒充内置", IsBuiltin: true}
+	err := repo.Create(ctx, tpl)
+	require.ErrorIs(t, err, ErrSopTemplateBuiltinReadonly)
+
+	var count int64
+	require.NoError(t, db.Model(&types.SopTemplate{}).Count(&count).Error)
+	require.Zero(t, count, "被拒绝的创建不得插入任何行")
+
+	// 别的租户也不应该看到（读路径没有任何内置行可用）
+	list, err := repo.ListByTenant(ctx, 9, "")
+	require.NoError(t, err)
+	require.Empty(t, list)
+}
+
 func TestBuiltinReadonlyCopy(t *testing.T) {
 	db := newSopTplTestDB(t)
 	repo := NewSopTemplateRepo(db)
 	ctx := context.Background()
-	b := &types.SopTemplate{TenantID: 1, Name: "内置", IsBuiltin: true, Status: "published"}
-	require.NoError(t, repo.Create(ctx, b))
+	b := &types.SopTemplate{TenantID: 1, Name: "内置", Status: "published"}
+	seedBuiltinTemplate(t, db, b)
 	require.Error(t, repo.Update(ctx, b), "内置模板只读")
 	cp, err := repo.Copy(ctx, 1, b.ID, "副本")
 	require.NoError(t, err)
@@ -72,10 +101,10 @@ func TestPublishBackfillsTemplateState(t *testing.T) {
 	db := newSopTplTestDB(t)
 	repo := NewSopTemplateRepo(db)
 	ctx := context.Background()
-	tpl := &types.SopTemplate{TenantID: 1, Name: "t", IsBuiltin: true, Definition: types.SopDefinition{
+	tpl := &types.SopTemplate{TenantID: 1, Name: "t", Definition: types.SopDefinition{
 		Nodes: []types.SopNode{{ID: "n1", Name: "v1", Type: "agent"}},
 	}}
-	require.NoError(t, repo.Create(ctx, tpl))
+	seedBuiltinTemplate(t, db, tpl)
 	rev, err := repo.Publish(ctx, 1, tpl.ID, "u1")
 	require.NoError(t, err)
 
@@ -118,8 +147,12 @@ func TestListByTenantScope(t *testing.T) {
 	repo := NewSopTemplateRepo(db)
 	ctx := context.Background()
 	mk := func(tenantID uint64, projectID, name string, builtin bool) *types.SopTemplate {
-		tpl := &types.SopTemplate{TenantID: tenantID, ProjectID: projectID, Name: name, IsBuiltin: builtin}
-		require.NoError(t, repo.Create(ctx, tpl))
+		tpl := &types.SopTemplate{TenantID: tenantID, ProjectID: projectID, Name: name}
+		if builtin {
+			seedBuiltinTemplate(t, db, tpl)
+		} else {
+			require.NoError(t, repo.Create(ctx, tpl))
+		}
 		return tpl
 	}
 	global := mk(1, "", "全局", false)
@@ -143,13 +176,13 @@ func TestCopyIsIndependentDraft(t *testing.T) {
 	repo := NewSopTemplateRepo(db)
 	ctx := context.Background()
 	src := &types.SopTemplate{TenantID: 1, ProjectID: "p1", Name: "源", Status: "published", Version: 3,
-		MetricCategory: "交付", PublishedRevisionID: "rev-x", IsBuiltin: true,
+		MetricCategory: "交付", PublishedRevisionID: "rev-x",
 		Definition: types.SopDefinition{
 			Nodes:       []types.SopNode{{ID: "n1", Name: "分析", Type: "agent", MCP: []string{"know-kb"}}},
 			Edges:       []types.SopEdge{{ID: "e1", Source: "n1", Target: "n2", When: "success"}},
 			InputSchema: []string{"title"},
 		}}
-	require.NoError(t, repo.Create(ctx, src))
+	seedBuiltinTemplate(t, db, src)
 
 	cp, err := repo.Copy(ctx, 1, src.ID, "副本")
 	require.NoError(t, err)
@@ -176,15 +209,19 @@ func TestCopySharedBuiltinFromAnotherTenant(t *testing.T) {
 	repo := NewSopTemplateRepo(db)
 	ctx := context.Background()
 	seed := &types.SopTemplate{ID: "b0000000-0000-4000-8000-000000000001", TenantID: 0,
-		Name: "产品方案交付", IsBuiltin: true, Status: "published",
+		Name: "产品方案交付", Status: "published",
 		Definition: types.SopDefinition{Nodes: []types.SopNode{{ID: "n1", Name: "分析", Type: "agent"}}}}
-	require.NoError(t, repo.Create(ctx, seed))
+	seedBuiltinTemplate(t, db, seed)
 
 	cp, err := repo.Copy(ctx, 7, seed.ID, "我的副本")
 	require.NoError(t, err)
 	require.Equal(t, uint64(7), cp.TenantID)
 	require.False(t, cp.IsBuiltin)
 	require.NotEqual(t, seed.ID, cp.ID)
+	// 源内置行不被复制动作改动：仍是内置、仍跨租户可读
+	src, err := repo.GetByID(ctx, 7, seed.ID)
+	require.NoError(t, err)
+	require.True(t, src.IsBuiltin)
 	// 副本可写、可更新
 	cp.Description = "改一下"
 	require.NoError(t, repo.Update(ctx, cp))
@@ -194,8 +231,8 @@ func TestBuiltinGuardsWritePaths(t *testing.T) {
 	db := newSopTplTestDB(t)
 	repo := NewSopTemplateRepo(db)
 	ctx := context.Background()
-	b := &types.SopTemplate{TenantID: 1, Name: "内置", IsBuiltin: true}
-	require.NoError(t, repo.Create(ctx, b))
+	b := &types.SopTemplate{TenantID: 1, Name: "内置"}
+	seedBuiltinTemplate(t, db, b)
 
 	err := repo.Update(ctx, b)
 	require.ErrorIs(t, err, ErrSopTemplateBuiltinReadonly)
@@ -238,8 +275,8 @@ func TestBuiltinCrossTenantReadOnly(t *testing.T) {
 	db := newSopTplTestDB(t)
 	repo := NewSopTemplateRepo(db)
 	ctx := context.Background()
-	b := &types.SopTemplate{TenantID: 1, Name: "内置", IsBuiltin: true}
-	require.NoError(t, repo.Create(ctx, b))
+	b := &types.SopTemplate{TenantID: 1, Name: "内置"}
+	seedBuiltinTemplate(t, db, b)
 
 	got, err := repo.GetByID(ctx, 9, b.ID)
 	require.NoError(t, err, "内置模板应跨租户只读可见")

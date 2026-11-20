@@ -14,8 +14,12 @@ import (
 // 编译期断言：模板仓储实现必须满足接口契约。
 var _ interfaces.SopTemplateRepository = (*SopTemplateRepo)(nil)
 
-// ErrSopTemplateBuiltinReadonly 内置模板只读：Update / Delete 一律拒绝，
+// ErrSopTemplateBuiltinReadonly 内置模板只读：Create / Update / Delete 一律拒绝，
 // 修改路径是 Copy 出副本后再改（spec §3.3）。
+//
+// Create 拒绝 IsBuiltin=true 是归属边界而非风格约束：读路径带 `OR is_builtin = true`，
+// 若放行任意调用方插入内置行，该行就对所有租户可见（跨租户读泄漏）。内置模板只能由
+// seed 以 tenant_id=0 的 SQL migration 下发，仓储方法不作为种子入口。
 var ErrSopTemplateBuiltinReadonly = errors.New("sop template: builtin is readonly")
 
 // SopTemplateRepo 是 SOP 流程模板与发布 revision 的 GORM 实现。
@@ -32,7 +36,13 @@ type SopTemplateRepo struct{ db *gorm.DB }
 func NewSopTemplateRepo(db *gorm.DB) *SopTemplateRepo { return &SopTemplateRepo{db: db} }
 
 // Create 插入模板：草稿默认值（status=draft/version=1）由模型 BeforeCreate 补齐。
+//
+// IsBuiltin=true 一律拒绝（ErrSopTemplateBuiltinReadonly）：内置行跨租户可读，
+// 只能由 seed SQL 以 tenant_id=0 下发，否则任意租户都能建出全员可见的模板。
 func (r *SopTemplateRepo) Create(ctx context.Context, tpl *types.SopTemplate) error {
+	if tpl != nil && tpl.IsBuiltin {
+		return ErrSopTemplateBuiltinReadonly
+	}
 	return r.db.WithContext(ctx).Create(tpl).Error
 }
 
