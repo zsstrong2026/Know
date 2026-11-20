@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go（Know 现有后端栈，gorm + PostgreSQL/SQLite 双库）、Vue3 + Pinia + vue-router + TDesign + @vue-flow/core（新增依赖）、PmMarkdown（含 Mermaid）、SSE（复用 agent-chat 流式基建）、本机子进程（Windows Job Object / Git Bash）。
 
-**Spec:** `docs/superpowers/specs/2026-11-19-sop-workbench-design.md`（定稿，含 §16 共 21 条验收标准）
+**Spec:** `docs/superpowers/specs/2026-11-19-sop-workbench-design.md`（定稿，含 §16 共 26 条验收标准）
 **交互/视觉唯一参照:** `D:\loopforge\prototypes\sop-workbench-prototype.html`（已定稿单文件原型；其中 mock 数据仅演示，实现一律走真实 API）
 
 ## Global Constraints
@@ -32,6 +32,10 @@
 - 事项状态机 8 态：backlog/todo/in_progress/in_review/done/closed/blocked/cancelled，唯一写入口 `UpdateStatus → CanTransit`；运行成功自动推进：模板级 `on_success_item_status` 优先于项目级 `on_run_success_item_status`，都空则不动。
 - 项目编号 `<code>-<n>`：code 创建后不可修改（2–10 位字母数字、字母开头、租户内唯一）；next_item_no 事务内 `UPDATE … RETURNING` 并发不重号；项目删除级联事项/运行/触发配置/仓库绑定，存在进行中/待审批运行或仅剩一个项目时拒绝，磁盘工作区不自动删除；流程模板为全局资产跨项目共享。
 - 代码仓库绑定独立即时生效（不随「保存配置」提交）：url 仅 HTTPS/SSH Git 地址且同项目去重，第一个自动默认，解绑默认自动顺延；凭证走本机 git 凭证管理不落项目配置；发起运行时快照进 run，克隆到 `work/repos/<name>/` 并建 `sop/<run_id>` 工作分支。
+- **项目知识库默认自动创建**：新建项目默认建同名知识库（写入租户默认 Embedding 模型，失败不阻塞建项目、留空待补）；`kb_owner` ∈ project（随项目删除）/ linked（改绑，仅解绑）/ pm（迁移，仅解绑）。未绑 KB 时产物归档与简报同步降级并给白话指引，黑板、任务书现状块、`inputs/project-brief.md` 不受影响。
+- **项目共享上下文单一真相**：`sop_project_notes` 黑板是唯一写入源；《<项目名> 项目简报》是它在项目 KB 中的覆盖式投影（文档头标注自动生成、手改会被覆盖），可随时重建。简报渲染按 `brief_rendered_seq` 比对跳过空转，debounce 2s 合并，渲染失败只记日志不影响运行。
+- **大需求拆分只允许两级**：父项 `parent_id` 必须为空，拒绝三级嵌套；子项独立编号（平铺自增，不用层级编号）/状态/运行；父项不可直接发起运行（批量操作展开为子项）；父项执行情况由子项汇总（intervene>running>pr>closed>none），全部子项 done/closed 时父项经 `UpdateStatus` 推进为 done；模板产出子事项上限 20 条，超限失败不部分创建。
+- **版本规划本期不做**：不建版本表、不做版本视图/发布快照；事项只挂单层父子关系（用户决定，见澄清 17）。
 - 产品边界：个人使用、本地存储、不订阅、桌面 Web、不做移动端、不做多人实时协作。
 - 前端视觉与布局沿用 Know 现有主题与壳结构，交互细节以定稿原型为准；「PM 工作站」侧栏入口原位替换为「SOP 工作台」，不新增侧栏分组；`/platform/pm` 301 → `/platform/sop`。
 - 审批留痕不可篡改：每次审批 decision（人/时间/结论/意见）落盘 decision.md 并产物化 + sha256；通知复用 notifications 表，新增 kind：`sop_approval` / `sop_run_finished` / `sop_run_failed`。
@@ -57,6 +61,13 @@
 14. **画布依赖**：仅新增 `@vue-flow/core`（安装时取最新稳定版并锁入 package.json）；小地图/工具条自绘（参照原型 SVG 实现），不引额外画布插件。
 15. **迁移编号对照**：versioned 000166–000173 ↔ sqlite 000068–000075 一一对应（见 File Structure）；执行前 `ls migrations/versioned | tail` 复核未占用，若被占用顺延并同步更新本计划引用。
 16. **PM 专属 asynq handler 下线**放在 M10 收尾（迁移验证通过后），M1–M9 期间保持可用以便回退；`/platform/pm` 前端路由 redirect 在 M9 Task 38 落地，后端 routes_pm.go 写端点下线在 M10 Task 58。
+17. **版本规划明确不做**：用户决定「暂时先去掉版本的概念」，因此不建 `sop_versions`、不设 `items.version_id`、不做版本视图与发布快照；上一轮讨论中的版本方案整体搁置，不进入本计划。若后续要做，作为独立增补重走设计→计划。
+18. **项目建库复用 PM 既有语义**（`pm_project.go:74-105`）：`CreateKnowledgeBase{Name: 项目名, EmbeddingModelID: 默认嵌入模型}`，建库失败只 warn 不阻断；删除项目时按 `kb_owner` 区分连带删除/仅解绑。改绑 KB 后旧自建库不删，改名追加「（已迁移）」。
+19. **简报 = 黑板投影，不是第二真相**：`brief_knowledge_id` 指向的文档只由引擎 `CreateKnowledgeFromManual/UpdateManualKnowledge`（channel=`sop`）写入，状态恒 `publish`（保证检索可命中）；任何人工补充都必须落黑板（`source=human`）。AI 只产草稿（`POST /notes/decision-draft` 不落库），人确认后走 `POST /notes`。
+20. **父项状态唯一写入口**：父项 `done` 由引擎在子项终态时经 `UpdateStatus` 推进（复用 T22 状态机守卫），不由列表接口「顺手改」；`DeriveParentExecState` 是只读派生，与 T2 `DeriveExecState` 互不替代。
+21. **拆分与触发的关系**：`POST /items/:id/split` 只建子项不触发；`POST /items/:id/relaunch` 与 `POST /runs{item_id}` 遇到有子项的父项一律 400「该事项已拆分为子项，请对子项触发」，避免双轨执行。
+22. **迁移编号顺延**：M11 使用 `000174_sop_project_notes.*` ↔ `000076_sop_project_notes.*`（执行前 `ls migrations/versioned | tail` 复核；若被占用顺延并同步 §15 编号对照与 T55 parity 清单）。
+23. **既有 SQLite schema 守卫测试必须同步**：`internal/database/migration_sqlite_versioned_schema_test.go` 里 `expectedSQLiteMigrationVersion = 67` 需在 T1 随首个 sop 迁移改为 68，逐任务推进至最终 **76**；`versionedSQLiteTables` 追加 sop_projects/sop_items/sop_item_attachments/sop_item_clarifications/sop_item_activities/sop_templates/sop_template_revisions/sop_runs/sop_node_runs/sop_artifacts/sop_cli_credentials/sop_trigger_configs/sop_trigger_logs/sop_project_notes，`versionedSQLiteColumns` 追加 `sop_projects: kb_owner/brief_knowledge_id/brief_rendered_seq`、`sop_items: parent_id/split_source`。T1/T2/T3/T4/T5/T6/T59 各自的「运行确认通过」步骤必须先跑 `go test ./internal/database/ -run TestSQLiteMigrationsCreateVersionedSchema -v` 并 PASS——否则桌面 Lite 首次启动会迁移失败。
 
 ## File Structure
 
@@ -69,6 +80,7 @@
 - `000171_sop_cli_trigger.*` ↔ `000073_sop_cli_trigger.*` — sop_cli_credentials + sop_trigger_configs + sop_trigger_logs
 - `000172_sop_indexes.*` ↔ `000074_sop_indexes.*` — 派生字段 JOIN 所需复合索引
 - `000173_sop_builtin_templates.*` ↔ `000075_sop_builtin_templates.*` — 内置模板 seed（产品方案交付/需求上线复盘）
+- `000174_sop_project_notes.*` ↔ `000076_sop_project_notes.*` — sop_project_notes（项目黑板，§3.10）+ sop_items(parent_id) 部分索引；sop_projects/sop_items 的 M11 新列已就地写入 000166/000167 建表语句
 
 **后端新建（根 D:\知识库\Know\）：**
 - `internal/types/sop_project.go` — SopProject 模型 + repos JSON 类型 + 校验纯函数
@@ -93,6 +105,11 @@
 - `internal/application/service/sop/credential.go` — 凭据加解密 upsert/PATH 检测/安装指引
 - `internal/application/service/sop/archive.go` — 产物入 KB（.md 源文档 frontmatter + ingest）
 - `internal/application/service/sop/ai.go` — breakdown/analyze/clarify-generate/orchestrate（SSE，复用 AgentQA）
+- `internal/types/sop_project_note.go` — SopProjectNote 模型 + 五种 kind 常量 + 校验
+- `internal/types/sop_brief.go` — 简报渲染入参/`RenderProjectBrief` 纯函数（确定性文本，无 IO）+ `DeriveParentExecState` 父项汇总纯函数
+- `internal/application/repository/sop_project_note.go` — 黑板 CRUD + seq 自增分配 + 最近 N 条查询
+- `internal/application/service/sop/brief.go` — BriefService：黑板事件 → debounce 合并 → 渲染 → KB 覆盖写（seq 比对跳过，KB 缺失降级）+ 首次渲染
+- `internal/application/service/sop/note.go` — NotesService：记一条/编辑/软删/置顶/决策草稿（SSE）+ 运行终态自动摘要
 - `internal/application/service/sop/engine/engine.go` — Engine 结构 + deps + Run 生命周期入口
 - `internal/application/service/sop/engine/definition.go` — definition 解析/规范化/默认值
 - `internal/application/service/sop/engine/graph.go` — DAG 校验/拓扑/ancestors/descendants（借鉴 LoopForge engine/workflow_graph.go:60/79/242）
@@ -125,7 +142,7 @@
 - 对应 `*_test.go`（与被测文件同目录，testify + sqlite :memory: + httptest）
 
 **后端修改：**
-- `internal/container/container.go` — Provide(service.NewSopService)/Provide(handler.NewSopHandler) + engine 生命周期 Bind/Start（照抄 :913-947 automations 模式）
+- `internal/container/container.go` — Provide(service.NewSopService)/Provide(handler.NewSopHandler) + engine 生命周期 Bind/Start（照抄 :913-947 automations 模式）；追加 `repository.NewSopProjectNoteRepo`、`service.NewNotesService`、`service.NewBriefService`（注入 KnowledgeService/KnowledgeBaseService/Models 默认嵌入模型），并把 BriefService 作为 `engine.Deps.BriefProvider` 与 Dispatcher 回灌 BriefService.Trigger
 - `internal/router/router.go` — params 加 SopHandler 字段 + RegisterSopRoutes 调用（照抄 :386）
 - `internal/router/rbac.go` — manage_sop/run_sop/read_sop 能力→路由映射
 - `internal/types/tenant_api_key.go`（或现有能力枚举文件）— 新增 3 个能力常量
@@ -161,6 +178,7 @@
 - `src/views/sop/components/SopDocPreview.vue` — 产物预览大弹窗
 - `src/views/sop/components/SopCanvasToolbar.vue` — 撤销/重做/缩放/适应/自动排版/小地图
 - `src/views/sop/components/SopTriggerConfigModal.vue` — 触发配置模态
+- `src/views/sop/components/SopProjectBriefPanel.vue` — 项目黑板时间线 + 简报预览 + 生成决策草稿
 
 **前端修改：**
 - `frontend/package.json` — 新增 @vue-flow/core
@@ -179,6 +197,7 @@
 - 引擎/执行器测试一律 sqlite :memory: + testify require（照抄 repository/agent_prompt_repository_test.go:16 模式）；CLI 翻译测试用 testdata 黄金样本，不依赖真实 CLI 安装；真实 CLI 实测集中在 M10 Task 57。
 - 前端组件视觉/交互以定稿原型 `D:\loopforge\prototypes\sop-workbench-prototype.html` 为唯一参照（品牌色 #00a870 映射到 Know 主题变量）；原型 mock 数据一律替换为真实 API。
 - 现有 automation/hitl/pm 模块代码零改动（除本计划明确列出的修改点）；每个 Task 完成后 `go build ./...` 必须通过，不得破坏现有测试。
+- **SQLite schema 守卫**：`internal/database/migration_sqlite_versioned_schema_test.go` 是桌面 Lite 的迁移门禁——`expectedSQLiteMigrationVersion` 必须与最新 sqlite 迁移号同步（M1 起点 68，M11 终点 76），`versionedSQLiteTables`/`versionedSQLiteColumns` 必须收录新增表与列；新增含 DDL 的任务在其「运行确认通过」步骤里跑 `go test ./internal/database/ -run TestSQLiteMigrationsCreateVersionedSchema -v`。
 
 ---
 
@@ -194,7 +213,7 @@
 
 **Interfaces:**
 - Consumes: Know 现有 gorm 句柄、`types.TenantIDFromContext`、uuid 工具（照抄 types/pm.go PMProject 的 BeforeCreate）。
-- Produces: `types.SopProject`（字段见下）、`types.SopProjectRepo{Name,URL,Branch,Default}`、`types.ValidateSopProjectCode(code string) error`、`types.ValidateSopRepoURL(url string) error`、`types.NormalizeSopRepos(repos []SopProjectRepo) []SopProjectRepo`、`repository.SopProjectRepo` 结构（`NewSopProjectRepo(db *gorm.DB)`）方法 `Create/GetByID/ListByTenant/Update/Delete/AllocItemNo/AddRepo/RemoveRepo/SetDefaultRepo/CountActiveRuns`。后续 Task 2 编号分配、Task 21 项目端点、Task 9 工作区根目录全部消费这些签名。
+- Produces: `types.SopProject`（字段见下，含 `KBID`/`KBOwner`/`BriefKnowledgeID`/`BriefRenderedSeq`）、`types.SopProjectRepo{Name,URL,Branch,Default}`、`types.ValidateSopProjectCode(code string) error`、`types.ValidateSopRepoURL(url string) error`、`types.NormalizeSopRepos(repos []SopProjectRepo) []SopProjectRepo`、`types.SopKBOwnerProject/Linked/PM`（值 project/linked/pm）、`repository.SopProjectRepo` 结构（`NewSopProjectRepo(db *gorm.DB)`）方法 `Create/GetByID/ListByTenant/Update/Delete/AllocItemNo/AddRepo/RemoveRepo/SetDefaultRepo/CountActiveRuns`。后续 Task 2 编号分配、Task 21 项目端点、Task 9 工作区根目录全部消费这些签名。
 
 - [ ] **Step 1: 写迁移（4 个文件）**
 
@@ -210,6 +229,9 @@ CREATE TABLE IF NOT EXISTS sop_projects (
     code VARCHAR(10) NOT NULL,
     next_item_no INTEGER NOT NULL DEFAULT 0,
     kb_id VARCHAR(36) NOT NULL DEFAULT '',
+    kb_owner VARCHAR(16) NOT NULL DEFAULT 'project',
+    brief_knowledge_id VARCHAR(36) NOT NULL DEFAULT '',
+    brief_rendered_seq BIGINT NOT NULL DEFAULT 0,
     default_template_id VARCHAR(36) NOT NULL DEFAULT '',
     default_executor VARCHAR(64) NOT NULL DEFAULT 'platform_agent',
     on_run_success_item_status VARCHAR(32) NOT NULL DEFAULT '',
@@ -528,7 +550,7 @@ func (r *SopProjectRepo) SetDefaultRepo(ctx context.Context, tenantID uint64, id
 
 - [ ] **Step 5: 运行确认通过**
 
-Run: `go test ./internal/types/ -run "TestValidateSop|TestNormalizeSopRepos" -v && go test ./internal/application/repository/ -run "TestAllocItemNo|TestRepoDefault" -v && go build ./...`
+Run: `go test ./internal/types/ -run "TestValidateSop|TestNormalizeSopRepos" -v && go test ./internal/application/repository/ -run "TestAllocItemNo|TestRepoDefault" -v && go test ./internal/database/ -run TestSQLiteMigrationsCreateVersionedSchema -v && go build ./...`
 Expected: 全部 PASS，构建通过。
 
 - [ ] **Step 6: 提交**
@@ -548,7 +570,7 @@ git commit -m "feat(sop): sop_projects 模型/双库迁移/仓储（编号 CAS �
 
 **Interfaces:**
 - Consumes: Task 1 `SopProjectRepo.AllocItemNo`。
-- Produces: `types.SopItem`（No/Kind/Priority/Status/Source/Proposer/Tags/TemplateID/KBID/KnowledgeID/Outcome/DomainData/LastRunID/ProjectID/Title/Description）、`types.SopItemAttachment`（ItemID/Name/MediaType/Size/Data []byte/TextContent）、8 态常量 `SopItemStatusBacklog…Cancelled`、`types.CanTransitSopItem(from, to string) bool`、`types.DeriveExecState(itemStatus, runStatus string, hasRun bool) string`（返回 none/running/intervene/pr/closed）、`types.SopExecStateLabels`（五态中文）、`types.SopSourceLabel(source string) string`（六键中文映射）、`types.DeriveProgress(nodeRuns []SopNodeRun) (done, total int)`（Task 5 类型就绪后编译，本 Task 先用 `[]struct{Status string}` 最小签名 `DeriveProgress(statuses []string) (done, total int)`）、`types.DeriveCurrentNode(itemStatus string, nodeRuns []SopNodeRun) string` 同理暂用 `DeriveCurrentNode(itemStatus string, running, waiting, failed []string) string`。repository `SopItemRepo`：`Create/GetByID/ListWithDerived(过滤+JOIN)/Update/Delete/UpdateStatus/BulkUpdateStatus/AddAttachment/ListAttachments/ListByProjectNo`。
+- Produces: `types.SopItem`（No/Kind/Priority/Status/Source/Proposer/Tags/TemplateID/KBID/KnowledgeID/Outcome/DomainData/LastRunID/ProjectID/Title/Description/**IsBig/ParentID/SplitSource**）、`types.SopItemAttachment`（ItemID/Name/MediaType/Size/Data []byte/TextContent）、8 态常量 `SopItemStatusBacklog…Cancelled`、`types.CanTransitSopItem(from, to string) bool`、`types.DeriveExecState(itemStatus, runStatus string, hasRun bool) string`（返回 none/running/intervene/pr/closed）、`types.SopExecStateLabels`（五态中文）、`types.SopSourceLabel(source string) string`（六键中文映射）、`types.DeriveProgress(nodeRuns []SopNodeRun) (done, total int)`（Task 5 类型就绪后编译，本 Task 先用 `[]struct{Status string}` 最小签名 `DeriveProgress(statuses []string) (done, total int)`）、`types.DeriveCurrentNode(itemStatus string, nodeRuns []SopNodeRun) string` 同理暂用 `DeriveCurrentNode(itemStatus string, running, waiting, failed []string) string`。repository `SopItemRepo`：`Create/GetByID/ListWithDerived(过滤+JOIN)/Update/Delete/UpdateStatus/BulkUpdateStatus/AddAttachment/ListAttachments/ListByProjectNo`。
 
 - [ ] **Step 1: 写迁移**
 
@@ -575,6 +597,9 @@ CREATE TABLE IF NOT EXISTS sop_items (
     outcome JSONB NOT NULL DEFAULT '{}',
     domain_data JSONB NOT NULL DEFAULT '{}',
     last_run_id VARCHAR(36) NOT NULL DEFAULT '',
+    is_big BOOLEAN NOT NULL DEFAULT FALSE,
+    parent_id VARCHAR(36) NOT NULL DEFAULT '',
+    split_source VARCHAR(16) NOT NULL DEFAULT '',
     created_by VARCHAR(36) NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -791,7 +816,7 @@ func DeriveCurrentNode(itemStatus string, running, waiting, failed []string) str
 
 - [ ] **Step 5: 运行确认通过**
 
-Run: `go test ./internal/types/ -run "SopItem|ExecState|SourceLabel|Progress" -v && go test ./internal/application/repository/ -run "SopItem|ItemNo" -v && go build ./...`
+Run: `go test ./internal/types/ -run "SopItem|ExecState|SourceLabel|Progress" -v && go test ./internal/application/repository/ -run "SopItem|ItemNo" -v && go test ./internal/database/ -run TestSQLiteMigrationsCreateVersionedSchema -v && go build ./...`
 Expected: PASS。
 
 - [ ] **Step 6: 提交**
@@ -903,7 +928,7 @@ Expected: 编译失败。
 
 - [ ] **Step 5: 运行确认通过**
 
-Run: `go test ./internal/application/repository/ -run "Clarification|SeedAnswered|Activities" -v && go build ./...`
+Run: `go test ./internal/application/repository/ -run "Clarification|SeedAnswered|Activities" -v && go test ./internal/database/ -run TestSQLiteMigrationsCreateVersionedSchema -v && go build ./...`
 Expected: PASS。
 
 - [ ] **Step 6: 提交**
@@ -1165,7 +1190,7 @@ func (SopTemplateRevision) TableName() string { return "sop_template_revisions" 
 
 - [ ] **Step 5: 运行确认通过**
 
-Run: `go test ./internal/types/ -run TestNormalizeSop -v && go test ./internal/application/repository/ -run "TestPublish|TestBuiltin" -v && go build ./...`
+Run: `go test ./internal/types/ -run TestNormalizeSop -v && go test ./internal/application/repository/ -run "TestPublish|TestBuiltin" -v && go test ./internal/database/ -run TestSQLiteMigrationsCreateVersionedSchema -v && go build ./...`
 Expected: PASS。
 
 - [ ] **Step 6: 提交**
@@ -1186,7 +1211,7 @@ git commit -m "feat(sop): 模板/不可变 revision 与 definition 类型系统"
 
 **Interfaces:**
 - Consumes: Task 4 SopDefinition（workflow_snapshot 类型）。
-- Produces: `types.SopRun`（TemplateID/RevisionID/WorkflowSnapshot SopDefinition/ProjectID/ItemID/TriggerKind(manual|schedule|api|child_run)/TriggerRefID/Status/Input map[string]any/HumanContext []SopHumanContextEntry/WorkspaceDir/LeaseUntil *time.Time/HeartbeatAt *time.Time/CancelRequested/PauseRequested bool/Usage SopUsage/ExecutionDurationMs int64/Error/StartedAt/FinishedAt *time.Time/ParentRunID）、`types.SopHumanContextEntry{At time.Time, Source string, NodeID string, Text string}`、`types.SopNodeRun`（RunID/NodeID/Status/Attempt/ReworkCount/Output/Error/Feedback/GateResult/GateReason/SessionID/ResumeSessionID/ChildRunID/Usage/StartedAt/FinishedAt）、`types.SopArtifact`（RunID/NodeID/Attempt/Name/Path/MediaType/Size/SHA256/KBID/KnowledgeID/IngestedAt *time.Time）、`types.SopUsage{InputTokens, OutputTokens int64, CostUSD float64}`、run 状态常量 `SopRunQueued/Running/Waiting/Succeeded/Failed/Cancelled/Paused`、node 状态常量 `SopNodePending/Running/WaitingApproval/PendingInput/Succeeded/Failed/Cancelled/Skipped`、gate 常量 `SopGatePass/Rework/Fail/Human`、repository `SopRunRepo`：`CreateRun/GetRun/ListRuns(过滤+分页)/UpdateRun/ClaimDue/Heartbeat/ExpireLeases/CreateNodeRun/GetNodeRun/ListNodeRuns/UpdateNodeRun/ResetNodes(ids []string)/CreateArtifact/ListArtifacts/GetArtifact/StatsByStatus/StatsSummary`；另在 SopProjectRepo 补 `CountActiveRuns`（T1 已声明签名）。
+- Produces: `types.SopRun`（TemplateID/RevisionID/WorkflowSnapshot SopDefinition/ProjectID/ItemID/TriggerKind(manual|schedule|api|child_run)/TriggerRefID/Status/Input map[string]any/HumanContext []SopHumanContextEntry/WorkspaceDir/LeaseUntil *time.Time/HeartbeatAt *time.Time/CancelRequested/PauseRequested bool/Usage SopUsage/ExecutionDurationMs int64/Error/StartedAt/FinishedAt *time.Time/ParentRunID/ProjectContext）、`types.SopHumanContextEntry{At time.Time, Source string, NodeID string, Text string}`、`types.SopNodeRun`（RunID/NodeID/Status/Attempt/ReworkCount/Output/Error/Feedback/GateResult/GateReason/SessionID/ResumeSessionID/ChildRunID/Usage/StartedAt/FinishedAt）、`types.SopArtifact`（RunID/NodeID/Attempt/Name/Path/MediaType/Size/SHA256/KBID/KnowledgeID/IngestedAt *time.Time）、`types.SopUsage{InputTokens, OutputTokens int64, CostUSD float64}`、run 状态常量 `SopRunQueued/Running/Waiting/Succeeded/Failed/Cancelled/Paused`、node 状态常量 `SopNodePending/Running/WaitingApproval/PendingInput/Succeeded/Failed/Cancelled/Skipped`、gate 常量 `SopGatePass/Rework/Fail/Human`、repository `SopRunRepo`：`CreateRun/GetRun/ListRuns(过滤+分页)/UpdateRun/ClaimDue/Heartbeat/ExpireLeases/CreateNodeRun/GetNodeRun/ListNodeRuns/UpdateNodeRun/ResetNodes(ids []string)/CreateArtifact/ListArtifacts/GetArtifact/StatsByStatus/StatsSummary`；另在 SopProjectRepo 补 `CountActiveRuns`（T1 已声明签名）。
 
 - [ ] **Step 1: 写迁移**
 
@@ -1205,6 +1230,7 @@ CREATE TABLE IF NOT EXISTS sop_runs (
     status VARCHAR(16) NOT NULL DEFAULT 'queued',
     input JSONB NOT NULL DEFAULT '{}',
     human_context JSONB NOT NULL DEFAULT '[]',
+    project_context TEXT NOT NULL DEFAULT '',
     workspace_dir VARCHAR(500) NOT NULL DEFAULT '',
     lease_until TIMESTAMPTZ,
     heartbeat_at TIMESTAMPTZ,
@@ -1418,7 +1444,7 @@ func (r *SopRunRepo) ResetNodes(ctx context.Context, runID string, nodeIDs []str
 
 - [ ] **Step 5: 运行确认通过**
 
-Run: `go test ./internal/application/repository/ -run "SopRun|ClaimDue|ExpireLeases|ResetNodes|StatsByStatus" -v && go build ./...`
+Run: `go test ./internal/application/repository/ -run "SopRun|ClaimDue|ExpireLeases|ResetNodes|StatsByStatus" -v && go test ./internal/database/ -run TestSQLiteMigrationsCreateVersionedSchema -v && go build ./...`
 Expected: PASS。
 
 - [ ] **Step 6: 提交**
@@ -1536,7 +1562,7 @@ Expected: 编译失败。
 
 - [ ] **Step 5: 运行确认通过**
 
-Run: `go test ./internal/types/ -run TestCredentialEncrypt -v && go test ./internal/application/repository/ -run "SopTrigger|UpsertConfig|ReserveDispatch|PerRunLimit" -v && go build ./...`
+Run: `go test ./internal/types/ -run TestCredentialEncrypt -v && go test ./internal/application/repository/ -run "SopTrigger|UpsertConfig|ReserveDispatch|PerRunLimit" -v && go test ./internal/database/ -run TestSQLiteMigrationsCreateVersionedSchema -v && go build ./...`
 Expected: PASS（加密测试若 utils 函数签名与 model.go 不一致，以 model.go 实际调用为准修正）。
 
 - [ ] **Step 6: 提交**
@@ -3731,7 +3757,7 @@ handler 测试：PUT 内置→400 含「只读」；POST copy→201 副本 draft
 POST /sop/runs                          run_sop
 GET  /sop/runs                          read_sop  ?project_id&item_id&status&keyword&page&page_size
 GET  /sop/runs/stats/summary            read_sop
-GET  /sop/runs/:id                      read_sop  （run+node_runs+artifacts 聚合 DTO）
+GET  /sop/runs/:id                      read_sop  （run+node_runs+artifacts 聚合 DTO；M11 起追加 `project_context` 字段：本次运行注入的任务书「项目现状」文本，T64 引擎写入 sop_runs，本任务先留空字符串）
 GET  /sop/runs/:id/events               read_sop  （SSE）
 GET  /sop/runs/:id/artifacts            read_sop
 GET  /sop/runs/:id/nodes/:nid/logs      read_sop  （历史流日志：logs/<node_id>-attempt-<n>.jsonl 或 .log，?attempt= 默认最近）
@@ -5153,7 +5179,7 @@ api/sop/index.ts 照 src/api/pm/index.ts 模式（类型区+函数区，get/post
 **Files:**
 - Modify: `frontend/src/views/sop/SopProjectSettings.vue`（T38 占位→完整）、`frontend/src/api/sop/helpers.ts`+`helpers.test.ts`（validateRepoURL 已在 T38；本任务追加 `repoDisplayName(url)`=basename 去 .git）
 - Consumes: T38 api（getProject/updateProject/addRepo/removeRepo/setDefaultRepo/deleteProject/projectStats）、`src/api/knowledge-base/` KB 清单、T38 store.currentProject、T21 后端 repos 即时生效端点。
-- Produces: 完整项目配置子页（⋮ 菜单/统计带入口/切换器入口三处可达，面包屑返回）。
+- Produces: 完整项目配置子页（**唯一入口=事项页统计带右端「⚙ 项目配置」**；⋮ 更多菜单与项目切换器**不提供**该项目配置入口，避免三处重复——用户实测提出；面包屑「← 返回事项列表」）；**知识库卡片**（当前库名+来源徽标；「使用已有知识库」改绑；项目自建库提供「解绑并删除该库」二次确认；未绑定显示「去创建/绑定」；`auto_note_on_run_end` 开关）与 **简报卡片**（最近渲染时间 + `briefSeqStale` 时「N 条新动态未同步 · 立即重新生成」+ 在知识库打开；**不放「打开黑板与简报」，该面板入口同样只在事项页**）；创建模态知识库三档（新建同名 / 使用已有 / 暂不创建）随 body 传 `kb_mode`。
 
 - [ ] **Step 1: 写失败测试** helpers.test.ts 追加：
 
@@ -5166,11 +5192,14 @@ test('repoDisplayName 取 basename 去 .git', () => {
 
 Run: `npm test -- src/api/sop/helpers.test.ts` Expected: FAIL（repoDisplayName 未导出）。
 
-- [ ] **Step 2: 实现**（布局照原型「项目配置」区块）：
-  - 配置表单卡：名称*/描述、编号前缀（**disabled 锁定**+「创建后不可修改」提示）、绑定知识库（KB 下拉，可空）、默认 SOP 模板（published 模板下拉）、默认执行器（platform_agent/cli 二选一）、运行成功后事项状态（in_review/done 下拉）、工作区根目录（文本，默认读后端配置）、关口/失败通知开关；「保存配置」→updateProject→toast+store.loadProjects。
-  - **代码仓库卡（独立于保存配置，即时生效）**：空态=虚线卡「还没有绑定代码仓库」+ 三步引导（①粘贴 Git 地址 ②确认分支 ③保存即生效）+「添加第一个仓库」按钮；已绑定=仓库行（名称/分支 tag/默认徽标/地址 + 设默认/解绑）。添加模态：url（validateRepoURL 校验+后端去重错误透出）+分支（默认 main）+显示名（可选，空=repoDisplayName 自动）；提交→addRepo→立即刷新仓库行（首个自动默认由后端保证）；设默认→setDefaultRepo；解绑→t-dialog 二次确认（文案明示「不删除已克隆工作区、不影响进行中运行」）→removeRepo→默认徽标自动顺延（后端）。
-  - 危险操作卡：删除项目（红色描边）；点击→确认弹窗列明影响面（事项/运行/触发配置/仓库绑定级联删除，模板保留，磁盘工作区不删）；**进行中/待审批运行存在时按钮 disabled+原因提示；仅剩一个项目时 disabled**；确认→deleteProject→成功后 store.loadProjects+切到剩余首个项目+跳事项 Tab。
-- [ ] **Step 3: 运行确认通过** Run: `npm test -- src/api/sop/helpers.test.ts && npm run type-check && npm run check-i18n` PASS。browser-use 走查：改默认 SOP/KB 保存后新建事项继承；添加非法地址被拒、合法 https 与 git@ 各一；首个仓库自动默认徽标；设默认切换；解绑默认后徽标顺延到下一仓库；解绑二次确认出现且文案正确；删除项目在有 running run 时被拒（后端 400 白话透出）；最后一个项目删除按钮 disabled。
+- [ ] **Step 2: 实现**（**宽版分页布局**，整体 `max-width:1120px`；结构与原型 `vProjSettings` 逐段对齐）：
+  - **页面骨架**：顶部项目摘要条（编号方块 `code.slice(0,2)` + 名称/`code · desc` + 右侧三格统计「工作项数 / 推进+待介入 / 知识库名·同步态"，右端只放「保存配置」一个按钮——**本页不提供「黑板与简报」入口，避免与事项页重复**）+ 下面四个 Tab（`SETTINGS_TAB` 状态：`basic|kb|repos|danger`，默认 `basic`；切换项目或从入口重进时重置为 `basic`；窄屏 ≤1080px Tab 栏横向滚动）+ 四个 `.set-pane`（`display:none`，`.on` 显示）。
+  - **Tab ① 基本设置**：左右双列**等高**（`grid-template-columns:repeat(2,minmax(0,1fr))`；`.set-cols.stretch` 用 `align-items:stretch`，`.set-cols.stretch>.card{height:100%;display:flex;flex-direction:column}`；窄屏降单列）。左卡「基本信息」：名称*/编号前缀（**disabled**+「创建后不可修改」提示）/**项目描述用 `<textarea rows="6">` 且 `.field.grow{flex:1}` + `textarea{flex:1;min-height:132px;resize:vertical}`**，吃掉卡片剩余高度使两卡底边对齐（实测 740px 对齐）；保存时多行折叠为单行写 `desc`。右卡「默认执行与推进」：默认 SOP 模板（published 下拉）/默认执行器（platform_agent·cli:*）/运行成功后事项状态（空=不自动推进）/工作区根目录；下方整宽卡「通知」：关口与失败通知开关（`pj-notify`）。
+  - **Tab ② 知识库与简报**：左列两张卡 + 右列整卡简报预览。知识库卡：`kb_owner` 徽标（项目自建/改绑/PM 迁移）+ 三行 kv（当前库 / 简报文档 / 删除策略）+ 一行操作（KB 下拉 `pj-kb-new` +「改绑」`kb-rebind` +「解绑并删除」`kb-unbind`，仅 `kb_owner=project` 且已绑定时可用）+ 改绑说明。简报卡：`briefSeqStale` 徽标（已同步 / N 条新动态未同步）+ 最近渲染与 seq + `pj-autonote` 开关（运行结束自动记一条）+ 四个按钮（打开黑板与简报 / 立即重新生成 / 记一条动态 / 在知识库打开，未绑 KB 置灰）。右卡「简报预览」：只读 `PmMarkdown` 渲染 `briefMarkdown`，`max-height:340px` 独立滚动；未绑 KB 时卡片副标题显示警示文案。**本任务先渲染占位骨架**（`getBrief` 调用与真实报告拿 T66 接）；`kb-rebind`→`replaceProjectKB`→toast「简报已渲染进新库；旧库那篇标题改为「（已迁移）」」；`kb-unbind` 二次确认文案「该库内所有文档将被删除且不可恢复」。
+  - **Tab ③ 代码仓库**：整宽仓库卡（标题右侧 `${repos.length} 个 · 保存即生效`）：空态=虚线卡「还没有绑定代码仓库」+ 三步引导（①粘贴 Git 地址 ②确认分支 ③保存即生效）+「添加第一个仓库」按钮；已绑定=仓库行（名称/分支 tag/默认徽标/地址 + 设默认/解绑）。添加模态：url（validateRepoURL 校验+后端去重错误透出）+分支（默认 main）+显示名（可选，空=repoDisplayName 自动）；提交→addRepo→立即刷新仓库行（首个自动默认由后端保证）；设默认→setDefaultRepo；解绑→t-dialog 二次确认（文案明示「不删除已克隆工作区、不影响进行中运行」）→removeRepo→默认徽标自动顺延（后端）。**增删与设默认独立即时生效，不走「保存配置」**；卡片下方一条浅色说明「未绑定不影响文档类交付，凭证走本机 git 凭证管理」。
+  - **Tab ④ 危险操作**：红色描边卡：三行 kv（将删除 = 事项数/运行数/触发配置/仓库绑定；知识库 = 按 `kb_owner` 显示「自建库连带删除（文档不可恢复）」或「只解绑不删除」或「未绑定」；保留 = 流程模板 + 磁盘工作区文件）+ 右下「删除项目」。点击→确认弹窗列明影响面；**进行中/待审批运行存在时按钮 disabled+原因提示；仅剩一个项目时 disabled**；确认→deleteProject→成功后 store.loadProjects+切到剩余首个项目+跳事项 Tab。
+  - 「保存配置」**只在页面顶栏放一个**（`top-actions` 右端）→`updateProject`→toast+`store.loadProjects`；**页面底部不再放第二个保存/取消按钮**（避免同一动作双入口，用户实测提出）；`pj-kb` 输入框已移除（知识库统一在 Tab ② 管理，避免双入口）。
+- [ ] **Step 3: 运行确认通过** Run: `npm test -- src/api/sop/helpers.test.ts && npm run type-check && npm run check-i18n` PASS。browser-use 走查：**四个 Tab 切换正确且各 pane 内容不串；摘要条三格统计与实际事项数一致；窄屏 ≤1080px 双列降单列、Tab 栏不溢出**；**全页「保存配置」按钮只有顶栏一个、页面底部无重复的保存/取消（四个 Tab 各查一遍）**；**项目配置入口全应用只有事项页统计带一处（项目切换器与 ⋮ 菜单均无该项）；「黑板与简报」入口同样只有事项页统计带一处（项目配置页内无打开按钮）**；**基本设置两卡底边对齐（等高）且项目描述为多行 textarea、可拉高、保存后多行折叠为单行**；改默认 SOP 保存后新建事项继承；添加非法地址被拒、合法 https 与 git@ 各一；首个仓库自动默认徽标；设默认切换；解绑默认后徽标顺延到下一仓库；解绑二次确认出现且文案正确；删除项目在有 running run 时被拒（后端 400 白话透出）；最后一个项目删除按钮 disabled；**切换项目再进入时 Tab 回到「基本设置」**。
 - [ ] **Step 4: 提交** `git add frontend/src/views/sop/SopProjectSettings.vue frontend/src/api/sop/helpers.ts frontend/src/api/sop/helpers.test.ts frontend/src/i18n/locales && git commit -m "feat(sop): 项目配置页（仓库卡即时生效/危险操作守卫）"`
 
 ### Task 40: SopItemBoard（统计带五态点击筛选 + 检索区 + 执行情况可搜索下拉 + 列表 + 批量 + 自动刷新保焦点）
@@ -5202,7 +5231,7 @@ Run: `npm test -- src/api/sop/helpers.test.ts` Expected: FAIL。
   - **列表**：勾选列 + 编号(no)/标题+类型 tag+状态 tag/来源(中文 chip)/责任人/优先级(P0-P3 色标)/关联 SOP(模板名，空=「未绑定」)/当前环节(current_node)/进度(progressText)/操作（处理失败→开抽屉 T42、触发→createRun({item_id, template_id: item.template_id||project.default_template_id})、查看运行→跳最近 run 详情）；行点击开抽屉；空态「还没有事项 · 点击右上「新建事项」开始」；页脚共 n 条 + 分页。
   - **批量操作**：勾选后浮出批量条（批量触发 SOP/批量关闭）；bulkLaunch/bulkClose 返回 skipped→toast「已跳过 n 个运行中事项」；操作后刷新列表+统计。
   - **自动刷新保焦点**：startPolling(()=>store.loadItems()+loadStats(), 5000)；**只替换表格行数据与统计数字，检索区 input/select 组件不重挂载**（filter 状态在 store，表格 body 独立子组件或 :key 稳定）；输入中刷新不打断焦点与光标（走查必验）。
-- [ ] **Step 3: 运行确认通过** Run: `npm test -- src/api/sop/helpers.test.ts && npm run type-check && npm run check-i18n` PASS。browser-use 走查（spec §16.7）：造 ≥6 事项覆盖五态；统计带每格点击筛选/再点取消、选中描边；fsel 搜索「介入」只命中需要介入、Enter 选中、Esc 收起、点外部收起、计数实时；q+状态+来源+exec 组合过滤正确；来源全中文；done/closed 无运行事项显示已完成/已关闭；批量触发跳过运行中；**聚焦搜索框输入时等待 5s 自动刷新，焦点与光标位置不变**；当前环节/进度随运行推进更新（另开运行后回列表观察）。
+- [ ] **Step 3: 运行确认通过** Run: `npm test -- src/api/sop/helpers.test.ts && npm run type-check && npm run check-i18n` PASS。browser-use 走查（spec §16.7）：造 ≥6 事项覆盖五态；**列表列顺序为 编号/标题/状态/来源/责任人/优先级/关联 SOP/当前环节/进度/操作，状态为独立列（色点+中文，取 ITEM_STATUS_LABELS 与状态主题色），标题单元格只含标题与类型标签、不再有状态小字**；统计带每格点击筛选/再点取消、选中描边；fsel 搜索「介入」只命中需要介入、Enter 选中、Esc 收起、点外部收起、计数实时；q+状态+来源+exec 组合过滤正确；来源全中文；done/closed 无运行事项显示已完成/已关闭；批量触发跳过运行中；**聚焦搜索框输入时等待 5s 自动刷新，焦点与光标位置不变**；当前环节/进度随运行推进更新（另开运行后回列表观察）。
 - [ ] **Step 4: 提交** `git add frontend/src/views/sop/SopItemBoard.vue frontend/src/views/sop/components/SopExecFilter.vue frontend/src/api/sop/helpers.ts frontend/src/api/sop/helpers.test.ts frontend/src/i18n/locales && git commit -m "feat(sop): 事项列表（五态统计带/可搜索执行情况下拉/批量/自动刷新保焦点）"`
 
 ### Task 41: 事项看板视图（状态列拖拽 + 乐观更新回滚 + 全筛选约束）
@@ -5520,7 +5549,7 @@ Run: `npm test -- src/api/sop/helpers.test.ts` Expected: FAIL。
 - Consumes: T45 SopNodeCard（readonly=true，无出口端口）+ vue-flow 只读配置（无工具条/禁拖拽连线）、T38 `streamGet('/api/v1/sop/runs/'+id+'/events', …)`（buildAuthHeaders 鉴权）+ api（getRun/getNodeLogs/approveNode/rejectNode/reworkNode/terminateNode/answerNode/pauseRun/resumeRun/cancelRun/retryRun/addHumanContext/listArtifacts）、T50 SopDocPreview、PmMarkdown。
 - Produces: 运行详情子页（spec §8，运行记录 Tab 高亮+面包屑）：
   - **只读画布**：节点着色 pending 灰/running 品牌色脉冲/waiting_approval 琥珀/succeeded 绿/failed 红/pending_input 蓝；SSE node_status 事件实时改色；text_delta/tool_call/tool_result 追加进对应节点抽屉直播区；断线自动重连（3 次退避）+组件卸载 AbortController 取消。
-  - **节点抽屉**（点节点开）：任务书（nr 关联 prompt 快照——getRun 聚合 DTO 含 node_runs；任务书全文经 getNodeLogs 首帧或 nr.Output 展示）、流事件/对话轨迹（直播区+历史 getNodeLogs jsonl 逐行渲染；平台智能体节点「展开完整会话」→跳现有会话页 SessionID）、日志原文切换、产物列表（预览/下载/源码→SopDocPreview）、attempt/rework 历史（nr.Attempt/ReworkCount+Feedback 白话「返工意见」）、gate 结果（GateResult 中文+GateReason）。
+  - **节点抽屉**（点节点开）：**「任务书」视图**（独立分段：角色与目标 / 事项背景 / 上游步骤产物 / **项目现状** / 返工意见 / 人工补充意见 / 产出要求，逐节渲染；项目现状块为空时显示「本次运行无项目动态」，有则显示实际注入的决策条数与兄弟事项摘要——数据来自 getRun 聚合 DTO 新增的 `project_context` 字段，T64 引擎填充）、流事件/对话轨迹（直播区+历史 getNodeLogs jsonl 逐行渲染；平台智能体节点「展开完整会话」→跳现有会话页 SessionID）、日志原文切换、产物列表（预览/下载/源码→SopDocPreview）、attempt/rework 历史（nr.Attempt/ReworkCount+Feedback 白话「返工意见」）、gate 结果（GateResult 中文+GateReason）。
   - **操作条**（run 级）：暂停/恢复/取消/重试（按状态显隐）+「补充人工上下文」输入→addHumanContext；节点级（waiting_approval）：确认通过/补充信息重跑当前节点（rework+comment）/打回上游（reject+comment+reject_to 下拉=上游节点）/终止；pending_input：回答输入→answerNode。
   - **run 级信息栏**：输入 JSON、human_context 时间线（来源中文：人工补充/返工/回答/系统提醒）、usage（InputTokens/OutputTokens/CostUSD）、耗时、触发来源（triggerSourceLabel+TriggerRefID 回溯链接）、事项链接、**仓库工作分支**（sop/<run_id>，克隆目录清单）。
 - [ ] **Step 1: 实现**（无新增纯逻辑；SSE 重连退避=1s/2s/4s 上限 3 次，组件内实现）。
@@ -5635,6 +5664,7 @@ func TestSopMigrationParity(t *testing.T) {
 		{"000171_sop_cli_trigger", "000073_sop_cli_trigger"},
 		{"000172_sop_indexes", "000074_sop_indexes"},
 		{"000173_sop_builtin_templates", "000075_sop_builtin_templates"},
+		{"000174_sop_project_notes", "000076_sop_project_notes"},
 	}
 	re := regexp.MustCompile(`CREATE TABLE IF NOT EXISTS (\w+)`)
 	for _, p := range pairs {
@@ -5695,7 +5725,7 @@ func TestCoreChainE2E(t *testing.T) {
 （openSqliteMem/cleanSopTables/newRealEngine/seedChainTemplate/createRunFromTemplate/waitFor 为测试助手：newRealEngine 用真实仓储+Registry 注册 ScriptProvider 与 stub AgentProvider（固定写 out/analysis.md 并汇报 pass）；seedChainTemplate 建 published 模板 agent 分析(id="analysis")→script 校验(id="check")→approval 验收(id="approve")→agent 汇总(id="summary")；waitFor=require.Eventually 包装；cleanSopTables 按外键序 TRUNCATE sop_* 全部表。）
 
 - [ ] **Step 2: 运行确认失败** Run: `go test ./internal/application/repository/ -run TestSopMigrationParity -v && go test ./internal/application/service/sop/engine/ -run TestCoreChainE2E -v` Expected: 助手未定义编译失败（若迁移已对等则 parity 直接 PASS——仍须跑通确认）。
-- [ ] **Step 3: 实现助手 + PG 实跑**：补齐测试助手；`docker compose -f docker-compose.dev.yml up -d`（PG 服务名执行时 grep compose 文件）→`make migrate-up`→`SOP_TEST_PG_DSN="host=127.0.0.1 user=… password=… dbname=… sslmode=disable" go test ./internal/application/service/sop/engine/ -run TestCoreChainE2E -v`（DSN 取 compose/dev 配置实际值）；`make migrate-down` 回滚一轮再 up 验证 down 脚本可用（**在 dev 库执行，不碰生产数据**）。
+- [ ] **Step 3: 补齐测试助手 + PG 实跑**：补齐 T55 测试助手（openSqliteMem/cleanSopTables/newRealEngine/seedChainTemplate/createRunFromTemplate/waitFor：newRealEngine 用真实仓储+Registry 注册 ScriptProvider 与 stub AgentProvider（固定写 out/analysis.md 并汇报 pass）；seedChainTemplate 建 published 模板 agent 分析(id="analysis")→script 校验(id="check")→approval 验收(id="approve")→agent 汇总(id="summary")；waitFor=require.Eventually 包装；cleanSopTables 按外键序 TRUNCATE sop_* 全部表，**含 M11 新增的 sop_project_notes**）；随后 `docker compose -f docker-compose.dev.yml up -d`（PG 服务名执行时 grep compose 文件）→`make migrate-up`→`SOP_TEST_PG_DSN="host=127.0.0.1 user=… password=… dbname=… sslmode=disable" go test ./internal/application/service/sop/engine/ -run TestCoreChainE2E -v`（DSN 取 compose/dev 配置实际值）；最后 `make migrate-down` 回滚一轮再 up，验证 down 脚本可用（**在 dev 库执行，不碰生产数据**）。
 - [ ] **Step 4: 运行确认通过** Run: `go test ./internal/application/repository/ -run TestSopMigrationParity -v && go test ./internal/application/service/sop/engine/ -run TestCoreChainE2E -v && go build ./...` Expected: PASS（sqlite 子测试恒过；PG 子测试在 dev 库过）。
 - [ ] **Step 5: 提交** `git add internal/application/repository/sop_migration_parity_test.go internal/application/service/sop/engine/e2e_core_test.go && git commit -m "test(sop): 双库迁移对等与核心链路 E2E（PG/SQLite）"`
 
@@ -5879,11 +5909,587 @@ func TestRetryFromFailedNodeAndChildSOP(t *testing.T) {
 - [ ] **Step 1: PM 迁移实跑与无损核对**：dev 库备份（迁移命令自动导出 data/backups/）→`go run ./cmd/sop-migrate-pm --dsn <dev>`→核对：sop_projects 数=pm_projects 数；sop_items 数=pm_requirements 数；状态映射逐条（pending_analysis/analyzing→backlog、confirmed→todo、scheduled/developing→in_progress、launched→done、rejected→closed+reject_reason、closed→closed）；**对照备份 JSON 抽查 ≥10 条事项 domain_data 含原 ai_analysis/design_plan/session_id/knowledge_id/上线复盘字段无丢失**；附件数一致；二次执行幂等（计数不变）；PmArchive 四 tab 可查。
 - [ ] **Step 2: §16 21 项逐条验收**（每项：操作路径+期望+实际+PASS/FAIL；FAIL→修复→重验）：1 混合 E2E（T56）/2 10 CLI（T57）/3 SOP 任务闭环（T52 走查）/4 PM 吸收（Step 1）/5 异常路径（T56）/6 双库（T55）/7 事项列表与项目配置（T40/T39）/8 详情抽屉（T42）/9 运行列表（T48）/10 AI 拆解（T43）/11 仓库关联（T39）/12 AI 编排（T47）/13 CLI 角色与 KB 范围（T46+T37：agent-system.md 含角色 SystemPrompt/Skills、未选角色仅任务书、kb_scope 三档服务端白名单一致、事项级覆盖、私有 HOME 两 run 间无残留记忆）/14 项目增删切（T38/T39）/15 五步检查器（T46）/16 AI 自主节点配置（T47）/17 快捷工具条（T45）/18 双出口连线（T45）/19 第 2 步大白话（T46：内置模板与 AI 生成任务均无 {{…}}）/20 产物预览与入库（T50）/21 ? 气泡（T46）。
 - [ ] **Step 3: PM 写路径下线**：routes_pm.go 写路由移除（读保留）；asynq PM handler 注册移除；`go build ./...`+现有 pm 读测试仍绿；前端 /platform/pm 重定向（T38 已交付）复核。
-- [ ] **Step 4: 全量回归** Run: `go test ./... && cd frontend && npm test && npm run type-check && npm run check-i18n && npm run build` Expected: 全 PASS（现有 automation/hitl/pm 读测试零回归）。
-- [ ] **Step 5: 提交** `git add internal/router/routes_pm.go internal/application/service/pm_version_artifact_ai.go docs/superpowers/verification/2026-11-19-sop-acceptance.md && git commit -m "chore(sop): PM 写路径下线与 §16 全量验收记录"`
+- [ ] **Step 4: 全量回归** Run: `go test ./... && cd frontend && npm test && npm run type-check && npm run check-i18n && npm run build` Expected: 全 PASS（现有 automation/hitl/pm 读测试零回归；M11 交付的 §16.22–26 已在 T68 单独验收，此处只做整体回归）。
+- [ ] **Step 5: §16 编号对齐**：spec 现为 26 条（22–26 为 M11 增补）；T58 的 1–21 项验收记录与 T68 的 22–26 项合并归档，两份文档互链。
+- [ ] **Step 6: 提交** `git add internal/router/routes_pm.go internal/application/service/pm_version_artifact_ai.go docs/superpowers/verification/2026-11-19-sop-acceptance.md && git commit -m "chore(sop): PM 写路径下线与 §16 全量验收记录"`
+
+---
+
+---
+
+# Milestone M11 — 项目共享上下文（黑板 + 简报）与大需求拆分（spec §3.10 / §16.22–26）
+
+> 本轮增补（与 M1–M10 同一交付，不分期）：项目共享上下文不再是「节点只知道自己的上下游」；大需求可拆成两级子事项分别推进。**版本规划按用户决定去掉**，不在本里程碑内。
+
+### Task 59: 黑板表迁移 + 模型 + 仓储 + 父项汇总纯函数
+
+**Files:**
+- Create: `migrations/versioned/000174_sop_project_notes.up.sql` / `.down.sql`、`migrations/sqlite/000076_sop_project_notes.*`
+- Create: `internal/types/sop_project_note.go`、`internal/types/sop_project_note_test.go`
+- Create: `internal/application/repository/sop_project_note.go`、`sop_project_note_test.go`
+- Modify: `internal/types/interfaces/sop.go`（追加 `SopProjectNoteRepository`）
+
+**Interfaces:**
+- Consumes: T1/T2 表与迁移编号约定（000174 ↔ 000076）。
+- Produces: `types.SopProjectNote{ID, TenantID, ProjectID, Kind, Title, Body string, ItemID, RunID, Source, CreatedBy string, Pinned bool, Seq int64, CreatedAt, UpdatedAt time.Time, DeletedAt gorm.DeletedAt}`；常量 `SopNoteKindDecision/RunSummary/Risk/Release/Note`（值 decision/run_summary/risk/release/note）、`SopNoteSourceHuman/Engine/AI`（human/engine/ai）、`SopSplitSourceAI/Manual/Template`（ai/manual/template）；`types.ValidateSopNote(kind string) error`；`types.DeriveParentExecState(childStates []string) string`（入参为子项五态字符串切片）；`repository.SopProjectNoteRepository{NewSopProjectNoteRepo(db)}` 方法 `Create(ctx, *SopProjectNote) error`（事务内取项目 max(seq)+1 写回）、`List(ctx, tenantID uint64, projectID string, kind string, pinned *bool, limit int) ([]SopProjectNote, error)`（pinned desc, seq desc）、`Update/SoftDelete/GetByID/MaxSeq(ctx, tenantID, projectID) (int64, error)`。
+
+- [ ] **Step 1: 写迁移**
+
+`migrations/versioned/000174_sop_project_notes.up.sql`：
+
+```sql
+CREATE TABLE IF NOT EXISTS sop_project_notes (
+    id VARCHAR(36) PRIMARY KEY,
+    tenant_id BIGINT NOT NULL,
+    project_id VARCHAR(36) NOT NULL,
+    kind VARCHAR(16) NOT NULL DEFAULT 'note',
+    title VARCHAR(500) NOT NULL DEFAULT '',
+    body TEXT NOT NULL DEFAULT '',
+    item_id VARCHAR(36) NOT NULL DEFAULT '',
+    run_id VARCHAR(36) NOT NULL DEFAULT '',
+    source VARCHAR(16) NOT NULL DEFAULT 'human',
+    pinned BOOLEAN NOT NULL DEFAULT FALSE,
+    seq BIGINT NOT NULL DEFAULT 0,
+    created_by VARCHAR(36) NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_sop_notes_project_seq ON sop_project_notes(project_id, seq) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS ix_sop_notes_project_kind ON sop_project_notes(tenant_id, project_id, kind, created_at DESC);
+CREATE INDEX IF NOT EXISTS ix_sop_items_parent ON sop_items(parent_id) WHERE deleted_at IS NULL;
+```
+
+> 说明：`kb_owner/brief_knowledge_id/brief_rendered_seq` 已随 000166 建表、`parent_id/split_source` 已随 000167 建表（本计划 T1/T2 已就地写入），000174 不再 ALTER——sop_* 是本次新增表，无存量数据需要补列，避免 PG/SQLite 上 ALTER 语义差异。000174 只负责黑板表与 parent 索引。
+
+`000174_sop_project_notes.down.sql`：
+
+```sql
+DROP INDEX IF EXISTS ix_sop_items_parent;
+DROP TABLE IF EXISTS sop_project_notes;
+```
+
+SQLite 000076 同文（`TIMESTAMPTZ`→`DATETIME`、`NOW()`→`CURRENT_TIMESTAMP`、`BOOLEAN`→`INTEGER`）。
+
+- [ ] **Step 2: 写失败测试** `sop_project_note_test.go`：
+
+```go
+func TestNoteSeqMonotonicPerProject(t *testing.T) {
+	db := newSopNoteTestDB(t)
+	repo := repository.NewSopProjectNoteRepo(db)
+	ctx := context.Background()
+	for i := 0; i < 3; i++ {
+		require.NoError(t, repo.Create(ctx, &types.SopProjectNote{TenantID: 1, ProjectID: "p1", Kind: types.SopNoteKindNote, Body: fmt.Sprintf("n%d", i)}))
+	}
+	max, err := repo.MaxSeq(ctx, 1, "p1")
+	require.NoError(t, err)
+	require.Equal(t, int64(3), max)
+	other := &types.SopProjectNote{TenantID: 1, ProjectID: "p2", Kind: types.SopNoteKindNote, Body: "x"}
+	require.NoError(t, repo.Create(ctx, other))
+	require.Equal(t, int64(1), other.Seq) // 项目内独立自增
+}
+
+func TestNoteListPinnedFirst(t *testing.T) {
+	db := newSopNoteTestDB(t)
+	repo := repository.NewSopProjectNoteRepo(db)
+	ctx := context.Background()
+	require.NoError(t, repo.Create(ctx, &types.SopProjectNote{TenantID: 1, ProjectID: "p1", Kind: types.SopNoteKindDecision, Body: "旧决策"}))
+	require.NoError(t, repo.Create(ctx, &types.SopProjectNote{TenantID: 1, ProjectID: "p1", Kind: types.SopNoteKindRisk, Body: "风险", Pinned: true}))
+	got, err := repo.List(ctx, 1, "p1", "", nil, 10)
+	require.NoError(t, err)
+	require.Equal(t, "风险", got[0].Body) // pinned 优先
+}
+
+func TestDeriveParentExecState(t *testing.T) {
+	cases := []struct{ in []string; want string }{
+		{[]string{"none", "intervene"}, "intervene"},
+		{[]string{"closed", "running"}, "running"},
+		{[]string{"closed", "pr"}, "pr"},
+		{[]string{"closed", "closed"}, "closed"},
+		{[]string{"none", "none"}, "none"},
+		{nil, "none"}, // 无子项视为尚未执行
+	}
+	for _, c := range cases {
+		require.Equal(t, c.want, types.DeriveParentExecState(c.in), "in=%v", c.in)
+	}
+}
+```
+
+- [ ] **Step 3: 运行确认失败** Run: `go test ./internal/types/ -run "TestDeriveParentExecState" -v && go test ./internal/application/repository/ -run "TestNote" -v` Expected: 编译失败（类型未定义）。
+- [ ] **Step 4: 实现**
+
+`DeriveParentExecState`（`internal/types/sop_brief.go`，纯函数零依赖）：
+
+```go
+// DeriveParentExecState 父事项执行情况：子项汇总，优先级与五态口径一致。
+// intervene > running > pr > closed > none；无子项=尚未执行。
+func DeriveParentExecState(states []string) string {
+	if len(states) == 0 {
+		return "none"
+	}
+	seen := map[string]bool{}
+	for _, s := range states { seen[s] = true }
+	switch {
+	case seen["intervene"]:
+		return "intervene"
+	case seen["running"]:
+		return "running"
+	case seen["pr"]:
+		return "pr"
+	case seen["closed"] && len(seen) == 1:
+		return "closed"
+	}
+	return "none"
+}
+```
+
+`SopProjectNoteRepository.Create` 事务内 `SELECT COALESCE(MAX(seq),0)+1 FROM sop_project_notes WHERE project_id=? AND deleted_at IS NULL` 后写入（SQLite 事务串行化保证同项目不重号；PG 唯一索引兜底冲突重试一次）。`Update` 每次修改 `body/title/pinned` 后 `seq = max+1`（保证编辑也触发重渲染，且顺序反映最新）。
+
+- [ ] **Step 5: 运行确认通过** Run: `go test ./internal/types/ -run "TestDeriveParentExecState" -v && go test ./internal/application/repository/ -run "TestNote" -v && go test ./internal/database/ -run TestSQLiteMigrationsCreateVersionedSchema -v && go build ./...` Expected: PASS。
+- [ ] **Step 6: 提交** `git add migrations/versioned/000174_sop_project_notes.* migrations/sqlite/000076_sop_project_notes.* internal/types/sop_project_note.go internal/types/sop_project_note_test.go internal/types/sop_brief.go internal/application/repository/sop_project_note.go internal/application/repository/sop_project_note_test.go internal/types/interfaces/sop.go && git commit -m "feat(sop): 项目黑板表与仓储、父子拆分字段、父项执行情况汇总"`
+
+### Task 60: 简报渲染纯函数（确定性、硬顶、分段顺序）
+
+**Files:**
+- Modify: `internal/types/sop_brief.go`（追加 `BriefInput`/`RenderProjectBrief`）、`internal/types/sop_brief_test.go`
+
+**Interfaces:**
+- Consumes: T59 SopProjectNote、T2 SopItem、T1 SopProject。
+- Produces: `types.BriefInput{Project SopProject; Items []BriefItem; Notes []SopProjectNote; MaxChars int}`；`types.BriefItem{No, Title, Status, ExecState string; ChildDone, ChildTotal int}`（父项带子项计数）；`types.RenderProjectBrief(in BriefInput) string`（返回正文 Markdown；`MaxChars<=0` 取默认 4000 字）。
+
+- [ ] **Step 1: 写失败测试**
+
+```go
+func TestRenderProjectBriefSectionsAndCap(t *testing.T) {
+	in := types.BriefInput{
+		Project: types.SopProject{Name: "知识库改造", Code: "KNOW", DefaultTemplateID: "t1"},
+		Items: []types.BriefItem{
+			{No: "KNOW-1", Title: "登录改造", Status: "in_progress", ExecState: "running"},
+			{No: "KNOW-2", Title: "检索优化", Status: "done", ExecState: "closed"},
+			{No: "KNOW-3", Title: "导出", Status: "todo", ExecState: "none", ChildDone: 3, ChildTotal: 7},
+		},
+		Notes: []types.SopProjectNote{
+			{Kind: types.SopNoteKindDecision, Title: "采用方案 B", Body: "因为可逆", Pinned: true, Seq: 9, CreatedAt: t0},
+			{Kind: types.SopNoteKindRisk, Title: "索引延迟", Body: "需观察", Seq: 8, CreatedAt: t0},
+		},
+	}
+	out := types.RenderProjectBrief(in)
+	require.Contains(t, out, "知识库改造")
+	require.Contains(t, out, "正在推进")
+	require.Contains(t, out, "采用方案 B")
+	require.Contains(t, out, "索引延迟")
+	require.True(t, strings.Index(out, "## 最近决策") < strings.Index(out, "## 最近风险"), "段落顺序固定")
+	require.NotContains(t, out, "{{")
+}
+
+func TestRenderProjectBriefTruncatesLowPriority(t *testing.T) {
+	items := make([]types.BriefItem, 0, 60)
+	for i := 0; i < 60; i++ {
+		items = append(items, types.BriefItem{No: fmt.Sprintf("K-%d", i), Title: strings.Repeat("长标题", 20), Status: "todo", ExecState: "none"})
+	}
+	out := types.RenderProjectBrief(types.BriefInput{Project: types.SopProject{Name: "P"}, Items: items, MaxChars: 300})
+	require.LessOrEqual(t, len([]rune(out)), 340, "硬顶允许少量尾注溢出")
+	require.Contains(t, out, "完整内容见项目动态")
+}
+```
+
+- [ ] **Step 2: 运行确认失败** Run: `go test ./internal/types/ -run "TestRenderProjectBrief" -v` Expected: FAIL（RenderProjectBrief 未定义）。
+- [ ] **Step 3: 实现**：固定段落顺序 `# <项目名>` → `## 项目概况`（编号前缀/绑定 KB 有无/默认 SOP 名）→ `## 在进行的事项`（按执行情况 intervene/running/pr/none 排序，最多 20 条，每行 `- <编号> <标题> · <五态中文>`；父项带 `(子项 3/7)`）→ `## 最近决策`（pinned 全带 + 其余按 seq 降序补足 8 条；每条 `### <标题>` + 正文 + `（<来源中文> · <时间>`）→ `## 最近风险`（最近 5 条）→ `## 最近运行结论`（run_summary 最近 8 条）。超 `MaxChars` 时按「运行结论 → 风险 → 决策正文截断 → 事项列表截断」的从低到高优先级裁减，末尾追加 `> 完整内容见项目动态`。全函数无 IO、无时间随机源（时间由 in 提供）。
+- [ ] **Step 4: 运行确认通过** Run: `go test ./internal/types/ -run "TestRenderProjectBrief" -v` Expected: PASS。
+- [ ] **Step 5: 提交** `git add internal/types/sop_brief.go internal/types/sop_brief_test.go && git commit -m "feat(sop): 项目简报确定性渲染（固定分段/硬顶截断）"`
+
+### Task 61: BriefService（debounce + seq 比对 + KB 覆盖写降级）+ NotesService + 运行终态自动摘要
+
+**Files:**
+- Create: `internal/application/service/sop/brief.go`、`brief_test.go`
+- Create: `internal/application/service/sop/note.go`、`note_test.go`
+- Modify: `internal/application/service/sop/engine/engine.go`（Deps 追加 `OnRunFinal func(ctx context.Context, run *types.SopRun)`，finalizeRun 末尾调用，**错误只记日志**）
+
+**Interfaces:**
+- Consumes: T59 仓储、T60 渲染、Know `interfaces.KnowledgeService.{CreateKnowledgeFromManual,UpdateManualKnowledge}`、`interfaces.KnowledgeBaseService.CreateKnowledgeBase/DeleteKnowledgeBase`、T6 原有 SopProjectRepo。
+- Produces: `sop.BriefDeps{Projects interfaces.SopProjectRepository; Notes interfaces.SopProjectNoteRepository; Items interfaces.SopItemRepository; Knowledge BriefKnowledge; Dispatcher func(projectID string)}`；`sop.BriefService{Render(ctx, tenantID, projectID) (markdown string, err error)}`、`BriefService.Trigger(projectID)`（2s debounce 合并，进程内 map+mutex）、`BriefService.EnsureInitial(ctx, tenantID, projectID) error`（首次渲染/补绑后全量）；`sop.NotesService{Create(ctx, tenantID uint64, userID string, note *types.SopProjectNote) error}`、`AutoRecordRun(ctx context.Context, run *types.SopRun, itemTitle string, nodeRuns []types.SopNodeRun, arts []types.SopArtifact) error`（确定性摘要）、`Edit/SoftDelete/Pin`；窄接口 `type BriefKnowledge interface{ CreateKnowledgeFromManual(ctx context.Context, kbID string, p *types.ManualKnowledgePayload, channel string) (*types.Knowledge, error); UpdateManualKnowledge(ctx context.Context, knowledgeID string, p *types.ManualKnowledgePayload) (*types.Knowledge, error) }`。
+
+- [ ] **Step 1: 写失败测试**
+
+```go
+func TestBriefRenderSkipsWhenSeqUnchanged(t *testing.T) {
+	db := openSqliteMem(t)
+	fk := &fakeBriefKnowledge{}
+	svc := newTestBriefService(t, db, fk)
+	seedNote(t, db, 1, "p1", "决策一") // seq=1
+	require.NoError(t, svc.EnsureInitial(context.Background(), 1, "p1"))
+	require.Equal(t, 1, fk.createCalls)
+	require.NoError(t, svc.EnsureInitial(context.Background(), 1, "p1")) // seq 未变
+	require.Equal(t, 1, fk.createCalls+fk.updateCalls, "seq 未变不得重复写 KB")
+	seedNote(t, db, 1, "p1", "决策二") // seq=2
+	require.NoError(t, svc.EnsureInitial(context.Background(), 1, "p1"))
+	require.Equal(t, 1, fk.updateCalls, "新增后覆盖同一文档")
+	require.Equal(t, fk.lastKnowledgeID, mustProject(t, db, 1, "p1").BriefKnowledgeID, "回填 brief_knowledge_id")
+	require.Equal(t, int64(2), mustProject(t, db, 1, "p1").BriefRenderedSeq)
+}
+
+func TestBriefDegradesWithoutKB(t *testing.T) {
+	db := openSqliteMem(t)
+	svc := newTestBriefService(t, db, &fakeBriefKnowledge{})
+	seedProject(t, db, 1, "p2", "") // kb_id 为空
+	md, err := svc.Render(context.Background(), 1, "p2")
+	require.NoError(t, err)          // 渲染本身不依赖 KB
+	require.NotEmpty(t, md)
+	require.NoError(t, svc.EnsureInitial(context.Background(), 1, "p2")) // 同步降级为 no-op
+}
+
+func TestAutoRecordRunIsDeterministic(t *testing.T) {
+	db := openSqliteMem(t)
+	svc := newTestNotesService(t, db)
+	run := &types.SopRun{ID: "r1", ProjectID: "p1", ItemID: "i1", Status: types.SopRunSucceeded,
+		Usage: types.SopUsage{InputTokens: 1200, OutputTokens: 300}}
+	nodeRuns := []types.SopNodeRun{{NodeID: "n1", Status: types.SopNodeSucceeded}, {NodeID: "n2", Status: types.SopNodeSucceeded}}
+	arts := []types.SopArtifact{{Name: "PRD", Path: "out/prd.md", SHA256: "abcdef0123456789"}}
+	require.NoError(t, svc.AutoRecordRun(context.Background(), run, "登录改造", nodeRuns, arts))
+	var n types.SopProjectNote
+	require.NoError(t, db.First(&n).Error)
+	require.Equal(t, types.SopNoteSourceEngine, n.Source)
+	require.Equal(t, types.SopNoteKindRunSummary, n.Kind)
+	require.Contains(t, n.Body, "out/prd.md")
+	require.Contains(t, n.Body, "abcdef01")     // sha256 前 8 位
+	require.NotContains(t, n.Body, "sk-")        // 不落敏感串
+}
+```
+
+- [ ] **Step 2: 运行确认失败** Run: `go test ./internal/application/service/sop/ -run "TestBrief|TestAutoRecord" -v` Expected: 编译失败。
+- [ ] **Step 3: 实现**：
+  - `BriefService.Render`：拉项目+事项（含派生 exec_state，复用 T22 派生）+ 黑板（limit 200）→ `types.RenderProjectBrief`。
+  - `EnsureInitial`：`MaxSeq` 与 `project.BriefRenderedSeq` 相等→直接返回（零 KB 写）；`kb_id==""`→返回 nil（降级）；`brief_knowledge_id==""`→`CreateKnowledgeFromManual(kbID, {Title: project.Name+" 项目简报", Content: doc, Status: "publish"}, "sop")` 并回填 id 与 rendered_seq；否则 `UpdateManualKnowledge(id, {Content: doc, Status:"publish"})` 并更新 rendered_seq。文档正文首行为 `<!-- 自动生成，请勿手改；要补充请在项目动态里记一条 -->`。
+  - `Trigger(projectID)`：`time.AfterFunc(2*time.Second)` 合并（同 project 已有 pending 则跳过）；回调内 `EnsureInitial`，错误 `logger.Warnf`。
+  - `NotesService.AutoRecordRun`：组装确定性 Markdown（事项标题、`状态：<中文>`、每个节点 `- <nodeID>：<状态中文>`、产物 `- <name>（<path>，sha256 <前8>）`、`Token：输入 x / 输出 y`、审批意见原话取自 run.HumanContext 中 source=approval 条目）→ `Create(Kind=run_summary, Source=engine, Title="运行结论：<事项标题>", ItemID=run.ItemID, RunID=run.ID)` → 调 `Dispatcher`。
+  - 引擎 `finalizeRun` 末尾调 `Deps.OnRunFinal`（`recover()` 包裹，panic 不影响 run 收尾）。
+- [ ] **Step 4: 运行确认通过** Run: `go test ./internal/application/service/sop/ -run "TestBrief|TestAutoRecord" -v && go test ./internal/application/service/sop/engine/ -v` Expected: PASS（引擎既有测试零回归）。
+- [ ] **Step 5: 提交** `git add internal/application/service/sop/brief.go internal/application/service/sop/brief_test.go internal/application/service/sop/note.go internal/application/service/sop/note_test.go internal/application/service/sop/engine/engine.go && git commit -m "feat(sop): 项目黑板服务、简报 KB 同步（seq 去重/降级）与运行终态自动摘要"`
+
+### Task 62: API 层（黑板/简报/拆分/子项/项目建库改绑）+ 统计带父项汇总
+
+**Files:**
+- Create: `internal/handler/sop_brief.go`、`sop_brief_test.go`
+- Modify: `internal/handler/sop.go`（CreateProject 支持 `kb_mode`；新增 `POST /projects/:id/kb`；stats 父项汇总）、`sop_items.go`（split/children/detach；列表 parent_id 过滤与父项派生字段）、`internal/router/routes_sop.go`
+
+**Interfaces:**
+- Consumes: T61 服务、T21/T22 既有处理器助手（`sopFail/sopBindJSON/sopTenantID/sopUserID`）。
+- Produces: 路由
+
+```
+GET    /sop/projects/:id/brief            read_sop   （{markdown,last_rendered_at,rendered_seq,notes_max_seq,kb_bound,brief_knowledge_id}）
+POST   /sop/projects/:id/brief/render     run_sop    （未绑 KB → 400「请先绑定知识库」）
+GET    /sop/projects/:id/notes            read_sop   ?kind=&pinned=&limit=
+POST   /sop/projects/:id/notes            run_sop    body {kind,title,body,item_id?,run_id?,pinned?} → 201
+PATCH  /sop/notes/:id                     run_sop
+DELETE /sop/notes/:id                     run_sop
+POST   /sop/projects/:id/notes/decision-draft  run_sop  （SSE；返回草稿文本，不落库）
+POST   /sop/projects/:id/kb               manage_sop body {kb_id}
+POST   /sop/items/:id/split               run_sop    body {children:[{title,description,kind?,template_id?}]} → 201 {created:[…]}
+GET    /sop/items/:id/children            read_sop
+POST   /sop/items/:id/children/:cid/detach run_sop
+```
+
+- [ ] **Step 1: 写失败测试**
+
+```go
+func TestSplitRejectsThirdLevel(t *testing.T) {
+	r, _ := newSOPTestRouter(t)
+	pid := createTestProject(t, r)
+	parent := doCreateItem(t, r, pid, "大需求")
+	w := doJSON(t, r, "POST", "/api/v1/sop/items/"+parent+"/split", `{"children":[{"title":"子项"}]}`)
+	require.Equal(t, http.StatusCreated, w.Code)
+	var got struct{ Created []types.SopItem `json:"created"` }
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	require.Len(t, got.Created, 1)
+	require.Equal(t, parent, got.Created[0].ParentID)
+	// 对子项再拆 → 拒绝
+	w = doJSON(t, r, "POST", "/api/v1/sop/items/"+got.Created[0].ID+"/split", `{"children":[{"title":"三级"}]}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "只能拆两层")
+}
+
+func TestParentItemCannotLaunchDirectly(t *testing.T) {
+	r, _ := newSOPTestRouter(t)
+	pid := createTestProject(t, r)
+	parent := doCreateItem(t, r, pid, "大需求")
+	doCreateChild(t, r, parent, "子项")
+	w := doJSON(t, r, "POST", "/api/v1/sop/items/"+parent+"/relaunch", `{}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "请对子项触发")
+}
+
+func TestBriefEndpointReportsSeqState(t *testing.T) {
+	r, db := newSOPTestRouter(t)
+	pid := createTestProject(t, r)
+	doJSON(t, r, "POST", "/api/v1/sop/projects/"+pid+"/notes", `{"kind":"decision","title":"A","body":"因为B"}`)
+	w := doJSON(t, r, "GET", "/api/v1/sop/projects/"+pid+"/brief", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Markdown     string `json:"markdown"`
+		RenderedSeq  int64  `json:"rendered_seq"`
+		NotesMaxSeq  int64  `json:"notes_max_seq"`
+		KBBound      bool   `json:"kb_bound"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Contains(t, resp.Markdown, "因为B")
+	require.Equal(t, int64(1), resp.NotesMaxSeq)
+	require.False(t, resp.KBBound) // 测试路由默认不建 KB
+	_ = db
+}
+```
+
+- [ ] **Step 2: 运行确认失败** Run: `go test ./internal/handler/ -run "TestSplitRejects|TestParentItemCannot|TestBriefEndpoint" -v` Expected: 404/编译失败。
+- [ ] **Step 3: 实现**（测试助手沿用 T21/T24 的 `newSOPTestRouter/doJSON/createTestProject`；本任务新增 `doCreateItem(t,r,projectID,title) string`（POST /items 取 id）与 `doCreateChild(t,r,parentID,title) string`（POST /items/:id/split 取 created[0].ID）两个助手）：
+  - `sop_brief.go`：brief 读取（render 结果 + `brief_rendered_seq`/`MaxSeq` 对比 + `kb_bound`）+ notes 列表/新增/编辑/软删/置顶 + `POST /brief/render`（未绑 KB → 400「请先绑定知识库」）+ decision-draft（SSE：取最近 10 条黑板与最近 5 个 run 摘要 → AgentQA 单轮，prompt 要求输出「决策标题 + 一句话理由 + 影响范围」，**不落库**，完成后追一条 `done` 事件）。
+  - `sop.go` CreateProject：`kb_mode` 缺省 `new` → 建库（`KnowledgeBase{Name: req.Name, EmbeddingModelID: defaultEmbeddingModelID(ctx)}`，失败只 warn）→ `kb_owner=project`；`existing` → 校验 kb_id 归属租户→`kb_owner=linked`；`none` → 空；建成功后异步 `briefSvc.EnsureInitial`。`POST /projects/:id/kb` 改绑：旧库若 `kb_owner=project` 则改名追加「（已迁移）」不删，新库写 `brief_knowledge_id=""`+`brief_rendered_seq=0` 后触发全量渲染。
+  - `sop_items.go`：**创建事项 body 支持 `is_big`**（新建模态「大项」即 `is_big=true`、`template_id` 强制空、`parent_id` 强制空；建空大项合法，不要求同时有子项）；`split` 校验父项 `parent_id==""`，插入子项（`parent_id`、`split_source`）并**把父项置 `is_big=true`**（独立事项被拆时自动升级为大项），逐条 `AddActivity(business, split)`；`detach` 置空子项 `parent_id`（父项 `is_big` 保持不变，后者可能是空容器）；列表响应对 `is_big=true` 的项补 `child_total/child_done/child_exec`（`DeriveParentExecState`，空容器→none）；`relaunch`/`createRun` 对 `is_big=true` 一律返回 400「该事项是大项，不能直接触发，请对子项触发」。
+- [ ] **Step 4: 运行确认通过** Run: `go test ./internal/handler/ -run "TestSplitRejects|TestParentItemCannot|TestBriefEndpoint" -v && go build ./...` Expected: PASS。
+- [ ] **Step 5: 提交** `git add internal/handler/sop_brief.go internal/handler/sop_brief_test.go internal/handler/sop.go internal/handler/sop_items.go internal/router/routes_sop.go && git commit -m "feat(sop): 黑板/简报/拆分 API 与项目自动建库改绑"`
+
+### Task 63: 父项状态推进 + 模板产出子事项（out/child-items.json）
+
+**Files:**
+- Create: `internal/application/service/sop/engine/childitems_test.go`
+- Modify: `internal/application/service/sop/engine/node.go`（门禁通过后若节点 `ProducesChildItems` 为真→读 `out/child-items.json` 建子项）、`internal/application/service/sop/engine/engine.go`（Deps 追加 `CreateItems func(ctx context.Context, run *types.SopRun, specs []types.SopChildItemSpec) error`）、`internal/types/sop_template.go`（SopNode 补 `ProducesChildItems bool json:"produces_child_items,omitempty"`）、`internal/types/sop_item.go`（SopItem 补 `ParentID string json:"parent_id"` / `SplitSource string json:"split_source"`）、`internal/application/service/sop/item.go`（`CreateChildItems`）
+
+**Interfaces:**
+- Consumes: T62 split 落库语义、T12/T13 门禁结论。
+- Produces: `types.SopChildItemSpec{Title, Description, Kind, TemplateID string}`；`engine.Deps.CreateItems`；`ItemService.CreateChildItems(ctx, tenantID, parentItemID string, specs []types.SopChildItemSpec, source string) (created int, err error)`（上限 20，超限返回 slash 错误「一次最多创建 20 个子事项」不静默截断）。
+
+- [ ] **Step 1: 写失败测试**
+
+```go
+func TestProducesChildItemsAfterGatePass(t *testing.T) {
+	db := openSqliteMem(t)
+	e := newRealEngine(t, db)
+	// 节点声明 produces_child_items，脚本写 out/child-items.json（2 条）
+	run := seedChildItemsRun(t, e, `{"children":[{"title":"子一","description":"d1"},{"title":"子二","description":"d2"}]}`)
+	require.NoError(t, e.Start(context.Background())); defer e.Stop()
+	waitFor(t, 10*time.Second, func() bool { return runStatus(t, e, run.ID) == types.SopRunSucceeded })
+	var kids []types.SopItem
+	require.NoError(t, db.Where("parent_id = ?", run.ItemID).Find(&kids).Error)
+	require.Len(t, kids, 2)
+	require.Equal(t, types.SopSplitSourceTemplate, kids[0].SplitSource)
+}
+
+func TestChildItemsOverLimitFailsNode(t *testing.T) {
+	db := openSqliteMem(t)
+	e := newRealEngine(t, db)
+	specs := make([]map[string]string, 21)
+	for i := range specs { specs[i] = map[string]string{"title": fmt.Sprintf("子%d", i)} }
+	b, _ := json.Marshal(map[string]any{"children": specs})
+	run := seedChildItemsRun(t, e, string(b))
+	require.NoError(t, e.Start(context.Background())); defer e.Stop()
+	waitFor(t, 10*time.Second, func() bool { return runStatus(t, e, run.ID) == types.SopRunFailed })
+	var kids []types.SopItem
+	db.Where("parent_id = ?", run.ItemID).Find(&kids)
+	require.Empty(t, kids, "超限不得部分创建")
+}
+```
+
+`internal/application/service/sop/item_test.go` 追加（父项状态推进）：
+
+```go
+func TestParentAutoAdvancesWhenAllChildrenClosed(t *testing.T) {
+	db := openSqliteMem(t)
+	svc := newTestItemService(t, db)
+	parent := seedItem(t, db, 1, "p1", "大需求", "")
+	c1 := seedItem(t, db, 1, "p1", "子一", parent.ID)
+	c2 := seedItem(t, db, 1, "p1", "子二", parent.ID)
+	require.NoError(t, svc.UpdateStatus(context.Background(), 1, c1.ID, types.SopItemStatusTodo, "u1"))
+	require.NoError(t, svc.UpdateStatus(context.Background(), 1, c1.ID, types.SopItemStatusDone, "u1"))
+	got, _ := svc.Get(context.Background(), 1, parent.ID)
+	require.NotEqual(t, types.SopItemStatusDone, got.Status, "还有未完成子项时父项不动")
+	require.NoError(t, svc.UpdateStatus(context.Background(), 1, c2.ID, types.SopItemStatusTodo, "u1"))
+	require.NoError(t, svc.UpdateStatus(context.Background(), 1, c2.ID, types.SopItemStatusClosed, "u1"))
+	got, _ = svc.Get(context.Background(), 1, parent.ID)
+	require.Equal(t, types.SopItemStatusDone, got.Status, "全部子项 done/closed 时父项自动 done")
+	// 父项自身状态机仍受 CanTransit 约束：cancelled 子项不触发推进
+}
+```
+
+- [ ] **Step 2: 运行确认失败** Run: `go test ./internal/application/service/sop/engine/ -run "TestProducesChildItems|TestChildItemsOverLimit" -v && go test ./internal/application/service/sop/ -run TestParentAutoAdvances -v` Expected: 编译失败。
+- [ ] **Step 3: 实现**：① 门禁 pass 后（`applyGateOutcome` 内、写产物之后）若 `node.ProducesChildItems` → 读 `<ws>/out/child-items.json`（`{"children":[…]}`）；解析失败→节点 failed（原因白话「子事项清单格式不对：需要 {\"children\":[{title,description}]}」）；`len>20`→failed；否则调 `Deps.CreateItems`；`run.ItemID` 为空→跳过（不报错，记 run 日志）。② `ItemService.UpdateStatus` 在子项落库成功后：若 `item.ParentID != ""` → 查兄弟项全部 `status ∈ {done, closed}` → 父项当前状态允许迁移则调自身 `UpdateStatus(parentID, done)` 并 `AddActivity(business, auto_done)`；父项状态机 `CanTransitSopItem` 拒绝时只记 warn，不阻断子项写入。
+- [ ] **Step 4: 运行确认通过** Run: `go test ./internal/application/service/sop/engine/ -run "TestProducesChildItems|TestChildItemsOverLimit" -v && go test ./internal/application/service/sop/ -run TestParentAutoAdvances -v && go test ./internal/application/service/sop/engine/ -v` Expected: PASS。
+- [ ] **Step 5: 提交** `git add internal/application/service/sop/engine/childitems_test.go internal/application/service/sop/engine/node.go internal/application/service/sop/engine/engine.go internal/types/sop_template.go internal/types/sop_item.go internal/application/service/sop/item.go internal/application/service/sop/item_test.go && git commit -m "feat(sop): 模板节点产出子事项清单并自动拆分（上限 20）、父项全完成自动 done"`
+
+### Task 64: 任务书「项目现状」块 + inputs/project-brief.md 物化
+
+**Files:**
+- Modify: `internal/application/service/sop/engine/taskbook.go`、`taskbook_test.go`
+- Modify: `internal/application/service/sop/engine/workspace.go`（`MaterializeProjectBrief(ws, markdown)`）、`workspace_test.go`
+- Modify: `internal/application/service/sop/engine/engine.go`（Deps 追加 `BriefProvider interface{ ProjectBrief(ctx, tenantID uint64, projectID string) (markdown string, err error) }`；节点执行前填 `TaskBookInput.ProjectContext` 并物化文件；**首个节点执行前把该文本写回 `sop_runs.project_context`**，供运行详情「任务书」视图展示）；`internal/types/sop_run.go`（SopRun 补 `ProjectContext string json:"project_context"`）；`migrations/versioned/000170_sop_runs.*` 与 `migrations/sqlite/000072_*`（**修改 T5 已建的同名建表语句**，在 sop_runs 表内直接加 `project_context TEXT NOT NULL DEFAULT ''`；sop_runs 是本次新增表，无存量数据，直接改建表比加 ALTER 更干净）
+
+**Interfaces:**
+- Consumes: T60/T61 BriefService（container 注入为 BriefProvider 实现）。
+- Produces: `engine.TaskBookInput.ProjectContext string`（已渲染的「项目现状」正文，空=不出该块）、`engine.BuildProjectContext(items []types.SopItem, notes []types.SopProjectNote, briefPath string) string`（纯函数，硬顶 1500 汉字）、`Workspace.MaterializeProjectBrief(md string) (path string, err error)`。
+
+- [ ] **Step 1: 写失败测试**
+
+```go
+func TestRenderTaskBookProjectContextBlock(t *testing.T) {
+	in := TaskBookInput{Node: types.SopNode{ID: "n1", Name: "实现", TaskPrompt: "写代码"},
+		Item: &types.SopItem{Title: "登录改造"}, ProjectContext: "- 决策：采用方案 B\n- 兄弟事项：3/7 已完成"}
+	out := RenderTaskBook(in)
+	require.Contains(t, out, "## 项目现状")
+	require.Contains(t, out, "采用方案 B")
+	require.Contains(t, out, "inputs/project-brief.md")
+	// 顺序：事项背景之后、产出要求之前
+	require.Less(t, strings.Index(out, "## 事项背景"), strings.Index(out, "## 项目现状"))
+	require.Less(t, strings.Index(out, "## 项目现状"), strings.Index(out, "## 产出要求"))
+}
+
+func TestBuildProjectContextCap(t *testing.T) {
+	notes := []types.SopProjectNote{}
+	for i := 0; i < 40; i++ {
+		notes = append(notes, types.SopProjectNote{Kind: types.SopNoteKindRisk, Title: strings.Repeat("风险", 30), Body: strings.Repeat("正文", 60), Seq: int64(i)})
+	}
+	out := engine.BuildProjectContext([]types.SopItem{{No: "K-1", Title: "T", ExecState: "running"}}, notes, "inputs/project-brief.md")
+	require.LessOrEqual(t, len([]rune(out)), 1600)
+	require.Contains(t, out, "项目简报全文")
+}
+
+func TestMaterializeProjectBrief(t *testing.T) {
+	ws := newTestWorkspace(t, "r1")
+	p, err := ws.MaterializeProjectBrief("# 项目简报\n正文")
+	require.NoError(t, err)
+	raw, err := os.ReadFile(p)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "正文")
+	require.Contains(t, p, "inputs")
+}
+```
+
+- [ ] **Step 2: 运行确认失败** Run: `go test ./internal/application/service/sop/engine/ -run "TestRenderTaskBookProjectContext|TestBuildProjectContext|TestMaterializeProjectBrief" -v` Expected: 编译失败。
+- [ ] **Step 3: 实现**：`BuildProjectContext` 组装「最近决策（pinned+最近，最多 6 条，标题+一句话正文）」→「兄弟事项进度（`3/7 已完成；KNOW-11 正在评审`）」→「完整简报：<briefPath>」；超 1500 字按决策条数递减。`RenderTaskBook` 在 `## 事项背景` 后插入 `## 项目现状`（非空才出）。`MaterializeProjectBrief` 写 `<ws>/inputs/project-brief.md`（复用 SafeWorkspacePath）。引擎执行前：`BriefProvider.ProjectBrief` 失败→空上下文（降级，warn 日志）；成功→物化 + 填 `ProjectContext`。
+- [ ] **Step 4: 运行确认通过** Run: `go test ./internal/application/service/sop/engine/ -run "TestRenderTaskBook|TestBuildProjectContext|TestMaterializeProjectBrief" -v && go test ./internal/application/service/sop/engine/ -v` Expected: PASS。
+- [ ] **Step 5: 提交** `git add internal/application/service/sop/engine/taskbook.go internal/application/service/sop/engine/taskbook_test.go internal/application/service/sop/engine/workspace.go internal/application/service/sop/engine/workspace_test.go internal/application/service/sop/engine/engine.go && git commit -m "feat(sop): 任务书项目现状块与简报物化进 inputs"`
+
+### Task 65: 前端 API/helpers 增量
+
+**Files:**
+- Modify: `frontend/src/api/sop/index.ts`、`frontend/src/api/sop/helpers.ts`、`helpers.test.ts`
+- Modify: `frontend/src/i18n/locales/{zh-CN,zh-TW,en-US,ja-JP,ko-KR,ru-RU}.ts`
+
+**Interfaces:**
+- Consumes: T62 路由契约（字段名逐字对齐）。
+- Produces: api 追加 `getBrief/renderBrief/listNotes/createNote/updateNote/deleteNote/decisionDraft/replaceProjectKB/splitItem/listChildren/detachChild`；helpers 追加 `deriveParentExecState(states: string[]): ExecState`、`childProgressText(done:number,total:number): string`（`3/7 子项已完成`，total=0→`—`）、`noteKindLabel(kind)`（决策/运行结论/风险/发布/随手记）、`noteSourceLabel(source)`（人工/引擎/AI）、`briefSeqStale(renderedSeq, notesMaxSeq)`。
+
+- [ ] **Step 1: 写失败测试**
+
+```ts
+test('父项执行情况汇总与子项进度文案', () => {
+  assert.equal(deriveParentExecState([]), 'none');
+  assert.equal(deriveParentExecState(['closed', 'intervene']), 'intervene');
+  assert.equal(deriveParentExecState(['closed', 'running']), 'running');
+  assert.equal(deriveParentExecState(['closed', 'closed']), 'closed');
+  assert.equal(deriveParentExecState(['closed', 'pr']), 'pr');
+  assert.equal(childProgressText(3, 7), '3/7 子项已完成');
+  assert.equal(childProgressText(0, 0), '—');
+});
+
+test('黑板标签与序差判定', () => {
+  assert.equal(noteKindLabel('run_summary'), '运行结论');
+  assert.equal(noteSourceLabel('ai'), 'AI');
+  assert.equal(briefSeqStale(3, 4), true);
+  assert.equal(briefSeqStale(4, 4), false);
+});
+```
+
+- [ ] **Step 2: 运行确认失败** Run: `cd frontend && npm test -- src/api/sop/helpers.test.ts` Expected: FAIL（未导出）。
+- [ ] **Step 3: 实现**：api 函数逐个照 REST；`deriveParentExecState` 镜像 T59 后端（`intervene>running>pr>closed>none`，空→none）；i18n 六语言补 `sop.brief.*`、`sop.notes.*`、`sop.split.*` 键。
+- [ ] **Step 4: 运行确认通过** Run: `cd frontend && npm test -- src/api/sop/helpers.test.ts && npm run type-check && npm run check-i18n` Expected: PASS。
+- [ ] **Step 5: 提交** `git add frontend/src/api/sop frontend/src/i18n/locales && git commit -m "feat(sop): 前端黑板/简报/拆分 API 与纯函数"`
+
+### Task 66: 前端 项目配置知识库卡片 + 简报卡片 + SopProjectBriefPanel
+
+**Files:**
+- Create: `frontend/src/views/sop/components/SopProjectBriefPanel.vue`
+- Modify: `frontend/src/views/sop/SopProjectSettings.vue`、`frontend/src/views/sop/components/ProjectCreateModal.vue`
+
+**Interfaces:**
+- Consumes: T65 api、T63 后端建库/改绑。
+- Produces: 项目配置新增两张卡；创建模态知识库选择；简报面板（抽屉/侧栏复用，props `projectId: string`、emits `close`）。
+
+- [ ] **Step 1: 实现创建模态知识库区**：单选三档「新建：<项目名> 知识库」（默认）/「使用已有知识库」（KB 下拉）/「暂不创建」（高级折叠内）；提交时 `kb_mode` 随 body。
+- [ ] **Step 2: 实现项目配置知识库卡片**：显示库名 + 来源徽标（项目自建/改绑/PM 迁移）；「使用已有知识库」→KB 下拉确认；项目自建库显示「解绑并删除该库」二次确认文案「该库内所有文档将被删除且不可恢复」；未绑定显示「去创建/绑定」+ toast 提示简报不会同步。
+- [ ] **Step 3: 实现简报卡片 + SopProjectBriefPanel**：卡片显示最后渲染时间与 `briefSeqStale` 时的「有 N 条新动态未同步 · 立即重新生成」；面板左侧黑板时间线（kind tabs + 置顶分组 + 来源徽标 + 每条悬停出现编辑/置顶/删除）+ 顶部「记一条」内联表单 + 右侧简报预览（Markdown 只读 + 「在知识库打开」+ 「生成决策草稿」→ SSE 流式填充输入框 + 确认写回）；未绑 KB 时预览区显示降级提示与绑定入口。
+- [ ] **Step 4: 浏览器走查** 按 spec §16.22/25：创建项目（新建库）→配置页看到库名与简报卡片→记一条决策→面板显示「1 条未同步」→立即重新生成→去知识库页确认文档存在且标题为「<项目名> 项目简报」；改绑另一库→旧库文档标题带「（已迁移）」；删除项目确认自建库被删、改绑库保留。
+- [ ] **Step 5: 验证与提交** Run: `cd frontend && npm test && npm run type-check && npm run check-i18n` → PASS；`git add frontend/src/views/sop && git commit -m "feat(sop): 项目知识库卡片、简报面板与创建模态建库选项"`
+
+  （本任务按 M9 约定：组件交互以 browser-use 走查 + type-check + check-i18n 验收，无组件级单测基建。）
+
+### Task 67: 前端 父项折叠/进度徽标 + 创建模态拆分 + 抽屉子事项 tab
+
+**Files:**
+- Modify: `frontend/src/views/sop/SopItemBoard.vue`（父项行折叠与派生列）、`SopItemCreateModal.vue`（拆解卡勾选→拆成子事项）、`SopItemDrawer.vue`（子事项 tab + 所属大项）、`SopItemCreateModal.vue`（归属大项下拉）
+
+**Interfaces:**
+- Consumes: T65 api/helpers、T62 后端 split/detach/children、T63 父项不可直接触发。
+- Produces: 列表父项折叠（`expandedParents: Set<string>`）、看板父项卡片同样显示 `childProgressText`；创建模态「拆成子事项」按钮（勾选条目 → splitItem 后刷新列表并提示「已创建 N 个子事项」）；抽屉「子事项」tab（表格 + 批量触发 + 移出父项确认）。
+
+- [ ] **Step 1: 列表/看板父项呈现**：标题前 `▸/▾` 箭头（行点击不打开抽屉，仅展开；点击标题打开抽屉）；进度列用 `childProgressText` + 子项执行情况小色点；关联 SOP 列「—」；操作列「触发」置灰 tooltip「该事项已拆分为子项，请对子项触发」；批量勾选父项时自动展开为子项 id 集合（toast「已展开 N 个子项」）；**统计带右侧加「📄 黑板与简报」按钮**（openBriefPanel），知识库格下方显示简报同步状态（已同步 / N 条待同步 / 未绑 KB）。
+- [ ] **Step 2: 创建模态**：左表单末尾加「归属大项（可选）」父事项下拉（仅顶层事项）；拆解卡增加逐条复选框与底部「拆成子事项（N）」按钮，与「写入描述」并列；拆分成功后清空勾选、toast、emit changed；「确认事项」创建父项本身时不自动拆。
+- [ ] **Step 3: 抽屉**：父项显示「子事项」tab（列：编号/标题/状态/执行情况/进度/最近运行/操作[触发|打开|移出]）+ tab 标题带计数徽标；子项概览字段卡显示「所属大项：<编号 标题>」可点击切换抽屉；父项概览运行面板替换为汇总面板（子项状态环 + 批量触发 + 「拆成子事项」入口）。
+- [ ] **Step 4: 浏览器走查** 按 spec §16.24：建大项→AI 拆 3 条→列表折叠展开正确→批量触发父项自动展开→子项各跑一条→父项状态/五态计数刷新→移出子项后父项计数变化→对子项再拆被拒并显示白话错误。
+- [ ] **Step 5: 验证与提交** Run: `cd frontend && npm test && npm run type-check && npm run check-i18n` → PASS；`git add frontend/src/views/sop && git commit -m "feat(sop): 父项折叠与汇总进度、创建模态拆分、抽屉子事项 tab"`
+
+### Task 68: M11 验收（spec §16.22–26）与全量回归
+
+**Files:**
+- Create: `internal/application/service/sop/engine/e2e_brief_split_test.go`
+- Create: `docs/superpowers/verification/2026-11-20-sop-brief-split.md`
+
+**Interfaces:**
+- Consumes: T59–T67 全部。
+
+- [ ] **Step 1: 写 E2E 测试**
+
+```go
+func TestSharedContextFlowsToNodesAndBriefToKB(t *testing.T) {
+	db := openSqliteMem(t)
+	fk := &fakeBriefKnowledge{}
+	env := newBriefEnv(t, db, fk) // 项目 p1（kb 桩）+ 模板：agent 节点 id="analysis"
+	// 1) 建两条兄弟事项（一条已 done 且有产物），黑板记一条决策
+	seedSiblingDone(t, env)
+	require.NoError(t, env.Notes.Create(context.Background(), 1, "u1", &types.SopProjectNote{
+		ProjectID: "p1", Kind: types.SopNoteKindDecision, Title: "采用方案 B", Body: "因为可逆"}))
+	// 2) 起一条新运行，断言任务书里真的带上了项目现状
+	run := createRunFromTemplate(t, env.Engine, env.Tpl)
+	env.Engine.Start(context.Background()); defer env.Engine.Stop()
+	waitFor(t, 10*time.Second, func() bool { return runStatus(t, env.Engine, run.ID) == types.SopRunSucceeded })
+	require.Contains(t, env.AgentPrompt(run), "## 项目现状")
+	require.Contains(t, env.AgentPrompt(run), "采用方案 B")
+	require.Contains(t, env.AgentPrompt(run), "已完成")          // 兄弟事项进度
+	brief, err := os.ReadFile(filepath.Join(run.WorkspaceDir, "inputs", "project-brief.md"))
+	require.NoError(t, err)
+	require.Contains(t, string(brief), "采用方案 B")
+	// 3) 运行终态自动落黑板 + 简报同步进 KB
+	waitFor(t, 5*time.Second, func() bool { return env.NoteCount(types.SopNoteKindRunSummary) >= 1 })
+	require.NoError(t, env.Brief.EnsureInitial(context.Background(), 1, "p1"))
+	require.Equal(t, 1, fk.createCalls) // 首版入库
+	require.Contains(t, fk.lastContent, "运行结论")
+}
+
+func TestSplitThreeChildrenEachRunIndependently(t *testing.T) {
+	// 父项 + 3 子项；逐个子项起运行（stub provider 直接 pass）；
+	// 断言：三条 run 的 item_id 互不相同、父项 child_done=3、父项状态自动 done、五态计数之和=4
+}
+```
+
+- [ ] **Step 2: 运行确认失败** Run: `go test ./internal/application/service/sop/engine/ -run "TestSharedContextFlows|TestSplitThreeChildren" -v` Expected: 编译失败。
+- [ ] **Step 3: 补齐助手跑通**（newBriefEnv/fakeBriefKnowledge/AgentPrompt 记录 stub AgentProvider 收到的 Prompt/seedSiblingDone/NoteCount）。
+- [ ] **Step 4: 全量回归** Run: `go test ./... && cd frontend && npm test && npm run type-check && npm run check-i18n && npm run build` Expected: 全 PASS。
+- [ ] **Step 5: 验收记录**：`docs/superpowers/verification/2026-11-20-sop-brief-split.md` 逐条填 §16.22–26（操作路径/期望/实际/PASS），并记录「未绑 KB 降级」「建库失败补绑」「改绑旧库保留」三个场景的实际输出。
+- [ ] **Step 6: 提交** `git add internal/application/service/sop/engine/e2e_brief_split_test.go docs/superpowers/verification/2026-11-20-sop-brief-split.md && git commit -m "test(sop): 项目共享上下文与大需求拆分 E2E 及验收记录"`
 
 ---
 
 ## 依赖与执行顺序
 
-T1→T2→T3→T4→T5→T6→T7（M1 数据层）→T8→T9→T10→T11→T12→T13→T14→T15（M2 引擎）→T16→T17（M3 平台执行器）→T18→T19→T20（M4 脚本+审批）→T21→T22→T23→T24→T25→T26（M5 API）→T27→T28→T29→T30→T31→T32→T33→T34（M6 CLI）→T35（M7 触发）→T36→T37（M8 KB/MCP）→T38→T39→T40→T41→T42→T43→T44→T45→T46→T47→T48→T49→T50→T51→T52→T53→T54（M9 前端；T42/T49 的预览弹窗依赖 T50，可先按契约 stub 后联调）→T55→T56→T57→T58（M10 验证收尾）。**不分期砍功能：58 个任务全部交付即完整方案**；顺序只是依赖排序，前端画布（T44–T47）在 M5 完成后即可与 M6–M8 并行。
+T1→T2→T3→T4→T5→T6→T7（M1 数据层）→T8→T9→T10→T11→T12→T13→T14→T15（M2 引擎）→T16→T17（M3 平台执行器）→T18→T19→T20（M4 脚本+审批）→T21→T22→T23→T24→T25→T26（M5 API）→T27→T28→T29→T30→T31→T32→T33→T34（M6 CLI）→T35（M7 触发）→T36→T37（M8 KB/MCP）→T38→T39→T40→T41→T42→T43→T44→T45→T46→T47→T48→T49→T50→T51→T52→T53→T54（M9 前端；T42/T49 的预览弹窗依赖 T50，可先按契约 stub 后联调）→T55→T56→T57→T58（M10 验证收尾）→T59→T60→T61→T62→T63→T64→T65→T66→T67→T68（M11 项目共享上下文与大需求拆分）。
+
+**M11 的插入点**（可与其它工作并行，但需满足前置）：T59 依赖 T1/T2（字段所在表）→T60 依赖 T59→T61 依赖 T59/T60 与 T22 派生→T62 依赖 T61 与 T21/T22→T63 依赖 T62 与 T12/T13 门禁→T64 依赖 T60/T61 与 T11 任务书→T65 依赖 T62→T66/T67 依赖 T65→T68 依赖全部。**最省事的执行顺序**：M1–M5 完成即可插入 T59–T64（后端）；前端 T66/T67 放在 T40/T42 之后；T68 放在 T58 之后或与之合并收尾。
+
+**不分期砍功能：68 个任务全部交付即完整方案**（M1–M10 为主体，M11 为项目共享上下文与大需求拆分增补；版本规划按用户决定不做）。顺序只是依赖排序，前端画布（T44–T47）在 M5 完成后即可与 M6–M8 并行。
