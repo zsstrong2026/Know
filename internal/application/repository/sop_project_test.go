@@ -101,3 +101,50 @@ func TestSopProjectTenantScopeAndUpdate(t *testing.T) {
 	require.False(t, got.NotifyOnGateOrFail)
 	require.Equal(t, "x1", got.DomainData["pm_source_id"])
 }
+
+// Update 必须按租户过滤：拿别租户的 ID 去覆盖同 id 的行属于越权，
+// gorm 的 Save 会按主键 upsert，因此这里显式断言「拒绝 + 原行不变」。
+func TestSopProjectUpdateRejectsOtherTenant(t *testing.T) {
+	db := newSopTestDB(t)
+	repo := NewSopProjectRepo(db)
+	ctx := context.Background()
+	p := &types.SopProject{TenantID: 1, Name: "p", Code: "KNOW"}
+	require.NoError(t, repo.Create(ctx, p))
+
+	crossTenant := *p
+	crossTenant.TenantID = 2
+	crossTenant.Name = "hijacked"
+	err := repo.Update(ctx, &crossTenant)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound, "跨租户更新必须返回未找到，而不是改写行")
+
+	got, err := repo.GetByID(ctx, 1, p.ID)
+	require.NoError(t, err)
+	require.Equal(t, "p", got.Name, "原租户的行不得被改写")
+	require.EqualValues(t, 1, got.TenantID)
+}
+
+// 软删或根本不存在的 id：Update 必须显式报未找到，
+// 不能靠 Save 的 upsert 把行「复活」或抛 UNIQUE 约束错误。
+func TestSopProjectUpdateMissingReturnsNotFound(t *testing.T) {
+	db := newSopTestDB(t)
+	repo := NewSopProjectRepo(db)
+	ctx := context.Background()
+
+	deleted := &types.SopProject{TenantID: 1, Name: "gone", Code: "GONE"}
+	require.NoError(t, repo.Create(ctx, deleted))
+	require.NoError(t, repo.Delete(ctx, 1, deleted.ID))
+	require.ErrorIs(t, repo.Update(ctx, deleted), gorm.ErrRecordNotFound, "软删的行不可被更新")
+
+	absent := &types.SopProject{
+		ID:       "00000000-0000-0000-0000-000000000000",
+		TenantID: 1,
+		Name:     "absent",
+		Code:     "NONE",
+	}
+	require.ErrorIs(t, repo.Update(ctx, absent), gorm.ErrRecordNotFound, "不存在的 id 不可被 upsert 出来")
+
+	var count int64
+	require.NoError(t, db.Model(&types.SopProject{}).
+		Where("id = ?", absent.ID).Count(&count).Error)
+	require.Zero(t, count, "未命中的 Update 不得插入新行")
+}

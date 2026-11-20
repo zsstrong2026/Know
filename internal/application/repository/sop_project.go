@@ -38,6 +38,9 @@ func (r *SopProjectRepo) ListByTenant(ctx context.Context, tenantID uint64) ([]t
 }
 
 // Update 全列保存项目；code 创建后不可改由 service 层守卫。
+// 条件强制拼接 tenant_id（与 pmUpdateByID 同构），避免拿别的租户的
+// 结构体把行改写过去；未命中（软删或不存在）返回 gorm.ErrRecordNotFound，
+// 不再退化成 Save 的 upsert 而抛出 UNIQUE 约束错误。
 // JSON 列不允许 NULL，空值在落库前补成空集合。
 func (r *SopProjectRepo) Update(ctx context.Context, p *types.SopProject) error {
 	if p.Repos == nil {
@@ -46,7 +49,7 @@ func (r *SopProjectRepo) Update(ctx context.Context, p *types.SopProject) error 
 	if p.DomainData == nil {
 		p.DomainData = map[string]any{}
 	}
-	return r.db.WithContext(ctx).Save(p).Error
+	return pmUpdateByID(ctx, r.db, p, p.ID, p.TenantID, gorm.ErrRecordNotFound)
 }
 
 // Delete 软删项目（只按租户 + id 命中）。
