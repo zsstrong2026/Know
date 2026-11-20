@@ -20,6 +20,7 @@ import (
 // artifacts, 000136 workbench, 000138 workbench assets.
 // 000045（P1-9）只给 workbench_items 加列，见 versionedSQLiteColumns。
 // 000068/000069/000070 sop_projects / sop_items / sop_item_extras。
+// 000071 sop_templates / sop_template_revisions。
 var versionedSQLiteTables = []string{
 	"memory_extraction_sessions",
 	"task_pending_ops",
@@ -63,6 +64,8 @@ var versionedSQLiteTables = []string{
 	"sop_item_attachments",
 	"sop_item_clarifications",
 	"sop_item_activities",
+	"sop_templates",
+	"sop_template_revisions",
 }
 
 // versionedSQLiteColumns maps each existing table to the columns that the
@@ -113,7 +116,7 @@ var versionedSQLiteColumns = map[string][]string{
 	"sop_items":    {"parent_id", "split_source"},                            // 000069
 }
 
-const expectedSQLiteMigrationVersion = 70
+const expectedSQLiteMigrationVersion = 71
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)

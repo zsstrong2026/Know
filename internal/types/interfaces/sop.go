@@ -77,3 +77,30 @@ type SopItemExtraRepository interface {
 	// ListActivities 列事项活动，created_at 升序；kind 为空表示不过滤。
 	ListActivities(ctx context.Context, tenantID uint64, itemID, kind string) ([]types.SopItemActivity, error)
 }
+
+// SopTemplateRepository 流程模板与发布 revision 仓储（实现：repository.SopTemplateRepo）。
+//
+// 不可变发布：Publish 把当前草稿冻成一条新 revision 并回写
+// published_revision_id/status=published/version；已发布的 revision 永不修改，
+// 之后改草稿只影响草稿本身。运行一律引用 revision，不读活模板。
+//
+// 内置模板（is_builtin）只读：Update / Delete 返回只读错误（定义在 repository 包），
+// 修改路径是 Copy 出独立的自建草稿。内置行可按 is_builtin 跨租户只读可见（内置 seed）。
+type SopTemplateRepository interface {
+	Create(ctx context.Context, tpl *types.SopTemplate) error
+	// GetByID 按 (租户, id) 取模板；内置模板跨租户只读可见。
+	GetByID(ctx context.Context, tenantID uint64, id string) (*types.SopTemplate, error)
+	// ListByTenant 返回本租户全局（project_id=''）+ 指定项目 + 内置模板。
+	ListByTenant(ctx context.Context, tenantID uint64, projectID string) ([]types.SopTemplate, error)
+	// Update 只写可编辑列（name/description/definition/metric_category/updated_at）；
+	// 发布态归属列由 Publish 独占。内置模板返回只读错误。
+	Update(ctx context.Context, tpl *types.SopTemplate) error
+	Delete(ctx context.Context, tenantID uint64, id string) error
+	// Publish 冻结当前草稿为 revision=max+1 的不可变快照并回写模板发布态。
+	Publish(ctx context.Context, tenantID uint64, id, publishedBy string) (*types.SopTemplateRevision, error)
+	GetRevision(ctx context.Context, tenantID uint64, id string) (*types.SopTemplateRevision, error)
+	// ListRevisions 列某模板全部 revision，revision 降序。
+	ListRevisions(ctx context.Context, tenantID uint64, templateID string) ([]types.SopTemplateRevision, error)
+	// Copy 深拷贝定义生成独立自建草稿（新 id、is_builtin=false、status=draft、version=1）。
+	Copy(ctx context.Context, tenantID uint64, srcID, name string) (*types.SopTemplate, error)
+}
