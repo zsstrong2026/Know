@@ -159,8 +159,12 @@ func TestFinalizeSuccessLinksItemAndNotify(t *testing.T) {
 		notified = append(notified, kind)
 	}
 	ctx := context.Background()
+	item := &types.SopItem{TenantID: 1, ProjectID: "p1", Title: "需求", Status: types.SopItemStatusInProgress}
+	require.NoError(t, e.deps.Items.Create(ctx, item))
 	def := types.SopDefinition{Nodes: []types.SopNode{{ID: "n1", Type: "agent"}}, OnSuccessItemStatus: "in_review"}
-	run := &types.SopRun{TenantID: 1, Status: types.SopRunRunning, WorkflowSnapshot: def, ItemID: "item1"}
+	run := &types.SopRun{
+		TenantID: 1, Status: types.SopRunRunning, WorkflowSnapshot: def, ItemID: item.ID,
+	}
 	require.NoError(t, e.deps.Runs.CreateRun(ctx, run))
 	require.NoError(t, e.deps.Runs.CreateNodeRun(ctx, &types.SopNodeRun{
 		TenantID: 1, RunID: run.ID, NodeID: "n1", Status: types.SopNodeSucceeded,
@@ -169,7 +173,7 @@ func TestFinalizeSuccessLinksItemAndNotify(t *testing.T) {
 	got, _ := e.deps.Runs.GetRun(ctx, 1, run.ID)
 	require.Equal(t, types.SopRunSucceeded, got.Status)
 	require.NotNil(t, got.FinishedAt)
-	require.Equal(t, [][2]string{{"item1", "in_review"}}, st.calls)
+	require.Equal(t, [][2]string{{item.ID, "in_review"}}, st.calls)
 	require.Equal(t, []string{"sop_run_finished"}, notified)
 }
 
@@ -257,4 +261,187 @@ func TestStartStopLifecycle(t *testing.T) {
 	got, err := e.deps.Runs.GetRun(ctx, 1, queued.ID)
 	require.NoError(t, err)
 	require.Equal(t, types.SopRunQueued, got.Status, "Stop 后不得再有运行被认领")
+}
+
+// blockingAdvance 让推进卡在「执行中」直到 ctx 被取消，再原样返回取消错误：
+// 这正是 CancelRun/Stop 打断在途推进时的形态。
+func blockingAdvance(entered chan struct{}) func(context.Context, string) (bool, error) {
+	return func(ctx context.Context, _ string) (bool, error) {
+		select {
+		case <-entered:
+		default:
+			close(entered)
+		}
+		<-ctx.Done()
+		return false, ctx.Err()
+	}
+}
+
+// 取消发生在推进途中时，运行必须收口为 cancelled（不是 failed），且不发 sop_run_failed。
+func TestCancelMidDriveIsNotFailure(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	notified := make(chan string, 8)
+	e.deps.Notify = func(_ context.Context, _ uint64, kind, _, _, _ string) { notified <- kind }
+	entered := make(chan struct{})
+	e.advanceHook = blockingAdvance(entered)
+
+	ctx := context.Background()
+	def := types.SopDefinition{Nodes: []types.SopNode{{ID: "n1", Type: "agent"}}}
+	run := &types.SopRun{TenantID: 1, Status: types.SopRunRunning, WorkflowSnapshot: def}
+	require.NoError(t, e.deps.Runs.CreateRun(ctx, run))
+	require.NoError(t, e.deps.Runs.CreateNodeRun(ctx, &types.SopNodeRun{
+		TenantID: 1, RunID: run.ID, NodeID: "n1", Status: types.SopNodeRunning,
+	}))
+
+	go e.runLoop(run.ID)
+	require.Eventually(t, func() bool {
+		select {
+		case <-entered:
+			return true
+		default:
+			return false
+		}
+	}, 5*time.Second, 10*time.Millisecond, "推进未被驱动")
+
+	e.CancelRun(run.ID)
+	require.Eventually(t, func() bool { return e.activeCount() == 0 },
+		10*time.Second, 20*time.Millisecond, "推进协程未退出")
+
+	got, err := e.deps.Runs.GetRun(ctx, 1, run.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.SopRunCancelled, got.Status, "取消不得落成 failed")
+	require.NotNil(t, got.FinishedAt)
+	require.Empty(t, notified, "取消不发任何终态通知")
+	nrs, err := e.deps.Runs.ListNodeRuns(ctx, 1, run.ID)
+	require.NoError(t, err)
+	for _, nr := range nrs {
+		require.Equal(t, types.SopNodeCancelled, nr.Status)
+	}
+}
+
+// 重复 Start 必须是 no-op：若第二次 Start 取消 e.ctx，在途 runLoop 会被误判为取消。
+func TestRepeatedStartKeepsActiveRun(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	entered := make(chan struct{})
+	e.advanceHook = blockingAdvance(entered)
+	require.NoError(t, e.Start(context.Background()))
+	defer func() { require.NoError(t, e.Stop(context.Background())) }()
+
+	ctx := context.Background()
+	def := types.SopDefinition{Nodes: []types.SopNode{{ID: "n1", Type: "agent"}}}
+	run := &types.SopRun{TenantID: 1, Status: types.SopRunRunning, WorkflowSnapshot: def}
+	require.NoError(t, e.deps.Runs.CreateRun(ctx, run))
+	go e.runLoop(run.ID)
+	require.Eventually(t, func() bool {
+		select {
+		case <-entered:
+			return true
+		default:
+			return false
+		}
+	}, 5*time.Second, 10*time.Millisecond, "推进未被驱动")
+
+	require.NoError(t, e.Start(context.Background()), "重复 Start 应返回成功")
+	time.Sleep(100 * time.Millisecond) // 给旧实现「第二次 Start 取消在途运行」留出发生窗口
+
+	// 在途运行必须还活着：真正的取消要等显式 CancelRun 才发生。
+	require.Equal(t, 1, e.activeCount(), "重复 Start 不得终止在途推进")
+	e.CancelRun(run.ID)
+	require.Eventually(t, func() bool { return e.activeCount() == 0 },
+		10*time.Second, 20*time.Millisecond, "推进协程未退出")
+	got, err := e.deps.Runs.GetRun(ctx, 1, run.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.SopRunCancelled, got.Status, "显式取消仍应收口为 cancelled")
+}
+
+// successRunWithNode 造一条 running 运行 + 一个 succeeded 节点，供收口类测试复用。
+func successRunWithNode(t *testing.T, e *Engine, def types.SopDefinition, projectID, itemID string) *types.SopRun {
+	t.Helper()
+	ctx := context.Background()
+	run := &types.SopRun{
+		TenantID: 1, Status: types.SopRunRunning, WorkflowSnapshot: def,
+		ProjectID: projectID, ItemID: itemID,
+	}
+	require.NoError(t, e.deps.Runs.CreateRun(ctx, run))
+	require.NoError(t, e.deps.Runs.CreateNodeRun(ctx, &types.SopNodeRun{
+		TenantID: 1, RunID: run.ID, NodeID: "n1", Status: types.SopNodeSucceeded,
+	}))
+	return run
+}
+
+// 模板级 OnSuccessItemStatus 优先于项目级。
+func TestSuccessItemStatusTemplateWins(t *testing.T) {
+	e, st, _ := newTestEngine(t)
+	ctx := context.Background()
+	item := &types.SopItem{TenantID: 1, ProjectID: "p1", Title: "需求", Status: types.SopItemStatusInProgress}
+	require.NoError(t, e.deps.Items.Create(ctx, item))
+	proj := &types.SopProject{TenantID: 1, Name: "P", OnRunSuccessItemStatus: "done"}
+	require.NoError(t, e.deps.Projects.Create(ctx, proj))
+
+	def := types.SopDefinition{Nodes: []types.SopNode{{ID: "n1", Type: "agent"}}, OnSuccessItemStatus: "in_review"}
+	run := successRunWithNode(t, e, def, proj.ID, item.ID)
+	require.NoError(t, e.finalizeRun(ctx, run))
+	require.Equal(t, [][2]string{{item.ID, types.SopItemStatusInReview}}, st.calls)
+}
+
+// 模板未声明时回退到项目级 on_run_success_item_status。
+func TestSuccessItemStatusFallsBackToProject(t *testing.T) {
+	e, st, _ := newTestEngine(t)
+	ctx := context.Background()
+	item := &types.SopItem{TenantID: 1, ProjectID: "p1", Title: "需求", Status: types.SopItemStatusInProgress}
+	require.NoError(t, e.deps.Items.Create(ctx, item))
+	proj := &types.SopProject{TenantID: 1, Name: "P", OnRunSuccessItemStatus: "in_review"}
+	require.NoError(t, e.deps.Projects.Create(ctx, proj))
+
+	def := types.SopDefinition{Nodes: []types.SopNode{{ID: "n1", Type: "agent"}}}
+	run := successRunWithNode(t, e, def, proj.ID, item.ID)
+	require.NoError(t, e.finalizeRun(ctx, run))
+	require.Equal(t, [][2]string{{item.ID, types.SopItemStatusInReview}}, st.calls)
+}
+
+// 模板与项目都未声明 → 不做任何事项状态改动。
+func TestSuccessItemStatusBothEmptyNoUpdate(t *testing.T) {
+	e, st, _ := newTestEngine(t)
+	ctx := context.Background()
+	item := &types.SopItem{TenantID: 1, ProjectID: "p1", Title: "需求", Status: types.SopItemStatusInProgress}
+	require.NoError(t, e.deps.Items.Create(ctx, item))
+	proj := &types.SopProject{TenantID: 1, Name: "P"}
+	require.NoError(t, e.deps.Projects.Create(ctx, proj))
+
+	def := types.SopDefinition{Nodes: []types.SopNode{{ID: "n1", Type: "agent"}}}
+	run := successRunWithNode(t, e, def, proj.ID, item.ID)
+	require.NoError(t, e.finalizeRun(ctx, run))
+	require.Empty(t, st.calls)
+	got, err := e.deps.Runs.GetRun(ctx, 1, run.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.SopRunSucceeded, got.Status)
+}
+
+// 事项读不到时不得继续写状态（读错误不能退化成「照写」）。
+func TestSuccessItemStatusSkipsWhenItemUnreadable(t *testing.T) {
+	e, st, _ := newTestEngine(t)
+	ctx := context.Background()
+	def := types.SopDefinition{Nodes: []types.SopNode{{ID: "n1", Type: "agent"}}, OnSuccessItemStatus: "in_review"}
+	run := successRunWithNode(t, e, def, "", "missing-item")
+	require.NoError(t, e.finalizeRun(ctx, run))
+	require.Empty(t, st.calls)
+}
+
+// finalizeRun 幂等：二次收口不再产生事项联动与通知。
+func TestFinalizeRunIdempotent(t *testing.T) {
+	e, st, _ := newTestEngine(t)
+	notified := make(chan string, 8)
+	e.deps.Notify = func(_ context.Context, _ uint64, kind, _, _, _ string) { notified <- kind }
+	ctx := context.Background()
+	item := &types.SopItem{TenantID: 1, ProjectID: "p1", Title: "需求", Status: types.SopItemStatusInProgress}
+	require.NoError(t, e.deps.Items.Create(ctx, item))
+
+	def := types.SopDefinition{Nodes: []types.SopNode{{ID: "n1", Type: "agent"}}, OnSuccessItemStatus: "in_review"}
+	run := successRunWithNode(t, e, def, "", item.ID)
+	require.NoError(t, e.finalizeRun(ctx, run))
+	require.Len(t, st.calls, 1)
+
+	require.NoError(t, e.finalizeRun(ctx, run), "二次收口应静默返回")
+	require.Len(t, st.calls, 1, "二次收口不得再联动事项")
+	require.Len(t, notified, 1, "二次收口不得重复通知")
 }

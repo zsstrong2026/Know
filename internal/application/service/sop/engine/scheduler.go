@@ -34,13 +34,17 @@ const (
 
 // Start 启动单实例调度循环（dig 生命周期 OnStart）。
 //
-// 可重复调用：已有循环时先停掉旧的再起新的，避免一个进程内叠两套 ticker。
+// 幂等：已启动时直接返回（no-op）。不能像以前那样「先取消旧循环再起新的」：
+// e.ctx 是所有在途 runLoop 的父 ctx，取消它会把正在跑的运行统统打成 cancelled。
+// 需要重启时先 Stop（会清空 e.cancel），再次 Start 才建立新的根 ctx。
 func (e *Engine) Start(ctx context.Context) error {
 	e.mu.Lock()
-	if e.cancel != nil {
-		e.cancel()
+	if e.started {
+		e.mu.Unlock()
+		return nil
 	}
 	e.ctx, e.cancel = context.WithCancel(ctx)
+	e.started = true
 	loopCtx := e.ctx
 	e.mu.Unlock()
 
@@ -70,6 +74,7 @@ func (e *Engine) Stop(ctx context.Context) error {
 	e.mu.Lock()
 	cancel := e.cancel
 	e.cancel = nil
+	e.started = false
 	e.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -139,6 +144,17 @@ func (e *Engine) Advance(ctx context.Context, runID string) (bool, error) {
 	return false, fmt.Errorf("运行 %s 的节点推进尚未接入", runID)
 }
 
+// advanceRun 是 runLoop 调用推进步骤的唯一入口：有测试挂点时走挂点，否则走 Advance。
+//
+// 挂点让「推进途中被取消」这一时序可确定复现（生产恒为 nil），从而能证明取消
+// 不会被落成 failed。
+func (e *Engine) advanceRun(ctx context.Context, runID string) (bool, error) {
+	if e.advanceHook != nil {
+		return e.advanceHook(ctx, runID)
+	}
+	return e.Advance(ctx, runID)
+}
+
 // runLoop 推进单条运行直到终态（生产模式）。
 //
 // 结构：登记 active（并行额度与 CancelRun 入口）→ 起心跳协程续租 → 循环
@@ -192,8 +208,14 @@ func (e *Engine) runLoop(runID string) {
 			_ = e.deps.Runs.UpdateRun(ctx, run)
 			return
 		}
-		progressed, err := e.Advance(ctx, runID) // T13 实现
+		progressed, err := e.advanceRun(ctx, runID) // T13 实现
 		if err != nil {
+			if ctx.Err() != nil {
+				// 取消发生在推进途中（CancelRun / Stop）：Advance 的报错只是取消的
+				// 副作用，不能当失败落库——收口为 cancelled，且不发失败通知。
+				e.finishCancelled(ctx, runID)
+				return
+			}
 			run.Status = types.SopRunFailed
 			run.Error = err.Error()
 			_ = e.deps.Runs.UpdateRun(ctx, run)

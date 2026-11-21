@@ -78,6 +78,12 @@ type Engine struct {
 	active map[string]context.CancelFunc // runID→取消函数
 	ctx    context.Context
 	cancel context.CancelFunc
+	// started 标记调度循环是否已启动：Start 对已启动的引擎是 no-op（绝不取消旧根
+	// ctx——那是所有在途 runLoop 的父 ctx，取消它等于把在跑运行打成 cancelled）。
+	started bool
+	// advanceHook 是推进步骤的测试挂点（生产恒为 nil，走 Advance 的占位实现）；
+	// 用它可以让 runLoop 在「推进途中被取消」这类时序确定地复现。
+	advanceHook func(ctx context.Context, runID string) (bool, error)
 }
 
 // NewEngine 构造引擎：补默认并行上限并初始化 active 簿记。
@@ -218,6 +224,12 @@ func (e *Engine) finalizeRun(ctx context.Context, run *types.SopRun) error {
 	if run == nil {
 		return fmt.Errorf("运行不存在")
 	}
+	// 幂等闸门：库里这条运行已收口（终态 + FinishedAt）就直接返回，重入不再产生
+	// 事项联动 / 通知 / 审计等副作用。以「库里的新鲜行」为准，不看调用方手里的旧值。
+	if cur, err := e.deps.Runs.GetRun(ctx, 0, run.ID); err == nil && cur != nil &&
+		isTerminalRun(cur.Status) && cur.FinishedAt != nil {
+		return nil
+	}
 	nrs, err := e.deps.Runs.ListNodeRuns(ctx, run.TenantID, run.ID)
 	if err != nil {
 		return fmt.Errorf("读取节点运行记录失败：%w", err)
@@ -288,16 +300,26 @@ func (e *Engine) finalizeRun(ctx context.Context, run *types.SopRun) error {
 
 // linkItemOnSuccess 按快照声明的 OnSuccessItemStatus 推进事项（仅成功时）。
 //
+// 目标状态口径：模板级（快照 OnSuccessItemStatus）优先；为空时回退到项目级
+// OnRunSuccessItemStatus；两者皆空则不做任何改动（引擎不猜业务意图）。
 // 状态机允许才写；不允许（或事项读不到）就记审计跳过——成功后的事项状态是
 // 引擎唯一的业务副作用，宁可少写也不越过 8 态状态机。
 func (e *Engine) linkItemOnSuccess(ctx context.Context, run *types.SopRun) {
 	target := strings.TrimSpace(run.WorkflowSnapshot.OnSuccessItemStatus)
+	if target == "" {
+		target = strings.TrimSpace(e.projectSuccessItemStatus(ctx, run))
+	}
 	if run.ItemID == "" || target == "" || e.deps.ItemStatus == nil {
 		return
 	}
 	if e.deps.Items != nil {
 		item, err := e.deps.Items.GetByID(ctx, run.TenantID, run.ItemID)
-		if err == nil && !types.CanTransitSopItem(item.Status, target) {
+		if err != nil {
+			// 读不到事项（已删/脚本运行）就没有可联动的对象；读错误绝不能退化成
+			// 「照写状态」——那会在不知道当前状态的情况下硬闯状态机。
+			return
+		}
+		if !types.CanTransitSopItem(item.Status, target) {
 			e.audit(ctx, run, "事项状态未联动",
 				fmt.Sprintf("状态机不允许 %s → %s", item.Status, target))
 			return
@@ -306,6 +328,21 @@ func (e *Engine) linkItemOnSuccess(ctx context.Context, run *types.SopRun) {
 	if err := e.deps.ItemStatus.UpdateStatus(ctx, run.TenantID, run.ItemID, target); err != nil {
 		e.audit(ctx, run, "事项状态未联动", "写入事项状态失败："+err.Error())
 	}
+}
+
+// projectSuccessItemStatus 取项目级「运行成功后事项状态」回退值。
+//
+// 非项目运行或项目仓储缺失时为空。仓储返回的 (零值结构体, error) 成对出现，
+// 因此必须先判 error 再用结构体，否则会把零值当成「项目没配」以外的语义。
+func (e *Engine) projectSuccessItemStatus(ctx context.Context, run *types.SopRun) string {
+	if run.ProjectID == "" || e.deps.Projects == nil {
+		return ""
+	}
+	proj, err := e.deps.Projects.GetByID(ctx, run.TenantID, run.ProjectID)
+	if err != nil || proj == nil {
+		return ""
+	}
+	return proj.OnRunSuccessItemStatus
 }
 
 // notifyFinished 发运行终态通知（succeeded→sop_run_finished，failed→sop_run_failed）。
