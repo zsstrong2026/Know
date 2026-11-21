@@ -128,8 +128,9 @@ var versionedSQLiteColumns = map[string][]string{
 
 // expectedSQLiteMigrationVersion 跟随目录内最高 sqlite 迁移号。
 // 000072（T5 sop_runs/sop_node_runs/sop_artifacts）与 000074（T5 派生 JOIN 索引，
-// 编号排在 T6 的 000073 之后）同批落地，故当前最高为 74；T6 补 000073 后仍为 74。
-const expectedSQLiteMigrationVersion = 74
+// 编号排在 T6 的 000073 之后）同批落地；T6 补 000073 后仍为 74；
+// 000075（T7 内置模板 seed，只插行不建表）把版本推到 75。
+const expectedSQLiteMigrationVersion = 75
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)
