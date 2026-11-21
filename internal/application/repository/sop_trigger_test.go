@@ -78,6 +78,44 @@ func TestUpsertConfigPerProject(t *testing.T) {
 	require.Equal(t, []string{types.SopItemStatusBacklog}, got.Statuses)
 }
 
+// TestUpsertTriggerConfigAllSourcesRoundTrip 全量多来源配置必须能存能取：
+// sources 列宽必须容纳逗号分隔的全部六个来源键值（"customer,internal,data,
+// competitor,strategy,other" 共 48 字符）。
+//
+// 这是评审发现的历史缺陷：列曾定为 VARCHAR(16)，PostgreSQL 会在校验通过后
+// 以 22001 拒绝写入，多来源配置根本存不进去。ALTER 到 VARCHAR(128) 后正常。
+//
+// 注意 SQLite 不强制 VARCHAR 长度（本测试所用的内存库走 AutoMigrate），
+// 因此这里观察不到 RED；真正的约束证明在 migrations/versioned/000171_* 的
+// 列宽上。此用例作为意图文档，防止日后有人把列宽改回去而无人察觉。
+func TestUpsertTriggerConfigAllSourcesRoundTrip(t *testing.T) {
+	db := newSopTriggerTestDB(t)
+	repo := NewSopTriggerRepo(db)
+	ctx := context.Background()
+
+	const allSources = "customer,internal,data,competitor,strategy,other"
+	require.Greater(t, len(allSources), 16, "用例必须超过旧列宽 16，否则证明不了什么")
+	require.LessOrEqual(t, len(allSources), 128, "用例必须落在新列宽内")
+
+	cfg := &types.SopTriggerConfig{
+		TenantID: 1, ProjectID: "p1", Mode: types.SopTriggerModeInterval,
+		IntervalKey: types.SopTriggerIntervalDaily9, Timezone: "Asia/Shanghai",
+		Sources: allSources, Statuses: []string{types.SopItemStatusTodo}, PerRunLimit: 5,
+	}
+	require.NoError(t, repo.UpsertConfig(ctx, cfg), "全量多来源配置必须可保存")
+
+	got, err := repo.GetConfig(ctx, 1, "p1")
+	require.NoError(t, err)
+	require.Equal(t, allSources, got.Sources, "多来源列表必须原样读回（不截断、不重排）")
+
+	// 再 Upsert 一次走更新分支：sources 在更新列白名单内，不得被旧值覆盖。
+	cfg.Sources = "customer,internal"
+	require.NoError(t, repo.UpsertConfig(ctx, cfg))
+	got, err = repo.GetConfig(ctx, 1, "p1")
+	require.NoError(t, err)
+	require.Equal(t, "customer,internal", got.Sources)
+}
+
 // TestUpsertConfigTenantScoped 租户隔离：GetConfig 只在本租户内命中，
 // 别的租户看不到本租户的配置。
 //

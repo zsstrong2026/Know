@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS sop_trigger_configs (
     timezone VARCHAR(64) NOT NULL DEFAULT 'Asia/Shanghai',
     default_template_id VARCHAR(36) NOT NULL DEFAULT '',
     prefer_item_template BOOLEAN NOT NULL DEFAULT TRUE,
-    sources VARCHAR(16) NOT NULL DEFAULT 'all',
+    sources VARCHAR(128) NOT NULL DEFAULT 'all',
     statuses JSONB NOT NULL DEFAULT '["backlog","todo"]',
     per_run_limit INTEGER NOT NULL DEFAULT 10,
     enabled BOOLEAN NOT NULL DEFAULT FALSE,
