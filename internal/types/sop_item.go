@@ -169,6 +169,12 @@ func CanTransitSopItem(from, to string) bool {
 	return false
 }
 
+// IsSopItemStatus 判断 s 是否为 8 态状态机中的合法状态（触发配置的候选状态校验用）。
+func IsSopItemStatus(s string) bool {
+	_, ok := sopItemTransitions[s]
+	return ok
+}
+
 // DeriveExecState 执行情况五态口径（spec §3.2）：已闭环优先于运行态。
 func DeriveExecState(itemStatus, runStatus string, hasRun bool) string {
 	if itemStatus == SopItemStatusDone || itemStatus == SopItemStatusClosed {

@@ -22,6 +22,8 @@ import (
 // 000068/000069/000070 sop_projects / sop_items / sop_item_extras。
 // 000071 sop_templates / sop_template_revisions。
 // 000072 sop_runs / sop_node_runs / sop_artifacts。
+// 000073 sop_cli_credentials / sop_trigger_configs / sop_trigger_logs /
+// sop_dispatch_reservations。
 var versionedSQLiteTables = []string{
 	"memory_extraction_sessions",
 	"task_pending_ops",
@@ -70,6 +72,10 @@ var versionedSQLiteTables = []string{
 	"sop_runs",
 	"sop_node_runs",
 	"sop_artifacts",
+	"sop_cli_credentials",
+	"sop_trigger_configs",
+	"sop_trigger_logs",
+	"sop_dispatch_reservations",
 }
 
 // versionedSQLiteColumns maps each existing table to the columns that the

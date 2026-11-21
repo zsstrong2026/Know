@@ -146,3 +146,37 @@ type SopTemplateRepository interface {
 	// Copy 深拷贝定义生成独立自建草稿（新 id、is_builtin=false、status=draft、version=1）。
 	Copy(ctx context.Context, tenantID uint64, srcID, name string) (*types.SopTemplate, error)
 }
+
+// SopCredentialRepository CLI 凭据仓储（实现：repository.SopCredentialRepo）。
+//
+// 唯一性口径是 (owner_user_id, cli_kind) 且按租户隔离：同一用户同一 CLI 只有一份
+// 密钥。APIKey 由模型 BeforeSave 加密落库、AfterFind 解密读出，仓储层不接触明文
+// 之外的任何处理；Get 返回的行携带明文，仅供 executor 注入 env，绝不出网。
+type SopCredentialRepository interface {
+	// Upsert 按 (租户, owner, cli_kind) 更新或插入；APIKey 为空表示沿用旧密钥。
+	Upsert(ctx context.Context, c *types.SopCLICredential) error
+	// Get 按 (租户, owner, cli_kind) 取凭据；查不到返回 gorm.ErrRecordNotFound。
+	Get(ctx context.Context, tenantID uint64, ownerUserID, cliKind string) (*types.SopCLICredential, error)
+	// ListByOwner 列某用户在本租户的全部凭据（cli_kind 升序）。
+	ListByOwner(ctx context.Context, tenantID uint64, ownerUserID string) ([]types.SopCLICredential, error)
+}
+
+// SopTriggerRepository 触发配置、触发历史与派发预约仓储（实现：repository.SopTriggerRepo）。
+//
+// 触发配置每项目唯一且 Upsert 是唯一写入口：校验（ValidateSopTriggerConfig）
+// 在落库前完成，非法配置不写库。
+// ReserveDispatch 以唯一索引 ux_sop_dispatch_slot 判幂等：同 (config,item,slot)
+// 只有第一次插入返回 true，后续一律 (false,nil)——冲突是正常竞态，不是错误。
+type SopTriggerRepository interface {
+	// UpsertConfig 按 (租户, 项目) 更新或插入；非法配置返回 ErrInvalidSopTrigger 包裹错误。
+	UpsertConfig(ctx context.Context, c *types.SopTriggerConfig) error
+	// GetConfig 按 (租户, 项目) 取配置；查不到返回 gorm.ErrRecordNotFound。
+	GetConfig(ctx context.Context, tenantID uint64, projectID string) (*types.SopTriggerConfig, error)
+	AddLog(ctx context.Context, l *types.SopTriggerLog) error
+	// ListLogs 按 created_at 倒序分页；pageSize<=0 不分页。
+	ListLogs(
+		ctx context.Context, tenantID uint64, configID string, page, pageSize int,
+	) ([]types.SopTriggerLog, error)
+	// ReserveDispatch 预约一次派发；返回 false 表示该调度槽已被占用（幂等）。
+	ReserveDispatch(ctx context.Context, configID, itemID string, slot time.Time) (bool, error)
+}
