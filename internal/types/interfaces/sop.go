@@ -125,6 +125,21 @@ type SopRunRepository interface {
 	CreateArtifact(ctx context.Context, a *types.SopArtifact) error
 	ListArtifacts(ctx context.Context, tenantID uint64, runID string) ([]types.SopArtifact, error)
 	GetArtifact(ctx context.Context, tenantID uint64, id string) (*types.SopArtifact, error)
+	// DeleteArtifactsByNode 软删某运行某节点的全部产物行，返回删除条数。
+	//
+	// 用途：子流程节点重新拉起子运行后，父运行下该节点此前导入的产物属于旧子运行的
+	// 事实，必须先整体作废再按新子运行的产物重建，否则同一路径会同时存在新旧内容。
+	DeleteArtifactsByNode(
+		ctx context.Context, tenantID uint64, runID, nodeID string,
+	) (int64, error)
+	// FindChildRun 查找某运行某子流程节点当前仍活跃（queued/running/waiting/paused）
+	// 的子运行；找不到返回 (nil, nil)。
+	//
+	// 用途：子 run 的「CreateRun → 回写 ChildRunID」不是原子的，进程在两步之间崩溃会
+	// 在下一轮留下一条孤儿子运行。拉起前先用它探测并复用，避免重复创建。
+	FindChildRun(ctx context.Context, parentRunID, nodeID string) (*types.SopRun, error)
+	// ListChildRuns 列某运行派生的全部子运行（created_at 升序）；取消向下传播用。
+	ListChildRuns(ctx context.Context, parentRunID string) ([]types.SopRun, error)
 	// StatsByStatus 按状态分组计数。
 	StatsByStatus(ctx context.Context, tenantID uint64) (map[string]int64, error)
 	// StatsSummary 统计摘要；projectID 空=全租户。

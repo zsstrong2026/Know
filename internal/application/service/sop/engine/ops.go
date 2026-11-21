@@ -385,6 +385,13 @@ func (e *Engine) Resume(ctx context.Context, tenantID uint64, runID string) erro
 
 // Cancel 取消一次运行：先置取消标记，active 时打断在途推进（runLoop 收口为
 // cancelled）；非 active（queued/paused/waiting 无推进协程）直接收口。
+//
+// 取消向下传播：本运行派生的子运行（sop 节点的 child run）一并取消，否则父运行
+// 收口后子运行仍在调度器里继续跑，白烧 token 且会往父工作区回写产物（父节点已被
+// 置 cancelled，导入只会留下孤儿文件）。传播按祖父孙逐层进行，同样受层数上限保护。
+//
+// 传播失败不回滚父运行的取消：取消失败比「子运行多跑一会儿」更严重，父运行必须
+// 收口；子运行残留依靠活跃态扫描/租约过期兜底。
 func (e *Engine) Cancel(ctx context.Context, tenantID uint64, runID string) error {
 	run, err := e.loadRun(ctx, tenantID, runID)
 	if err != nil {
@@ -397,12 +404,46 @@ func (e *Engine) Cancel(ctx context.Context, tenantID uint64, runID string) erro
 	if err := e.deps.Runs.UpdateRun(ctx, run); err != nil {
 		return fmt.Errorf("写入取消请求失败：%w", err)
 	}
+	e.cancelChildRuns(ctx, runID, sopChildChainCap)
 	if e.isActive(runID) {
 		e.CancelRun(runID)
 		return nil
 	}
 	e.finishCancelled(ctx, runID)
 	return nil
+}
+
+// cancelChildRuns 递归取消某运行派生的全部活跃子运行（depth 为剩余层数）。
+//
+// 只动活跃态（queued/running/waiting/paused）：终态子运行保留原结论，不让一次取消
+// 把已经成功的历史改写成 cancelled。单条子运行处理失败只记日志，不阻断其余子运行
+// 与父运行的收口。
+func (e *Engine) cancelChildRuns(ctx context.Context, parentRunID string, depth int) {
+	if depth <= 0 || parentRunID == "" {
+		return
+	}
+	children, err := e.deps.Runs.ListChildRuns(ctx, parentRunID)
+	if err != nil {
+		log.Printf("[sop-engine] 运行 %s 取消向下传播读取子运行失败：%v", parentRunID, err)
+		return
+	}
+	for i := range children {
+		child := &children[i]
+		if !types.IsSopRunActive(child.Status) {
+			continue
+		}
+		child.CancelRequested = true
+		if err := e.deps.Runs.UpdateRun(ctx, child); err != nil {
+			log.Printf("[sop-engine] 子运行 %s 取消标记写入失败：%v", child.ID, err)
+			continue
+		}
+		e.cancelChildRuns(ctx, child.ID, depth-1)
+		if e.isActive(child.ID) {
+			e.CancelRun(child.ID)
+			continue
+		}
+		e.finishCancelled(ctx, child.ID)
+	}
 }
 
 // AddHumanContext 追加一条人工上下文（审批意见/补充信息/系统提醒），执行时注入任务书。

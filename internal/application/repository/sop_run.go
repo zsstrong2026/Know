@@ -482,6 +482,61 @@ func (r *SopRunRepo) GetArtifact(
 	return &a, err
 }
 
+// DeleteArtifactsByNode 软删某运行某节点的全部产物行，返回删除条数。
+//
+// 子流程节点重新拉起子运行后，父运行该节点此前的产物行属于旧子运行的事实：先整体
+// 作废再按新子运行的产物重建，同一路径才不会同时挂着新旧内容。软删而非物理删：
+// 产物表本身是运行历史的一部分，软删让旧行对读路径（ListArtifacts 等）不可见即可。
+func (r *SopRunRepo) DeleteArtifactsByNode(
+	ctx context.Context, tenantID uint64, runID, nodeID string,
+) (int64, error) {
+	res := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND run_id = ? AND node_id = ?", tenantID, runID, nodeID).
+		Delete(&types.SopArtifact{})
+	return res.RowsAffected, res.Error
+}
+
+// FindChildRun 查找某运行某子流程节点当前仍活跃的子运行；找不到返回 (nil, nil)。
+//
+// 子 run 的「CreateRun → 回写 ChildRunID」不是原子两步，崩溃会留下一条孤儿子运行；
+// 拉起前先探测并复用它，避免一轮一轮重复创建。活跃态口径与 SopRunActiveStatuses 一致。
+// 只按 parent_run_id（全局唯一）过滤，属于引擎内部入口，不对外暴露租户旁路。
+func (r *SopRunRepo) FindChildRun(
+	ctx context.Context, parentRunID, nodeID string,
+) (*types.SopRun, error) {
+	if parentRunID == "" || nodeID == "" {
+		return nil, nil
+	}
+	var run types.SopRun
+	err := r.db.WithContext(ctx).
+		Where("parent_run_id = ? AND trigger_ref_id = ? AND status IN ?",
+			parentRunID, nodeID, types.SopRunActiveStatuses).
+		Order("created_at DESC, id DESC").
+		First(&run).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &run, nil
+}
+
+// ListChildRuns 列某运行派生的全部子运行（created_at 升序）；取消向下传播用。
+func (r *SopRunRepo) ListChildRuns(
+	ctx context.Context, parentRunID string,
+) ([]types.SopRun, error) {
+	if parentRunID == "" {
+		return nil, nil
+	}
+	var list []types.SopRun
+	err := r.db.WithContext(ctx).
+		Where("parent_run_id = ?", parentRunID).
+		Order("created_at ASC, id ASC").
+		Find(&list).Error
+	return list, err
+}
+
 // StatsByStatus 按状态分组计数（不含其它租户、不含软删）。
 func (r *SopRunRepo) StatsByStatus(ctx context.Context, tenantID uint64) (map[string]int64, error) {
 	type row struct {

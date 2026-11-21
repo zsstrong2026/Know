@@ -624,3 +624,96 @@ func TestExpireLeasesRoutesCancelled(t *testing.T) {
 	require.Equal(t, types.SopRunFailed, failed.Status)
 	require.Contains(t, failed.Error, "租约")
 }
+
+// DeleteArtifactsByNode 只软删「本运行本节点」的产物行：其它节点、其它运行的行不受影响，
+// 删后 ListArtifacts 不再返回它们（软删语义，行本身留作历史）。
+func TestDeleteArtifactsByNode(t *testing.T) {
+	db := newSopRunTestDB(t)
+	repo := NewSopRunRepo(db)
+	ctx := context.Background()
+	for _, a := range []*types.SopArtifact{
+		{TenantID: 1, RunID: "r1", NodeID: "p1", Name: "a", Path: "out/a.md"},
+		{TenantID: 1, RunID: "r1", NodeID: "p1", Name: "b", Path: "out/b.md"},
+		{TenantID: 1, RunID: "r1", NodeID: "n2", Name: "c", Path: "out/c.md"},
+		{TenantID: 1, RunID: "r2", NodeID: "p1", Name: "d", Path: "out/d.md"},
+	} {
+		require.NoError(t, repo.CreateArtifact(ctx, a))
+	}
+
+	n, err := repo.DeleteArtifactsByNode(ctx, 1, "r1", "p1")
+	require.NoError(t, err)
+	require.EqualValues(t, 2, n)
+
+	list, err := repo.ListArtifacts(ctx, 1, "r1")
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	require.Equal(t, "n2", list[0].NodeID)
+
+	other, err := repo.ListArtifacts(ctx, 1, "r2")
+	require.NoError(t, err)
+	require.Len(t, other, 1, "不得误删其它运行的产物")
+
+	// 幂等：再删一次没有可删行，不报错。
+	n, err = repo.DeleteArtifactsByNode(ctx, 1, "r1", "p1")
+	require.NoError(t, err)
+	require.Zero(t, n)
+}
+
+// FindChildRun 只认「同父运行 + 同触发节点 + 活跃态」的子运行；终态子运行不算候选。
+func TestFindChildRun(t *testing.T) {
+	db := newSopRunTestDB(t)
+	repo := NewSopRunRepo(db)
+	ctx := context.Background()
+	done := &types.SopRun{TenantID: 1, ParentRunID: "parent", TriggerRefID: "p1",
+		TriggerKind: types.SopRunTriggerChildRun, Status: types.SopRunSucceeded}
+	require.NoError(t, repo.CreateRun(ctx, done))
+
+	got, err := repo.FindChildRun(ctx, "parent", "p1")
+	require.NoError(t, err)
+	require.Nil(t, got, "终态子运行不是可复用候选")
+
+	live := &types.SopRun{TenantID: 1, ParentRunID: "parent", TriggerRefID: "p1",
+		TriggerKind: types.SopRunTriggerChildRun, Status: types.SopRunRunning}
+	require.NoError(t, repo.CreateRun(ctx, live))
+	otherNode := &types.SopRun{TenantID: 1, ParentRunID: "parent", TriggerRefID: "p2",
+		Status: types.SopRunRunning}
+	require.NoError(t, repo.CreateRun(ctx, otherNode))
+
+	got, err = repo.FindChildRun(ctx, "parent", "p1")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, live.ID, got.ID)
+
+	got, err = repo.FindChildRun(ctx, "parent", "p3")
+	require.NoError(t, err)
+	require.Nil(t, got)
+
+	got, err = repo.FindChildRun(ctx, "no-such-parent", "p1")
+	require.NoError(t, err)
+	require.Nil(t, got)
+}
+
+// ListChildRuns 只列本运行的直接子运行（created_at 升序），孙运行不混进来。
+func TestListChildRuns(t *testing.T) {
+	db := newSopRunTestDB(t)
+	repo := NewSopRunRepo(db)
+	ctx := context.Background()
+	c1 := &types.SopRun{TenantID: 1, ParentRunID: "p", Status: types.SopRunSucceeded}
+	c2 := &types.SopRun{TenantID: 1, ParentRunID: "p", Status: types.SopRunRunning}
+	require.NoError(t, repo.CreateRun(ctx, c1))
+	require.NoError(t, repo.CreateRun(ctx, c2))
+	require.NoError(t, repo.CreateRun(ctx, &types.SopRun{TenantID: 1, ParentRunID: c1.ID, Status: types.SopRunRunning}))
+
+	list, err := repo.ListChildRuns(ctx, "p")
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	ids := map[string]bool{}
+	for _, r := range list {
+		ids[r.ID] = true
+	}
+	require.True(t, ids[c1.ID] && ids[c2.ID])
+
+	list, err = repo.ListChildRuns(ctx, "")
+	require.NoError(t, err)
+	require.Empty(t, list)
+}
