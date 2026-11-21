@@ -127,15 +127,13 @@ func buildSopProject(src *pmProjectSource, usedCodes map[string]bool) *types.Sop
 	}
 }
 
-// projectDomainData 保留迁移后仍需追溯的 PM 项目字段。
+// projectDomainData 保留迁移后仍需追溯的 PM 项目字段（源 id 是幂等键）。
 func projectDomainData(src *pmProjectSource) map[string]any {
-	data := map[string]any{
+	return map[string]any{
 		pmSourceIDKey:   src.ID,
 		"pm_session_id": src.SessionID,
 		"pm_status":     src.Status,
-		"pm_created_by": src.CreatedBy,
 	}
-	return data
 }
 
 // DeriveProjectCode 把项目名压缩成合法编号前缀：[A-Z][A-Z0-9]{1,9}。

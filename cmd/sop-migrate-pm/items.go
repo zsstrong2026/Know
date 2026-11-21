@@ -174,19 +174,16 @@ func pmStatusToSopStatus(status string) string {
 	return types.SopItemStatusBacklog
 }
 
-// itemDomainData 保留 PM 需求的分析与追溯字段；ai_analysis 原样搬运（JSON 文本）。
+// itemDomainData 保留 PM 需求的分析与追溯字段；ai_analysis 解析后原样搬运。
 func itemDomainData(src *pmRequirementSource) map[string]any {
-	data := map[string]any{
+	return map[string]any{
 		pmSourceIDKey:   src.ID,
-		"pm_project_id": src.ProjectID,
-		"pm_status":     src.Status,
 		"ai_analysis":   rawJSONValue(src.AIAnalysis),
 		"design_plan":   src.DesignPlan,
 		"session_id":    src.SessionID,
 		"knowledge_id":  src.KnowledgeID,
 		"reject_reason": src.RejectReason,
 	}
-	return data
 }
 
 // outcomeOf 搬运上线复盘结论；全空时返回空结构（不伪造回填）。

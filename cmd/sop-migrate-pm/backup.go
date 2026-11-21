@@ -14,16 +14,15 @@ import (
 // 备份先于任何写入完成，迁移失败时它是唯一的人工恢复依据，故不裁剪字段
 // （含租户、软删行与附件字节；[]byte 由 encoding/json 自动 base64）。
 type pmBackup struct {
-	ExportedAt    time.Time             `json:"exported_at"`
-	Projects      []pmProjectSource     `json:"pm_projects"`
-	Requirements  []pmRequirementSource `json:"pm_requirements"`
-	Attachments   []pmAttachmentSource  `json:"pm_requirement_attachments"`
-	SourceVersion string                `json:"source_version"`
+	ExportedAt   time.Time             `json:"exported_at"`
+	Projects     []pmProjectSource     `json:"pm_projects"`
+	Requirements []pmRequirementSource `json:"pm_requirements"`
+	Attachments  []pmAttachmentSource  `json:"pm_requirement_attachments"`
 }
 
-// 备份文件名里的时间戳把 ':' 换成 '-'：RFC3339 的冒号在 Windows 文件名里非法，
-// 换掉后仍是可排序、可读回的时间串。
-const backupTimeLayout = "2006-01-02T15-04-05Z07-00"
+// 备份文件名里的时间戳用紧凑 RFC3339（UTC）：冒号在 Windows 文件名里非法，
+// 换成 '-' 后仍是可排序、可读回的时间串。
+const backupTimeLayout = "2006-01-02T15-04-05Z"
 
 // writeBackup 导出 PM 源表到 <backupDir>/pm-migration-<RFC3339>.json，返回文件路径。
 // 目录不存在时先 MkdirAll；同名文件已存在则追加 -2/-3 后缀，绝不覆盖既有备份。
@@ -31,10 +30,7 @@ func writeBackup(db *gorm.DB, backupDir string) (string, error) {
 	if err := os.MkdirAll(backupDir, 0o755); err != nil {
 		return "", fmt.Errorf("创建备份目录 %s 失败：%w", backupDir, err)
 	}
-	b := pmBackup{
-		ExportedAt:    time.Now().UTC(),
-		SourceVersion: "pm-v1",
-	}
+	b := pmBackup{ExportedAt: time.Now().UTC()}
 	// 备份必须包含软删行：软删不等于可以丢，恢复时也需要完整快照。
 	for _, q := range []struct {
 		name string
