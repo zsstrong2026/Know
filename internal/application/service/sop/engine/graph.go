@@ -214,7 +214,8 @@ func TopoSort(def *types.SopDefinition) []string {
 // ValidateDefinition 用大白话列出流程定义的问题；返回空切片=可以发布。
 //
 // allowIncompleteExecutor=true 用于草稿态（AI 生成的初稿还没选执行角色），
-// 此时跳过执行器完整性检查；其余检查对草稿同样生效。
+// 此时跳过执行器完整性检查与孤立步骤检查（画布上还没连线的步骤允许保存）；
+// 其余检查对草稿同样生效。
 func ValidateDefinition(def *types.SopDefinition, allowIncompleteExecutor bool) []string {
 	return ValidateDefinitionWithSelf(def, "", allowIncompleteExecutor)
 }
@@ -281,8 +282,9 @@ func ValidateDefinitionWithSelf(def *types.SopDefinition, selfTemplateID string,
 		errs = append(errs, fmt.Sprintf("流程里存在循环依赖（%s），请去掉一条连线", strings.Join(names, "→")))
 	}
 
-	// 孤立步骤（单节点流程例外）。
-	if len(def.Nodes) > 1 {
+	// 孤立步骤（单节点流程例外）。草稿态允许画布上刚放、还没连线的步骤，
+	// 所以只在严格模式（allowIncompleteExecutor=false）下检查。
+	if !allowIncompleteExecutor && len(def.Nodes) > 1 {
 		for i := range def.Nodes {
 			id := def.Nodes[i].ID
 			if id == "" {

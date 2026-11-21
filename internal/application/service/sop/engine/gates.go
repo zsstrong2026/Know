@@ -15,8 +15,8 @@ import (
 const GateReasonClipRunes = 500
 
 // CompileGateCommands 把节点配置编译成门禁命令清单（顺序即执行顺序）：
-//   - exists（含空 type）→ test -s <path>（文件存在且非空）
-//   - contains → grep -q "<keyword>" <path>
+//   - exists（含空 type）→ test -s "<path>"（文件存在且非空）
+//   - contains → grep -q -- "<keyword>" "<path>"
 //   - command → 原样保留
 //
 // 之后按 && 拆分 gate_extra 追加，空白片段丢弃。函数不写回节点的派生字段，
@@ -33,13 +33,15 @@ func CompileGateCommands(n *types.SopNode) []string {
 		}
 		switch a.Check.Type {
 		case types.SopArtifactCheckContains:
-			cmds = append(cmds, fmt.Sprintf("grep -q %s %s", shellDoubleQuote(a.Check.Keyword), path))
+			// `--` 终止选项解析：关键词以 - 开头（如 markdown 待办项「- [ ]」）时
+			// 不会被 grep 当成选项；关键词与路径都做 shell 引用。
+			cmds = append(cmds, fmt.Sprintf("grep -q -- %s %s", shellDoubleQuote(a.Check.Keyword), shellDoubleQuote(path)))
 		case types.SopArtifactCheckCommand:
 			if cmd := strings.TrimSpace(a.Check.Command); cmd != "" {
 				cmds = append(cmds, cmd)
 			}
 		default: // exists
-			cmds = append(cmds, "test -s "+path)
+			cmds = append(cmds, "test -s "+shellDoubleQuote(path))
 		}
 	}
 	for _, part := range strings.Split(n.GateExtra, "&&") {

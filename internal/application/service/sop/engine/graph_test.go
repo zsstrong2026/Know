@@ -184,6 +184,26 @@ func TestValidateIsolatedNode(t *testing.T) {
 	}
 }
 
+// 草稿态（allowIncompleteExecutor=true）允许刚放到画布、还没连线的步骤：
+// 保存进行中的工作不能被孤立节点检查挡住；严格模式仍要拒绝。
+func TestValidateIsolatedNodeDraftAllowed(t *testing.T) {
+	d := &types.SopDefinition{
+		Nodes: []types.SopNode{
+			{ID: "a", Name: "写需求"},
+			{ID: "b", Name: "写方案"},
+		},
+		Edges: []types.SopEdge{{ID: "e1", Source: "a", Target: "b"}},
+	}
+	d.Nodes = append(d.Nodes, types.SopNode{ID: "c", Name: "还没接"})
+
+	if errs := ValidateDefinition(d, false); !containsSub(errs, "还没接") {
+		t.Fatalf("strict mode should reject isolated node: %v", errs)
+	}
+	if errs := ValidateDefinition(d, true); len(errs) != 0 {
+		t.Fatalf("draft mode should accept isolated node: %v", errs)
+	}
+}
+
 func TestValidateIncompleteExecutor(t *testing.T) {
 	d := def3()
 	d.Nodes[0].Executor = types.SopNodeExecutor{Kind: "platform_agent"} // 缺 agent_id

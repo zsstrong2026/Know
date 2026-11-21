@@ -14,7 +14,7 @@ func TestCompileGateCommands(t *testing.T) {
 		{Name: "自定义", Path: "out/x", Check: types.SopArtifactCheck{Type: "command", Command: "test -f out/x"}},
 	}, GateExtra: "echo one && echo two"}
 	cmds := CompileGateCommands(n)
-	want := []string{"test -s out/a.md", `grep -q "验收" out/prd.md`, "test -f out/x", "echo one", "echo two"}
+	want := []string{`test -s "out/a.md"`, `grep -q -- "验收" "out/prd.md"`, "test -f out/x", "echo one", "echo two"}
 	if len(cmds) != len(want) {
 		t.Fatalf("got %v want %v", cmds, want)
 	}
@@ -44,27 +44,64 @@ func TestCompileGateCommandsEachCheckType(t *testing.T) {
 		{
 			name: "空 type 按 exists 处理",
 			node: &types.SopNode{ArtifactOutputs: []types.SopArtifactOutput{{Path: "out/a.md"}}},
-			want: []string{"test -s out/a.md"},
+			want: []string{`test -s "out/a.md"`},
 		},
 		{
 			name: "显式 exists",
 			node: &types.SopNode{ArtifactOutputs: []types.SopArtifactOutput{{Path: "a.md", Check: types.SopArtifactCheck{Type: types.SopArtifactCheckExists}}}},
-			want: []string{"test -s a.md"},
+			want: []string{`test -s "a.md"`},
 		},
 		{
 			name: "contains 关键词加引号",
 			node: &types.SopNode{ArtifactOutputs: []types.SopArtifactOutput{{Path: "p.md", Check: types.SopArtifactCheck{Type: types.SopArtifactCheckContains, Keyword: "验收 标准"}}}},
-			want: []string{`grep -q "验收 标准" p.md`},
+			want: []string{`grep -q -- "验收 标准" "p.md"`},
 		},
 		{
 			name: "contains 含 $ 与反引号被转义，不会被 shell 展开",
 			node: &types.SopNode{ArtifactOutputs: []types.SopArtifactOutput{{Path: "p.md", Check: types.SopArtifactCheck{Type: "contains", Keyword: "$HOME `id`"}}}},
-			want: []string{`grep -q "\$HOME \` + "`id\\`" + `" p.md`},
+			want: []string{`grep -q -- "\$HOME \` + "`id\\`" + `" "p.md"`},
 		},
 		{
 			name: "contains 关键词含双引号被转义",
 			node: &types.SopNode{ArtifactOutputs: []types.SopArtifactOutput{{Path: "p.md", Check: types.SopArtifactCheck{Type: "contains", Keyword: `say "hi"`}}}},
-			want: []string{`grep -q "say \"hi\"" p.md`},
+			want: []string{`grep -q -- "say \"hi\"" "p.md"`},
+		},
+		{
+			// 关键词以 - 开头（markdown 待办项）会被 grep 当成选项，必须用 -- 分隔。
+			name: "contains 关键词以 - 开头不当作选项",
+			node: &types.SopNode{ArtifactOutputs: []types.SopArtifactOutput{{Path: "out.md", Check: types.SopArtifactCheck{Type: "contains", Keyword: "- [ ]"}}}},
+			want: []string{`grep -q -- "- [ ]" "out.md"`},
+		},
+		{
+			name: "contains 关键词含 && 不会被拆成两条命令",
+			node: &types.SopNode{ArtifactOutputs: []types.SopArtifactOutput{{Path: "out.md", Check: types.SopArtifactCheck{Type: "contains", Keyword: "a && rm -rf b"}}}},
+			want: []string{`grep -q -- "a && rm -rf b" "out.md"`},
+		},
+		{
+			name: "contains 关键词含引号 $ 反引号 && 全部被引用",
+			node: &types.SopNode{ArtifactOutputs: []types.SopArtifactOutput{{Path: "out.md", Check: types.SopArtifactCheck{Type: "contains", Keyword: "say \"x\" $HOME `id` && y"}}}},
+			want: []string{`grep -q -- "say \"x\" \$HOME \` + "`id\\`" + ` && y" "out.md"`},
+		},
+		{
+			// 产物路径也必须引用：空格、$ 都不能让命令断开或被展开。
+			name: "exists 路径含空格被引用",
+			node: &types.SopNode{ArtifactOutputs: []types.SopArtifactOutput{{Path: "out/需求 分析.md", Check: types.SopArtifactCheck{Type: "exists"}}}},
+			want: []string{`test -s "out/需求 分析.md"`},
+		},
+		{
+			name: "exists 路径含 $ 被转义",
+			node: &types.SopNode{ArtifactOutputs: []types.SopArtifactOutput{{Path: "out/$draft.md", Check: types.SopArtifactCheck{Type: "exists"}}}},
+			want: []string{`test -s "out/\$draft.md"`},
+		},
+		{
+			name: "contains 路径含空格被引用",
+			node: &types.SopNode{ArtifactOutputs: []types.SopArtifactOutput{{Path: "out/需求 分析.md", Check: types.SopArtifactCheck{Type: "contains", Keyword: "验收"}}}},
+			want: []string{`grep -q -- "验收" "out/需求 分析.md"`},
+		},
+		{
+			name: "contains 路径含 $ 被转义",
+			node: &types.SopNode{ArtifactOutputs: []types.SopArtifactOutput{{Path: "out/$draft.md", Check: types.SopArtifactCheck{Type: "contains", Keyword: "- [x]"}}}},
+			want: []string{`grep -q -- "- [x]" "out/\$draft.md"`},
 		},
 		{
 			name: "command 原样保留",
@@ -213,7 +250,7 @@ func TestRefreshDerived(t *testing.T) {
 	d.Nodes[0].GateExtra = "echo ok && true"
 
 	RefreshDerived(d)
-	want := []string{"test -s out/a.md", `grep -q "验收" out/p.md`, "echo ok", "true"}
+	want := []string{`test -s "out/a.md"`, `grep -q -- "验收" "out/p.md"`, "echo ok", "true"}
 	if len(d.Nodes[0].GateCommands) != len(want) {
 		t.Fatalf("gate_commands = %v want %v", d.Nodes[0].GateCommands, want)
 	}
