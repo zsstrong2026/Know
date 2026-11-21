@@ -20,15 +20,18 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -41,6 +44,10 @@ type Workspace struct {
 	WorkDir        string // 克隆仓库等的作业目录
 	LogsDir        string // 节点日志目录
 	PrivateHomeDir string // CLI 执行器的隔离 HOME
+
+	// gitRun 是执行 git 子命令的注入点（仅测试用来强制失败/替换实现）。
+	// 由 PrepareWorkspace 设为 defaultGitRun；为 nil 时回落到默认实现。
+	gitRun func(ctx context.Context, dir string, args ...string) error
 }
 
 // errPathEscape 越界守卫的统一错误（对用户白话，不含内部路径）。
@@ -80,6 +87,7 @@ func PrepareWorkspace(root, runID string) (*Workspace, error) {
 		WorkDir:        slashJoin(base, "work"),
 		LogsDir:        slashJoin(base, "logs"),
 		PrivateHomeDir: slashJoin(base, ".sop", "private-home"),
+		gitRun:         defaultGitRun,
 	}
 	for _, d := range []string{ws.Root, ws.InputsDir, ws.OutDir, ws.WorkDir, ws.LogsDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -129,6 +137,11 @@ func SafeWorkspacePath(ws *Workspace, rel string) (string, error) {
 // arts 的 Path 是相对 srcRoot（通常是上游节点所在运行的 Root）的路径，同样受
 // 越界守卫约束；目标文件名取源文件的 basename，同一节点目录内重名视为错误，
 // 避免上游两个产物静默互相覆盖。
+//
+// 重试时上游产物集合可能变化：每个节点的输入先落到运行根下的临时目录
+// （`.sop/tmp-inputs-<node>-<n>`），校验与复制全部成功后再整体替换
+// `inputs/<node>/`。这样上一轮的遗留文件不会冒充本轮输入，也不会出现
+// “复制到一半失败、旧输入已被清空”的半成品状态。
 func MaterializeInputs(ws *Workspace, arts []types.SopArtifact, srcRoot string) error {
 	if ws == nil || strings.TrimSpace(ws.Root) == "" {
 		return fmt.Errorf("工作区未初始化")
@@ -139,6 +152,9 @@ func MaterializeInputs(ws *Workspace, arts []types.SopArtifact, srcRoot string) 
 	if strings.TrimSpace(srcRoot) == "" {
 		return fmt.Errorf("上游产物目录不能为空")
 	}
+	// 先完成全部校验与源文件探测，再落盘：校验失败时现有 inputs 保持原样。
+	plans := make(map[string][]inputFile, len(arts))
+	order := make([]string, 0, len(arts))
 	seen := map[string]string{}
 	for _, art := range arts {
 		if err := validateSegment(art.NodeID); err != nil {
@@ -155,19 +171,55 @@ func MaterializeInputs(ws *Workspace, arts []types.SopArtifact, srcRoot string) 
 		if info.IsDir() {
 			return fmt.Errorf("上游产物 %q 是目录，暂不支持目录物化", artifactLabel(art))
 		}
-		destDir := filepath.Join(ws.InputsDir, art.NodeID)
-		if err := os.MkdirAll(destDir, 0o755); err != nil {
-			return fmt.Errorf("创建输入目录失败：%w", err)
-		}
 		name := filepath.Base(src)
 		key := art.NodeID + "/" + name
 		if prev, ok := seen[key]; ok {
 			return fmt.Errorf("上游产物重名：%q 与 %q 都会写入 inputs/%s/%s", prev, artifactLabel(art), art.NodeID, name)
 		}
 		seen[key] = artifactLabel(art)
-		if err := copyFile(src, filepath.Join(destDir, name)); err != nil {
-			return fmt.Errorf("物化上游产物 %q 失败：%w", artifactLabel(art), err)
+		if _, ok := plans[art.NodeID]; !ok {
+			order = append(order, art.NodeID)
 		}
+		plans[art.NodeID] = append(plans[art.NodeID], inputFile{src: src, name: name})
+	}
+	for _, node := range order {
+		if err := replaceInputDir(ws, node, plans[node]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// inputFile 是一次物化的单个目标：源绝对路径与目标文件名。
+type inputFile struct {
+	src  string
+	name string
+}
+
+// inputTmpSeq 给临时目录名加序号，避免并行节点/重复调用撞名。
+var inputTmpSeq uint64
+
+// replaceInputDir 在临时目录内组装 node 的完整输入集，再整体替换 inputs/<node>/。
+func replaceInputDir(ws *Workspace, node string, files []inputFile) error {
+	seq := atomic.AddUint64(&inputTmpSeq, 1)
+	tmp := filepath.Join(ws.Root, ".sop", fmt.Sprintf("tmp-inputs-%s-%d", sanitizeSegment(node), seq))
+	if err := os.MkdirAll(tmp, 0o755); err != nil {
+		return fmt.Errorf("创建输入暂存目录失败：%w", err)
+	}
+	// 成功时目录已被 Rename 走，RemoveAll 为无害的空操作；失败时清掉半成品。
+	defer os.RemoveAll(tmp)
+	for _, f := range files {
+		if err := copyFile(f.src, filepath.Join(tmp, f.name)); err != nil {
+			return fmt.Errorf("物化上游产物到 inputs/%s/%s 失败：%w", node, f.name, err)
+		}
+	}
+	dest := filepath.Join(ws.InputsDir, node)
+	// Windows 下 rename 到已存在的目录会失败，故先移除旧目标（重试语义本就是整体替换）。
+	if err := os.RemoveAll(dest); err != nil {
+		return fmt.Errorf("清理旧的输入目录 inputs/%s 失败：%w", node, err)
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		return fmt.Errorf("替换输入目录 inputs/%s 失败：%w", node, err)
 	}
 	return nil
 }
@@ -178,14 +230,27 @@ func MaterializeInputs(ws *Workspace, arts []types.SopArtifact, srcRoot string) 
 // 只面向沙箱内的 shell 脚本（依赖 git_ws 包装与 sandbox.WorkspaceLayout），无法
 // 在本地进程里直接调用，故此处实现最小等价版本。
 //
-// 返回错误而不是静默吞掉：检查点失败不应让节点失败，调用方只记日志即可
-// （非致命路径由调用方保证）。
+// 返回错误而不是静默吞掉：检查点失败不应让节点失败，不想关心细节的调用方用
+// CheckpointBestEffort，需要自己决定降级方式的调用方用本函数。
 func GitCheckpoint(ws *Workspace, msg string) error {
+	return ws.gitCheckpoint(context.Background(), msg)
+}
+
+// CheckpointBestEffort 是检查点的“尽力而为”包装：失败只记日志并返回一句给用户
+// 看的说明，成功返回空串。检查点属于可降级能力，任何失败都不该让节点失败。
+func (ws *Workspace) CheckpointBestEffort(ctx context.Context, msg string) string {
+	if err := ws.gitCheckpoint(ctx, msg); err != nil {
+		note := "工作区检查点未创建（不影响节点执行）：" + err.Error()
+		log.Printf("[sop-workspace] %s", note)
+		return note
+	}
+	return ""
+}
+
+// gitCheckpoint 是 GitCheckpoint / CheckpointBestEffort 的共同实现。
+func (ws *Workspace) gitCheckpoint(ctx context.Context, msg string) error {
 	if ws == nil || strings.TrimSpace(ws.Root) == "" {
 		return fmt.Errorf("工作区未初始化")
-	}
-	if _, err := exec.LookPath("git"); err != nil {
-		return fmt.Errorf("未找到 git 命令，无法创建检查点：%w", err)
 	}
 	// 并行执行节点时多个检查点会争抢同一个 index.lock，进程内按运行根串行化。
 	unlock := lockCheckpoint()
@@ -198,18 +263,18 @@ func GitCheckpoint(ws *Workspace, msg string) error {
 		message = "sop checkpoint"
 	}
 	if !isGitRepo(ws.Root) {
-		if err := runGit(ws.Root, "init", "-q"); err != nil {
+		if err := ws.runGit(ctx, ws.Root, "init", "-q"); err != nil {
 			return fmt.Errorf("初始化工作区 Git 仓库失败：%w", err)
 		}
 	}
 	if err := ensureCheckpointIgnore(ws.Root); err != nil {
 		return err
 	}
-	if err := runGit(ws.Root, "add", "-A"); err != nil {
+	if err := ws.runGit(ctx, ws.Root, "add", "-A"); err != nil {
 		return fmt.Errorf("暂存工作区变更失败：%w", err)
 	}
 	// 身份与工作区仓库同机写入：走 -c 临时覆盖，不落任何项目级配置。
-	if err := runGit(ws.Root,
+	if err := ws.runGit(ctx, ws.Root,
 		"-c", "user.name=SOP", "-c", "user.email=sop@local",
 		"commit", "-q", "--allow-empty", "-m", message); err != nil {
 		return fmt.Errorf("创建工作区检查点失败：%w", err)
@@ -287,7 +352,7 @@ func CloneRepos(ws *Workspace, runID string, repos []types.SopProjectRepo) ([]st
 		if err := cloneRepo(url, base, dir); err != nil {
 			return dirs, fmt.Errorf("克隆仓库 %q 失败：%w", name, err)
 		}
-		if err := runGit(dir, "checkout", "-b", branch); err != nil {
+		if err := ws.runGit(context.Background(), dir, "checkout", "-b", branch); err != nil {
 			return dirs, fmt.Errorf("克隆仓库 %q 后创建运行分支 %s 失败：%w", name, branch, err)
 		}
 		dirs = append(dirs, filepath.ToSlash(dir))
@@ -305,20 +370,27 @@ func deriveRepoName(url string) string {
 
 // cloneRepo 执行一次单分支克隆；工作目录设为仓库目录的父目录，避免 -C 干扰
 // clone 的目标解析。Ceiling 取该父目录，git 不会向上发现运行根之外的仓库。
+//
+// git 报错会把地址原样打进 stderr（`https://user:token@host/…`），错误文案会进
+// 节点 feedback 与日志，故先脱敏再包装。
 func cloneRepo(url, branch, dir string) error {
 	cmd := exec.Command("git", "clone", "--branch", branch, "--single-branch", url, dir)
 	cmd.Dir = filepath.Dir(dir)
 	cmd.Env = gitEnv(filepath.Dir(dir))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%w：%s", err, strings.TrimSpace(string(out)))
+		stderr := scrubCloneError(strings.TrimSpace(string(out)), url)
+		return fmt.Errorf("%s：%s", maskRepoURL(url), stderr)
 	}
 	return nil
 }
 
-// runGit 在 dir 内执行 git 子命令，环境统一带越界与免交互设置。
-func runGit(dir string, args ...string) error {
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+// defaultGitRun 在 dir 内执行 git 子命令，环境统一带越界与免交互设置。
+func defaultGitRun(ctx context.Context, dir string, args ...string) error {
+	if _, err := exec.LookPath("git"); err != nil {
+		return fmt.Errorf("未找到 git 命令：%w", err)
+	}
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = gitEnv(dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -327,13 +399,80 @@ func runGit(dir string, args ...string) error {
 	return nil
 }
 
-// gitEnv 追加工作区口径的 git 环境：禁止向上发现仓库（天花板取 target 的父目录，
-// 使 git 只看 target 本身）、禁止交互式凭证提示（无凭证时立刻失败，不挂起）。
+// runGit 走注入点（默认 defaultGitRun），让测试可以强制失败。
+func (ws *Workspace) runGit(ctx context.Context, dir string, args ...string) error {
+	if ws.gitRun != nil {
+		return ws.gitRun(ctx, dir, args...)
+	}
+	return defaultGitRun(ctx, dir, args...)
+}
+
+// scrubbedGitEnvKeys 是从继承环境中剔除的 GIT_* 变量：它们会让 git 指向别的
+// 仓库/索引（GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE），或覆盖我们的天花板设置
+// （GIT_CEILING_DIRECTORIES 会重复出现，语义取决于实现，不如直接重设）。
+var scrubbedGitEnvKeys = map[string]struct{}{
+	"GIT_DIR":                 {},
+	"GIT_WORK_TREE":           {},
+	"GIT_INDEX_FILE":          {},
+	"GIT_CEILING_DIRECTORIES": {},
+}
+
+// gitEnv 构造工作区口径的 git 环境：丢弃继承的 GIT_DIR/GIT_WORK_TREE/
+// GIT_INDEX_FILE/GIT_CEILING_DIRECTORIES，再追加自己的天花板（取 target 的父
+// 目录，使 git 只看 target 本身）与免交互开关（无凭证时立刻失败，不挂起）。
 func gitEnv(target string) []string {
-	return append(os.Environ(),
+	base := os.Environ()
+	env := make([]string, 0, len(base)+2)
+	for _, kv := range base {
+		name := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			name = kv[:i]
+		}
+		if _, drop := scrubbedGitEnvKeys[strings.ToUpper(name)]; drop {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env,
 		"GIT_CEILING_DIRECTORIES="+filepath.Dir(filepath.FromSlash(target)),
 		"GIT_TERMINAL_PROMPT=0",
 	)
+}
+
+// userinfoRe 匹配带方案地址里的 userinfo（`scheme://user[:token]@`）。
+var userinfoRe = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://)[^/\s@]+@`)
+
+// bareCredRe 匹配不带方案时裸露的 `user:pass@` / `user:token@` 片段。
+var bareCredRe = regexp.MustCompile(`\b[A-Za-z0-9._~%+-]+:[^\s@/'"]+@`)
+
+// queryTokenRe 匹配地址查询串里的凭证类参数值。
+var queryTokenRe = regexp.MustCompile(`(?i)([?&](?:token|access_token|private_token|password|secret)=)[^&\s'"]+`)
+
+// maskRepoURL 把仓库地址脱敏成可展示形态：userinfo 换成 `***`、查询串里的
+// 凭证参数值换成 `***`。无凭证的地址原样返回。
+func maskRepoURL(raw string) string {
+	url := strings.TrimSpace(raw)
+	if url == "" {
+		return url
+	}
+	masked := userinfoRe.ReplaceAllString(url, "${1}***@")
+	masked = queryTokenRe.ReplaceAllString(masked, "${1}***")
+	return masked
+}
+
+// scrubCloneError 从 git stderr 里抹掉原始地址与裸露的 `user:pass@` 片段，
+// 再交给上层拼错误。raw 是调用方传入的原始地址。
+func scrubCloneError(stderr, raw string) string {
+	out := stderr
+	if raw = strings.TrimSpace(raw); raw != "" {
+		// 地址可能被 git 加了引号或截断，先整体替换，再按变体兜底。
+		out = strings.ReplaceAll(out, raw, maskRepoURL(raw))
+		out = strings.ReplaceAll(out, strings.TrimRight(raw, "/"), maskRepoURL(strings.TrimRight(raw, "/")))
+	}
+	out = userinfoRe.ReplaceAllString(out, "${1}***@")
+	out = bareCredRe.ReplaceAllString(out, "***@")
+	out = queryTokenRe.ReplaceAllString(out, "${1}***")
+	return out
 }
 
 func isGitRepo(dir string) bool {

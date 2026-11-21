@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -237,4 +239,94 @@ func mustGit(t *testing.T, dir string, args ...string) {
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "git %v: %s", args, out)
+}
+
+// scrubbedGit 用生产同一套环境过滤执行 git，供断言时避开测试注入的 GIT_* 变量。
+func scrubbedGit(t *testing.T, dir string, args ...string) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = gitEnv(dir)
+	return cmd
+}
+
+// 重试时上游产物集合可能变化：新一轮物化必须清掉上一轮遗留的 inputs，
+// 否则旧产物会被下游误当成有效输入。
+func TestMaterializeInputsClearsStaleOnRetry(t *testing.T) {
+	src := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(src, "out"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "out", "a.md"), []byte("# A"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "out", "b.md"), []byte("# B"), 0o644))
+	ws, _ := PrepareWorkspace(t.TempDir(), "run15")
+	require.NoError(t, MaterializeInputs(ws,
+		[]types.SopArtifact{{NodeID: "n1", Path: "out/a.md", Name: "A"}}, src))
+	require.FileExists(t, filepath.Join(ws.InputsDir, "n1", "a.md"))
+
+	require.NoError(t, MaterializeInputs(ws,
+		[]types.SopArtifact{{NodeID: "n1", Path: "out/b.md", Name: "B"}}, src))
+	require.NoFileExists(t, filepath.Join(ws.InputsDir, "n1", "a.md"), "上一轮产物必须被清掉")
+	require.FileExists(t, filepath.Join(ws.InputsDir, "n1", "b.md"))
+	// 临时目录不得残留（含失败前的暂存区）。
+	entries, err := os.ReadDir(filepath.Join(ws.Root, ".sop"))
+	require.NoError(t, err)
+	for _, e := range entries {
+		require.NotContains(t, e.Name(), "tmp-inputs", "物化临时目录必须清理")
+	}
+}
+
+// 继承环境里的 GIT_DIR / GIT_WORK_TREE 会让 git 指向别处，检查点必须无视它们。
+func TestGitCheckpointIgnoresInheritedGitDir(t *testing.T) {
+	requireGit(t)
+	bogus := filepath.Join(t.TempDir(), "bogus-gitdir")
+	t.Setenv("GIT_DIR", bogus)
+	t.Setenv("GIT_WORK_TREE", filepath.Join(t.TempDir(), "bogus-worktree"))
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(t.TempDir(), "bogus-index"))
+	ws, _ := PrepareWorkspace(t.TempDir(), "run16")
+	require.NoError(t, os.WriteFile(filepath.Join(ws.OutDir, "a.md"), []byte("v1"), 0o644))
+	require.NoError(t, GitCheckpoint(ws, "no inherited gitenv"))
+	require.True(t, isGitRepo(ws.Root))
+	require.NoDirExists(t, bogus, "不得在继承的 GIT_DIR 上创建任何东西")
+	out, err := scrubbedGit(t, ws.Root, "log", "--oneline").CombinedOutput()
+	require.NoError(t, err)
+	require.Contains(t, string(out), "no inherited gitenv")
+}
+
+// 克隆失败会把 git stderr 拼进节点 feedback：URL 里的 userinfo 必须脱敏。
+func TestMaskRepoURLCredentials(t *testing.T) {
+	const raw = "https://bot:ghp_secret@git.example.com/team/app.git?token=ghp_secret"
+	masked := maskRepoURL(raw)
+	require.NotContains(t, masked, "ghp_secret")
+	require.NotContains(t, masked, "bot:")
+	require.Contains(t, masked, "https://***@git.example.com/team/app.git")
+
+	// token 只作为 URL 查询参数、userinfo 为单段（token 即用户名）的形态。
+	tokenOnly := maskRepoURL("https://ghp_secret@git.example.com/team/app.git")
+	require.NotContains(t, tokenOnly, "ghp_secret")
+	require.Contains(t, tokenOnly, "https://***@git.example.com/team/app.git")
+
+	stderr := "fatal: unable to access '" + raw + "': 403\nsee also user:pass@host/repo"
+	scrubbed := scrubCloneError(stderr, raw)
+	require.NotContains(t, scrubbed, "ghp_secret")
+	require.NotContains(t, scrubbed, "user:pass@")
+	require.Contains(t, scrubbed, "https://***@git.example.com")
+
+	// 无凭证的地址保持原样，避免把正常信息也抹掉。
+	plain := "https://example.com/team/app.git"
+	require.Equal(t, plain, maskRepoURL(plain))
+}
+
+// 检查点失败不得让节点失败：BestEffort 只返回一句人话说明。
+func TestCheckpointBestEffort(t *testing.T) {
+	ws, _ := PrepareWorkspace(t.TempDir(), "run17")
+	ws.gitRun = func(_ context.Context, _ string, _ ...string) error {
+		return errors.New("simulated git failure")
+	}
+	note := ws.CheckpointBestEffort(context.Background(), "should not fail node")
+	require.NotEmpty(t, note)
+	require.Contains(t, note, "检查点")
+	require.NotContains(t, note, "panic")
+
+	// 成功时返回空串。
+	ws2, _ := PrepareWorkspace(t.TempDir(), "run18")
+	ws2.gitRun = func(_ context.Context, _ string, _ ...string) error { return nil }
+	require.Empty(t, ws2.CheckpointBestEffort(context.Background(), "ok"))
 }
