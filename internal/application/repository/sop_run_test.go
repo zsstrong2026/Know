@@ -510,3 +510,117 @@ func TestCountActiveRuns(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, n)
 }
+
+// TransitionNodeRun 是 CAS：只有当前状态等于 from 才迁移，落败返回 false 且不改行。
+func TestTransitionNodeRunCAS(t *testing.T) {
+	db := newSopRunTestDB(t)
+	repo := NewSopRunRepo(db)
+	ctx := context.Background()
+	probe := &types.SopRun{TenantID: 1, Status: types.SopRunRunning}
+	require.NoError(t, repo.CreateRun(ctx, probe))
+	nr := &types.SopNodeRun{TenantID: 1, RunID: probe.ID, NodeID: "n1",
+		Status: types.SopNodeWaitingApproval}
+	require.NoError(t, repo.CreateNodeRun(ctx, nr))
+
+	won, err := repo.TransitionNodeRun(ctx, 1, probe.ID, "n1",
+		types.SopNodeWaitingApproval, types.SopNodeSucceeded, map[string]any{
+			"gate_result": types.SopGatePass, "gate_reason": "同意",
+			"status": "ignored", "run_id": "hijack",
+		})
+	require.NoError(t, err)
+	require.True(t, won)
+	got, err := repo.GetNodeRun(ctx, 1, probe.ID, "n1")
+	require.NoError(t, err)
+	require.Equal(t, types.SopNodeSucceeded, got.Status)
+	require.Equal(t, types.SopGatePass, got.GateResult)
+	require.Equal(t, "同意", got.GateReason)
+	require.Equal(t, probe.ID, got.RunID, "patch 不得改归属键")
+
+	// 已经改走：同一 from 再来一次必须落败（第二个并发审批拿不到）。
+	won, err = repo.TransitionNodeRun(ctx, 1, probe.ID, "n1",
+		types.SopNodeWaitingApproval, types.SopNodePending, nil)
+	require.NoError(t, err)
+	require.False(t, won)
+	back, err := repo.GetNodeRun(ctx, 1, probe.ID, "n1")
+	require.NoError(t, err)
+	require.Equal(t, types.SopNodeSucceeded, back.Status, "落败方不得改行")
+
+	// 跨租户同样落败。
+	won, err = repo.TransitionNodeRun(ctx, 2, probe.ID, "n1",
+		types.SopNodeSucceeded, types.SopNodeFailed, nil)
+	require.NoError(t, err)
+	require.False(t, won)
+}
+
+// 并发审批：N 个 goroutine 抢同一节点的 waiting_approval → 恰好一个 won。
+func TestTransitionNodeRunConcurrentSingleWinner(t *testing.T) {
+	db := newSopRunTestDB(t)
+	repo := NewSopRunRepo(db)
+	ctx := context.Background()
+	probe := &types.SopRun{TenantID: 1, Status: types.SopRunRunning}
+	require.NoError(t, repo.CreateRun(ctx, probe))
+	require.NoError(t, repo.CreateNodeRun(ctx, &types.SopNodeRun{
+		TenantID: 1, RunID: probe.ID, NodeID: "n1", Status: types.SopNodeWaitingApproval,
+	}))
+
+	const racers = 8
+	var wg sync.WaitGroup
+	wins := make(chan bool, racers)
+	for i := 0; i < racers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			won, err := repo.TransitionNodeRun(ctx, 1, probe.ID, "n1",
+				types.SopNodeWaitingApproval, types.SopNodeSucceeded, nil)
+			require.NoError(t, err)
+			wins <- won
+		}()
+	}
+	wg.Wait()
+	close(wins)
+	n := 0
+	for won := range wins {
+		if won {
+			n++
+		}
+	}
+	require.Equal(t, 1, n, "并发迁移必须恰好一个成功")
+}
+
+// 取消标记 + 租约过期：收口为 cancelled（不是 failed），在途节点一并取消。
+func TestExpireLeasesRoutesCancelled(t *testing.T) {
+	db := newSopRunTestDB(t)
+	repo := NewSopRunRepo(db)
+	ctx := context.Background()
+	cancelFlagged := &types.SopRun{TenantID: 1, Status: types.SopRunRunning, CancelRequested: true}
+	plain := &types.SopRun{TenantID: 1, Status: types.SopRunRunning}
+	require.NoError(t, repo.CreateRun(ctx, cancelFlagged))
+	require.NoError(t, repo.CreateRun(ctx, plain))
+	for _, id := range []string{cancelFlagged.ID, plain.ID} {
+		require.NoError(t, repo.CreateNodeRun(ctx, &types.SopNodeRun{
+			TenantID: 1, RunID: id, NodeID: "n1", Status: types.SopNodeRunning,
+		}))
+	}
+	past := time.Now().Add(-time.Minute)
+	require.NoError(t, repo.Heartbeat(ctx, cancelFlagged.ID, past))
+	require.NoError(t, repo.Heartbeat(ctx, plain.ID, past))
+
+	n, err := repo.ExpireLeases(ctx, time.Now())
+	require.NoError(t, err)
+	require.EqualValues(t, 2, n)
+
+	cancelled, err := repo.GetRun(ctx, 1, cancelFlagged.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.SopRunCancelled, cancelled.Status, "取消标记优先，不得落成 failed")
+	require.False(t, cancelled.CancelRequested)
+	require.NotNil(t, cancelled.FinishedAt)
+	require.Empty(t, cancelled.Error)
+	nr, err := repo.GetNodeRun(ctx, 1, cancelFlagged.ID, "n1")
+	require.NoError(t, err)
+	require.Equal(t, types.SopNodeCancelled, nr.Status)
+
+	failed, err := repo.GetRun(ctx, 1, plain.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.SopRunFailed, failed.Status)
+	require.Contains(t, failed.Error, "租约")
+}

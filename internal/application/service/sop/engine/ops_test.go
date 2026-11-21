@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,14 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/types"
 )
+
+// decisionFiles 列某运行留痕目录下的决定文件（并发/原子性断言用）。
+func decisionFiles(t *testing.T, dir string) []string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(dir, ".sop", "decisions", "*.md"))
+	require.NoError(t, err)
+	return matches
+}
 
 // waitingRun 造一条等待审批的运行：n1 处于 waiting_approval（已尝试 2 次）。
 func waitingRun(t *testing.T, e *Engine, def types.SopDefinition) *types.SopRun {
@@ -350,4 +359,149 @@ func TestResumeWaitingAfterRestart(t *testing.T) {
 	require.Eventually(t, func() bool { return e.activeCount() == 1 },
 		5*time.Second, 20*time.Millisecond, "waiting 运行未被接回推进")
 	require.True(t, e.isActive(run.ID))
+}
+
+// ---- review 修复：终态运行拒绝操作 / 状态重算 / CAS / 目标校验 / 原子留痕 ----
+
+// 终态运行上的审批操作必须报错且不改变运行状态（不允许把 failed 复活成 running）。
+func TestApproveOnFailedRunRejected(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	ctx := context.Background()
+	run := waitingRun(t, e, types.SopDefinition{Nodes: []types.SopNode{{ID: "n1", Type: "approval"}}})
+	run.Status = types.SopRunFailed
+	run.Error = "boom"
+	require.NoError(t, e.deps.Runs.UpdateRun(ctx, run))
+
+	for name, fn := range map[string]func() error{
+		"approve":   func() error { return e.Approve(ctx, 1, run.ID, "n1", "同意", "张三") },
+		"reject":    func() error { return e.Reject(ctx, 1, run.ID, "n1", "打回", "张三", "") },
+		"rework":    func() error { return e.ReworkCurrent(ctx, 1, run.ID, "n1", "补充", "张三") },
+		"terminate": func() error { return e.Terminate(ctx, 1, run.ID, "n1", "终止", "张三") },
+	} {
+		err := fn()
+		require.Error(t, err, name+" 必须拒绝终态运行")
+		require.Contains(t, err.Error(), "运行已结束", name)
+	}
+	got, err := e.deps.Runs.GetRun(ctx, 1, run.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.SopRunFailed, got.Status)
+	require.Equal(t, "boom", got.Error)
+	require.Nil(t, got.FinishedAt, "终态守卫不得触发收口副作用")
+	nr, err := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n1")
+	require.NoError(t, err)
+	require.Equal(t, types.SopNodeWaitingApproval, nr.Status)
+	require.Empty(t, decisionFiles(t, run.WorkspaceDir), "被拒绝的操作不得留痕")
+}
+
+// 并行等待审批：通过其中一个分支后，另一个仍在等待 → 运行必须停在 waiting。
+func TestApproveOneBranchKeepsRunWaiting(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	ctx := context.Background()
+	def := types.SopDefinition{Nodes: []types.SopNode{
+		{ID: "n1", Type: "approval"}, {ID: "n2", Type: "approval"},
+	}}
+	run := waitingRun(t, e, def)
+	require.NoError(t, e.deps.Runs.CreateNodeRun(ctx, &types.SopNodeRun{
+		TenantID: 1, RunID: run.ID, NodeID: "n2", Status: types.SopNodeWaitingApproval,
+	}))
+	require.NoError(t, e.Approve(ctx, 1, run.ID, "n1", "同意", "张三"))
+	got, err := e.deps.Runs.GetRun(ctx, 1, run.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.SopRunWaiting, got.Status, "另一个分支仍在等待，运行不得回 running")
+
+	// 两个都处理完后才回 running。
+	require.NoError(t, e.Approve(ctx, 1, run.ID, "n2", "同意", "张三"))
+	got, err = e.deps.Runs.GetRun(ctx, 1, run.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.SopRunRunning, got.Status)
+}
+
+// 写错的打回目标：报错且不落任何决定文件、不改节点状态。
+func TestRejectBogusTargetNoDecisionFile(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	ctx := context.Background()
+	def := types.SopDefinition{Nodes: []types.SopNode{
+		{ID: "n0", Type: "agent"}, {ID: "n1", Type: "approval", RejectTo: "n0"},
+		{ID: "n2", Type: "agent"},
+	}, Edges: []types.SopEdge{{ID: "e1", Source: "n0", Target: "n1"}}}
+	run := waitingRun(t, e, def)
+	require.NoError(t, e.deps.Runs.CreateNodeRun(ctx, &types.SopNodeRun{
+		TenantID: 1, RunID: run.ID, NodeID: "n0", Status: types.SopNodeSucceeded,
+	}))
+	require.NoError(t, e.deps.Runs.CreateNodeRun(ctx, &types.SopNodeRun{
+		TenantID: 1, RunID: run.ID, NodeID: "n2", Status: types.SopNodePending,
+	}))
+
+	err := e.Reject(ctx, 1, run.ID, "n1", "打回", "李四", "no-such-node")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "打回目标不存在")
+	// 目标存在但不是上游（n2 在 n1 下游）：同样拒绝。
+	err = e.Reject(ctx, 1, run.ID, "n1", "打回", "李四", "n2")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "上游")
+
+	require.Empty(t, decisionFiles(t, run.WorkspaceDir), "被拒绝的打回不得留痕")
+	nr, err := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n1")
+	require.NoError(t, err)
+	require.Equal(t, types.SopNodeWaitingApproval, nr.Status)
+}
+
+// 两个审批并发抢同一节点：CAS 保证恰好一个成功、恰好一份决定文件。
+func TestConcurrentApproveSingleDecision(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	ctx := context.Background()
+	run := waitingRun(t, e, types.SopDefinition{Nodes: []types.SopNode{{ID: "n1", Type: "approval"}}})
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = e.Approve(ctx, 1, run.ID, "n1", "同意", "审批人")
+		}(i)
+	}
+	wg.Wait()
+
+	okCount := 0
+	for _, err := range errs {
+		if err == nil {
+			okCount++
+			continue
+		}
+		require.Contains(t, err.Error(), "已被处理", "落败方必须是『已被处理』")
+	}
+	require.Equal(t, 1, okCount, "并发审批只能有一个成功")
+	require.Len(t, decisionFiles(t, run.WorkspaceDir), 1, "并发审批只落一份决定文件")
+}
+
+// 崩溃在「已置取消标记、未收口」之间：推进循环读到标记必须收口为 cancelled。
+func TestDriveRunObservesCancelRequested(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	ctx := context.Background()
+	run := &types.SopRun{
+		TenantID: 1, Status: types.SopRunRunning, CancelRequested: true,
+		WorkflowSnapshot: types.SopDefinition{Nodes: []types.SopNode{{ID: "n1", Type: "agent"}}},
+	}
+	require.NoError(t, e.deps.Runs.CreateRun(ctx, run))
+	require.NoError(t, e.deps.Runs.CreateNodeRun(ctx, &types.SopNodeRun{
+		TenantID: 1, RunID: run.ID, NodeID: "n1", Status: types.SopNodeRunning,
+	}))
+	e.advanceHook = func(ctx context.Context, runID string) (bool, error) {
+		t.Errorf("取消标记的运行不得进入推进")
+		return false, nil
+	}
+	// 同步驱动一次推进循环：读到 cancel_requested 后必须立刻收口并退出。
+	loopCtx, loopCancel := context.WithCancel(context.Background())
+	e.driveRun(loopCtx, loopCancel, run.ID)
+	loopCancel()
+
+	got, err := e.deps.Runs.GetRun(ctx, 1, run.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.SopRunCancelled, got.Status)
+	require.False(t, got.CancelRequested)
+	require.NotNil(t, got.FinishedAt)
+	nr, err := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n1")
+	require.NoError(t, err)
+	require.Equal(t, types.SopNodeCancelled, nr.Status)
 }

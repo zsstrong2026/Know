@@ -90,9 +90,10 @@ type SopRunRepository interface {
 	// GetRun 按 (租户, id) 取运行；查不到返回 gorm.ErrRecordNotFound。
 	//
 	// tenantID == 0 保留给引擎内部（调度器/执行器无租户上下文）：只按 id 取行，
-	// 返回的行仍带真实 TenantID，后续写路径照常按租户收口。这是唯一的跨租户读
-	// 入口，HTTP handler 绝不得转发未解析成功（仍为 0）的租户 id —— 那等于绕过租户
-	// 隔离；handler 必须在调用前校验租户缺失并直接返回 400。
+	// 返回的行仍带真实 TenantID，后续写路径照常按租户收口。与 ListRuns 的
+	// tenantID==0 同为引擎内部的跨租户读入口，HTTP handler 绝不得转发未解析成功
+	// （仍为 0）的租户 id —— 那等于绕过租户隔离；handler 必须在调用前校验租户缺失
+	// 并直接返回 400。
 	GetRun(ctx context.Context, tenantID uint64, id string) (*types.SopRun, error)
 	// ListRuns 过滤 + 分页（created_at 倒序）；PageSize<=0 不分页。
 	//
@@ -113,6 +114,12 @@ type SopRunRepository interface {
 	GetNodeRun(ctx context.Context, tenantID uint64, runID, nodeID string) (*types.SopNodeRun, error)
 	ListNodeRuns(ctx context.Context, tenantID uint64, runID string) ([]types.SopNodeRun, error)
 	UpdateNodeRun(ctx context.Context, nr *types.SopNodeRun) error
+	// TransitionNodeRun 以 CAS 迁移节点运行状态：仅当库里当前状态等于 from 时把状态
+	// 改为 to 并同时写入 patch（只接受节点运行态白名单列，status 由 to 决定）。
+	// 返回 true 表示本次迁移命中（rows affected == 1），false 表示状态已被别人改走。
+	TransitionNodeRun(
+		ctx context.Context, tenantID uint64, runID, nodeID, from, to string, patch map[string]any,
+	) (bool, error)
 	// ResetNodes 把指定节点重置为 pending 并清空执行痕迹（重跑/打回）。
 	ResetNodes(ctx context.Context, runID string, nodeIDs []string) error
 	CreateArtifact(ctx context.Context, a *types.SopArtifact) error

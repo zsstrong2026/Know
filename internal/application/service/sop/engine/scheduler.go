@@ -244,6 +244,14 @@ func (e *Engine) driveRun(ctx context.Context, cancel context.CancelFunc, runID 
 		if err != nil {
 			return
 		}
+		if run.CancelRequested && !isTerminalRun(run.Status) {
+			// 取消标记是唯一事实：进程在置标记与收口之间崩溃时，重启后这里必须按
+			// 取消收口（而不是被 ExpireLeases 判成 failed）。仓储侧 ExpireLeases
+			// 对同类行也走 cancelled，两条路径不冲突（后者只处理租约已过期的行）；
+			// 已终态的行保留原结论，不让一条迟到的标记改写成功/失败。
+			e.finishCancelled(ctx, runID)
+			return
+		}
 		if run.PauseRequested {
 			run.Status = types.SopRunPaused
 			run.PauseRequested = false

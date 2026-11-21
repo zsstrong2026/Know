@@ -45,9 +45,10 @@ func (r *SopRunRepo) CreateRun(ctx context.Context, run *types.SopRun) error {
 // GetRun 按 (租户, id) 取运行；查不到返回 gorm.ErrRecordNotFound。
 //
 // tenantID == 0 保留给引擎内部使用：调度器/执行器没有租户上下文，按 id 直通读取，
-// 返回的行仍带真实 TenantID，因此后续写路径（UpdateRun 等）照常按租户收口。这是
-// 唯一的跨租户读入口，HTTP handler 绝不得把未解析成功（仍为 0）的租户 id 转发进来，
-// 否则等于绕过租户隔离；handler 应在进仓储前校验租户缺失并直接返回 400。
+// 返回的行仍带真实 TenantID，因此后续写路径（UpdateRun 等）照常按租户收口。与
+// ListRuns 的 tenantID==0 同为引擎内部的跨租户读入口，HTTP handler 绝不得把未解析
+// 成功（仍为 0）的租户 id 转发进来，否则等于绕过租户隔离；handler 应在进仓储前
+// 校验租户缺失并直接返回 400。
 func (r *SopRunRepo) GetRun(ctx context.Context, tenantID uint64, id string) (*types.SopRun, error) {
 	var run types.SopRun
 	q := r.db.WithContext(ctx)
@@ -279,19 +280,69 @@ func (r *SopRunRepo) Heartbeat(ctx context.Context, runID string, leaseUntil tim
 // sopLeaseExpiredError 是回收文案：进程崩溃后租约过期，运行可重试。
 const sopLeaseExpiredError = "执行租约过期（进程崩溃回收），可重试"
 
-// ExpireLeases 回收租约过期的 running/waiting 运行：标记 failed 并写回收原因。
-// 返回实际回收条数（调度器用于日志）。
+// ExpireLeases 回收租约过期的 running/waiting 运行。
+//
+// 分成两条路径，顺序不可颠倒：
+//  1. cancel_requested=true 的行收口为 cancelled（先把它在途节点一并取消）——取消
+//     请求已经落库、但推进协程在收口前崩溃时，不能让「取消」被租约回收写成 failed
+//     （取消不是失败）。这一步放在仓储里，是因为调度器每轮只能看到条数，看不到
+//     「哪些行是取消标记」；在引擎侧再扫一遍 failed 行会把整张失败表拉进内存。
+//  2. 其余过期行标记 failed 并写回收原因。
+//
+// 返回两条路径实际回收的条数之和（调度器用于日志）。
 func (r *SopRunRepo) ExpireLeases(ctx context.Context, now time.Time) (int64, error) {
-	res := r.db.WithContext(ctx).Model(&types.SopRun{}).
-		Where("status IN ? AND lease_until IS NOT NULL AND lease_until < ? AND deleted_at IS NULL",
-			[]string{types.SopRunRunning, types.SopRunWaiting}, now).
+	db := r.db.WithContext(ctx)
+	expired := func() *gorm.DB {
+		return db.Model(&types.SopRun{}).
+			Where("status IN ? AND lease_until IS NOT NULL AND lease_until < ? AND deleted_at IS NULL",
+				[]string{types.SopRunRunning, types.SopRunWaiting}, now)
+	}
+	// 1a. 先取消取消标记运行的未终态节点（子查询必须能在运行改状态之前命中这些行）。
+	cancelScope := func() *gorm.DB {
+		return db.Model(&types.SopRun{}).Select("id").
+			Where("cancel_requested = ? AND status IN ? AND lease_until IS NOT NULL AND lease_until < ? AND deleted_at IS NULL",
+				true, []string{types.SopRunRunning, types.SopRunWaiting}, now)
+	}
+	if err := db.Model(&types.SopNodeRun{}).
+		Where("run_id IN (?)", cancelScope()).
+		Where("status IN ?", []string{
+			types.SopNodePending, types.SopNodeRunning,
+			types.SopNodeWaitingApproval, types.SopNodePendingInput,
+		}).
+		Updates(map[string]any{
+			"status":      types.SopNodeCancelled,
+			"finished_at": now,
+			"updated_at":  now,
+		}).Error; err != nil {
+		return 0, err
+	}
+	// 1b. 取消标记的运行收口为 cancelled（清标记，与引擎 finishCancelled 同口径）。
+	cancelled := db.Model(&types.SopRun{}).
+		Where("cancel_requested = ? AND status IN ? AND lease_until IS NOT NULL AND lease_until < ? AND deleted_at IS NULL",
+			true, []string{types.SopRunRunning, types.SopRunWaiting}, now).
+		Updates(map[string]any{
+			"status":           types.SopRunCancelled,
+			"cancel_requested": false,
+			"error":            "",
+			"finished_at":      now,
+			"updated_at":       now,
+		})
+	if cancelled.Error != nil {
+		return 0, cancelled.Error
+	}
+	// 2. 其余过期行照旧回收为 failed。
+	failed := expired().
+		Where("cancel_requested = ?", false).
 		Updates(map[string]any{
 			"status":      types.SopRunFailed,
 			"error":       sopLeaseExpiredError,
 			"finished_at": now,
 			"updated_at":  now,
 		})
-	return res.RowsAffected, res.Error
+	if failed.Error != nil {
+		return cancelled.RowsAffected, failed.Error
+	}
+	return cancelled.RowsAffected + failed.RowsAffected, nil
 }
 
 // CreateNodeRun 插入节点运行记录；(run_id, node_id) 唯一，重复返回唯一约束错误。
@@ -348,6 +399,40 @@ func (r *SopRunRepo) UpdateNodeRun(ctx context.Context, nr *types.SopNodeRun) er
 		return gorm.ErrRecordNotFound
 	}
 	return nil
+}
+
+// TransitionNodeRun 以 CAS 迁移节点运行状态：只有库里当前状态仍等于 from 时才把
+// status 改为 to 并写入 patch，返回是否命中（rows affected == 1）。
+//
+// 用途：人工审批的录取是「谁先改到谁算」，两个并发审批必须恰好一个成功；用
+// UpdateNodeRun（无条件按 id 写）会让后者静默覆盖前者的节点状态，并各自落一份
+// 决定文件。patch 只接受节点运行态白名单列（status 由 to 决定，patch 里的 status
+// 会被 to 覆盖），归属键与创建态字段一律忽略。
+func (r *SopRunRepo) TransitionNodeRun(
+	ctx context.Context, tenantID uint64, runID, nodeID, from, to string, patch map[string]any,
+) (bool, error) {
+	cols := map[string]any{}
+	for k, v := range patch {
+		if k == "status" || k == "updated_at" {
+			continue
+		}
+		for _, allowed := range sopNodeRunUpdateColumns {
+			if allowed == k {
+				cols[k] = v
+				break
+			}
+		}
+	}
+	cols["status"] = to
+	cols["updated_at"] = time.Now()
+	res := r.db.WithContext(ctx).Model(&types.SopNodeRun{}).
+		Where("tenant_id = ? AND run_id = ? AND node_id = ? AND status = ?",
+			tenantID, runID, nodeID, from).
+		Updates(cols)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
 }
 
 // ResetNodes 把指定节点重置为 pending 并清空执行痕迹（重跑/打回共用）。

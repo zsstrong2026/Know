@@ -2,10 +2,14 @@
 // 终止、整体重试、暂停/恢复/取消、人工上下文追加，以及审批超时清扫。
 //
 // 三条不可越界的口径：
-//  1. 每次审批决定都先落盘 .sop/decisions/<node>-<unix>.md（人/时间/结论/意见 +
-//     产物指纹），再改运行状态——留痕失败则操作失败，绝不出现「状态变了但没留痕」；
-//  2. 人工打回重置自动重试预算（Attempt=0），但保留返工计数（ReworkCount 兜底）；
-//  3. 取消不是失败：Cancel 只置标记并打断在途推进，收口统一走 finishCancelled。
+//  1. 节点录取走 CAS（TransitionNodeRun，WHERE status='waiting_approval'）：并发审批
+//     只有一个能改到节点，落败方直接返回「已被处理」且不写留痕文件；
+//  2. 录取成功后再落盘 .sop/decisions/<node>-<unix>-<nonce>.md（人/时间/结论/意见 +
+//     产物指纹），留痕写失败则尽力把节点状态退回，绝不留下「状态变了但没留痕」；
+//     留痕文件先写同目录临时文件再 os.Rename，避免读到半截内容；
+//  3. 终态运行（succeeded/failed/cancelled）拒绝一切会改状态的操作，不允许复活；
+//  4. 人工打回重置自动重试预算（Attempt=0），但保留返工计数（ReworkCount 兜底）；
+//  5. 取消不是失败：Cancel 只置标记并打断在途推进，收口统一走 finishCancelled。
 //
 // 审批超时的默认策略是「无限等待」（spec §6）：只有节点显式配置了
 // ApprovalTimeoutHours>0 才参与清扫，Action=fail 自动终止，Action=notify（默认）
@@ -14,6 +18,8 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -54,31 +60,39 @@ const systemReminderSource = "system_reminder"
 
 // ---- 审批三操作 + 终止 ----
 
-// Approve 通过一个等待审批的节点：留痕 → 节点 succeeded/pass → 运行回 running。
+// errNodeAlreadyResolved 是并发审批的落败文案：另一个审批人已把节点改走。
+var errNodeAlreadyResolved = fmt.Errorf("该步骤已被处理（可能已由他人通过或打回），请刷新后重试")
+
+// Approve 通过一个等待审批的节点：CAS 录取 → 留痕 → 节点 succeeded/pass → 运行状态重算。
 func (e *Engine) Approve(
 	ctx context.Context, tenantID uint64, runID, nodeID, comment, approver string,
 ) error {
-	run, nr, err := e.loadApprovalTarget(ctx, tenantID, runID, nodeID)
+	run, _, err := e.loadApprovalTarget(ctx, tenantID, runID, nodeID)
 	if err != nil {
 		return err
 	}
-	if err := e.writeDecision(ctx, run, nodeID, decisionApprove, comment, approver); err != nil {
-		return err
-	}
 	now := time.Now()
-	nr.Status = types.SopNodeSucceeded
-	nr.GateResult = types.SopGatePass
-	nr.GateReason = comment
-	nr.Error = ""
-	nr.FinishedAt = &now
-	run.Status = types.SopRunRunning
-	run.Error = ""
-	if err := e.deps.Runs.UpdateRun(ctx, run); err != nil {
-		return fmt.Errorf("写入运行状态失败：%w", err)
-	}
-	if err := e.deps.Runs.UpdateNodeRun(ctx, nr); err != nil {
+	won, err := e.deps.Runs.TransitionNodeRun(ctx, run.TenantID, run.ID, nodeID,
+		types.SopNodeWaitingApproval, types.SopNodeSucceeded, map[string]any{
+			"gate_result": types.SopGatePass,
+			"gate_reason": comment,
+			"error":       "",
+			"finished_at": now,
+		})
+	if err != nil {
 		return fmt.Errorf("写入节点状态失败：%w", err)
 	}
+	if !won {
+		return errNodeAlreadyResolved
+	}
+	if err := e.writeDecision(ctx, run, nodeID, decisionApprove, comment, approver); err != nil {
+		// 留痕失败则尽力退回等待审批：宁可让操作失败可重试，也不留「状态变了没留痕」。
+		e.revertNodeTransition(ctx, run, nodeID, types.SopNodeSucceeded, types.SopNodeWaitingApproval, map[string]any{
+			"gate_result": "", "gate_reason": "", "finished_at": nil,
+		})
+		return err
+	}
+	e.recomputeRunWaitStatus(ctx, run)
 	e.businessActivity(ctx, run, decisionApprove, approver, comment)
 	e.ensureRunning(runID)
 	return nil
@@ -86,7 +100,8 @@ func (e *Engine) Approve(
 
 // Reject 打回一个等待审批的节点。
 //
-// 目标优先级：调用方给的 rejectTo > 节点模板 RejectTo。目标非空时重置目标及其
+// 目标优先级：调用方给的 rejectTo > 节点模板 RejectTo。目标必须先通过校验（存在且
+// 是当前节点或它的上游），校验与 CAS 都通过后才写留痕；目标非空时重置目标及其
 // 下游（含审批节点自身），目标反馈写入 comment、返工计数自增；超过目标节点
 // MaxReworks 则目标与运行一起转为等待人工，不再自动重跑。目标为空时：
 // approval 节点要求显式指定打回目标（白话错误），其它类型（agent 重试预算耗尽
@@ -104,25 +119,39 @@ func (e *Engine) Reject(
 		target = strings.TrimSpace(node.RejectTo)
 	}
 	// 先校验再留痕：留痕一旦落盘就是「已发生的事实」，不能为一次被拒绝的操作留下
-	// 一份写着 reject 的决定文件。
+	// 一份写着 reject 的决定文件（打回目标写错同样属于被拒绝的操作）。
 	if target == "" && node != nil && node.Type == types.SopNodeTypeApproval {
 		return fmt.Errorf("请选择打回哪一步")
 	}
+	if target != "" {
+		if err := validateRejectTarget(&run.WorkflowSnapshot, nodeID, target); err != nil {
+			return err
+		}
+	}
+
+	// CAS 录取：只有真正把审批节点从 waiting_approval 改走的一方才能落留痕。
+	patch := map[string]any{
+		"attempt": 0, "feedback": comment,
+		"gate_result": "", "gate_reason": "", "finished_at": nil,
+	}
+	if target == "" {
+		patch["rework_count"] = nr.ReworkCount + 1
+	}
+	won, err := e.deps.Runs.TransitionNodeRun(ctx, run.TenantID, run.ID, nodeID,
+		types.SopNodeWaitingApproval, types.SopNodePending, patch)
+	if err != nil {
+		return fmt.Errorf("写入节点状态失败：%w", err)
+	}
+	if !won {
+		return errNodeAlreadyResolved
+	}
 	if err := e.writeDecision(ctx, run, nodeID, decisionReject, comment, approver); err != nil {
+		e.revertNodeTransition(ctx, run, nodeID, types.SopNodePending, types.SopNodeWaitingApproval, nil)
 		return err
 	}
 
 	if target == "" {
-		nr.Status = types.SopNodePending
-		nr.Attempt = 0
-		nr.Feedback = comment
-		nr.GateResult, nr.GateReason = "", ""
-		nr.ReworkCount++
-		nr.FinishedAt = nil
-		if err := e.deps.Runs.UpdateNodeRun(ctx, nr); err != nil {
-			return fmt.Errorf("写入节点状态失败：%w", err)
-		}
-		e.markRunStatus(ctx, run, types.SopRunRunning)
+		e.recomputeRunWaitStatus(ctx, run)
 		e.businessActivity(ctx, run, decisionReject, approver, comment)
 		e.ensureRunning(runID)
 		return nil
@@ -159,13 +188,11 @@ func (e *Engine) Reject(
 		maxReworks = types.SopDefaultMaxReworks
 	}
 	exhausted := tnr.ReworkCount >= maxReworks
-	status := types.SopRunRunning
 	if exhausted {
-		// 打回次数用尽：目标不再自动重跑，转人工（run 停在 waiting 等下一次决定）。
+		// 打回次数用尽：目标不再自动重跑，转人工（run 由状态重算停在 waiting）。
 		tnr.Status = types.SopNodeWaitingApproval
 		tnr.GateReason = "打回次数已达上限，请人工决定"
 		tnr.FinishedAt = timePtr(time.Now())
-		status = types.SopRunWaiting
 	}
 	if err := e.deps.Runs.UpdateNodeRun(ctx, tnr); err != nil {
 		return fmt.Errorf("写入打回目标状态失败：%w", err)
@@ -177,7 +204,7 @@ func (e *Engine) Reject(
 		}
 		e.notifyApproval(ctx, run, notifyNode, "打回次数已达上限")
 	}
-	e.markRunStatus(ctx, run, status)
+	e.recomputeRunWaitStatus(ctx, run)
 	e.businessActivity(ctx, run, decisionReject, approver, comment)
 	e.ensureRunning(runID)
 	return nil
@@ -192,6 +219,9 @@ func (e *Engine) ReworkCurrent(
 	if err != nil {
 		return err
 	}
+	if err := guardMutableRun(run); err != nil {
+		return err
+	}
 	nr, err := e.loadNodeRun(ctx, run, nodeID)
 	if err != nil {
 		return err
@@ -201,24 +231,32 @@ func (e *Engine) ReworkCurrent(
 	default:
 		return fmt.Errorf("该步骤当前不在等待人工处理（当前状态：%s）", nr.Status)
 	}
+	won, err := e.deps.Runs.TransitionNodeRun(ctx, run.TenantID, run.ID, nodeID,
+		nr.Status, types.SopNodePending, map[string]any{
+			"attempt": 0, "feedback": comment,
+			"gate_result": "", "gate_reason": "", "finished_at": nil,
+		})
+	if err != nil {
+		return fmt.Errorf("写入节点状态失败：%w", err)
+	}
+	if !won {
+		return errNodeAlreadyResolved
+	}
 	if err := e.writeDecision(ctx, run, nodeID, decisionRework, comment, approver); err != nil {
+		e.revertNodeTransition(ctx, run, nodeID, types.SopNodePending, nr.Status, nil)
 		return err
+	}
+	// 人工上下文写库基于新鲜行：推进期间运行状态可能已被其它路径改过。
+	if fresh, ferr := e.deps.Runs.GetRun(ctx, 0, run.ID); ferr == nil && fresh != nil && fresh.ID != "" {
+		run = fresh
 	}
 	run.HumanContext = append(run.HumanContext, types.SopHumanContextEntry{
 		At: time.Now(), Source: decisionRework, NodeID: nodeID, Text: comment,
 	})
-	run.Status = types.SopRunRunning
-	nr.Status = types.SopNodePending
-	nr.Attempt = 0
-	nr.Feedback = comment
-	nr.GateResult, nr.GateReason = "", ""
-	nr.FinishedAt = nil
 	if err := e.deps.Runs.UpdateRun(ctx, run); err != nil {
-		return fmt.Errorf("写入运行状态失败：%w", err)
+		return fmt.Errorf("写入人工上下文失败：%w", err)
 	}
-	if err := e.deps.Runs.UpdateNodeRun(ctx, nr); err != nil {
-		return fmt.Errorf("写入节点状态失败：%w", err)
-	}
+	e.recomputeRunWaitStatus(ctx, run)
 	e.businessActivity(ctx, run, decisionRework, approver, comment)
 	e.ensureRunning(runID)
 	return nil
@@ -228,26 +266,32 @@ func (e *Engine) ReworkCurrent(
 func (e *Engine) Terminate(
 	ctx context.Context, tenantID uint64, runID, nodeID, comment, approver string,
 ) error {
-	run, nr, err := e.loadApprovalTarget(ctx, tenantID, runID, nodeID)
+	run, _, err := e.loadApprovalTarget(ctx, tenantID, runID, nodeID)
 	if err != nil {
-		return err
-	}
-	if err := e.writeDecision(ctx, run, nodeID, decisionTerminate, comment, approver); err != nil {
 		return err
 	}
 	reason := "人工终止"
 	if strings.TrimSpace(comment) != "" {
 		reason += "：" + comment
 	}
-	now := time.Now()
-	nr.Status = types.SopNodeFailed
-	nr.Error = reason
-	nr.FinishedAt = &now
-	run.Status = types.SopRunFailed
-	run.Error = reason
-	if err := e.deps.Runs.UpdateNodeRun(ctx, nr); err != nil {
+	won, err := e.deps.Runs.TransitionNodeRun(ctx, run.TenantID, run.ID, nodeID,
+		types.SopNodeWaitingApproval, types.SopNodeFailed, map[string]any{
+			"error": reason, "finished_at": time.Now(),
+		})
+	if err != nil {
 		return fmt.Errorf("写入节点状态失败：%w", err)
 	}
+	if !won {
+		return errNodeAlreadyResolved
+	}
+	if err := e.writeDecision(ctx, run, nodeID, decisionTerminate, comment, approver); err != nil {
+		e.revertNodeTransition(ctx, run, nodeID, types.SopNodeFailed, types.SopNodeWaitingApproval, map[string]any{
+			"error": "", "finished_at": nil,
+		})
+		return err
+	}
+	run.Status = types.SopRunFailed
+	run.Error = reason
 	if err := e.deps.Runs.UpdateRun(ctx, run); err != nil {
 		return fmt.Errorf("写入运行状态失败：%w", err)
 	}
@@ -481,12 +525,15 @@ func (e *Engine) loadNodeRun(
 	return nr, nil
 }
 
-// loadApprovalTarget 读取运行与节点，并要求节点恰好处于等待审批。
+// loadApprovalTarget 读取运行与节点，要求运行未终态且节点恰好处于等待审批。
 func (e *Engine) loadApprovalTarget(
 	ctx context.Context, tenantID uint64, runID, nodeID string,
 ) (*types.SopRun, *types.SopNodeRun, error) {
 	run, err := e.loadRun(ctx, tenantID, runID)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := guardMutableRun(run); err != nil {
 		return nil, nil, err
 	}
 	nr, err := e.loadNodeRun(ctx, run, nodeID)
@@ -497,6 +544,82 @@ func (e *Engine) loadApprovalTarget(
 		return nil, nil, fmt.Errorf("该步骤当前不在等待审批（当前状态：%s）", nr.Status)
 	}
 	return run, nr, nil
+}
+
+// guardMutableRun 拒绝在终态运行上做会改状态的操作：已结束（成功/失败/取消）的
+// 运行不允许被一条迟到的审批/打回重新拉回 running（那等于复活一条已收口的运行）。
+func guardMutableRun(run *types.SopRun) error {
+	if run == nil {
+		return fmt.Errorf("运行不存在")
+	}
+	if isTerminalRun(run.Status) {
+		return fmt.Errorf("运行已结束，不能再执行该操作（当前状态：%s）", run.Status)
+	}
+	return nil
+}
+
+// validateRejectTarget 校验打回目标：必须存在于流程快照且是当前节点或它的上游。
+// 校验放在留痕与状态写入之前——一个写错的目标不该留下任何「已打回」的痕迹。
+func validateRejectTarget(def *types.SopDefinition, nodeID, target string) error {
+	if nodeByID(def, target) == nil {
+		return fmt.Errorf("打回目标不存在：%s", target)
+	}
+	if target == nodeID || Ancestors(def, nodeID)[target] {
+		return nil
+	}
+	return fmt.Errorf("只能打回到当前步骤或它的上游步骤：%s", target)
+}
+
+// revertNodeTransition 在留痕写失败时尽力把节点状态退回（CAS 语义，失败只记日志）。
+func (e *Engine) revertNodeTransition(
+	ctx context.Context, run *types.SopRun, nodeID, from, to string, patch map[string]any,
+) {
+	if run == nil {
+		return
+	}
+	if _, err := e.deps.Runs.TransitionNodeRun(ctx, run.TenantID, run.ID, nodeID, from, to, patch); err != nil {
+		log.Printf("[sop-engine] 运行 %s 节点 %s 状态回退失败：%v", run.ID, nodeID, err)
+	}
+}
+
+// recomputeRunWaitStatus 按库里全部节点记录重算运行状态：还有节点在等待人工
+// （waiting_approval/pending_input）就是 waiting，否则 running。
+//
+// 这是人工操作后运行状态的唯一裁决点：通过一个分支时另一个分支仍在等待，运行必须
+// 停在 waiting，不能被「先到者」一把拉回 running。已终态的行原样保留（不复活）。
+func (e *Engine) recomputeRunWaitStatus(ctx context.Context, run *types.SopRun) {
+	if run == nil {
+		return
+	}
+	fresh, err := e.deps.Runs.GetRun(ctx, 0, run.ID)
+	if err != nil || fresh == nil || fresh.ID == "" || isTerminalRun(fresh.Status) {
+		return
+	}
+	nrs, err := e.deps.Runs.ListNodeRuns(ctx, fresh.TenantID, fresh.ID)
+	if err != nil {
+		log.Printf("[sop-engine] 运行 %s 重算状态读取节点失败：%v", fresh.ID, err)
+		return
+	}
+	status := types.SopRunRunning
+	for i := range nrs {
+		switch nrs[i].Status {
+		case types.SopNodeWaitingApproval, types.SopNodePendingInput:
+			status = types.SopRunWaiting
+		}
+		if status == types.SopRunWaiting {
+			break
+		}
+	}
+	if fresh.Status == status {
+		return
+	}
+	fresh.Status = status
+	if status == types.SopRunRunning {
+		fresh.Error = ""
+	}
+	if err := e.deps.Runs.UpdateRun(ctx, fresh); err != nil {
+		log.Printf("[sop-engine] 运行 %s 状态写入失败：%v", fresh.ID, err)
+	}
 }
 
 // isActive 判断运行是否有本进程的推进协程。
@@ -553,7 +676,13 @@ func (e *Engine) opsWorkspace(run *types.SopRun) (*Workspace, error) {
 }
 
 // writeDecision 把一次审批决定落盘为不可篡改的留痕文件并打检查点：
-// .sop/decisions/<node>-<unix>.md（人/决定/意见/时间 + 产物指纹段）。
+// .sop/decisions/<node>-<unix>-<nonce>.md（人/决定/意见/时间 + 产物指纹段）。
+//
+// 两步保证「不留半截文件、不撞名」：
+//  1. 文件名带 4 字节随机 nonce：同一节点同一秒内的两次决定（并发审批/重试）不会
+//     互相覆盖，并发测试也能用「恰好一个文件」当判据；
+//  2. 先写同目录临时文件再 os.Rename（同盘 rename 原子）：读者要么看不到文件，
+//     要么看到完整正文。
 func (e *Engine) writeDecision(
 	ctx context.Context, run *types.SopRun, nodeID, decision, comment, approver string,
 ) error {
@@ -565,13 +694,43 @@ func (e *Engine) writeDecision(
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("创建审批留痕目录失败：%w", err)
 	}
-	name := fmt.Sprintf("%s-%d.md", sanitizeSegment(nodeID), time.Now().Unix())
+	name := fmt.Sprintf("%s-%d-%s.md", sanitizeSegment(nodeID), time.Now().Unix(), decisionNonce())
 	body := e.decisionBody(ctx, run, nodeID, decision, comment, approver)
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+	tmp, err := os.CreateTemp(dir, ".decision-*.tmp")
+	if err != nil {
+		return fmt.Errorf("写入审批留痕失败：%w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		// rename 成功后路径已不存在；失败/中途退出时清掉残留临时文件。
+		_ = os.Remove(tmpName)
+	}()
+	if _, err := tmp.WriteString(body); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("写入审批留痕失败：%w", err)
+	}
+	if err := tmp.Chmod(0o644); err != nil { // CreateTemp 默认 0600，留痕文件按 0644 与旧口径一致
+		_ = tmp.Close()
+		return fmt.Errorf("写入审批留痕失败：%w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("写入审批留痕失败：%w", err)
+	}
+	if err := os.Rename(tmpName, filepath.Join(dir, name)); err != nil {
 		return fmt.Errorf("写入审批留痕失败：%w", err)
 	}
 	ws.CheckpointBestEffort(ctx, fmt.Sprintf("decision %s %s", nodeID, decision))
 	return nil
+}
+
+// decisionNonce 返回一个短随机串（十六进制），只用于让留痕文件名在同秒内唯一。
+func decisionNonce() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// 随机源不可用时退化为纳秒时间戳：仍然比纯秒级粒度更能避免撞名。
+		return fmt.Sprintf("%08x", time.Now().UnixNano()&0xffffffff)
+	}
+	return hex.EncodeToString(b[:])
 }
 
 // decisionBody 渲染留痕正文：标题/审批人/决定/时间/意见 + 产物指纹（sha256）。
