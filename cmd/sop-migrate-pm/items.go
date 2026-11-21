@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 
 	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -12,19 +11,22 @@ import (
 )
 
 // migrateItems 逐项目迁需求（按 created_at ASC 分配事项编号）与附件，并补审计活动。
-// mapping 是「PM 项目 id → 已落库的 SOP 项目」；缺映射说明源项目已被清理，跳过并告警。
-func migrateItems(tx *gorm.DB, mapping map[string]*types.SopProject) (items int, attachments int, err error) {
+// mapping 是「PM 项目 id → 已落库的 SOP 项目」；缺映射说明源项目已被清理或软删，
+// 该需求计入 skippedReqs 由调用方汇总成一条日志（不逐条刷屏、也不改退出码）。
+func migrateItems(tx *gorm.DB, mapping map[string]*types.SopProject) (
+	items int, attachments int, skippedReqs int, err error,
+) {
 	var reqs []pmRequirementSource
 	if err := tx.Order("created_at ASC, id ASC").Find(&reqs).Error; err != nil {
-		return 0, 0, fmt.Errorf("读取 pm_requirements 失败：%w", err)
+		return 0, 0, 0, fmt.Errorf("读取 pm_requirements 失败：%w", err)
 	}
 	existing, err := loadMigratedItemIDs(tx)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	atts, err := loadAttachments(tx)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 
 	projectRepo := repository.NewSopProjectRepo(tx)
@@ -34,27 +36,29 @@ func migrateItems(tx *gorm.DB, mapping map[string]*types.SopProject) (items int,
 
 	for i := range reqs {
 		src := &reqs[i]
-		if _, ok := existing[src.ID]; ok {
+		if existing[src.ID] {
 			continue
 		}
 		sp, ok := mapping[src.ProjectID]
 		if !ok {
-			log.Printf("跳过需求 %s：源项目 %s 未迁移（可能已删除）", src.ID, src.ProjectID)
+			skippedReqs++
 			continue
 		}
 		no, err := projectRepo.AllocItemNo(ctx, sp.TenantID, sp.ID)
 		if err != nil {
-			return items, attachments, fmt.Errorf("分配事项编号（源 pm_requirements/%s）失败：%w", src.ID, err)
+			return items, attachments, skippedReqs, fmt.Errorf(
+				"分配事项编号（源 pm_requirements/%s）失败：%w", src.ID, err)
 		}
 		item := buildSopItem(src, sp, no)
 		if err := itemRepo.Create(ctx, item); err != nil {
-			return items, attachments, fmt.Errorf("创建 SOP 事项（源 pm_requirements/%s）失败：%w", src.ID, err)
+			return items, attachments, skippedReqs, fmt.Errorf(
+				"创建 SOP 事项（源 pm_requirements/%s）失败：%w", src.ID, err)
 		}
 		items++
 
 		n, err := migrateAttachments(ctx, tx, atts[src.ID], item)
 		if err != nil {
-			return items, attachments, err
+			return items, attachments, skippedReqs, err
 		}
 		attachments += n
 
@@ -65,21 +69,23 @@ func migrateItems(tx *gorm.DB, mapping map[string]*types.SopProject) (items int,
 			Action:   "PM迁移",
 			Detail:   fmt.Sprintf("由 pm_requirements/%s 迁移；项目来源 pm_projects/%s", src.ID, src.ProjectID),
 		}); err != nil {
-			return items, attachments, fmt.Errorf("写入迁移审计（事项 %s）失败：%w", item.ID, err)
+			return items, attachments, skippedReqs, fmt.Errorf("写入迁移审计（事项 %s）失败：%w", item.ID, err)
 		}
 	}
-	return items, attachments, nil
+	return items, attachments, skippedReqs, nil
 }
 
 // loadMigratedItemIDs 收集已迁移事项的源需求 id（domain_data.pm_source_id）。
+// 必须 Unscoped：工作台软删的事项仍是「已迁移」的事实，默认作用域下漏掉会导致重跑
+// 重建出一个同源需求的新编号事项（附件也会被再拷一份），幂等即失效。
 func loadMigratedItemIDs(tx *gorm.DB) (map[string]bool, error) {
-	var live []types.SopItem
-	if err := tx.Find(&live).Error; err != nil {
+	var rows []types.SopItem
+	if err := tx.Unscoped().Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("读取 sop_items 失败：%w", err)
 	}
-	out := make(map[string]bool, len(live))
-	for i := range live {
-		if src, ok := live[i].DomainData[pmSourceIDKey].(string); ok && src != "" {
+	out := make(map[string]bool, len(rows))
+	for i := range rows {
+		if src, ok := rows[i].DomainData[pmSourceIDKey].(string); ok && src != "" {
 			out[src] = true
 		}
 	}

@@ -42,10 +42,16 @@ func migrateProjects(tx *gorm.DB) error {
 
 	mapping := make(map[string]*types.SopProject, len(pmProjects))
 	projectRepo := repository.NewSopProjectRepo(tx)
-	created := 0
+	created, deletedSkipped := 0, 0
 	for i := range pmProjects {
 		src := &pmProjects[i]
 		if sp, ok := existing[src.ID]; ok {
+			// 已迁项目在工作台被软删：不重建（否则会并排多出一个新编号的项目），
+			// 也不放进 mapping——其需求按「所属项目已删除」计入跳过汇总。
+			if sp.DeletedAt.Valid {
+				deletedSkipped++
+				continue
+			}
 			mapping[src.ID] = sp
 			continue
 		}
@@ -58,25 +64,34 @@ func migrateProjects(tx *gorm.DB) error {
 		created++
 	}
 
-	itemCount, attCount, err := migrateItems(tx, mapping)
+	itemCount, attCount, skippedReqs, err := migrateItems(tx, mapping)
 	if err != nil {
 		return err
 	}
-	log.Printf("PM 迁移：项目 %d（新建 %d / 已存在 %d），需求 %d，附件 %d",
-		len(pmProjects), created, len(pmProjects)-created, itemCount, attCount)
+	log.Printf("PM 迁移：项目 %d（新建 %d / 已存在 %d），需求 %d（跳过 %d），附件 %d",
+		len(pmProjects), created, len(pmProjects)-created, itemCount, skippedReqs, attCount)
+	if deletedSkipped > 0 {
+		log.Printf("跳过 %d 个项目（已迁移但已在工作台软删，不重复创建）", deletedSkipped)
+	}
+	if skippedReqs > 0 {
+		// 单行汇总，避免逐条日志把「有需求没迁」这件事淹没；
+		// 跳过是归档数据的合法结果，退出码仍为 0。
+		log.Printf("跳过 %d 条需求（所属项目不存在或已删除）", skippedReqs)
+	}
 	return nil
 }
 
 // loadMigratedProjectIDs 读出已迁移项目（domain_data.pm_source_id 非空）的源 id → 项目。
+// 必须 Unscoped：工作台软删的项目仍是「已迁移」的事实，默认作用域下漏掉会导致重跑重建。
 func loadMigratedProjectIDs(tx *gorm.DB) (map[string]*types.SopProject, error) {
-	var live []types.SopProject
-	if err := tx.Find(&live).Error; err != nil {
+	var rows []types.SopProject
+	if err := tx.Unscoped().Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("读取 sop_projects 失败：%w", err)
 	}
-	out := make(map[string]*types.SopProject, len(live))
-	for i := range live {
-		if src, ok := live[i].DomainData[pmSourceIDKey].(string); ok && src != "" {
-			out[src] = &live[i]
+	out := make(map[string]*types.SopProject, len(rows))
+	for i := range rows {
+		if src, ok := rows[i].DomainData[pmSourceIDKey].(string); ok && src != "" {
+			out[src] = &rows[i]
 		}
 	}
 	return out, nil
