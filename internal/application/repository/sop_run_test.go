@@ -326,6 +326,33 @@ func TestUpdateRunWritesZeroValuesAndJSON(t *testing.T) {
 	require.EqualValues(t, 3, back.Usage.InputTokens)
 }
 
+// PG 认领的成功判据必须只看 RETURNING 回传的 id，不看 RowsAffected：
+// GORM 对 `UPDATE … RETURNING` + Scan 的 RowsAffected 跨驱动/版本不可靠，
+// 若按 RowsAffected 判负，真正抢到的行会被当成「抢输了」→ 重新数 pending 得 0
+// → 返回 (nil,nil)，run 卡在 running 且租约无人续（只能等 ExpireLeases 回收）。
+func TestClaimDecisionUsesReturningID(t *testing.T) {
+	// 关键回归：RowsAffected==0 但 RETURNING 拿到了 id —— 必须判为抢到。
+	got, err := claimDecision("run-1", &gorm.DB{RowsAffected: 0})
+	require.NoError(t, err)
+	require.True(t, got, "RETURNING 有行即认领成功，RowsAffected 为 0 不得判负")
+
+	// RETURNING 无行（并发下被别人抢走 / 没有候选）：判负且不算错误。
+	got, err = claimDecision("", &gorm.DB{RowsAffected: 0})
+	require.NoError(t, err)
+	require.False(t, got, "无 RETURNING 行即未抢到，交给调用方数 pending 决定重试")
+
+	// RowsAffected>0 但 RETURNING 没回 id：即便驱动报了行数也不认（以 id 为准）。
+	got, err = claimDecision("", &gorm.DB{RowsAffected: 1})
+	require.NoError(t, err)
+	require.False(t, got, "判据是 RETURNING 的 id，不是 RowsAffected")
+
+	// 执行错误优先上抛，不进入 pending 重试路径。
+	boom := errors.New("boom")
+	got, err = claimDecision("run-1", &gorm.DB{Error: boom})
+	require.ErrorIs(t, err, boom)
+	require.False(t, got)
+}
+
 // GetRun 的租户 0 直通分支：引擎内部按 runID 读取（无租户上下文）。
 func TestGetRunInternalBypass(t *testing.T) {
 	db := newSopRunTestDB(t)

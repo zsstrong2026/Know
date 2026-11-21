@@ -26,9 +26,11 @@ const sopClaimAttempts = 16
 // SopRunRepo 是 SOP 运行、节点运行与产物的 GORM 实现。
 //
 // 不变式：
-//   - 每条查询都带 tenant_id（GetRun 的 tenantID==0 是引擎内部直通分支）；
-//   - 认领是 CAS：只有把 status 从 queued 改成 running 且 RowsAffected>0 的一方拿得到，
-//     并发调度器不可能双重认领（PG 单条 UPDATE…RETURNING，SQLite 先读后条件更新）；
+//   - 每条查询都带 tenant_id（GetRun 的 tenantID==0 是引擎内部直通分支，仅供调度器/执行器
+//     使用，不得由 HTTP handler 传入未解析的租户 id）；
+//   - 认领是 CAS：只有真正把 status 从 queued 改成 running 的一方拿得到（PG 以
+//     UPDATE…RETURNING 回传的 id 为准，SQLite 以条件更新的 RowsAffected 为准），
+//     并发调度器不可能双重认领；
 //   - sop_node_runs 无软删：运行历史不可变，重跑走 ResetNodes 改状态。
 type SopRunRepo struct{ db *gorm.DB }
 
@@ -40,8 +42,12 @@ func (r *SopRunRepo) CreateRun(ctx context.Context, run *types.SopRun) error {
 	return r.db.WithContext(ctx).Create(run).Error
 }
 
-// GetRun 按 (租户, id) 取运行；tenantID==0 表示引擎内部按 id 直通读取
-// （调度器没有租户上下文，但拿到的行仍带真实 TenantID 供后续写路径过滤）。
+// GetRun 按 (租户, id) 取运行；查不到返回 gorm.ErrRecordNotFound。
+//
+// tenantID == 0 保留给引擎内部使用：调度器/执行器没有租户上下文，按 id 直通读取，
+// 返回的行仍带真实 TenantID，因此后续写路径（UpdateRun 等）照常按租户收口。这是
+// 唯一的跨租户读入口，HTTP handler 绝不得把未解析成功（仍为 0）的租户 id 转发进来，
+// 否则等于绕过租户隔离；handler 应在进仓储前校验租户缺失并直接返回 400。
 func (r *SopRunRepo) GetRun(ctx context.Context, tenantID uint64, id string) (*types.SopRun, error) {
 	var run types.SopRun
 	q := r.db.WithContext(ctx)
@@ -196,9 +202,28 @@ func (r *SopRunRepo) claimOnce(
 	return &candidate, false, nil
 }
 
+// claimDecision 依据 PG `UPDATE … RETURNING id` 的执行结果判定认领成败。
+//
+// 判据只看 RETURNING 回传的 id（claimedID），不看 res.RowsAffected：GORM 对
+// `UPDATE … RETURNING` + Scan 的 RowsAffected 跨驱动/版本并不可靠，可能出现
+// RowsAffected==0 而 claimedID 已填的情况。若按 RowsAffected 判负，真正抢到的一行
+// 会被判成「抢输了」，调用方重新数 pending 得 0 后返回 (nil, nil)，run 就卡在
+// running、租约没人续，直到 ExpireLeases 才被回收为 failed。
+//
+// 返回 won=true 表示本调用方拿到了该行；won=false 且 err==nil 表示没拿到，
+// 此时由调用方数 pending 决定是否重试（候选还在就 retry）。res.RowsAffected
+// 有意不参与判定，仅为让调用点显式表明「RETURNING 行才是判据」。
+func claimDecision(claimedID string, res *gorm.DB) (won bool, err error) {
+	if res != nil && res.Error != nil {
+		return false, res.Error
+	}
+	return claimedID != "", nil
+}
+
 // claimPostgres 用一条 UPDATE…RETURNING 完成认领：子查询挑最老的 queued，
 // 外层 WHERE status='queued' 保证并发下只有一方拿到（另一方重评估后 0 行）。
-// 返回 (nil,nil,nil) 由调用方区分「没有候选」与「抢输了」：先探一次存在性。
+// 成功判据见 claimDecision（RETURNING 有行，而非 RowsAffected）；返回 (nil,nil,nil)
+// 由调用方区分「没有候选」与「抢输了」：判负时先探一次 pending 再决定是否重试。
 func (r *SopRunRepo) claimPostgres(
 	ctx context.Context, leaseUntil, now time.Time,
 ) (*types.SopRun, bool, error) {
@@ -213,10 +238,11 @@ func (r *SopRunRepo) claimPostgres(
 		RETURNING id`,
 		types.SopRunRunning, leaseUntil, now, now, now, types.SopRunQueued, types.SopRunQueued).
 		Scan(&claimedID)
-	if res.Error != nil {
-		return nil, false, res.Error
+	won, err := claimDecision(claimedID, res)
+	if err != nil {
+		return nil, false, err
 	}
-	if res.RowsAffected == 0 {
+	if !won {
 		var pending int64
 		if err := db.Model(&types.SopRun{}).
 			Where("status = ? AND deleted_at IS NULL", types.SopRunQueued).Count(&pending).Error; err != nil {

@@ -87,7 +87,12 @@ type SopItemExtraRepository interface {
 // 全部读写方法带租户过滤；sop_node_runs 无软删（运行历史不可变）。
 type SopRunRepository interface {
 	CreateRun(ctx context.Context, run *types.SopRun) error
-	// GetRun 按 (租户, id) 取运行；tenantID==0 表示内部直通（只按 id）。
+	// GetRun 按 (租户, id) 取运行；查不到返回 gorm.ErrRecordNotFound。
+	//
+	// tenantID == 0 保留给引擎内部（调度器/执行器无租户上下文）：只按 id 取行，
+	// 返回的行仍带真实 TenantID，后续写路径照常按租户收口。这是唯一的跨租户读
+	// 入口，HTTP handler 绝不得转发未解析成功（仍为 0）的租户 id —— 那等于绕过租户
+	// 隔离；handler 必须在调用前校验租户缺失并直接返回 400。
 	GetRun(ctx context.Context, tenantID uint64, id string) (*types.SopRun, error)
 	// ListRuns 过滤 + 分页（created_at 倒序）；PageSize<=0 不分页。
 	ListRuns(
