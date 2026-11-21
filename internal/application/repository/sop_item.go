@@ -217,13 +217,13 @@ func (r *SopItemRepo) ListWithDerived(
 		for _, ref := range nodeRefs {
 			status, name := types.ParseSopNodeRef(ref)
 			statuses = append(statuses, status)
-			// 节点状态名与 Task 5 的 sop_node_runs 常量一致；此处先按字面量比较。
+			// 节点状态用 Task 5 的 sop_node_runs 常量比较，避免字面量漂移。
 			switch status {
-			case "running":
+			case types.SopNodeRunning:
 				running = append(running, name)
-			case "waiting_approval", "pending_input":
+			case types.SopNodeWaitingApproval, types.SopNodePendingInput:
 				waiting = append(waiting, name)
-			case "failed":
+			case types.SopNodeFailed:
 				failed = append(failed, name)
 			}
 		}

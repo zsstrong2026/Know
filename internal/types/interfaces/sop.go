@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -28,8 +29,8 @@ type SopProjectRepository interface {
 	RemoveRepo(ctx context.Context, tenantID uint64, id, repoID string) error
 	// SetDefaultRepo 指定默认仓库，并把它排到列表首位。
 	SetDefaultRepo(ctx context.Context, tenantID uint64, id, repoID string) error
-	// CountActiveRuns 统计 status ∈ queued/running/waiting/paused 的运行数。
-	// 实现随 sop_runs 表（Task 5）补齐。
+	// CountActiveRuns 统计 status ∈ queued/running/waiting/paused 的运行数
+	// （types.SopRunActiveStatuses，"进行中运行"额度口径）。
 	CountActiveRuns(ctx context.Context, tenantID uint64, projectID string) (int64, error)
 }
 
@@ -76,6 +77,42 @@ type SopItemExtraRepository interface {
 	AddActivity(ctx context.Context, a *types.SopItemActivity) error
 	// ListActivities 列事项活动，created_at 升序；kind 为空表示不过滤。
 	ListActivities(ctx context.Context, tenantID uint64, itemID, kind string) ([]types.SopItemActivity, error)
+}
+
+// SopRunRepository 运行、节点运行与产物仓储（实现：repository.SopRunRepo）。
+//
+// 认领语义：ClaimDue 以 CAS 把一条 queued 运行转 running 并写租约，并发调度器下
+// 只有一方拿得到；Heartbeat 续租；ExpireLeases 回收租约过期的运行（进程崩溃）。
+// GetRun 的 tenantID==0 是引擎内部按 id 直通读取的分支，返回行仍带真实 TenantID。
+// 全部读写方法带租户过滤；sop_node_runs 无软删（运行历史不可变）。
+type SopRunRepository interface {
+	CreateRun(ctx context.Context, run *types.SopRun) error
+	// GetRun 按 (租户, id) 取运行；tenantID==0 表示内部直通（只按 id）。
+	GetRun(ctx context.Context, tenantID uint64, id string) (*types.SopRun, error)
+	// ListRuns 过滤 + 分页（created_at 倒序）；PageSize<=0 不分页。
+	ListRuns(
+		ctx context.Context, tenantID uint64, f types.SopRunFilter, page, pageSize int,
+	) ([]types.SopRun, error)
+	// UpdateRun 只写运行态列白名单；未命中（含跨租户）返回 gorm.ErrRecordNotFound。
+	UpdateRun(ctx context.Context, run *types.SopRun) error
+	// ClaimDue CAS 认领一条 queued 运行：成功返回转 running 的行，无候选返回 (nil,nil)。
+	ClaimDue(ctx context.Context, leaseUntil time.Time) (*types.SopRun, error)
+	Heartbeat(ctx context.Context, runID string, leaseUntil time.Time) error
+	// ExpireLeases 把租约过期的 running/waiting 运行回收为 failed，返回条数。
+	ExpireLeases(ctx context.Context, now time.Time) (int64, error)
+	CreateNodeRun(ctx context.Context, nr *types.SopNodeRun) error
+	GetNodeRun(ctx context.Context, tenantID uint64, runID, nodeID string) (*types.SopNodeRun, error)
+	ListNodeRuns(ctx context.Context, tenantID uint64, runID string) ([]types.SopNodeRun, error)
+	UpdateNodeRun(ctx context.Context, nr *types.SopNodeRun) error
+	// ResetNodes 把指定节点重置为 pending 并清空执行痕迹（重跑/打回）。
+	ResetNodes(ctx context.Context, runID string, nodeIDs []string) error
+	CreateArtifact(ctx context.Context, a *types.SopArtifact) error
+	ListArtifacts(ctx context.Context, tenantID uint64, runID string) ([]types.SopArtifact, error)
+	GetArtifact(ctx context.Context, tenantID uint64, id string) (*types.SopArtifact, error)
+	// StatsByStatus 按状态分组计数。
+	StatsByStatus(ctx context.Context, tenantID uint64) (map[string]int64, error)
+	// StatsSummary 统计摘要；projectID 空=全租户。
+	StatsSummary(ctx context.Context, tenantID uint64, projectID string) (*types.SopRunStats, error)
 }
 
 // SopTemplateRepository 流程模板与发布 revision 仓储（实现：repository.SopTemplateRepo）。

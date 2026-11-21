@@ -6,9 +6,13 @@ import (
 	"fmt"
 
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+// 编译期断言：项目仓储实现必须满足接口契约（CountActiveRuns 依赖 sop_runs）。
+var _ interfaces.SopProjectRepository = (*SopProjectRepo)(nil)
 
 // SopProjectRepo 是 SOP 项目仓储的 GORM 实现。
 // 所有方法都显式接收 tenantID 并写进 WHERE，避免跨租户越权。
@@ -169,4 +173,15 @@ func (r *SopProjectRepo) SetDefaultRepo(ctx context.Context, tenantID uint64, id
 		}
 		return out, nil
 	})
+}
+
+// CountActiveRuns 统计项目下 status ∈ queued/running/waiting/paused 的运行数
+// （「进行中运行」额度口径，见 types.IsSopRunActive）。租户过滤强制拼接。
+func (r *SopProjectRepo) CountActiveRuns(ctx context.Context, tenantID uint64, projectID string) (int64, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Model(&types.SopRun{}).
+		Where("tenant_id = ? AND project_id = ?", tenantID, projectID).
+		Where("status IN ?", types.SopRunActiveStatuses).
+		Count(&n).Error
+	return n, err
 }

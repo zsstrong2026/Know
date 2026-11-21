@@ -40,6 +40,29 @@ func workbenchMigrationSteps(t *testing.T) int {
 	return steps
 }
 
+// highestSQLiteMigrationBelow 返回目录中小于 bound 的最大迁移号：回滚 steps 步之后的
+// 版本水位。不能用 version-steps 推算——迁移号允许有空洞（例如 000073 尚未落地时
+// 目录里已有 000074），N 步对应的是「N 个文件」而非 N 个连续数字。
+func highestSQLiteMigrationBelow(t *testing.T, bound int) int {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(sqliteRepoRoot(t), "migrations", "sqlite"))
+	require.NoError(t, err)
+	highest := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".up.sql") {
+			continue
+		}
+		version, convErr := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
+		require.NoError(t, convErr, name)
+		if version < bound && version > highest {
+			highest = version
+		}
+	}
+	require.Positive(t, highest, "工作台起点之前必须有迁移")
+	return highest
+}
+
 // TestWorkbenchMigrationsRollback 验证工作台迁移的退出标准「回滚可用」：
 // up 全量迁移 → 用 golang-migrate 回滚全部工作台迁移 → 表/列/索引全部消失 → 再 up 仍能成功。
 //
@@ -50,6 +73,8 @@ func TestWorkbenchMigrationsRollback(t *testing.T) {
 	// 先按测试包目录解析仓库根并统计步数，再切到仓库根，避免相对路径二次拼接。
 	repoRoot := sqliteRepoRoot(t)
 	steps := workbenchMigrationSteps(t)
+	// 回滚后的水位也必须先算：helper 的路径是相对当前目录解析的，切到仓库根后会失配。
+	rolledBackWant := highestSQLiteMigrationBelow(t, workbenchFirstMigration)
 	chdirAndRestore(t, repoRoot)
 
 	dbPath := filepath.Join(t.TempDir(), "workbench-rollback.db")
@@ -75,7 +100,7 @@ func TestWorkbenchMigrationsRollback(t *testing.T) {
 	require.NoError(t, m.Steps(-steps), "down 脚本必须可执行")
 	rolledBack, rolledBackDirty := sqliteMigrationState(t, db)
 	require.False(t, rolledBackDirty, "回滚后不应处于 dirty 状态")
-	require.Equal(t, version-steps, rolledBack, "版本水位必须同步回退")
+	require.Equal(t, rolledBackWant, rolledBack, "版本水位必须同步回退")
 	require.Less(t, rolledBack, workbenchFirstMigration, "回滚后应停在工作台迁移之前")
 
 	// 3) 表必须全部消失；000045 只加列，workbench_items 由 000042 的 down 删除。

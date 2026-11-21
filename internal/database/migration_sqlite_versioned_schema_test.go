@@ -21,6 +21,7 @@ import (
 // 000045（P1-9）只给 workbench_items 加列，见 versionedSQLiteColumns。
 // 000068/000069/000070 sop_projects / sop_items / sop_item_extras。
 // 000071 sop_templates / sop_template_revisions。
+// 000072 sop_runs / sop_node_runs / sop_artifacts。
 var versionedSQLiteTables = []string{
 	"memory_extraction_sessions",
 	"task_pending_ops",
@@ -66,6 +67,9 @@ var versionedSQLiteTables = []string{
 	"sop_item_activities",
 	"sop_templates",
 	"sop_template_revisions",
+	"sop_runs",
+	"sop_node_runs",
+	"sop_artifacts",
 }
 
 // versionedSQLiteColumns maps each existing table to the columns that the
@@ -116,7 +120,10 @@ var versionedSQLiteColumns = map[string][]string{
 	"sop_items":    {"parent_id", "split_source"},                            // 000069
 }
 
-const expectedSQLiteMigrationVersion = 71
+// expectedSQLiteMigrationVersion 跟随目录内最高 sqlite 迁移号。
+// 000072（T5 sop_runs/sop_node_runs/sop_artifacts）与 000074（T5 派生 JOIN 索引，
+// 编号排在 T6 的 000073 之后）同批落地，故当前最高为 74；T6 补 000073 后仍为 74。
+const expectedSQLiteMigrationVersion = 74
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)
