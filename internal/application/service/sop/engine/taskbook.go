@@ -6,8 +6,9 @@
 //   - 上下文由本函数在运行时自动附带：事项背景与上游步骤产物每次必带，
 //     返工意见只在返工轮出现，人工补充意见只在审批 / 澄清之后出现；
 //   - {{…}} 占位符通道只为兼容"旧发布模板"保留在服务端：旧模板的 TaskPrompt
-//     里若残留 {{input}} 之类的写法，先做字符串替换再组装，替换不掉的令牌直接丢弃，
-//     保证输出里永远不会出现 {{ （检查器没有对应入口，新模板不会产生这些写法）。
+//     里若残留 {{input}} 之类的写法，先做字符串替换再组装，替换不掉的令牌直接丢弃。
+//     清洗只针对模板本身；占位符注入进来的内容（上游产物、运行输入等）逐字保留，
+//     其中讲 Go/Jinja 模板的 {{.Name}} 不会被误删。
 //
 // 全部是纯函数：不读库、不碰文件、不迭代 map（所有集合先排序再输出），
 // 同一输入永远得到同一份任务书。
@@ -106,7 +107,7 @@ func goalLine(prompt string) string {
 		if l == "" || strings.HasPrefix(l, "#") || l == "```" {
 			continue
 		}
-		return clipRunes(strings.TrimSpace(strings.TrimLeft(l, "-*>"+" ")), 120)
+		return clipBlock(strings.TrimSpace(strings.TrimLeft(l, "-*>"+" ")), 120)
 	}
 	return ""
 }
@@ -138,7 +139,7 @@ func writeRules(b *strings.Builder, in TaskBookInput, extraRules string) {
 	if in.Role != nil {
 		if rules := strings.TrimSpace(in.Role.Config.SystemPrompt); rules != "" {
 			b.WriteString("角色规则（长期有效，优先遵守）：\n\n")
-			b.WriteString(clipRunes(rules, taskBookRuleClipRunes))
+			b.WriteString(clipBlock(rules, taskBookRuleClipRunes))
 			b.WriteString("\n\n")
 			wrote = true
 		}
@@ -215,24 +216,12 @@ func writeUpstream(b *strings.Builder, in TaskBookInput) {
 		}
 		return ids[i] < ids[j]
 	})
-	if len(ids) == 0 {
-		b.WriteString("- 这是流程的起点，没有上游步骤产物。\n\n")
-	}
-	for _, id := range ids {
-		fmt.Fprintf(b, "### %s\n\n", upstreamName(in, id))
-		out := strings.TrimSpace(in.UpstreamOutputs[id])
-		if out == "" {
-			b.WriteString("（这一步没有留下文字结论，产物文件见下面的输入目录。）\n")
-		} else {
-			b.WriteString(clipRunes(out, taskBookOutputClipRunes))
-			b.WriteString("\n")
-		}
-		b.WriteString("\n")
-	}
-
+	// task_refs 勾选的节点同样是"已有产物"的来源，起点判定要两者都为空。
 	refIDs := make([]string, 0, len(in.RefOutputs))
 	for id := range in.RefOutputs {
-		refIDs = append(refIDs, id)
+		if out := strings.TrimSpace(in.RefOutputs[id]); out != "" {
+			refIDs = append(refIDs, id)
+		}
 	}
 	sort.Slice(refIDs, func(i, j int) bool {
 		ni, nj := in.UpstreamNames[refIDs[i]], in.UpstreamNames[refIDs[j]]
@@ -241,20 +230,36 @@ func writeUpstream(b *strings.Builder, in TaskBookInput) {
 		}
 		return refIDs[i] < refIDs[j]
 	})
+
+	if len(ids) == 0 && len(refIDs) == 0 {
+		b.WriteString("- 这是流程的起点，没有上游步骤产物。\n\n")
+	}
+	for _, id := range ids {
+		fmt.Fprintf(b, "### %s\n\n", upstreamName(in, id))
+		out := strings.TrimSpace(in.UpstreamOutputs[id])
+		if out == "" {
+			b.WriteString("（这一步没有留下文字结论，产物文件见下面的输入目录。）\n")
+		} else {
+			b.WriteString(clipBlock(out, taskBookOutputClipRunes))
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
 	for _, id := range refIDs {
 		out := strings.TrimSpace(in.RefOutputs[id])
-		if out == "" {
-			continue
-		}
 		fmt.Fprintf(b, "### 完整产出：%s\n\n", upstreamName(in, id))
-		b.WriteString(clipRunes(out, taskBookFullOutputClipRunes))
+		b.WriteString(clipBlock(out, taskBookFullOutputClipRunes))
 		b.WriteString("\n\n")
 	}
 
-	if dir := strings.TrimSpace(in.InputsDir); dir != "" {
-		fmt.Fprintf(b, "上游的产物文件已经物化到 %s，可以直接打开读取。\n\n", dir)
-	} else {
-		b.WriteString("上游的产物文件已经物化到工作区的 inputs 目录，可以直接打开读取。\n\n")
+	// 只有确实有上游/参考产物时才说"已经物化到 inputs"，否则起点节点会自相矛盾。
+	if len(ids)+len(refIDs) > 0 {
+		if dir := strings.TrimSpace(in.InputsDir); dir != "" {
+			fmt.Fprintf(b, "上游的产物文件已经物化到 %s，可以直接打开读取。\n\n", dir)
+		} else {
+			b.WriteString("上游的产物文件已经物化到工作区的 inputs 目录，可以直接打开读取。\n\n")
+		}
 	}
 }
 
@@ -413,26 +418,81 @@ func nodeSegment(id string) string {
 // legacyTokenRe 匹配 {{ token }} 形式的旧占位符；token 允许字母数字与 . _ -。
 var legacyTokenRe = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_.\-]+)\s*\}\}`)
 
-// legacyLooseRe 兜底清除替换后仍残留的任意 {{…}}（旧模板的手写笔误也会被清掉）。
+// legacyLooseRe 兜底清除模板自身仍残留的任意 {{…}}（旧模板的手写笔误也会被清掉）。
+// 只作用于模板切片，注入内容不会被二次扫描。
 var legacyLooseRe = regexp.MustCompile(`\{\{[^{}]*\}\}`)
+
+// clipBlock 是任务书正文专用的按行截断（不影响 gates.go 里给原因提示用的 clipRunes）：
+//   - 先按字符数截断，再回退到最近的换行，保证绝不切在行中间；
+//   - 截断点之后补一句省略说明；
+//   - 统计行首为 ``` 的围栏行，若为奇数说明代码块没闭合，补一个 ``` 收尾，
+//     否则渲染时后续小节会被吞进代码块。
+//
+// 单行文本（没有换行可回退）退回按字符截断。
+func clipBlock(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	s = strings.TrimSpace(s)
+	rs := []rune(s)
+	if len(rs) <= n {
+		return s
+	}
+	head := string(rs[:n])
+	idx := strings.LastIndexByte(head, '\n')
+	if idx < 0 {
+		return clipRunes(s, n)
+	}
+	out := strings.TrimRight(head[:idx], "\n") + "\n\n…（余下内容过长，已截断）"
+	if fenceCountOdd(out) {
+		out += "\n```"
+	}
+	return out
+}
+
+// fenceCountOdd 判断 Markdown 代码围栏是否为奇数个（即有一个没闭合）。
+func fenceCountOdd(s string) bool {
+	n := 0
+	for _, line := range strings.Split(s, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			n++
+		}
+	}
+	return n%2 == 1
+}
 
 // substituteLegacyPlaceholders 只能服务端做：把旧模板里的占位符替换成实际内容。
 // 支持的令牌见 legacyTokenValue；未知令牌替换为空串。
+//
+// 清洗只发生在"模板切片"上：占位符替换后的注入内容（上游产物、运行输入等）原样
+// 拼接、绝不二次扫描，所以一段讲解 Go/Jinja 模板的产物里的 {{.Name}} 不会被吃掉。
 func substituteLegacyPlaceholders(in TaskBookInput, s string) string {
 	if !strings.Contains(s, "{{") {
 		return s
 	}
-	out := legacyTokenRe.ReplaceAllStringFunc(s, func(m string) string {
-		sub := legacyTokenRe.FindStringSubmatch(m)
-		if len(sub) < 2 {
-			return ""
+	var b strings.Builder
+	last := 0
+	for _, loc := range legacyTokenRe.FindAllStringSubmatchIndex(s, -1) {
+		writeCleanedTemplateChunk(&b, s[last:loc[0]])
+		if loc[2] >= 0 {
+			b.WriteString(legacyTokenValue(in, s[loc[2]:loc[3]]))
 		}
-		return legacyTokenValue(in, sub[1])
-	})
-	if strings.Contains(out, "{{") {
-		out = legacyLooseRe.ReplaceAllString(out, "")
+		last = loc[1]
 	}
-	return out
+	writeCleanedTemplateChunk(&b, s[last:])
+	return b.String()
+}
+
+// writeCleanedTemplateChunk 只清理模板自身的残留花括号：能匹配到占位符形态的已在
+// 调用方按令牌处理，这里兜底丢掉模板里写坏的 {{…}}（注入内容不走这里）。
+func writeCleanedTemplateChunk(b *strings.Builder, chunk string) {
+	if chunk == "" {
+		return
+	}
+	if strings.Contains(chunk, "{{") {
+		chunk = legacyLooseRe.ReplaceAllString(chunk, "")
+	}
+	b.WriteString(chunk)
 }
 
 // legacyTokenValue 是旧占位符到内容的映射：

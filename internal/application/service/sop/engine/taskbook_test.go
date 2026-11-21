@@ -275,3 +275,106 @@ func TestRenderAgentSystemOmitsEmptySections(t *testing.T) {
 	require.Contains(t, s2, "go-test")
 	require.Contains(t, s2, "目标")
 }
+
+// ---- 评审修复用例（占位符只清洗模板 / 起点不声称物化 / 截断按行且闭合围栏） ----
+
+func TestRenderTaskBookInjectedContentKeepsPlaceholders(t *testing.T) {
+	ref := "Go 模板示例：{{.Name}}；未知令牌 {{ unknown }} 也要原样保留。"
+	in := TaskBookInput{
+		Node: types.SopNode{
+			ID:         "n2",
+			Name:       "实现",
+			TaskPrompt: "先读 {{node.n1.output}}，忽略 {{bogus}}，再动手。",
+		},
+		Item:            &types.SopItem{Title: "T", Description: "D"},
+		UpstreamOutputs: map[string]string{"n1": "上游摘要"},
+		UpstreamNames:   map[string]string{"n1": "需求分析"},
+		RefOutputs:      map[string]string{"n1": ref},
+	}
+	out := RenderTaskBook(in)
+	require.Contains(t, out, "{{.Name}}", "注入内容里的花括号必须原样保留")
+	require.Contains(t, out, "{{ unknown }}", "注入内容里的未知令牌必须原样保留")
+	require.NotContains(t, out, "bogus", "模板里的未知令牌仍要清掉")
+
+	// 占位符替换发生在「这一步做什么」正文里，注入值必须逐字往返（不能靠下面的
+	// task_refs 小节兜住断言）。
+	start := strings.Index(out, "## 这一步做什么")
+	end := strings.Index(out, "## 事项背景")
+	require.GreaterOrEqual(t, start, 0)
+	require.Greater(t, end, start)
+	body := out[start:end]
+	require.Contains(t, body, ref, "占位符注入的内容必须逐字往返")
+	require.NotContains(t, body, "bogus")
+}
+
+func TestRenderTaskBookStartNodeDoesNotClaimMaterializedInputs(t *testing.T) {
+	start := RenderTaskBook(TaskBookInput{
+		Node:      types.SopNode{ID: "n1", Name: "分析", TaskPrompt: "分析"},
+		InputsDir: "runs/r1/inputs",
+	})
+	require.Contains(t, start, "这是流程的起点，没有上游步骤产物。")
+	require.NotContains(t, start, "物化", "起点没有上游产物，不得声称已物化到 inputs")
+	require.NotContains(t, start, "runs/r1/inputs")
+
+	refsOnly := RenderTaskBook(TaskBookInput{
+		Node:          types.SopNode{ID: "n2", Name: "实现", TaskPrompt: "实现"},
+		RefOutputs:    map[string]string{"n0": "完整输出"},
+		UpstreamNames: map[string]string{"n0": "方案设计"},
+		InputsDir:     "runs/r1/inputs",
+	})
+	require.Contains(t, refsOnly, "上游的产物文件已经物化到 runs/r1/inputs")
+	require.NotContains(t, refsOnly, "这是流程的起点", "只勾了 task_refs 时不该说自己是起点")
+}
+
+// fenceLines 统计行首为 ``` 的行数（Markdown 围栏）。
+func fenceLines(s string) int {
+	n := 0
+	for _, line := range strings.Split(s, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestRenderTaskBookClippedOutputStaysFenceSafe(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("先给结论：这段产物很长，中间夹着代码块。\n\n```go\n")
+	for b.Len() < 5000 {
+		b.WriteString(strings.Repeat("x", 60) + "END\n")
+	}
+	b.WriteString("```\n\n## 结论\n收尾。\n")
+	raw := b.String()
+	require.Greater(t, len([]rune(raw)), 5000)
+
+	out := RenderTaskBook(TaskBookInput{
+		Node:            types.SopNode{ID: "n2", Name: "实现", TaskPrompt: "实现"},
+		UpstreamOutputs: map[string]string{"n1": raw},
+		UpstreamNames:   map[string]string{"n1": "需求分析"},
+	})
+	start := strings.Index(out, "### 需求分析")
+	end := strings.Index(out, "## 产出要求")
+	require.GreaterOrEqual(t, start, 0)
+	require.Greater(t, end, start)
+	section := out[start:end]
+
+	require.LessOrEqual(t, len([]rune(section)), taskBookOutputClipRunes+64,
+		"截断后不得超过硬顶（仅允许收尾说明与围栏少量超出）")
+	require.Contains(t, section, "已截断")
+	require.Equal(t, 0, fenceLines(section)%2, "截断后代码围栏必须成对闭合")
+	require.NotContains(t, section, "## 结论", "截断点之前的尾部内容不应把后续内容带进来")
+
+	// 按行截断：围栏内的每一行都必须是完整的填充行（截断点不会落在行中）。
+	inFence := false
+	for _, line := range strings.Split(section, "\n") {
+		l := strings.TrimSpace(line)
+		if strings.HasPrefix(l, "```") {
+			inFence = !inFence
+			continue
+		}
+		if !inFence || l == "" || strings.Contains(l, "已截断") {
+			continue
+		}
+		require.True(t, strings.HasSuffix(l, "END"), "截断点落在行中：%q", l)
+	}
+}
