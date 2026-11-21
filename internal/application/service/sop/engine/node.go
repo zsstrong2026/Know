@@ -106,6 +106,16 @@ func (e *Engine) Advance(ctx context.Context, runID string) (bool, error) {
 		byID[nrs[i].NodeID] = &nrs[i]
 	}
 
+	// 子流程对账先于就绪计算：子运行可能刚刚到终态，节点状态与产物要先落地，
+	// 下一轮的 readyNodes 才能看到下游就绪。有推进就本轮收工，让调用方继续推进。
+	childMoved, err := e.reconcileChildRuns(ctx, run, byID)
+	if err != nil {
+		return childMoved, err
+	}
+	if childMoved {
+		return true, nil
+	}
+
 	ready := readyNodes(&run.WorkflowSnapshot, byID)
 	if len(ready) == 0 {
 		return e.settleNoReady(ctx, run, nrs)
@@ -144,9 +154,11 @@ func (e *Engine) Advance(ctx context.Context, runID string) (bool, error) {
 			e.notifyApproval(ctx, run, &node, nr.GateReason)
 			ws.CheckpointBestEffort(ctx, "node "+node.ID+" waiting approval")
 		case types.SopNodeTypeSOP:
-			// 子流程编排由 T15（sop_node.go）交付；在此之前明确报错而不是空转，
-			// 避免运行无限续租却不前进。
-			return true, fmt.Errorf("步骤「%s」是子流程步骤：子流程推进尚未接入", displayName(&node))
+			// 子流程：建 child run 并让节点进入 running，后续由 reconcileChildRuns
+			// 回看子运行终态（产物导入/失败策略见 sop_node.go）。
+			if err := e.startChildRun(ctx, run, &node, nr); err != nil {
+				return true, err
+			}
 		default:
 			wg.Add(1)
 			go func(n types.SopNode, nodeRun *types.SopNodeRun) {
