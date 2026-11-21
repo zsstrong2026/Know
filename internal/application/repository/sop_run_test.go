@@ -291,6 +291,13 @@ func TestListRunsFiltersAndPagination(t *testing.T) {
 	others, err := repo.ListRuns(ctx, 2, SopRunFilter{ProjectID: "p1"}, 1, 10)
 	require.NoError(t, err)
 	require.Empty(t, others)
+
+	// 租户 0 = 引擎内部跨租户扫描（重启恢复/审批超时清扫）：按状态列出所有租户。
+	all, err := repo.ListRuns(ctx, 0, SopRunFilter{Status: types.SopRunFailed}, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	require.Equal(t, "run2", all[0].ID)
+	require.EqualValues(t, 1, all[0].TenantID, "跨租户扫描返回的行仍带真实租户")
 }
 
 // UpdateRun 是全列（白名单内）写入：JSON 列、指针列的零值也要真正落库，

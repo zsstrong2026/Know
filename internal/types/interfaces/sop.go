@@ -95,6 +95,10 @@ type SopRunRepository interface {
 	// 隔离；handler 必须在调用前校验租户缺失并直接返回 400。
 	GetRun(ctx context.Context, tenantID uint64, id string) (*types.SopRun, error)
 	// ListRuns 过滤 + 分页（created_at 倒序）；PageSize<=0 不分页。
+	//
+	// tenantID == 0 与 GetRun 同口径：保留给引擎内部按状态扫描全部租户的运行
+	// （重启恢复 waiting、审批超时清扫），返回的行仍带真实 TenantID；HTTP handler
+	// 不得转发未解析成功的租户 id。
 	ListRuns(
 		ctx context.Context, tenantID uint64, f types.SopRunFilter, page, pageSize int,
 	) ([]types.SopRun, error)

@@ -95,7 +95,8 @@ func (e *Engine) Stop(ctx context.Context) error {
 	}
 }
 
-// TickOnce 同步跑一轮调度：回收过期租约 → 在并行额度内认领并初始化到期运行。
+// TickOnce 同步跑一轮调度：回收过期租约 → 审批超时清扫 → 在并行额度内认领并
+// 初始化到期运行 → 重启恢复（把无人推进的 waiting 运行接回推进协程）。
 //
 // 测试用 DisableRunLoop=true 时，这是唯一驱动入口（不会有后台协程抢跑）；
 // 生产由 Start 的 ticker 调用。返回的错误只来自仓储失败：一条运行初始化失败
@@ -104,18 +105,25 @@ func (e *Engine) TickOnce(ctx context.Context) error {
 	if _, err := e.deps.Runs.ExpireLeases(ctx, time.Now()); err != nil {
 		return err
 	}
-	// 额度 = 已在推进的协程 + 本轮刚认领的条数：刚认领的运行要等 runLoop 启动后
-	// 才登记进 active，只数 active 会在同一轮里超发。
+	e.sweepApprovalTimeouts(ctx)
+	// 额度 = active 里的推进协程 + 本轮刚认领但未起协程的条数。生产模式 startRunLoop
+	// 同步登记，刚认领的运行立刻计入 active；测试模式（DisableRunLoop）不登记，
+	// 只能靠 claimed 计数，否则同一轮会把队列一口气认领光。
 	claimed := 0
 	for {
 		if e.activeCount()+claimed >= e.deps.MaxParallel {
-			return nil
+			break
 		}
 		run, err := e.deps.Runs.ClaimDue(ctx, time.Now().Add(claimLease))
-		if err != nil || run == nil {
+		if err != nil {
 			return err
 		}
-		claimed++
+		if run == nil {
+			break
+		}
+		if e.deps.DisableRunLoop {
+			claimed++
+		}
 		if err := e.startQueued(ctx, run); err != nil {
 			if ctx.Err() != nil {
 				// 停机期间被取消：这条运行留在 running，由租约过期回收，不是配置问题。
@@ -127,6 +135,27 @@ func (e *Engine) TickOnce(ctx context.Context) error {
 				log.Printf("[sop-engine] 运行 %s 置失败写入失败：%v", run.ID, uerr)
 			}
 		}
+	}
+	e.resumeWaiting(ctx)
+	return nil
+}
+
+// resumeWaiting 把「库里 waiting、但本进程没有推进协程」的接回推进（重启恢复）。
+//
+// 进程重启后等待审批/等待子流程的运行不会被 ClaimDue 认领（它不是 queued），
+// 若不恢复推进，审批通过后那条运行会永远停在 waiting。已在 active 的运行跳过；
+// DisableRunLoop=true（测试同步驱动）时不启动任何协程。
+func (e *Engine) resumeWaiting(ctx context.Context) {
+	if e.deps.DisableRunLoop {
+		return
+	}
+	runs, err := e.deps.Runs.ListRuns(ctx, 0, types.SopRunFilter{Status: types.SopRunWaiting}, 0, 0)
+	if err != nil {
+		log.Printf("[sop-engine] 恢复 waiting 运行读取失败：%v", err)
+		return
+	}
+	for i := range runs {
+		e.startRunLoop(runs[i].ID)
 	}
 }
 
@@ -157,6 +186,33 @@ func (e *Engine) runLoop(runID string) {
 	e.mu.Lock()
 	e.active[runID] = cancel
 	e.mu.Unlock()
+	e.driveRun(ctx, cancel, runID)
+}
+
+// startRunLoop 登记并启动一个推进协程，返回是否真的启动了。
+//
+// 登记必须同步完成：resumeWaiting/ensureRunning 每轮都可能被调用，若等协程里再
+// 写 active，两次调用之间会出现「同一运行两个推进协程」的窗口（第二个还会覆盖
+// active 里的取消函数，让 CancelRun 只取消得到最后一个）。
+func (e *Engine) startRunLoop(runID string) bool {
+	e.mu.Lock()
+	if _, ok := e.active[runID]; ok {
+		e.mu.Unlock()
+		return false
+	}
+	parent := e.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
+	e.active[runID] = cancel
+	e.mu.Unlock()
+	go e.driveRun(ctx, cancel, runID)
+	return true
+}
+
+// driveRun 是推进协程主体：调用方已完成 active 登记。
+func (e *Engine) driveRun(ctx context.Context, cancel context.CancelFunc, runID string) {
 	defer func() {
 		cancel()
 		e.mu.Lock()

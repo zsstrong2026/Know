@@ -130,7 +130,7 @@ func (e *Engine) startQueued(ctx context.Context, run *types.SopRun) error {
 	}
 	e.linkItemOnStart(ctx, run)
 	if !e.deps.DisableRunLoop {
-		go e.runLoop(run.ID)
+		e.startRunLoop(run.ID)
 	}
 	return nil
 }

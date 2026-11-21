@@ -62,10 +62,17 @@ func (r *SopRunRepo) GetRun(ctx context.Context, tenantID uint64, id string) (*t
 
 // ListRuns 按过滤条件分页列运行（created_at 倒序，最新在前）。
 // 过滤在 SQL 内完成；PageSize<=0 表示不分页。
+//
+// tenantID == 0 与 GetRun 同口径：保留给引擎内部（调度器没有租户上下文，需按状态
+// 扫描全部租户的 waiting 运行做重启恢复与审批超时清扫），返回的行仍带真实
+// TenantID；HTTP handler 不得转发未解析成功的租户 id。
 func (r *SopRunRepo) ListRuns(
 	ctx context.Context, tenantID uint64, f types.SopRunFilter, page, pageSize int,
 ) ([]types.SopRun, error) {
-	q := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID)
+	q := r.db.WithContext(ctx)
+	if tenantID != 0 {
+		q = q.Where("tenant_id = ?", tenantID)
+	}
 	if f.ProjectID != "" {
 		q = q.Where("project_id = ?", f.ProjectID)
 	}
