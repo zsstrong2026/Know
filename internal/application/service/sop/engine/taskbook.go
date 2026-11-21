@@ -216,7 +216,7 @@ func writeUpstream(b *strings.Builder, in TaskBookInput) {
 		return ids[i] < ids[j]
 	})
 	if len(ids) == 0 {
-		b.WriteString("- 这是流程的起点，没有上游步骤产物。\n")
+		b.WriteString("- 这是流程的起点，没有上游步骤产物。\n\n")
 	}
 	for _, id := range ids {
 		fmt.Fprintf(b, "### %s\n\n", upstreamName(in, id))
