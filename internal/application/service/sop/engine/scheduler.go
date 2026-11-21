@@ -9,7 +9,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"time"
 
@@ -129,19 +128,6 @@ func (e *Engine) TickOnce(ctx context.Context) error {
 			}
 		}
 	}
-}
-
-// Advance 推进一次运行（就绪节点执行与门禁裁定）。
-//
-// T12 只交付调度骨架，本桩是**临时占位**：T13 在 node.go 里给出真实实现时，
-// 必须同时删掉本函数（否则同包重复声明），签名保持不变：
-//
-//	func (e *Engine) Advance(ctx context.Context, runID string) (bool, error)
-//
-// 占位实现显式返回「尚未接入」：T13 接入前被误驱动的运行会立刻以明确原因失败，
-// 而不是空转并无限续租。
-func (e *Engine) Advance(ctx context.Context, runID string) (bool, error) {
-	return false, fmt.Errorf("运行 %s 的节点推进尚未接入", runID)
 }
 
 // advanceRun 是 runLoop 调用推进步骤的唯一入口：有测试挂点时走挂点，否则走 Advance。
