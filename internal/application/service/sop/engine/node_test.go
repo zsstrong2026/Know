@@ -26,7 +26,9 @@ type scriptedProvider struct {
 
 func (s *scriptedProvider) Kind() string { return s.kind }
 
-func (s *scriptedProvider) Prepare(ctx context.Context, n *types.SopNode, ws string) error { return nil }
+func (s *scriptedProvider) Prepare(ctx context.Context, n *types.SopNode, ws string) error {
+	return nil
+}
 
 func (s *scriptedProvider) Execute(
 	ctx context.Context, tb executor.TaskBook, o executor.ExecOptions,
@@ -72,7 +74,9 @@ type concurrencyProvider struct {
 
 func (c *concurrencyProvider) Kind() string { return c.kind }
 
-func (c *concurrencyProvider) Prepare(ctx context.Context, n *types.SopNode, ws string) error { return nil }
+func (c *concurrencyProvider) Prepare(ctx context.Context, n *types.SopNode, ws string) error {
+	return nil
+}
 
 func (c *concurrencyProvider) Execute(
 	ctx context.Context, tb executor.TaskBook, o executor.ExecOptions,
@@ -90,6 +94,28 @@ func (c *concurrencyProvider) Execute(
 }
 
 func (c *concurrencyProvider) Cancel(ctx context.Context) error { return nil }
+
+// countProvider 记录 Execute 被调次数（并发推进下不得同一节点重复执行）。
+type countProvider struct {
+	kind  string
+	calls int32
+}
+
+func (c *countProvider) Kind() string { return c.kind }
+
+func (c *countProvider) Prepare(ctx context.Context, n *types.SopNode, ws string) error {
+	return nil
+}
+
+func (c *countProvider) Execute(
+	ctx context.Context, tb executor.TaskBook, o executor.ExecOptions,
+) (executor.ExecResult, error) {
+	atomic.AddInt32(&c.calls, 1)
+	time.Sleep(50 * time.Millisecond) // 放大「两个推进者同时看到 pending」的时间窗
+	return executor.ExecResult{Output: "ok", GateResult: types.SopGatePass}, nil
+}
+
+func (c *countProvider) Cancel(ctx context.Context) error { return nil }
 
 // startRun 建一条 queued 运行并认领（节点记录随之建立）。
 func startRun(t *testing.T, e *Engine, def types.SopDefinition) *types.SopRun {
@@ -240,7 +266,7 @@ func TestMissingRequiredArtifactFailsRun(t *testing.T) {
 	got, _ := e.deps.Runs.GetRun(ctx, 1, run.ID)
 	require.Equal(t, types.SopRunFailed, got.Status)
 	nr, _ := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n1")
-	require.Contains(t, nr.GateReason, "out/missing.md")
+	require.Contains(t, nr.GateReason, "out/n1/missing.md", "产物路径按节点目录 out/<node>/ 报错")
 }
 
 func TestHumanGateWaitsForApproval(t *testing.T) {
@@ -322,6 +348,196 @@ func TestSerialGroupRunsOneAtATime(t *testing.T) {
 
 	_, err = e.Advance(ctx, run.ID)
 	require.NoError(t, err)
+	got, _ := e.deps.Runs.GetRun(ctx, 1, run.ID)
+	require.Equal(t, types.SopRunSucceeded, got.Status)
+}
+
+// 上游返工后同一路径会留下多条产物（attempt 1/2）：下游物化只取最新一份，
+// 不能因「inputs/<up>/同名文件」把整条下游链判死。
+func TestReworkedUpstreamStillMaterializesForDownstream(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	e.deps.Registry.Register(&scriptedProvider{kind: "platform_agent", steps: []executor.ExecResult{
+		{Output: "v1", GateResult: types.SopGateRework, GateReason: "再来一遍"},
+		{Output: "v2", GateResult: types.SopGatePass},
+	}})
+	ctx := context.Background()
+	def := types.SopDefinition{Nodes: []types.SopNode{
+		{ID: "n1", Type: "agent", OnFailure: "loop", MaxAttempts: 3,
+			Executor:        types.SopNodeExecutor{Kind: "platform_agent", AgentID: "a"},
+			ArtifactOutputs: []types.SopArtifactOutput{{Name: "r", Path: "out/a.md", Required: true, Check: types.SopArtifactCheck{Type: "exists"}}}},
+		{ID: "n2", Type: "agent", Executor: types.SopNodeExecutor{Kind: "platform_agent", AgentID: "a"}},
+	}, Edges: []types.SopEdge{{ID: "e1", Source: "n1", Target: "n2"}}}
+	run := startRun(t, e, def)
+	for i := 0; i < 6; i++ {
+		if _, err := e.Advance(ctx, run.ID); err != nil {
+			t.Fatalf("第 %d 轮推进失败：%v", i, err)
+		}
+	}
+	got, _ := e.deps.Runs.GetRun(ctx, 1, run.ID)
+	require.Equal(t, types.SopRunSucceeded, got.Status)
+
+	// 产物历史保留两次尝试，但路径是节点目录口径。
+	arts, err := e.deps.Runs.ListArtifacts(ctx, 1, run.ID)
+	require.NoError(t, err)
+	require.Len(t, arts, 2, "两次尝试各留一条产物历史")
+	for _, a := range arts {
+		require.Equal(t, "out/n1/a.md", a.Path)
+	}
+	// 下游物化拿到的是最新一次（v2），且只拿到一份（物化目录按上游节点名）。
+	n2, _ := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n2")
+	require.Equal(t, types.SopNodeSucceeded, n2.Status)
+	data, err := os.ReadFile(filepath.Join(got.WorkspaceDir, "inputs", "n1", "a.md"))
+	require.NoError(t, err)
+	require.Equal(t, "v2", string(data))
+}
+
+// 运行在 running 时，全部节点终态且其中有 failed ⇒ 运行必须落 failed（不得判成功）。
+func TestFailedNodeDuringRunningSettlesRunFailed(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	ctx := context.Background()
+	run := startRun(t, e, types.SopDefinition{Nodes: []types.SopNode{
+		{ID: "n1", Type: "agent", Executor: types.SopNodeExecutor{Kind: "platform_agent", AgentID: "a"}},
+		{ID: "n2", Type: "agent", Executor: types.SopNodeExecutor{Kind: "platform_agent", AgentID: "a"}},
+	}})
+	n1, err := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n1")
+	require.NoError(t, err)
+	n1.Status, n1.Error = types.SopNodeFailed, "环境不成立"
+	require.NoError(t, e.deps.Runs.UpdateNodeRun(ctx, n1))
+	n2, err := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n2")
+	require.NoError(t, err)
+	n2.Status = types.SopNodeSucceeded
+	require.NoError(t, e.deps.Runs.UpdateNodeRun(ctx, n2))
+
+	_, err = e.Advance(ctx, run.ID)
+	require.NoError(t, err)
+	got, _ := e.deps.Runs.GetRun(ctx, 1, run.ID)
+	require.Equal(t, types.SopRunFailed, got.Status)
+	require.Contains(t, got.Error, "环境不成立")
+}
+
+// 全部节点终态且其中有 cancelled ⇒ 运行落 cancelled（不是成功，也不是失败）。
+func TestCancelledNodeSettlesRunCancelled(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	ctx := context.Background()
+	run := startRun(t, e, types.SopDefinition{Nodes: []types.SopNode{
+		{ID: "n1", Type: "agent", Executor: types.SopNodeExecutor{Kind: "platform_agent", AgentID: "a"}},
+		{ID: "n2", Type: "agent", Executor: types.SopNodeExecutor{Kind: "platform_agent", AgentID: "a"}},
+	}})
+	n1, err := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n1")
+	require.NoError(t, err)
+	n1.Status = types.SopNodeSucceeded
+	require.NoError(t, e.deps.Runs.UpdateNodeRun(ctx, n1))
+	n2, err := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n2")
+	require.NoError(t, err)
+	n2.Status = types.SopNodeCancelled
+	require.NoError(t, e.deps.Runs.UpdateNodeRun(ctx, n2))
+
+	_, err = e.Advance(ctx, run.ID)
+	require.NoError(t, err)
+	got, _ := e.deps.Runs.GetRun(ctx, 1, run.ID)
+	require.Equal(t, types.SopRunCancelled, got.Status)
+}
+
+// 打回重置的范围：目标与下游回到 pending 且执行痕迹清空、Attempt 归零，
+// 但被打回目标的 ReworkCount 仍要记账（返工预算不能被重置吞掉）。
+func TestRejectResetClearsTracesAndKeepsReworkBudget(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	e.deps.Registry.Register(&scriptedProvider{kind: "platform_agent", steps: []executor.ExecResult{
+		{Output: "a1", GateResult: types.SopGatePass},
+		{Output: "b1", GateResult: types.SopGateRework, GateReason: "方案不行"},
+	}})
+	ctx := context.Background()
+	def := types.SopDefinition{Nodes: []types.SopNode{
+		{ID: "n1", Type: "agent", Executor: types.SopNodeExecutor{Kind: "platform_agent", AgentID: "a"}},
+		{ID: "n2", Type: "agent", OnFailure: "reject", RejectTo: "n1", MaxReworks: 3,
+			Executor: types.SopNodeExecutor{Kind: "platform_agent", AgentID: "a"}},
+		{ID: "n3", Type: "agent", Executor: types.SopNodeExecutor{Kind: "platform_agent", AgentID: "a"}},
+	}, Edges: []types.SopEdge{{ID: "e1", Source: "n1", Target: "n2"}, {ID: "e2", Source: "n2", Target: "n3"}}}
+	run := startRun(t, e, def)
+	for i := 0; i < 2; i++ {
+		_, err := e.Advance(ctx, run.ID)
+		require.NoError(t, err)
+	}
+
+	n1, _ := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n1")
+	require.Equal(t, types.SopNodePending, n1.Status)
+	require.Empty(t, n1.Output, "重置必须清掉旧输出")
+	require.Empty(t, n1.GateResult)
+	require.Nil(t, n1.FinishedAt)
+	require.Equal(t, 0, n1.Attempt, "返工不消耗被打回节点的重试预算")
+	require.Equal(t, 1, n1.ReworkCount, "返工次数要记账")
+	require.Contains(t, n1.Feedback, "方案不行")
+
+	n2, _ := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n2")
+	require.Equal(t, types.SopNodePending, n2.Status)
+	require.Equal(t, 1, n2.ReworkCount)
+
+	n3, _ := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n3")
+	require.Equal(t, types.SopNodePending, n3.Status)
+	require.Empty(t, n3.Output)
+}
+
+// 并行兄弟各自写 out/<node>/：同名产物互不覆盖，产物行按节点目录记录。
+func TestSiblingNodesWriteOwnOutDir(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	e.deps.Registry.Register(&scriptedProvider{kind: "platform_agent", steps: []executor.ExecResult{
+		{Output: "a", GateResult: types.SopGatePass},
+		{Output: "b", GateResult: types.SopGatePass},
+	}})
+	ctx := context.Background()
+	outArt := func() []types.SopArtifactOutput {
+		return []types.SopArtifactOutput{{Name: "a", Path: "out/a.md", Required: true, Check: types.SopArtifactCheck{Type: "exists"}}}
+	}
+	def := types.SopDefinition{Nodes: []types.SopNode{
+		{ID: "n1", Type: "agent", Executor: types.SopNodeExecutor{Kind: "platform_agent", AgentID: "a"}, ArtifactOutputs: outArt()},
+		{ID: "n2", Type: "agent", Executor: types.SopNodeExecutor{Kind: "platform_agent", AgentID: "a"}, ArtifactOutputs: outArt()},
+	}}
+	run := startRun(t, e, def)
+	for i := 0; i < 4; i++ {
+		_, err := e.Advance(ctx, run.ID)
+		require.NoError(t, err)
+	}
+	got, _ := e.deps.Runs.GetRun(ctx, 1, run.ID)
+	require.Equal(t, types.SopRunSucceeded, got.Status)
+
+	arts, err := e.deps.Runs.ListArtifacts(ctx, 1, run.ID)
+	require.NoError(t, err)
+	paths := map[string]bool{}
+	for _, a := range arts {
+		paths[a.Path] = true
+	}
+	require.True(t, paths["out/n1/a.md"], "n1 产物落在自己的目录：%v", paths)
+	require.True(t, paths["out/n2/a.md"], "n2 产物落在自己的目录：%v", paths)
+	for _, id := range []string{"n1", "n2"} {
+		_, statErr := os.Stat(filepath.Join(got.WorkspaceDir, "out", id, "a.md"))
+		require.NoError(t, statErr, "out/%s/a.md 应存在", id)
+	}
+}
+
+// 两个推进者同时 Advance 同一条运行：节点只能被真正执行一次（单运行串行推进）。
+func TestConcurrentAdvanceExecutesNodeOnce(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	p := &countProvider{kind: "platform_agent"}
+	e.deps.Registry.Register(p)
+	ctx := context.Background()
+	run := startRun(t, e, types.SopDefinition{Nodes: []types.SopNode{
+		{ID: "n1", Type: "agent", Executor: types.SopNodeExecutor{Kind: "platform_agent", AgentID: "a"}},
+	}})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = e.Advance(ctx, run.ID)
+		}()
+	}
+	wg.Wait()
+
+	require.Equal(t, int32(1), atomic.LoadInt32(&p.calls), "同一节点不得被并发重复执行")
+	nr, err := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n1")
+	require.NoError(t, err)
+	require.Equal(t, 1, nr.Attempt)
 	got, _ := e.deps.Runs.GetRun(ctx, 1, run.ID)
 	require.Equal(t, types.SopRunSucceeded, got.Status)
 }

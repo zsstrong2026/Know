@@ -76,8 +76,11 @@ type Engine struct {
 	deps   Deps
 	mu     sync.Mutex
 	active map[string]context.CancelFunc // runID→取消函数
-	ctx    context.Context
-	cancel context.CancelFunc
+	// runLocks 是「同一运行同一时刻只有一个推进者」的进程内互斥表（并发调 Advance
+	// 时用，见 lockRun）；它的值受 mu 保护，锁本身在锁表之外持有。
+	runLocks map[string]*sync.Mutex
+	ctx      context.Context
+	cancel   context.CancelFunc
 	// started 标记调度循环是否已启动：Start 对已启动的引擎是 no-op（绝不取消旧根
 	// ctx——那是所有在途 runLoop 的父 ctx，取消它等于把在跑运行打成 cancelled）。
 	started bool
@@ -92,8 +95,9 @@ func NewEngine(d Deps) *Engine {
 		d.MaxParallel = defaultMaxParallel
 	}
 	return &Engine{
-		deps:   d,
-		active: map[string]context.CancelFunc{},
+		deps:     d,
+		active:   map[string]context.CancelFunc{},
+		runLocks: map[string]*sync.Mutex{},
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -81,7 +82,14 @@ func readyNodes(def *types.SopDefinition, nrs map[string]*types.SopNodeRun) []ty
 //
 // 返回 (false, nil) 表示无事可做（等待子运行、等待人工、已终态），runLoop 据此
 // 退避轮询；返回错误表示仓储等基础设施失败，由 runLoop 落成 failed。
+//
+// 串行化：同一运行的推进在进程内互斥（lockRun）。两个推进者（重复调度、运维手动
+// 触发）若同时读同一批 pending 节点，会各自执行一遍——互斥把「读状态→执行→写回」
+// 变成整体临界区，后到者看到的已是前者的结果。
 func (e *Engine) Advance(ctx context.Context, runID string) (bool, error) {
+	unlock := e.lockRun(runID)
+	defer unlock()
+
 	run, err := e.deps.Runs.GetRun(ctx, 0, runID)
 	if err != nil {
 		return false, err
@@ -164,12 +172,40 @@ func (e *Engine) Advance(ctx context.Context, runID string) (bool, error) {
 	return true, nil
 }
 
-// settleNoReady 处理「本轮没有就绪节点」：还在等执行/人工就退避，全部终态则收口成功。
+// lockRun 取得某运行的推进锁（进程内串行化），返回解锁函数。
+//
+// 锁表本身受 e.mu 保护，锁在锁表之外持有：不要用 e.mu 直接当运行锁，那会把不同
+// 运行的推进也串成一列。条目只增不删——删除需要等待者计数，而单进程内运行的
+// 数量远小于内存能承受的范围，宁可留一条空 mutex 也不引入删除竞态。
+func (e *Engine) lockRun(runID string) func() {
+	e.mu.Lock()
+	mu := e.runLocks[runID]
+	if mu == nil {
+		mu = &sync.Mutex{}
+		e.runLocks[runID] = mu
+	}
+	e.mu.Unlock()
+	mu.Lock()
+	return mu.Unlock
+}
+
+// settleNoReady 处理「本轮没有就绪节点」：还在等执行/人工就退避，全部终态则收口。
+//
+// 收口口径与 finalizeRun 一致：有 failed 节点就是 run failed（原因取首个失败文案），
+// 有 cancelled 节点就是 run cancelled；只有全部 succeeded/skipped 才是 run succeeded。
 func (e *Engine) settleNoReady(ctx context.Context, run *types.SopRun, nrs []types.SopNodeRun) (bool, error) {
 	allTerminal := true
+	failedReason := ""
+	cancelled := false
 	for i := range nrs {
 		switch nrs[i].Status {
-		case types.SopNodeSucceeded, types.SopNodeSkipped, types.SopNodeFailed, types.SopNodeCancelled:
+		case types.SopNodeFailed:
+			if failedReason == "" {
+				failedReason = firstNonEmpty(nrs[i].Error, nodeDisplayName(run, nrs[i].NodeID))
+			}
+		case types.SopNodeCancelled:
+			cancelled = true
+		case types.SopNodeSucceeded, types.SopNodeSkipped:
 		default:
 			allTerminal = false
 		}
@@ -179,6 +215,14 @@ func (e *Engine) settleNoReady(ctx context.Context, run *types.SopRun, nrs []typ
 	}
 	if run.Status != types.SopRunRunning {
 		return false, nil
+	}
+	if cancelled {
+		e.markRunStatus(ctx, run, types.SopRunCancelled)
+		return true, nil
+	}
+	if failedReason != "" {
+		e.markRunFailed(ctx, run, failedReason)
+		return true, nil
 	}
 	run.Status = types.SopRunSucceeded
 	if err := e.deps.Runs.UpdateRun(ctx, run); err != nil {
@@ -246,11 +290,93 @@ func (e *Engine) markRunFailed(ctx context.Context, run *types.SopRun, reason st
 
 // ---- 单节点执行 ----
 
+// nodeScoped 返回节点的副本，把「节点自己的产出路径」改写到 out/<node_id>/。
+//
+// 布局与 inputs/<node_id> 对称：并行兄弟节点各写各的 out/<node_id>/，不再共用一个
+// 运行级 out/（否则两个节点都写 out/a.md，后写的静默覆盖前者的产物）。改写范围：
+//   - artifact_outputs[].path：out/x → out/<node>/x（其它前缀原样保留，如 work/repos）；
+//   - gate_extra 与 script 正文里的 out/ 引用：同样按词边界加节点段，保证「写完自己
+//     检查自己」的脚本仍然自洽。跨节点读上游产物请改用物化后的 inputs/<upstream>/
+//     （运行根目录就是 gate 脚本与 script 的工作目录）。
+//
+// 门禁命令由改写后的产物路径现编（CompileGateCommands 读的是同一个节点副本），
+// 所以三处口径一致。落库的产物 Path 是运行根口径 out/<node>/...：下游物化、产物
+// 列表、审批指纹都按这个布局读。
+func nodeScoped(def *types.SopNode) *types.SopNode {
+	if def == nil {
+		return &types.SopNode{}
+	}
+	out := *def
+	out.ArtifactOutputs = make([]types.SopArtifactOutput, len(def.ArtifactOutputs))
+	copy(out.ArtifactOutputs, def.ArtifactOutputs)
+	for i := range out.ArtifactOutputs {
+		out.ArtifactOutputs[i].Path = scopeOutPath(def.ID, out.ArtifactOutputs[i].Path)
+		if out.ArtifactOutputs[i].Check.Type == types.SopArtifactCheckCommand {
+			out.ArtifactOutputs[i].Check.Command = scopeOutRefs(def.ID, out.ArtifactOutputs[i].Check.Command)
+		}
+	}
+	out.GateExtra = scopeOutRefs(def.ID, def.GateExtra)
+	out.Script = scopeOutRefs(def.ID, def.Script)
+	return &out
+}
+
+// scopeOutPath 把声明路径里的 out/ 前缀改写到 out/<node_id>/（无前缀原样返回）。
+func scopeOutPath(nodeID, rel string) string {
+	p := filepath.ToSlash(strings.TrimSpace(rel))
+	if p == "" {
+		return p
+	}
+	seg := sanitizeSegment(nodeID)
+	switch {
+	case p == "out":
+		return slashJoin("out", seg)
+	case strings.HasPrefix(p, "out/"):
+		return slashJoin("out", seg, strings.TrimPrefix(p, "out/"))
+	default:
+		return p
+	}
+}
+
+// outRefRe 匹配 shell 片段里作为独立词出现的 out/ 路径前缀（前面只能是串首、
+// 空白或 shell 的分隔/重定向字符）。用词边界而非裸替换，避免把 pout/ 或 shout/
+// 误伤。
+var outRefRe = regexp.MustCompile(`(^|[\s;|&<>"'=(])out/`)
+
+// scopeOutRefs 把一段 shell 文本里的 out/ 引用改写到 out/<node_id>/。
+func scopeOutRefs(nodeID, text string) string {
+	if strings.TrimSpace(text) == "" {
+		return text
+	}
+	return outRefRe.ReplaceAllString(text, "${1}out/"+sanitizeSegment(nodeID)+"/")
+}
+
+// ensureNodeOutDir 建好并返回节点的产出目录 out/<node_id>（绝对路径，正斜杠）。
+func ensureNodeOutDir(ws *Workspace, nodeID string) (string, error) {
+	if ws == nil || strings.TrimSpace(ws.OutDir) == "" {
+		return "", fmt.Errorf("工作区未初始化")
+	}
+	dir := slashJoin(ws.OutDir, sanitizeSegment(nodeID))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("创建节点产出目录 out/%s 失败：%w", sanitizeSegment(nodeID), err)
+	}
+	return dir, nil
+}
+
 // executeNode 执行一个 agent/script 节点：渲染任务书 → 物化上游产物 → 调用执行器
 // → 收集产物 → 门禁裁定 → 检查点。错误只落在本条节点记录上。
+//
+// 产出目录按节点隔离：每个节点在 out/<node_id> 下开工（与 inputs/<node_id> 对称），
+// 并行兄弟节点各写各的，不会再互相覆盖 out/a.md 这类同名产物。声明里的产物路径、
+// 门禁命令与门禁脚本一律按节点产出目录解析（见 nodeScoped），落库的产物路径则是
+// 运行根口径 out/<node_id>/...（下游物化与产物列表都按此读）。
 func (e *Engine) executeNode(
-	ctx context.Context, run *types.SopRun, node *types.SopNode, nr *types.SopNodeRun, ws *Workspace,
+	ctx context.Context, run *types.SopRun, def *types.SopNode, nr *types.SopNodeRun, ws *Workspace,
 ) error {
+	node := nodeScoped(def)
+	outDir, err := ensureNodeOutDir(ws, node.ID)
+	if err != nil {
+		return e.executionError(ctx, run, node, nr, err.Error(), ws)
+	}
 	nr.Attempt++
 	nr.Status = types.SopNodeRunning
 	started := time.Now()
@@ -311,10 +437,11 @@ func (e *Engine) executeNode(
 		Role:                   resolved.Role,
 		ResolvedSkills:         resolved.Skills,
 		InputsDir:              slashJoin(ws.InputsDir, sanitizeSegment(node.ID)),
-		OutDir:                 ws.OutDir,
+		OutDir:                 outDir,
 	})
 
 	// 物化上游产物到 inputs/<node>/：只取直接上游在本运行内的产物。
+	// 上游重跑/返工会为同一路径留下多条尝试记录，只取最新一份（见 latestArtifacts）。
 	arts, err := e.deps.Runs.ListArtifacts(ctx, run.TenantID, run.ID)
 	if err != nil {
 		return err
@@ -325,7 +452,7 @@ func (e *Engine) executeNode(
 			inputs = append(inputs, a)
 		}
 	}
-	if err := MaterializeInputs(ws, inputs, ws.Root); err != nil {
+	if err := MaterializeInputs(ws, latestArtifacts(inputs), ws.Root); err != nil {
 		return e.executionError(ctx, run, node, nr, err.Error(), ws)
 	}
 
@@ -350,7 +477,7 @@ func (e *Engine) executeNode(
 		SystemPrompt:    RenderAgentSystem(resolved.Role, resolved.Skills, node.ExtraRules, ""),
 		WorkspaceRoot:   ws.Root,
 		InputsDir:       slashJoin(ws.InputsDir, sanitizeSegment(node.ID)),
-		OutDir:          ws.OutDir,
+		OutDir:          outDir,
 		Feedback:        nr.Feedback,
 		Attempt:         nr.Attempt,
 		ResumeSessionID: nr.ResumeSessionID,
@@ -452,6 +579,9 @@ func (e *Engine) executionError(
 
 // collectArtifacts 逐条校验节点声明的产物并按内容指纹入库（attempt=nr.Attempt）。
 // 缺失/越界/不可读在本函数里不报错——那是门禁第 ② 段的裁定范围。
+//
+// 产物历史按尝试累积（同一路径每次尝试一条），由下游消费方去重（latestArtifacts），
+// 不做原地更新：运行历史可回溯本身就是产物表的价值。
 func (e *Engine) collectArtifacts(
 	ctx context.Context, run *types.SopRun, node *types.SopNode, nr *types.SopNodeRun, ws *Workspace,
 ) error {
@@ -493,6 +623,33 @@ func (e *Engine) collectArtifacts(
 		}
 	}
 	return nil
+}
+
+// latestArtifacts 按 (node, path) 只保留 attempt 最大的一条产物。
+//
+// 产物行随每次尝试累积：上游返工/重跑后同一路径会有多条记录。下游物化输入时若
+// 全量传入，MaterializeInputs 会因「inputs/<node>/同名文件」直接报错，连累整条
+// 下游链。这里取最高 attempt 的一条，恰好是上游最新一次成功执行的产物。
+// 入参需按 attempt 升序（ListArtifacts 的排序保证了这一点），同段并列时后到者胜。
+func latestArtifacts(arts []types.SopArtifact) []types.SopArtifact {
+	if len(arts) == 0 {
+		return nil
+	}
+	out := make([]types.SopArtifact, 0, len(arts))
+	index := map[string]int{}
+	for _, a := range arts {
+		key := a.NodeID + "\x00" + filepath.ToSlash(a.Path)
+		if i, ok := index[key]; ok {
+			if a.Attempt < out[i].Attempt {
+				continue
+			}
+			out[i] = a
+			continue
+		}
+		index[key] = len(out)
+		out = append(out, a)
+	}
+	return out
 }
 
 // applyGateOutcome 三段裁定（spec §4.2）：① 执行器上报一致采纳；② 必需产物契约；
@@ -607,22 +764,38 @@ func (e *Engine) handleFailure(
 		if err := e.deps.Runs.ResetNodes(ctx, run.ID, ids); err != nil {
 			return err
 		}
-		tnr, err := e.deps.Runs.GetNodeRun(ctx, run.TenantID, run.ID, target)
+		// ResetNodes 不清 Attempt：返工不该消耗被打回节点的重试预算（那会让同一个
+		// 上游在几轮返工后就「重试耗尽」），故把重置范围内节点的 Attempt 归零；
+		// ReworkCount 保留，返工次数仍由它兜底。写入一律基于重置后的新鲜行，
+		// 绝不把重置前的 Output/GateResult/FinishedAt 再写回去。
+		for _, id := range ids {
+			fresh, err := e.deps.Runs.GetNodeRun(ctx, run.TenantID, run.ID, id)
+			if err != nil {
+				return err
+			}
+			fresh.Attempt = 0
+			if id == target {
+				fresh.Feedback = reason
+				fresh.ReworkCount++
+				if !node.CarryOver {
+					fresh.SessionID, fresh.ResumeSessionID = "", ""
+				}
+			}
+			if err := e.deps.Runs.UpdateNodeRun(ctx, fresh); err != nil {
+				return err
+			}
+		}
+		// 打回方自身也回到 pending（它通常也在重置范围内，这里只补状态与反馈）。
+		// ReworkCount 必须沿用本轮自增后的值：ResetNodes 不动它，但库里那行还是
+		// 自增前的数，不显式带回就等于本轮返工不计数，重试上限永远到不了。
+		sender, err := e.deps.Runs.GetNodeRun(ctx, run.TenantID, run.ID, node.ID)
 		if err != nil {
 			return err
 		}
-		tnr.Feedback = reason
-		tnr.ReworkCount++
-		if !node.CarryOver {
-			tnr.SessionID, tnr.ResumeSessionID = "", ""
-		}
-		if err := e.deps.Runs.UpdateNodeRun(ctx, tnr); err != nil {
-			return err
-		}
-		// 打回方自身也回到 pending，等上游重新产出后自然重新就绪。
-		nr.Status = types.SopNodePending
-		nr.Feedback = reason
-		if err := e.deps.Runs.UpdateNodeRun(ctx, nr); err != nil {
+		sender.Status = types.SopNodePending
+		sender.Feedback = reason
+		sender.ReworkCount = nr.ReworkCount
+		if err := e.deps.Runs.UpdateNodeRun(ctx, sender); err != nil {
 			return err
 		}
 		ws.CheckpointBestEffort(ctx, fmt.Sprintf("node %s rework to %s", node.ID, target))
