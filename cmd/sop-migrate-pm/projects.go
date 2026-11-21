@@ -41,17 +41,16 @@ func migrateProjects(tx *gorm.DB) error {
 	}
 
 	mapping := make(map[string]*types.SopProject, len(pmProjects))
+	projectRepo := repository.NewSopProjectRepo(tx)
 	created := 0
 	for i := range pmProjects {
 		src := &pmProjects[i]
 		if sp, ok := existing[src.ID]; ok {
-			clone := *sp
-			mapping[src.ID] = &clone
+			mapping[src.ID] = sp
 			continue
 		}
 		sp := buildSopProject(src, usedCodes)
-		repo := repository.NewSopProjectRepo(tx)
-		if err := repo.Create(context.Background(), sp); err != nil {
+		if err := projectRepo.Create(context.Background(), sp); err != nil {
 			return fmt.Errorf("创建 SOP 项目（源 pm_projects/%s）失败：%w", src.ID, err)
 		}
 		usedCodes[codeKey(sp.TenantID, sp.Code)] = true
