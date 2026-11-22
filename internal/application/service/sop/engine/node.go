@@ -94,6 +94,10 @@ func (e *Engine) Advance(ctx context.Context, runID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	// 推进链路（执行器、AgentQA 的知识库检索）从 ctx 读租户，而调度循环本身没有
+	// 租户上下文；这里按运行行注入，与 automation_runner.go:202 同款做法。所有推进
+	// 入口（runLoop、运维手动触发、测试同步驱动）都经过 Advance，一处注入即可。
+	ctx = WithRunTenant(ctx, run)
 	if run.Status != types.SopRunRunning && run.Status != types.SopRunWaiting {
 		return false, nil
 	}

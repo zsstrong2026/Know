@@ -445,3 +445,55 @@ func TestFinalizeRunIdempotent(t *testing.T) {
 	require.Len(t, st.calls, 1, "二次收口不得再联动事项")
 	require.Len(t, notified, 1, "二次收口不得重复通知")
 }
+
+// tenantProbeProvider 记录执行时 ctx 里的租户：执行器与 AgentQA 的知识库检索
+// 都从 ctx 读租户，引擎推进入口必须把运行行的租户注入进去。
+type tenantProbeProvider struct {
+	seen []uint64
+	ok   []bool
+}
+
+func (p *tenantProbeProvider) Kind() string { return "platform_agent" }
+
+func (p *tenantProbeProvider) Prepare(context.Context, *types.SopNode, string) error { return nil }
+
+func (p *tenantProbeProvider) Execute(
+	ctx context.Context, _ executor.TaskBook, _ executor.ExecOptions,
+) (executor.ExecResult, error) {
+	id, ok := types.TenantIDFromContext(ctx)
+	p.seen = append(p.seen, id)
+	p.ok = append(p.ok, ok)
+	return executor.ExecResult{Output: "ok", GateResult: types.SopGatePass}, nil
+}
+
+func (p *tenantProbeProvider) Cancel(context.Context) error { return nil }
+
+// 推进链路必须带运行租户：否则执行器按 0 租户读角色会失败。
+func TestAdvanceInjectsRunTenantIntoContext(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	probe := &tenantProbeProvider{}
+	e.deps.Registry.Register(probe)
+	ctx := context.Background()
+
+	def := types.SopDefinition{Nodes: []types.SopNode{
+		{ID: "n1", Type: "agent", Executor: types.SopNodeExecutor{Kind: "platform_agent", AgentID: "a"}},
+	}}
+	run := &types.SopRun{TenantID: 7, Status: types.SopRunQueued, WorkflowSnapshot: def}
+	require.NoError(t, e.deps.Runs.CreateRun(ctx, run))
+	require.NoError(t, e.TickOnce(ctx))
+	_, err := e.Advance(ctx, run.ID)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, probe.seen)
+	require.Equal(t, uint64(7), probe.seen[0])
+	require.True(t, probe.ok[0])
+}
+
+// 调用方已注入租户时不覆盖（上层显式上下文优先）。
+func TestWithRunTenantKeepsExistingTenant(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(3))
+	got := WithRunTenant(ctx, &types.SopRun{TenantID: 9})
+	id, ok := types.TenantIDFromContext(got)
+	require.True(t, ok)
+	require.Equal(t, uint64(3), id)
+}

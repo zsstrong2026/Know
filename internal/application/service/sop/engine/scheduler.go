@@ -258,7 +258,7 @@ func (e *Engine) driveRun(ctx context.Context, cancel context.CancelFunc, runID 
 			_ = e.deps.Runs.UpdateRun(ctx, run)
 			return
 		}
-		progressed, err := e.advanceRun(ctx, runID) // T13 实现
+		progressed, err := e.advanceRun(ctx, runID)
 		if err != nil {
 			if ctx.Err() != nil {
 				// 取消发生在推进途中（CancelRun / Stop）：Advance 的报错只是取消的
@@ -269,7 +269,7 @@ func (e *Engine) driveRun(ctx context.Context, cancel context.CancelFunc, runID 
 			run.Status = types.SopRunFailed
 			run.Error = err.Error()
 			_ = e.deps.Runs.UpdateRun(ctx, run)
-			_ = e.finalizeRun(ctx, run)
+			_ = e.finalizeRun(WithRunTenant(ctx, run), run)
 			return
 		}
 		latest, err := e.deps.Runs.GetRun(ctx, 0, runID)
@@ -277,7 +277,7 @@ func (e *Engine) driveRun(ctx context.Context, cancel context.CancelFunc, runID 
 			return
 		}
 		if isTerminalRun(latest.Status) {
-			_ = e.finalizeRun(ctx, latest)
+			_ = e.finalizeRun(WithRunTenant(ctx, latest), latest)
 			return
 		}
 		if !progressed {
@@ -328,6 +328,20 @@ func (e *Engine) finishCancelled(ctx context.Context, runID string) {
 	if err := e.deps.Runs.UpdateRun(ctx, run); err != nil {
 		log.Printf("[sop-engine] 运行 %s 取消收口写入失败：%v", runID, err)
 	}
+}
+
+// WithRunTenant 把运行所属租户注入 ctx：执行器（平台智能体的角色读取、AgentQA 的
+// 知识库检索）都从 ctx 取租户，而调度循环本身没有租户上下文。
+//
+// 只在推进入口调用一次；调用方已有的租户值不覆盖（上层已显式注入时以它为准）。
+func WithRunTenant(ctx context.Context, run *types.SopRun) context.Context {
+	if run == nil || run.TenantID == 0 {
+		return ctx
+	}
+	if id, ok := types.TenantIDFromContext(ctx); ok && id != 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, types.TenantIDContextKey, run.TenantID)
 }
 
 // isTerminalRun 判断运行是否已到终态（succeeded/failed/cancelled）。
