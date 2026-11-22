@@ -77,7 +77,10 @@ type TaskBook struct {
 	Role            *types.CustomAgent // 解析后的角色（平台智能体执行器消费；可 nil）
 	MCPServers      []types.MCPService // 节点 mcp 子集解析后的真实配置
 	Skills          []string           // 解析后的技能子集（nil=全部）
-	KnowMCP         *KnowMCPEndpoint   // CLI 节点专用：Know MCP scoped endpoint（T37 供给；平台节点 nil）
+	// KBIDs 是 Resolver 按节点知识库范围解析出的 KB id 列表（nil=不限制/未解析，
+	// 显式 [] 表示范围内没有可用知识库）。平台智能体执行器据此收敛检索范围。
+	KBIDs   []string
+	KnowMCP *KnowMCPEndpoint // CLI 节点专用：Know MCP scoped endpoint（T37 供给；平台节点 nil）
 }
 
 // KnowMCPEndpoint 是 T37 MCPProvisioner 为 CLI 节点签发的受限检索端点。

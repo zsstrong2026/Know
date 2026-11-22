@@ -501,6 +501,7 @@ func (e *Engine) executeNode(
 		Role:            resolved.Role,
 		MCPServers:      resolved.MCPServers,
 		Skills:          resolved.Skills,
+		KBIDs:           resolved.KBIDs,
 	}
 
 	logFile := e.openAttemptLog(ws, node.ID, nr.Attempt)

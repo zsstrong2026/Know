@@ -236,18 +236,20 @@ func (r *sessionRepository) QueryPaged(
 			db = db.Where("(s.user_id = ? OR s.user_id IS NULL OR s.user_id = '')", q.UserID)
 		}
 		// Skill image maintenance runs in a real session so its transcript can
-		// be read back, but it is not a conversation. Agent smoke-test runs and
-		// meeting-artifact / PM-analysis backend sessions do the same. Excluding
-		// them here rather than in applySource is deliberate: a source branch
-		// only covers its own bucket, and these rows must be absent from all of
-		// them, including the unfiltered listing.
+		// be read back, but it is not a conversation. Agent smoke-test runs,
+		// meeting-artifact / PM-analysis backend sessions and SOP node runs do
+		// the same. Excluding them here rather than in applySource is
+		// deliberate: a source branch only covers its own bucket, and these
+		// rows must be absent from all of them, including the unfiltered
+		// listing.
 		db = db.Where(
-			"(s.description IS NULL OR (s.description NOT LIKE ? AND s.description NOT LIKE ? AND s.description NOT LIKE ? AND s.description NOT LIKE ? AND s.description NOT LIKE ?))",
+			"(s.description IS NULL OR (s.description NOT LIKE ? AND s.description NOT LIKE ? AND s.description NOT LIKE ? AND s.description NOT LIKE ? AND s.description NOT LIKE ? AND s.description NOT LIKE ?))",
 			types.SkillMaintenanceSessionMarker+"%",
 			types.AgentEvalSessionMarker+"%",
 			types.MeetingArtifactSessionMarker+"%",
 			types.PMAnalysisSessionMarker+"%",
 			types.PMRoadmapSessionMarker+"%",
+			types.SOPSessionMarker+"%",
 		)
 		if kw := strings.TrimSpace(q.Keyword); kw != "" {
 			db = db.Where(titleLikeExpr, "%"+escapeLikeKeyword(kw)+"%", likeEscapeChar)

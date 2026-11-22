@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Tencent/WeKnora/internal/application/service/sop/executor"
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
@@ -688,41 +689,10 @@ func RenderAgentSystem(role *types.CustomAgent, skills []string, extraRules, rol
 //   - nodeSkills 非 nil（含空切片）→ 与角色技能的交集，显式 [] 表示一个都不要；
 //   - 角色为空 → 原样使用 nodeSkills（没有角色就没有可收敛的白名单）。
 //
-// 输出顺序跟随角色（或节点）声明顺序并去重，保证渲染稳定。
+// 口径落在 executor.ResolveSkills（节点上下文解析器也要用同一份口径，而它不能反向
+// import engine）；这里只保留引擎侧的调用入口，避免两处实现漂移。
 func ResolveSkills(role *types.CustomAgent, nodeSkills []string) []string {
-	if role == nil {
-		if nodeSkills == nil {
-			return nil
-		}
-		return dedupeStrings(nodeSkills)
-	}
-	owned := role.Config.SelectedSkills
-	if nodeSkills == nil {
-		return dedupeStrings(owned)
-	}
-	var out []string
-	seen := make(map[string]bool, len(nodeSkills))
-	for _, s := range owned {
-		if !containsString(nodeSkills, s) || seen[s] {
-			continue
-		}
-		seen[s] = true
-		out = append(out, s)
-	}
-	if out == nil {
-		out = []string{}
-	}
-	return out
-}
-
-// containsString 判断切片是否含有某个值。
-func containsString(list []string, v string) bool {
-	for _, s := range list {
-		if s == v {
-			return true
-		}
-	}
-	return false
+	return executor.ResolveSkills(role, nodeSkills)
 }
 
 // dedupeStrings 去重并保持首次出现的顺序；nil 输入返回 nil。

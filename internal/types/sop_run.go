@@ -46,6 +46,12 @@ const (
 	SopRunTriggerChildRun = "child_run"
 )
 
+// SOPSessionMarker 标记 SOP 节点执行会话：会话描述带此前缀（后接 run=… node=…），
+// 首页对话列表据此隐藏（仿 pm_analysis / meeting_artifact 的隐藏约定）。
+//
+// 带方括号是用户可见习惯：即使在会话详情里露出，也一眼能认出是系统会话。
+const SOPSessionMarker = "[SOP] "
+
 // SopRunActiveStatuses 活跃态：占用「进行中运行」额度（CountActiveRuns 口径）。
 var SopRunActiveStatuses = []string{
 	SopRunQueued, SopRunRunning, SopRunWaiting, SopRunPaused,
