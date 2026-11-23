@@ -74,3 +74,25 @@ func apiKeyRunSOP(base middleware.APIKeyRoutePolicy) middleware.APIKeyRoutePolic
 func apiKeyManageSOP(base middleware.APIKeyRoutePolicy) middleware.APIKeyRoutePolicy {
 	return base.WithCapability(types.APIKeyCapabilityManageSOP)
 }
+
+// RegisterSOPTemplateRoutes 挂模板组：草稿 CRUD、发布、副本、发布历史与单条快照。
+//
+// 读路由声明 read_sop；写路由声明 manage_sop（发布/复制同样是写操作）。
+func RegisterSOPTemplateRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGuards) {
+	tpls := v1.Group("/sop")
+	read := g.apiKeyGroup(tpls, apiKeyReadSOP(apiKeyFullAccess()))
+	manage := g.apiKeyGroup(tpls, apiKeyManageSOP(apiKeyFullAccess()))
+
+	// 能力声明与注册同源：经 apiKeyGroup 包装后的 group 直接注册 handler。
+	// （apiKeyRouteGroup.handle 同时登记策略与真实路由。）
+	read.GET("/templates", g.Viewer(), h.ListTemplates)
+	read.GET("/templates/:id", g.Viewer(), h.GetTemplate)
+	read.GET("/templates/:id/revisions", g.Viewer(), h.ListTemplateRevisions)
+	read.GET("/revisions/:id", g.Viewer(), h.GetTemplateRevision)
+
+	manage.POST("/templates", g.Contributor(), h.CreateTemplate)
+	manage.PUT("/templates/:id", g.Contributor(), h.UpdateTemplate)
+	manage.DELETE("/templates/:id", g.Contributor(), h.DeleteTemplate)
+	manage.POST("/templates/:id/publish", g.Contributor(), h.PublishTemplate)
+	manage.POST("/templates/:id/copy", g.Contributor(), h.CopyTemplate)
+}

@@ -116,3 +116,37 @@ func TestSOPItemRoutesDeclareCapabilities(t *testing.T) {
 		require.Contains(t, policy.Capabilities, types.APIKeyCapabilityManageSOP, key)
 	}
 }
+
+// 模板路由能力声明：读→read_sop，写→manage_sop。
+func TestSOPTemplateRoutesDeclareCapabilities(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := handler.NewSOPHandler(handler.SOPHandlerDeps{})
+	g := &rbacGuards{cfg: testSOPConfig()}
+	RegisterSOPTemplateRoutes(gin.New().Group("/api/v1"), h, g)
+
+	reads := []string{
+		"GET /api/v1/sop/templates",
+		"GET /api/v1/sop/templates/:id",
+		"GET /api/v1/sop/templates/:id/revisions",
+		"GET /api/v1/sop/revisions/:id",
+	}
+	writes := []string{
+		"POST /api/v1/sop/templates",
+		"PUT /api/v1/sop/templates/:id",
+		"DELETE /api/v1/sop/templates/:id",
+		"POST /api/v1/sop/templates/:id/publish",
+		"POST /api/v1/sop/templates/:id/copy",
+	}
+	for _, key := range reads {
+		method, path := splitRouteKey(t, key)
+		policy, ok := g.apiKeyAuthorizer.Lookup(method, path)
+		require.True(t, ok, "路由 %s 未声明策略", key)
+		require.Contains(t, policy.Capabilities, types.APIKeyCapabilityReadSOP, key)
+	}
+	for _, key := range writes {
+		method, path := splitRouteKey(t, key)
+		policy, ok := g.apiKeyAuthorizer.Lookup(method, path)
+		require.True(t, ok, "路由 %s 未声明策略", key)
+		require.Contains(t, policy.Capabilities, types.APIKeyCapabilityManageSOP, key)
+	}
+}

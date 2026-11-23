@@ -1085,6 +1085,11 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		})
 	}))
 	must(container.Provide(func(
+		templates interfaces.SopTemplateRepository, projects interfaces.SopProjectRepository,
+	) *sop.TemplateService {
+		return sop.NewTemplateService(templates, projects)
+	}))
+	must(container.Provide(func(
 		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
 		extras interfaces.SopItemExtraRepository, runs interfaces.SopRunRepository,
 	) *sop.ItemService {
@@ -1132,10 +1137,10 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	}))
 	must(container.Provide(func(
 		projects interfaces.SopProjectRepository, runs interfaces.SopRunRepository,
-		items *sop.ItemService,
+		items *sop.ItemService, templates *sop.TemplateService,
 	) *handler.SOPHandler {
 		return handler.NewSOPHandler(handler.SOPHandlerDeps{
-			Projects: projects, Runs: runs, Items: items,
+			Projects: projects, Runs: runs, Items: items, Templates: templates,
 		})
 	}))
 	logger.Debugf(ctx, "[Container] HTTP handlers registered")

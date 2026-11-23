@@ -33,18 +33,21 @@ type SOPHandler struct {
 	runs     interfaces.SopRunRepository
 	// items 是事项服务（T22 接线；未注入时事项端点返回「未就绪」）。
 	items *sop.ItemService
+	// templates 是模板服务（T23 接线）。
+	templates *sop.TemplateService
 }
 
 // SOPHandlerDeps 是 handler 的依赖集合（后续任务继续加字段）。
 type SOPHandlerDeps struct {
-	Projects interfaces.SopProjectRepository
-	Runs     interfaces.SopRunRepository
-	Items    *sop.ItemService
+	Projects  interfaces.SopProjectRepository
+	Runs      interfaces.SopRunRepository
+	Items     *sop.ItemService
+	Templates *sop.TemplateService
 }
 
 // NewSOPHandler 构造 SOP handler。
 func NewSOPHandler(d SOPHandlerDeps) *SOPHandler {
-	return &SOPHandler{projects: d.Projects, runs: d.Runs, items: d.Items}
+	return &SOPHandler{projects: d.Projects, runs: d.Runs, items: d.Items, templates: d.Templates}
 }
 
 // RegisterSOPRoutes 把项目组挂到 /api/v1/sop 下（事项组在 RegisterSOPItemRoutes）。
@@ -93,6 +96,7 @@ var sopSentinels = []error{
 	sop.ErrSopItemTitleRequired, sop.ErrSopItemTooMany,
 	sop.ErrSopAttachmentEmpty, sop.ErrSopAttachmentTooLarge, sop.ErrSopAttachmentType,
 	sop.ErrSopClarificationOpen, sop.ErrSopIllegalTransition,
+	sop.ErrSopTemplateReadonly, sop.ErrSopTemplateInvalid, sop.ErrSopTemplateNameRequired,
 }
 
 // sopIsClientError 判断是否为业务校验错误（也接受 types 层直接给出的校验文案）。
@@ -493,4 +497,21 @@ func (h *SOPHandler) RegisterItemRoutes(sopGroup *gin.RouterGroup) {
 		projItems.POST("", h.CreateItem)
 		projItems.GET("", h.ListItems)
 	}
+}
+
+// RegisterTemplateRoutes 挂模板组（router 在声明 API Key 策略后调用；
+// handler 包内测试也用它装配，避免各写一遍路径清单）。
+func (h *SOPHandler) RegisterTemplateRoutes(sopGroup *gin.RouterGroup) {
+	t := sopGroup.Group("/templates")
+	{
+		t.POST("", h.CreateTemplate)
+		t.GET("", h.ListTemplates)
+		t.GET("/:id", h.GetTemplate)
+		t.PUT("/:id", h.UpdateTemplate)
+		t.DELETE("/:id", h.DeleteTemplate)
+		t.POST("/:id/publish", h.PublishTemplate)
+		t.POST("/:id/copy", h.CopyTemplate)
+		t.GET("/:id/revisions", h.ListTemplateRevisions)
+	}
+	sopGroup.GET("/revisions/:id", h.GetTemplateRevision)
 }
