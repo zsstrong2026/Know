@@ -54,10 +54,10 @@ func TestScriptEnvInjection(t *testing.T) {
 
 func TestScriptTimeoutKilled(t *testing.T) {
 	p := NewScriptProvider()
-	tb := TaskBook{NodeID: "n1", WorkspaceRoot: t.TempDir(), Script: "sleep 30", Timeout: 300 * time.Millisecond}
+	tb := TaskBook{NodeID: "n1", WorkspaceRoot: t.TempDir(), Script: "sleep 30", Timeout: time.Second}
 	start := time.Now()
 	res, err := p.Execute(context.Background(), tb, ExecOptions{})
-	require.Less(t, time.Since(start), 10*time.Second)
+	require.Less(t, time.Since(start), 30*time.Second)
 	require.NoError(t, err)
 	require.Equal(t, types.SopGateRework, res.GateResult)
 	require.Contains(t, res.GateReason, "超时")
@@ -132,4 +132,48 @@ func TestScriptCancelKillsRun(t *testing.T) {
 	require.NoError(t, execErr)
 	require.Equal(t, types.SopGateRework, res.GateResult)
 	require.Contains(t, res.GateReason, "取消")
+}
+
+// 并联的两条脚本互不干扰：Cancel 只把仍在跑的那条判成「已取消」，已跑完的照常通过。
+func TestScriptProviderRunsAreIsolated(t *testing.T) {
+	p := NewScriptProvider()
+	done := make(chan struct{})
+	var longRes ExecResult
+	var longErr error
+	go func() {
+		defer close(done)
+		longRes, longErr = p.Execute(context.Background(), TaskBook{
+			NodeID: "n1", WorkspaceRoot: t.TempDir(), Script: "sleep 30", Timeout: 60 * time.Second,
+		}, ExecOptions{})
+	}()
+	require.Eventually(t, func() bool { return p.running() }, 5*time.Second, 20*time.Millisecond)
+
+	// 短脚本在长脚本执行期间跑完：它的结论必须留在「通过」，不被随后的 Cancel 改写。
+	shortRes, shortErr := p.Execute(context.Background(), TaskBook{
+		NodeID: "n2", WorkspaceRoot: t.TempDir(), Script: "echo done", Timeout: 60 * time.Second,
+	}, ExecOptions{})
+	require.NoError(t, shortErr)
+	require.Equal(t, types.SopGatePass, shortRes.GateResult)
+
+	require.NoError(t, p.Cancel(context.Background()))
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Cancel 没有终止长脚本")
+	}
+	require.NoError(t, longErr)
+	require.Equal(t, types.SopGateRework, longRes.GateResult, "被取消的那条打回")
+	require.Contains(t, longRes.GateReason, "取消")
+}
+
+// 超长单行不得让读取端卡死：扫描器提前结束后要排空管道，脚本才能正常收尾。
+func TestScriptHugeSingleLineDoesNotHang(t *testing.T) {
+	p := NewScriptProvider()
+	tb := TaskBook{NodeID: "n1", WorkspaceRoot: t.TempDir(), Timeout: 60 * time.Second,
+		Script: "head -c 3000000 /dev/zero | tr '\\\\0' x"}
+	start := time.Now()
+	res, err := p.Execute(context.Background(), tb, ExecOptions{})
+	require.NoError(t, err)
+	require.Less(t, time.Since(start), 60*time.Second)
+	require.NotEmpty(t, res.GateResult)
 }

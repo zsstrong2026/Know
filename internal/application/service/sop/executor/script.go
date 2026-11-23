@@ -36,16 +36,29 @@ const scriptOutputTail = 2000
 // scriptScanBuf 是单行上限：构建日志里偶有很长的一行，默认 64KB 会直接把扫描打断。
 const scriptScanBuf = 1 << 20
 
+// scriptWaitDelay 是「脚本主进程已退出、但仍有子进程握着输出管道」时等待读取收尾的上限。
+// 没有它，`nohup 长任务 &` 这种脚本会让读取端一直等 EOF，节点永远不结束。
+const scriptWaitDelay = 10 * time.Second
+
+// scriptRun 是一次在途执行：取消函数与「被 Cancel 显式终止」标记都按执行隔离，
+// 不能放在 Provider 上——Provider 是进程内单例，两个节点并行跑脚本时共享一个
+// 标记会让一次 Cancel 把另一条正常执行的结论改成「已取消」。
+type scriptRun struct {
+	cmd    *exec.Cmd
+	cancel context.CancelFunc
+	killed atomic.Bool
+}
+
 // ScriptProvider 脚本节点执行器（Kind = script）。
 type ScriptProvider struct {
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	proc   *exec.Cmd
-	killed bool
+	mu   sync.Mutex
+	runs map[*scriptRun]struct{}
 }
 
 // NewScriptProvider 构造脚本执行器。
-func NewScriptProvider() *ScriptProvider { return &ScriptProvider{} }
+func NewScriptProvider() *ScriptProvider {
+	return &ScriptProvider{runs: map[*scriptRun]struct{}{}}
+}
 
 // Kind 返回注册表键：script。
 func (p *ScriptProvider) Kind() string { return ProviderKindScript }
@@ -53,27 +66,42 @@ func (p *ScriptProvider) Kind() string { return ProviderKindScript }
 // Prepare 脚本执行不需要准备环境（脚本自己负责建目录）。
 func (p *ScriptProvider) Prepare(context.Context, *types.SopNode, string) error { return nil }
 
-// Cancel 终止在途脚本所在的进程组（无在途执行时是 no-op）。
+// Cancel 终止本执行器全部在途脚本所在的进程组（无在途执行时是 no-op）。
+//
+// 生产路径其实是取消 run 的 ctx（脚本随之被杀）；这里是兜底出口，没有节点标识，
+// 因此作用于全部在途执行——引擎的取消本身就是按运行整体的，粒度一致。
 func (p *ScriptProvider) Cancel(ctx context.Context) error {
 	p.mu.Lock()
-	p.killed = true
-	cmd := p.proc
-	cancel := p.cancel
-	p.mu.Unlock()
-	if cancel != nil {
-		cancel()
+	runs := make([]*scriptRun, 0, len(p.runs))
+	for run := range p.runs {
+		runs = append(runs, run)
 	}
-	if cmd != nil {
-		killProcessGroup(cmd)
+	p.mu.Unlock()
+	for _, run := range runs {
+		run.killed.Store(true)
+		run.cancel()
+		killProcessGroup(run.cmd)
 	}
 	return nil
+}
+
+// register 登记一次在途执行；返回注销函数与「是否有在途执行」的探针。
+func (p *ScriptProvider) register(run *scriptRun) func() {
+	p.mu.Lock()
+	p.runs[run] = struct{}{}
+	p.mu.Unlock()
+	return func() {
+		p.mu.Lock()
+		delete(p.runs, run)
+		p.mu.Unlock()
+	}
 }
 
 // running 报告是否有在途执行（测试用来等脚本真正跑起来）。
 func (p *ScriptProvider) running() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.proc != nil
+	return len(p.runs) > 0
 }
 
 // Execute 跑一次脚本：合并输出逐行直播 + 落日志，按退出码给出门禁结论。
@@ -89,9 +117,9 @@ func (p *ScriptProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOpti
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	// 自己管超时而不是 context.WithTimeout：结束后要能区分「超时」「被取消」
-	// 「脚本自己退出非 0」三种收场，把 cancel() 产生的 Canceled 误判成人工取消是
-	// 最糟的错误——用户会看到一条没人操作过的「已取消」。
+	// 自己管超时而不是 context.WithTimeout：收场要区分「超时」「被 Cancel 终止」
+	// 「父 ctx 取消」「脚本自己非 0 退出」四种，把定时器触发的 cancel 当成人工取消
+	// 是最糟的错判——用户会看到一条没人操作过的「已取消」。
 	var timedOut atomic.Bool
 	if tb.Timeout > 0 {
 		timer := time.AfterFunc(tb.Timeout, func() {
@@ -113,6 +141,9 @@ func (p *ScriptProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOpti
 	// 也让日志顺序与真实发生顺序一致。
 	cmd.Stdout, cmd.Stderr = pw, pw
 	attachProcessGroup(cmd)
+	// 主进程退出后，被脚本遗留在后台的子进程若仍握着管道，Wait 最多再等这么久：
+	// 否则读取端等不到 EOF，节点就永远不结束。
+	cmd.WaitDelay = scriptWaitDelay
 
 	if err := cmd.Start(); err != nil {
 		_ = pr.Close()
@@ -122,16 +153,9 @@ func (p *ScriptProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOpti
 	// 父进程必须放手写端，否则读端永远等不到 EOF（子进程退出后仍然挂住）。
 	_ = pw.Close()
 
-	p.mu.Lock()
-	p.proc, p.cancel, p.killed = cmd, cancel, false
-	p.mu.Unlock()
-	defer func() {
-		p.mu.Lock()
-		if p.proc == cmd {
-			p.proc, p.cancel = nil, nil
-		}
-		p.mu.Unlock()
-	}()
+	run := &scriptRun{cmd: cmd, cancel: cancel}
+	unregister := p.register(run)
+	defer unregister()
 
 	logFile := openScriptLog(root, tb.NodeID, tb.Attempt)
 	if logFile != nil {
@@ -156,18 +180,18 @@ func (p *ScriptProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOpti
 	stopWatch()
 	_ = pr.Close()
 
-	p.mu.Lock()
-	userKilled := p.killed
-	p.mu.Unlock()
-
 	res := ExecResult{Output: tailRunes(output, scriptOutputTail)}
 	switch {
 	case timedOut.Load():
 		res.GateResult = types.SopGateRework
 		res.GateReason = scriptTimeoutReason(output)
-	case userKilled || ctx.Err() == context.Canceled:
+	case run.killed.Load():
 		res.GateResult = types.SopGateRework
 		res.GateReason = scriptCancelReason(output)
+	case ctx.Err() != nil:
+		// 父 ctx（运行的推进 ctx）被取消：这不是节点结论，原样向上返回，由引擎
+		// 按「取消不是失败」收口（与 agent.go / node.go 的处理一致）。
+		return ExecResult{}, ctx.Err()
 	case waitErr != nil:
 		var exitErr *exec.ExitError
 		code := -1
@@ -209,6 +233,9 @@ func drainScriptOutput(pr *os.File, emit func(StreamEvent), logFile io.Writer) s
 		push(scanner.Text())
 	}
 	if err := scanner.Err(); err != nil {
+		// 单行超过上限会让扫描提前结束。此时必须把剩余字节排空：读端不再读，
+		// 子进程写一个满的管道就会永远阻塞，Wait 随之挂死。
+		_, _ = io.Copy(io.Discard, pr)
 		push("[读取脚本输出失败] " + err.Error())
 	}
 	mu.Lock()
