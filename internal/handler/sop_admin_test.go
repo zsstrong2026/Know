@@ -39,11 +39,9 @@ func newSOPAdminTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		Approvals: approvals,
 		Triggers:  repository.NewSopTriggerRepo(db),
 		Creds:     creds,
+		CredSvc:   sop.NewCredentialService(creds),
 		Archive: sop.NewArchiveService(repository.NewSopProjectRepo(db),
 			repository.NewSopItemRepo(db), repository.NewSopRunRepo(db)),
-		CredDelete: func(ctx context.Context, tenantID uint64, id string) error {
-			return creds.Delete(ctx, tenantID, id)
-		},
 	})
 	// newSOPTestRouterWith 已挂项目组与事项组；这里只补管理组。
 	r := newSOPTestRouterWith(t, h)
@@ -57,6 +55,7 @@ func newSOPAdminTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		admin.PUT("/cli-credentials/:kind", h.PutCredential)
 		admin.DELETE("/cli-credentials/:kind", h.DeleteCredential)
 		admin.GET("/pm-archive/summary", h.PMArchiveSummary)
+		admin.GET("/cli-status", h.CLIStatus)
 	}
 	return r, db
 }
@@ -200,4 +199,23 @@ func stringsContains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// CLI 安装状态端点：恒回 10 条，未安装的带安装指引。
+func TestCLIStatusEndpoint(t *testing.T) {
+	r, _ := newSOPAdminTestRouter(t)
+	w := sopDoJSON(t, r, "GET", "/api/v1/sop/cli-status", "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var resp struct {
+		Data []sop.CLIStatus
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Data, 10, "10 种 CLI 全列出来")
+	for _, st := range resp.Data {
+		require.NotEmpty(t, st.Kind)
+		require.NotEmpty(t, st.Binary)
+		if !st.Installed {
+			require.NotEmpty(t, st.Guidance, "%s 未安装时必须给安装指引", st.Kind)
+		}
+	}
 }

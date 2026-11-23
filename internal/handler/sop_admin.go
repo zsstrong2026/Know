@@ -157,59 +157,24 @@ func (h *SOPHandler) ListTriggerLogs(c *gin.Context) {
 
 // ---- CLI 凭据 ----
 
-// sopCredentialDTO 凭据响应：只回尾 4 位，绝不回明文。
-type sopCredentialDTO struct {
-	CLIKind      string `json:"cli_kind"`
-	Name         string `json:"name"`
-	BaseURL      string `json:"base_url"`
-	DefaultModel string `json:"default_model"`
-	KeyTail      string `json:"key_tail"`
-	UpdatedAt    string `json:"updated_at"`
-}
-
-// NewCredentialDTO 把凭据转成脱敏 DTO（name 存在 Extra 里，表无该列）。
-func NewCredentialDTO(c types.SopCLICredential) sopCredentialDTO {
-	name, _ := c.Extra["name"].(string)
-	tail := ""
-	if n := len(c.APIKey); n > 0 {
-		start := n - 4
-		if start < 0 {
-			start = 0
-		}
-		tail = c.APIKey[start:]
-	}
-	dto := sopCredentialDTO{
-		CLIKind: c.CLIKind, Name: name, BaseURL: c.BaseURL,
-		DefaultModel: c.DefaultModel, KeyTail: tail,
-	}
-	if !c.UpdatedAt.IsZero() {
-		dto.UpdatedAt = c.UpdatedAt.Format("2006-01-02 15:04:05")
-	}
-	return dto
-}
-
 // ListCredentials 列当前用户的 CLI 凭据（脱敏）。
 func (h *SOPHandler) ListCredentials(c *gin.Context) {
 	tenantID := sopTenantID(c)
-	if tenantID == 0 || h.creds == nil {
+	if tenantID == 0 || h.credSvc == nil {
 		return
 	}
-	list, err := h.creds.ListByOwner(c.Request.Context(), tenantID, sopUserID(c))
+	list, err := h.credSvc.ListMasked(c.Request.Context(), tenantID, sopUserID(c))
 	if err != nil {
 		sopAbort(c, err)
 		return
 	}
-	out := make([]sopCredentialDTO, 0, len(list))
-	for _, c := range list {
-		out = append(out, NewCredentialDTO(c))
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": out})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
 }
 
 // PutCredential 按 cli_kind upsert 凭据（api_key 可留空表示沿用旧密钥）。
 func (h *SOPHandler) PutCredential(c *gin.Context) {
 	tenantID := sopTenantID(c)
-	if tenantID == 0 || h.creds == nil {
+	if tenantID == 0 || h.credSvc == nil {
 		return
 	}
 	var req struct {
@@ -221,47 +186,35 @@ func (h *SOPHandler) PutCredential(c *gin.Context) {
 	if !sopBindJSON(c, &req) {
 		return
 	}
-	kind := strings.TrimSpace(c.Param("kind"))
-	cfg := &types.SopCLICredential{
-		TenantID: tenantID, OwnerUserID: sopUserID(c), CLIKind: kind,
-		APIKey: strings.TrimSpace(req.APIKey), BaseURL: strings.TrimSpace(req.BaseURL),
-		DefaultModel: strings.TrimSpace(req.Model),
-		Extra:        map[string]any{},
-	}
-	if name := strings.TrimSpace(req.Name); name != "" {
-		cfg.Extra["name"] = name
-	}
-	if err := h.creds.Upsert(c.Request.Context(), cfg); err != nil {
+	view, err := h.credSvc.Upsert(c.Request.Context(), tenantID, sopUserID(c),
+		c.Param("kind"), req.Name, req.APIKey, req.BaseURL, req.Model)
+	if err != nil {
 		sopAbort(c, sopClientError{msg: translateCredentialError(err)})
 		return
 	}
-	// 回读一次再出 DTO：api_key 留空时仓储保留旧密钥，入参里的空值不等于库里的值——
-	// 用入参拼尾号会让人误以为密钥被清空了。
-	saved := *cfg
-	if got, err := h.creds.Get(c.Request.Context(), tenantID, sopUserID(c), kind); err == nil && got != nil {
-		saved = *got
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": NewCredentialDTO(saved)})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": view})
 }
 
 // DeleteCredential 删除某 CLI 种类的凭据。
 func (h *SOPHandler) DeleteCredential(c *gin.Context) {
 	tenantID := sopTenantID(c)
-	if tenantID == 0 || h.creds == nil {
+	if tenantID == 0 || h.credSvc == nil {
 		return
 	}
-	// 仓储没有 Delete：按 (owner, kind) 取到再软删（凭据是用户私有数据，删了不能复活）。
-	cur, err := h.creds.Get(c.Request.Context(), tenantID, sopUserID(c),
-		strings.TrimSpace(c.Param("kind")))
-	if err != nil {
+	if err := h.credSvc.Delete(c.Request.Context(), tenantID, sopUserID(c),
+		c.Param("kind")); err != nil {
 		sopFail(c, err, "凭据不存在")
 		return
 	}
-	if err := h.credDelete(c.Request.Context(), tenantID, cur.ID); err != nil {
-		sopAbort(c, err)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"deleted": true}})
+}
+
+// CLIStatus 本机 CLI 安装状态（含版本与安装指引）。
+func (h *SOPHandler) CLIStatus(c *gin.Context) {
+	if sqlTenant := sopTenantID(c); sqlTenant == 0 || h.credSvc == nil {
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"deleted": true}})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": h.credSvc.Status(c.Request.Context())})
 }
 
 // translateCredentialError 把凭据校验错误翻成中文。

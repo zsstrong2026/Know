@@ -45,9 +45,11 @@ type SOPHandler struct {
 	ai       *sop.AIService
 	airunner sop.Runner
 	// 管理端点依赖（T26）：审批中心聚合、触发配置/历史、CLI 凭据、归档摘要。
-	approvals  *sop.ApprovalService
-	triggers   interfaces.SopTriggerRepository
-	creds      interfaces.SopCredentialRepository
+	approvals *sop.ApprovalService
+	triggers  interfaces.SopTriggerRepository
+	creds     interfaces.SopCredentialRepository
+	// credSvc 是凭据业务服务（T34）：与仓储二选一，优先用它。
+	credSvc    *sop.CredentialService
 	archive    *sop.ArchiveService
 	credDelete func(ctx context.Context, tenantID uint64, id string) error
 }
@@ -66,7 +68,9 @@ type SOPHandlerDeps struct {
 	Approvals *sop.ApprovalService
 	Triggers  interfaces.SopTriggerRepository
 	Creds     interfaces.SopCredentialRepository
-	Archive   *sop.ArchiveService
+	// CredSvc 是凭据业务服务（T34）；注入后凭据端点走它，否则回落到仓储直连。
+	CredSvc *sop.CredentialService
+	Archive *sop.ArchiveService
 	// CredDelete 是凭据删除的实现（仓储没有 Delete，接线时给出）。
 	CredDelete func(ctx context.Context, tenantID uint64, id string) error
 }
@@ -77,7 +81,7 @@ func NewSOPHandler(d SOPHandlerDeps) *SOPHandler {
 		projects: d.Projects, runs: d.Runs, items: d.Items, templates: d.Templates,
 		runs2: d.RunSvc, engine: d.Engine, hub: d.Hub,
 		ai: d.AIService, airunner: d.AIRunner,
-		approvals: d.Approvals, triggers: d.Triggers, creds: d.Creds,
+		approvals: d.Approvals, triggers: d.Triggers, creds: d.Creds, credSvc: d.CredSvc,
 		archive: d.Archive, credDelete: d.CredDelete,
 	}
 }

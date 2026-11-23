@@ -62,6 +62,7 @@ import (
 	sop "github.com/Tencent/WeKnora/internal/application/service/sop"
 	sopengine "github.com/Tencent/WeKnora/internal/application/service/sop/engine"
 	sopexecutor "github.com/Tencent/WeKnora/internal/application/service/sop/executor"
+	sopcli "github.com/Tencent/WeKnora/internal/application/service/sop/executor/cli"
 	workbenchservice "github.com/Tencent/WeKnora/internal/application/service/workbench"
 	"github.com/Tencent/WeKnora/internal/browserskill"
 	"github.com/Tencent/WeKnora/internal/common"
@@ -1073,6 +1074,15 @@ func BuildContainer(container *dig.Container) *dig.Container {
 			Agents:      agents,
 		}))
 		reg.Register(sopexecutor.NewScriptProvider())
+		// 10 种本地 CLI 执行器（T29–T32 的适配器）：注册即出现在执行器清单里，
+		// 节点选了对应 cli_kind 才真正被执行。
+		for _, a := range []sopcli.Adapter{
+			sopcli.ClaudeAdapter{}, sopcli.OpencodeAdapter{}, sopcli.CursorAdapter{}, sopcli.AgyAdapter{},
+			sopcli.KimiAdapter{}, sopcli.PiAdapter{}, sopcli.DshAdapter{}, sopcli.ZcodeAdapter{},
+			sopcli.CodebuddyAdapter{}, sopcli.CodexAdapter{},
+		} {
+			reg.Register(&sopcli.CLIProvider{A: a})
+		}
 		return reg
 	}))
 	must(container.Provide(func(
@@ -1106,6 +1116,9 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		runner sop.Runner, items *sop.ItemService, extras interfaces.SopItemExtraRepository,
 	) *sop.AIService {
 		return sop.NewAIService(runner, items, extras)
+	}))
+	must(container.Provide(func(creds interfaces.SopCredentialRepository) *sop.CredentialService {
+		return sop.NewCredentialService(creds)
 	}))
 	must(container.Provide(func(
 		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
@@ -1167,12 +1180,13 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		runSvc *sop.RunService, eng *sopengine.Engine, hub *sop.EventHub,
 		ai *sop.AIService, aiRunner sop.Runner,
 		approvals *sop.ApprovalService, triggers interfaces.SopTriggerRepository,
-		creds interfaces.SopCredentialRepository, archive *sop.ArchiveService,
+		creds interfaces.SopCredentialRepository, credSvc *sop.CredentialService,
+		archive *sop.ArchiveService,
 	) *handler.SOPHandler {
 		return handler.NewSOPHandler(handler.SOPHandlerDeps{
 			Projects: projects, Runs: runs, Items: items, Templates: templates,
 			RunSvc: runSvc, Engine: eng, Hub: hub, AIService: ai, AIRunner: aiRunner,
-			Approvals: approvals, Triggers: triggers, Creds: creds, Archive: archive,
+			Approvals: approvals, Triggers: triggers, Creds: creds, CredSvc: credSvc, Archive: archive,
 			CredDelete: func(ctx context.Context, tenantID uint64, id string) error {
 				return creds.Delete(ctx, tenantID, id)
 			},

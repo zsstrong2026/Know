@@ -148,6 +148,8 @@ func RegisterSOPAdminRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacG
 	read.GET("/projects/:id/trigger-config", g.Viewer(), h.GetTriggerConfig)
 	read.GET("/projects/:id/trigger-logs", g.Viewer(), h.ListTriggerLogs)
 	read.GET("/pm-archive/summary", g.Viewer(), h.PMArchiveSummary)
+	// CLI 安装状态是只读探测（设置页展示），不需要管理权限。
+	read.GET("/cli-status", g.Viewer(), h.CLIStatus)
 
 	manage.PUT("/projects/:id/trigger-config", g.Contributor(), h.PutTriggerConfig)
 	// 凭据涉及密钥：读也要 manage（列表会暴露「有哪些 CLI 配了密钥」）。
