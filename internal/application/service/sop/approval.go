@@ -38,6 +38,8 @@ type ApprovalService struct {
 	engine RunApprover
 	// extras 供 T20 待办聚合使用；允许为 nil（本阶段四个操作都不读它）。
 	extras interfaces.SopItemExtraRepository
+	// aggregates 是待办聚合的三路只读来源（ListPending 用；未装配时返回空表）。
+	aggregates AggregateDeps
 }
 
 // NewApprovalService 构造审批服务；engine 必须非空（nil 会在调用时报白话错误）。
