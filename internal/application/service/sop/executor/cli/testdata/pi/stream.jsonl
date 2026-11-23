@@ -1,0 +1,4 @@
+{"type":"session_start","session_id":"sess-p"}
+{"type":"message_update","text":"开始"}
+{"type":"message_update","text":"收尾"}
+{"type":"agent_end","session_id":"sess-p"}
