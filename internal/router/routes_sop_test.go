@@ -79,3 +79,40 @@ func testSOPConfig() *config.Config {
 	enabled := true
 	return &config.Config{Tenant: &config.TenantConfig{EnableRBAC: &enabled}}
 }
+
+// 事项路由同样必须声明能力：读→read_sop，写→manage_sop。
+func TestSOPItemRoutesDeclareCapabilities(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := handler.NewSOPHandler(handler.SOPHandlerDeps{})
+	g := &rbacGuards{cfg: testSOPConfig()}
+	v1 := gin.New().Group("/api/v1")
+	RegisterSOPItemRoutes(v1, h, g)
+
+	for _, key := range []string{
+		"GET /api/v1/sop/projects/:id/items",
+		"GET /api/v1/sop/items/:id",
+		"GET /api/v1/sop/items/:id/attachments",
+		"GET /api/v1/sop/items/:id/clarifications",
+		"GET /api/v1/sop/items/:id/activities",
+	} {
+		method, path := splitRouteKey(t, key)
+		policy, ok := g.apiKeyAuthorizer.Lookup(method, path)
+		require.True(t, ok, "路由 %s 未声明 API Key 策略", key)
+		require.Contains(t, policy.Capabilities, types.APIKeyCapabilityReadSOP, key)
+	}
+	for _, key := range []string{
+		"POST /api/v1/sop/projects/:id/items",
+		"PUT /api/v1/sop/items/:id",
+		"DELETE /api/v1/sop/items/:id",
+		"PATCH /api/v1/sop/items/:id/status",
+		"POST /api/v1/sop/items/bulk-status",
+		"POST /api/v1/sop/items/:id/attachments",
+		"POST /api/v1/sop/items/:id/clarifications",
+		"PATCH /api/v1/sop/items/:id/clarifications/:cid/answer",
+	} {
+		method, path := splitRouteKey(t, key)
+		policy, ok := g.apiKeyAuthorizer.Lookup(method, path)
+		require.True(t, ok, "路由 %s 未声明 API Key 策略", key)
+		require.Contains(t, policy.Capabilities, types.APIKeyCapabilityManageSOP, key)
+	}
+}

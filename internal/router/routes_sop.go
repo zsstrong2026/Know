@@ -33,20 +33,44 @@ func RegisterSOPRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGuards
 	manage.PUT("/:id/repos/default", g.Contributor(), h.SetDefaultRepo)
 }
 
-// apiKeyReadSOP 让带 read_sop 能力的 key 读取 SOP 工作台。
+// RegisterSOPItemRoutes 挂事项组：项目下的事项列表/新建与按事项 id 的其余端点。
+//
+// 与项目组一样按读写分两组声明 API Key 能力：列表/详情/附件列表/澄清列表/活动属
+// read_sop，其余写操作属 manage_sop（T24 起 run_sop 用于发起运行与答复）。
+func RegisterSOPItemRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGuards) {
+	read := g.apiKeyGroup(v1.Group("/sop"), apiKeyReadSOP(apiKeyFullAccess()))
+	manage := g.apiKeyGroup(v1.Group("/sop"), apiKeyManageSOP(apiKeyFullAccess()))
+
+	read.GET("/projects/:id/items", g.Viewer(), h.ListItems)
+	read.GET("/items/:id", g.Viewer(), h.GetItem)
+	read.GET("/items/:id/attachments", g.Viewer(), h.ListItemAttachments)
+	read.GET("/items/:id/clarifications", g.Viewer(), h.ListItemClarifications)
+	read.GET("/items/:id/activities", g.Viewer(), h.ListItemActivities)
+
+	manage.POST("/projects/:id/items", g.Contributor(), h.CreateItem)
+	manage.PUT("/items/:id", g.Contributor(), h.UpdateItem)
+	manage.DELETE("/items/:id", g.Contributor(), h.DeleteItem)
+	manage.PATCH("/items/:id/status", g.Contributor(), h.UpdateItemStatus)
+	manage.POST("/items/bulk-status", g.Contributor(), h.BulkUpdateItemStatus)
+	manage.POST("/items/:id/attachments", g.Contributor(), h.UploadItemAttachment)
+	manage.POST("/items/:id/clarifications", g.Contributor(), h.CreateItemClarification)
+	manage.PATCH("/items/:id/clarifications/:cid/answer", g.Contributor(), h.AnswerItemClarification)
+}
+
+// apiKeyReadSOP 让带 read_sop 能力的 key 读取 SOP 工作台（项目/事项/运行）。
 func apiKeyReadSOP(base middleware.APIKeyRoutePolicy) middleware.APIKeyRoutePolicy {
 	return base.WithCapability(types.APIKeyCapabilityReadSOP)
 }
 
-// apiKeyRunSOP 让带 run_sop 能力的 key 发起运行、答复/审批节点（T22 起使用）。
+// apiKeyRunSOP 让带 run_sop 能力的 key 发起运行、答复/审批节点（T24 起使用）。
 func apiKeyRunSOP(base middleware.APIKeyRoutePolicy) middleware.APIKeyRoutePolicy {
 	return base.WithCapability(types.APIKeyCapabilityRunSOP)
 }
 
-// apiKeyManageSOP 让带 manage_sop 能力的 key 管理 SOP 工作台（项目与配置）。
+// apiKeyManageSOP 让带 manage_sop 能力的 key 管理 SOP 工作台（项目/事项/模板）。
 //
-// 注意：manage_sop 不顺带授予 read_sop——能力是并列的显式授权，读权限要单独给，
-// 与「manage_agents 含读」不同（SOP 的读面覆盖运行历史与产物，面更宽）。
+// manage_sop 不顺带授予 read_sop：能力是并列的显式授权，读面覆盖运行历史与产物，
+// 比写面更宽，必须单独给。
 func apiKeyManageSOP(base middleware.APIKeyRoutePolicy) middleware.APIKeyRoutePolicy {
 	return base.WithCapability(types.APIKeyCapabilityManageSOP)
 }

@@ -47,6 +47,7 @@ func newSOPTestRouterWith(t *testing.T, h *SOPHandler) *gin.Engine {
 	})
 	sop := r.Group("/api/v1/sop")
 	h.RegisterSOPRoutes(sop)
+	h.RegisterItemRoutes(sop)
 	return r
 }
 
@@ -60,7 +61,11 @@ func newSOPHandlerTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	require.NoError(t, db.AutoMigrate(&types.SopProject{}, &types.SopRun{}, &types.SopNodeRun{}))
+	require.NoError(t, db.AutoMigrate(
+		&types.SopProject{}, &types.SopItem{}, &types.SopItemAttachment{},
+		&types.SopItemClarification{}, &types.SopItemActivity{},
+		&types.SopRun{}, &types.SopNodeRun{},
+	))
 	return db
 }
 
@@ -227,6 +232,7 @@ func TestSOPRejectsMissingTenant(t *testing.T) {
 	r := gin.New()
 	r.Use(middleware.ErrorHandler())
 	h.RegisterSOPRoutes(r.Group("/api/v1/sop"))
+	h.RegisterItemRoutes(r.Group("/api/v1/sop"))
 
 	w := sopDoJSON(t, r, "GET", "/api/v1/sop/projects", "")
 	require.Equal(t, http.StatusBadRequest, w.Code)

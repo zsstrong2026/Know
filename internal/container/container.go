@@ -1085,15 +1085,23 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		})
 	}))
 	must(container.Provide(func(
+		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
+		extras interfaces.SopItemExtraRepository, runs interfaces.SopRunRepository,
+	) *sop.ItemService {
+		return sop.NewItemService(projects, items, extras, runs)
+	}))
+	must(container.Provide(func(
 		runs interfaces.SopRunRepository, templates interfaces.SopTemplateRepository,
 		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
 		extras interfaces.SopItemExtraRepository, registry *sopexecutor.Registry,
 		resolver *sop.ContextResolver, notices *service.NotificationService,
-		broker *hitl.Broker,
+		broker *hitl.Broker, itemSvc *sop.ItemService,
 	) *sopengine.Engine {
 		return sopengine.NewEngine(sopengine.Deps{
 			Runs: runs, Templates: templates, Projects: projects, Items: items,
 			Extras: extras, Registry: registry, Resolver: resolver,
+			// 事项状态唯一写入口：引擎只经 ItemStatusUpdater 调 UpdateStatus。
+			ItemStatus: itemSvc,
 			// 工作区落在配置目录旁的 data/sop-workspaces（与运行时数据同盘）。
 			WorkspaceRoot: filepath.Join(config.ConfigDir(), "data", "sop-workspaces"),
 			Notify: func(ctx context.Context, tenantID uint64, kind, title, body, refID string) {
@@ -1124,8 +1132,11 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	}))
 	must(container.Provide(func(
 		projects interfaces.SopProjectRepository, runs interfaces.SopRunRepository,
+		items *sop.ItemService,
 	) *handler.SOPHandler {
-		return handler.NewSOPHandler(handler.SOPHandlerDeps{Projects: projects, Runs: runs})
+		return handler.NewSOPHandler(handler.SOPHandlerDeps{
+			Projects: projects, Runs: runs, Items: items,
+		})
 	}))
 	logger.Debugf(ctx, "[Container] HTTP handlers registered")
 

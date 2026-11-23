@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/Tencent/WeKnora/internal/application/service/sop"
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -30,22 +31,25 @@ import (
 type SOPHandler struct {
 	projects interfaces.SopProjectRepository
 	runs     interfaces.SopRunRepository
+	// items 是事项服务（T22 接线；未注入时事项端点返回「未就绪」）。
+	items *sop.ItemService
 }
 
-// SOPHandlerDeps 是 handler 的依赖集合（T22 起继续加字段）。
+// SOPHandlerDeps 是 handler 的依赖集合（后续任务继续加字段）。
 type SOPHandlerDeps struct {
 	Projects interfaces.SopProjectRepository
 	Runs     interfaces.SopRunRepository
+	Items    *sop.ItemService
 }
 
 // NewSOPHandler 构造 SOP handler。
 func NewSOPHandler(d SOPHandlerDeps) *SOPHandler {
-	return &SOPHandler{projects: d.Projects, runs: d.Runs}
+	return &SOPHandler{projects: d.Projects, runs: d.Runs, items: d.Items}
 }
 
-// RegisterSOPRoutes 把项目组挂到 /api/v1/sop 下（其余组由后续任务追加）。
-func (h *SOPHandler) RegisterSOPRoutes(sop *gin.RouterGroup) {
-	p := sop.Group("/projects")
+// RegisterSOPRoutes 把项目组挂到 /api/v1/sop 下（事项组在 RegisterSOPItemRoutes）。
+func (h *SOPHandler) RegisterSOPRoutes(sopGroup *gin.RouterGroup) {
+	p := sopGroup.Group("/projects")
 	{
 		p.POST("", h.CreateProject)
 		p.GET("", h.ListProjects)
@@ -84,11 +88,23 @@ func sopClientf(format string, args ...any) error {
 	return sopClientError{msg: fmt.Sprintf(format, args...)}
 }
 
+// sopSentinels 是 sop 服务层导出的业务错误：它们都由我们自己构造，直接按类型判断。
+var sopSentinels = []error{
+	sop.ErrSopItemTitleRequired, sop.ErrSopItemTooMany,
+	sop.ErrSopAttachmentEmpty, sop.ErrSopAttachmentTooLarge, sop.ErrSopAttachmentType,
+	sop.ErrSopClarificationOpen, sop.ErrSopIllegalTransition,
+}
+
 // sopIsClientError 判断是否为业务校验错误（也接受 types 层直接给出的校验文案）。
 func sopIsClientError(err error) bool {
 	var clientErr sopClientError
 	if stderrors.As(err, &clientErr) {
 		return true
+	}
+	for _, sentinel := range sopSentinels {
+		if stderrors.Is(err, sentinel) {
+			return true
+		}
 	}
 	// types 层与仓储层直接返回普通 error，文案固定且面向用户。
 	msg := err.Error()
@@ -453,4 +469,28 @@ func findSopRepoID(repos []types.SopProjectRepo, key string) (string, error) {
 		}
 	}
 	return "", stderrors.New("仓库不存在：" + key)
+}
+
+// RegisterItemRoutes 挂事项组：项目下的事项列表/新建，以及按事项 id 的详情/状态/
+// 批量/附件/澄清/活动。由 router 在声明 API Key 策略后调用。
+func (h *SOPHandler) RegisterItemRoutes(sopGroup *gin.RouterGroup) {
+	items := sopGroup.Group("/items")
+	{
+		items.GET("/:id", h.GetItem)
+		items.PUT("/:id", h.UpdateItem)
+		items.DELETE("/:id", h.DeleteItem)
+		items.PATCH("/:id/status", h.UpdateItemStatus)
+		items.POST("/bulk-status", h.BulkUpdateItemStatus)
+		items.POST("/:id/attachments", h.UploadItemAttachment)
+		items.GET("/:id/attachments", h.ListItemAttachments)
+		items.GET("/:id/clarifications", h.ListItemClarifications)
+		items.POST("/:id/clarifications", h.CreateItemClarification)
+		items.PATCH("/:id/clarifications/:cid/answer", h.AnswerItemClarification)
+		items.GET("/:id/activities", h.ListItemActivities)
+	}
+	projItems := sopGroup.Group("/projects/:id/items")
+	{
+		projItems.POST("", h.CreateItem)
+		projItems.GET("", h.ListItems)
+	}
 }
