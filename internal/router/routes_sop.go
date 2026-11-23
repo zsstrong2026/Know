@@ -126,3 +126,13 @@ func RegisterSOPRunRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGua
 	run.POST("/runs/:id/nodes/:nid/terminate", g.Contributor(), h.TerminateNode)
 	run.POST("/runs/:id/nodes/:nid/answer", g.Contributor(), h.AnswerNode)
 }
+
+// RegisterSOPAIRoutes 挂 AI 助手组：拆解/分析/澄清/编排，全部声明 run_sop
+// （它们是「跑一次助手」，不是改配置）。
+func RegisterSOPAIRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGuards) {
+	ai := g.apiKeyGroup(v1.Group("/sop"), apiKeyRunSOP(apiKeyFullAccess()))
+	ai.POST("/ai/breakdown", g.Contributor(), h.BreakdownItems)
+	ai.POST("/ai/analyze-item", g.Contributor(), h.AnalyzeSopItem)
+	ai.POST("/ai/clarify-generate", g.Contributor(), h.GenerateItemClarifications)
+	ai.POST("/ai/orchestrate", g.Contributor(), h.OrchestrateSop)
+}

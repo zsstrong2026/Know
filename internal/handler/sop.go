@@ -40,6 +40,9 @@ type SOPHandler struct {
 	runs2  *sop.RunService
 	engine *sopengine.Engine
 	hub    *sop.EventHub
+	// ai 是 AI 助手能力（T25）；airunner 是它背后的问答执行器。
+	ai       *sop.AIService
+	airunner sop.Runner
 }
 
 // SOPHandlerDeps 是 handler 的依赖集合（后续任务继续加字段）。
@@ -51,6 +54,8 @@ type SOPHandlerDeps struct {
 	RunSvc    *sop.RunService
 	Engine    *sopengine.Engine
 	Hub       *sop.EventHub
+	AIService *sop.AIService
+	AIRunner  sop.Runner
 }
 
 // NewSOPHandler 构造 SOP handler。
@@ -58,6 +63,7 @@ func NewSOPHandler(d SOPHandlerDeps) *SOPHandler {
 	return &SOPHandler{
 		projects: d.Projects, runs: d.Runs, items: d.Items, templates: d.Templates,
 		runs2: d.RunSvc, engine: d.Engine, hub: d.Hub,
+		ai: d.AIService, airunner: d.AIRunner,
 	}
 }
 
@@ -109,6 +115,7 @@ var sopSentinels = []error{
 	sop.ErrSopClarificationOpen, sop.ErrSopIllegalTransition,
 	sop.ErrSopTemplateReadonly, sop.ErrSopTemplateInvalid, sop.ErrSopTemplateNameRequired,
 	sop.ErrSopTemplateUnpublished, sop.ErrSopRunInputMissing,
+	sop.ErrSopAIModeInvalid, sop.ErrSopAIOutputInvalid,
 }
 
 // sopIsClientError 判断是否为业务校验错误（也接受 types 层直接给出的校验文案）。
@@ -526,4 +533,20 @@ func (h *SOPHandler) RegisterTemplateRoutes(sopGroup *gin.RouterGroup) {
 		t.GET("/:id/revisions", h.ListTemplateRevisions)
 	}
 	sopGroup.GET("/revisions/:id", h.GetTemplateRevision)
+}
+
+// aiRunner 取 AI 问答执行器（未装配时报未就绪）。
+func (h *SOPHandler) aiRunner() (sop.Runner, bool) {
+	return h.airunner, h.airunner != nil
+}
+
+// RegisterAIRoutes 挂 AI 助手组（四个端点）。
+func (h *SOPHandler) RegisterAIRoutes(sopGroup *gin.RouterGroup) {
+	ai := sopGroup.Group("/ai")
+	{
+		ai.POST("/breakdown", h.BreakdownItems)
+		ai.POST("/analyze-item", h.AnalyzeSopItem)
+		ai.POST("/clarify-generate", h.GenerateItemClarifications)
+		ai.POST("/orchestrate", h.OrchestrateSop)
+	}
 }

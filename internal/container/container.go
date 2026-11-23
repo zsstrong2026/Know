@@ -1096,6 +1096,17 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		return sop.NewRunService(templates, runs, projects, items)
 	}))
 	must(container.Provide(sop.NewEventHub))
+	// AI 助手：问答复用 AgentQA 运行时（会话/消息/技能/MCP），事项读与澄清写用真实服务。
+	must(container.Provide(func(
+		sessions interfaces.SessionService, messages interfaces.MessageService,
+	) sop.Runner {
+		return sop.NewQARunner(sop.QADeps{Sessions: sessions, Messages: messages, QA: sessions})
+	}))
+	must(container.Provide(func(
+		runner sop.Runner, items *sop.ItemService, extras interfaces.SopItemExtraRepository,
+	) *sop.AIService {
+		return sop.NewAIService(runner, items, extras)
+	}))
 	must(container.Provide(func(
 		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
 		extras interfaces.SopItemExtraRepository, runs interfaces.SopRunRepository,
@@ -1148,10 +1159,11 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		projects interfaces.SopProjectRepository, runs interfaces.SopRunRepository,
 		items *sop.ItemService, templates *sop.TemplateService,
 		runSvc *sop.RunService, eng *sopengine.Engine, hub *sop.EventHub,
+		ai *sop.AIService, aiRunner sop.Runner,
 	) *handler.SOPHandler {
 		return handler.NewSOPHandler(handler.SOPHandlerDeps{
 			Projects: projects, Runs: runs, Items: items, Templates: templates,
-			RunSvc: runSvc, Engine: eng, Hub: hub,
+			RunSvc: runSvc, Engine: eng, Hub: hub, AIService: ai, AIRunner: aiRunner,
 		})
 	}))
 	logger.Debugf(ctx, "[Container] HTTP handlers registered")

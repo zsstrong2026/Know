@@ -193,3 +193,22 @@ func TestSOPRunRoutesDeclareCapabilities(t *testing.T) {
 		require.Contains(t, policy.Capabilities, types.APIKeyCapabilityRunSOP, key)
 	}
 }
+
+// AI 路由能力声明：全部 run_sop。
+func TestSOPAIRoutesDeclareCapabilities(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := handler.NewSOPHandler(handler.SOPHandlerDeps{})
+	g := &rbacGuards{cfg: testSOPConfig()}
+	RegisterSOPAIRoutes(gin.New().Group("/api/v1"), h, g)
+
+	for _, path := range []string{
+		"/api/v1/sop/ai/breakdown",
+		"/api/v1/sop/ai/analyze-item",
+		"/api/v1/sop/ai/clarify-generate",
+		"/api/v1/sop/ai/orchestrate",
+	} {
+		policy, ok := g.apiKeyAuthorizer.Lookup(http.MethodPost, path)
+		require.True(t, ok, "路由 %s 未声明策略", path)
+		require.Contains(t, policy.Capabilities, types.APIKeyCapabilityRunSOP, path)
+	}
+}
