@@ -1,0 +1,3 @@
+{"type":"item.completed","item":{"type":"agent_message","text":"先看代码"}}
+{"type":"item.completed","item":{"type":"command_execution"}}
+{"type":"turn.completed","usage":{"input_tokens":11,"output_tokens":7}}

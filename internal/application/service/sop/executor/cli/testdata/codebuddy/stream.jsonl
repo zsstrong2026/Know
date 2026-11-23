@@ -1,0 +1,3 @@
+{"type":"message","role":"assistant","content":"读需求"}
+{"type":"tool","name":"write","input":{"path":"out/a.md"}}
+{"type":"done","status":"success","session_id":"sess-cb"}
