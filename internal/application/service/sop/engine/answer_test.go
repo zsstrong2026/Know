@@ -38,11 +38,13 @@ func (r *resumeProvider) Cancel(_ context.Context) error { return nil }
 // stubPrompts 记录答复写入挂起提示的调用。
 type stubPrompts struct {
 	answers []string
+	reqs    []PromptAnswer
 	err     error
 }
 
-func (s *stubPrompts) Answer(_ context.Context, _ uint64, _, answer string) error {
-	s.answers = append(s.answers, answer)
+func (s *stubPrompts) Answer(_ context.Context, req PromptAnswer) error {
+	s.answers = append(s.answers, req.Text)
+	s.reqs = append(s.reqs, req)
 	return s.err
 }
 
@@ -67,17 +69,20 @@ func TestAnswerPromptResumesPendingInput(t *testing.T) {
 	ctx := context.Background()
 	run := newPendingInputRun(t, e)
 	prompts := &stubPrompts{}
-	e.deps.Prompts = prompts
 	sp := &resumeProvider{kind: "platform_agent"}
 	e.deps.Registry.Register(sp)
+	e.deps.Prompts = prompts
 
 	require.NoError(t, e.AnswerPrompt(ctx, 1, run.ID, "n1", "用方案A"))
 	require.Equal(t, []string{"用方案A"}, prompts.answers, "答复要先写进挂起提示")
+	require.Equal(t, "sess1", prompts.reqs[0].SessionID)
+	require.Equal(t, uint64(1), prompts.reqs[0].TenantID)
 	require.Equal(t, answerSource, e.loadRunHumanContextSource(t, run.ID))
 
 	nr, err := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n1")
 	require.NoError(t, err)
-	require.Equal(t, types.SopNodeRunning, nr.Status, "答复后交还 Advance 续跑")
+	require.Equal(t, types.SopNodePending, nr.Status, "答复后回 pending，交正常就绪路径续跑")
+	require.Equal(t, "sess1", nr.ResumeSessionID, "带上会话让执行器取挂起快照")
 	got, err := e.deps.Runs.GetRun(ctx, 1, run.ID)
 	require.NoError(t, err)
 	require.Equal(t, types.SopRunRunning, got.Status)
@@ -179,4 +184,53 @@ func TestResumeNodeDropsSessionWhenNotCarryOver(t *testing.T) {
 	require.NoError(t, e.ResumeNode(ctx, 1, run.ID, "n1"))
 	nr, _ := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n1")
 	require.Empty(t, nr.SessionID, "不 carry 的节点重开会话")
+}
+
+// 人工答复不得消耗重试预算：答复后 Attempt 归零，再失败仍按预算重试。
+func TestAnswerPromptResetsAttemptBudget(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	ctx := context.Background()
+	run := newPendingInputRun(t, e)
+	nr, _ := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n1")
+	nr.Attempt = 3
+	require.NoError(t, e.deps.Runs.UpdateNodeRun(ctx, nr))
+
+	require.NoError(t, e.AnswerPrompt(ctx, 1, run.ID, "n1", "再试一次"))
+	nr, _ = e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n1")
+	require.Zero(t, nr.Attempt, "答复是知情后的新起点，不占机器重试预算")
+}
+
+// 只答复一次：第二次答复必须被 CAS 拒绝。
+func TestAnswerPromptSecondCallRejected(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	ctx := context.Background()
+	run := newPendingInputRun(t, e)
+	require.NoError(t, e.AnswerPrompt(ctx, 1, run.ID, "n1", "第一次"))
+	require.Error(t, e.AnswerPrompt(ctx, 1, run.ID, "n1", "第二次"))
+}
+
+// locatorSuspension 记录按会话定位挂起提示的调用。
+type locatorSuspension struct {
+	id  string
+	err error
+	hit []string
+}
+
+func (l *locatorSuspension) PromptIDBySession(_ context.Context, sessionID string) (string, error) {
+	l.hit = append(l.hit, sessionID)
+	return l.id, l.err
+}
+
+func TestAnswerPromptPassesPromptID(t *testing.T) {
+	e, _, _ := newTestEngine(t)
+	ctx := context.Background()
+	run := newPendingInputRun(t, e)
+	prompts := &stubPrompts{}
+	loc := &locatorSuspension{id: "p-1"}
+	e.deps.Prompts = prompts
+	e.deps.SuspensionPrompts = loc
+
+	require.NoError(t, e.AnswerPrompt(ctx, 1, run.ID, "n1", "好"))
+	require.Equal(t, []string{"sess1"}, loc.hit)
+	require.Equal(t, "p-1", prompts.reqs[0].PromptID, "答复必须带上提示主键，适配层才能定位唯一提示")
 }

@@ -213,12 +213,17 @@ func (p *AgentProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOptio
 	// 结果以 submit_node_result 为准；缺失时同会话追问一次（只问一次，仍缺失就
 	// 留空交门禁三段裁定，绝不臆测模型意图）。结果槽未装配（单节点预演/测试桩）
 	// 时不追问：没有通道能收回结论，追问只会白烧一轮 token。
+	reminderOutput := ""
 	if !collected.suspended && collected.err == nil && p.submitEnabled {
 		submitted, ok := p.takeSubmit(submitKey)
 		if !ok {
 			if again, askErr := p.askAgain(runCtx, req, opts); askErr == nil {
+				// 追问轮是同一个助手回合的续写：正文接在后面、用量与真实 token 统计
+				// 都累加，否则消息行显示的文字与实际消耗对不上。
+				reminderOutput = strings.TrimSpace(again.output)
 				collected.usage.InputTokens += again.usage.InputTokens
 				collected.usage.OutputTokens += again.usage.OutputTokens
+				collected.tokenUsage = addTokenUsage(collected.tokenUsage, again.tokenUsage)
 				res.Usage = collected.usage
 				submitted, ok = p.takeSubmit(submitKey)
 			}
@@ -230,8 +235,11 @@ func (p *AgentProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOptio
 			}
 		}
 	}
+	if reminderOutput != "" {
+		res.Output = joinOutputs(collected.output, reminderOutput)
+	}
 	if answerMsg != nil && p.deps.Messages != nil {
-		answerMsg.Content = collected.output
+		answerMsg.Content = res.Output
 		answerMsg.Usage = collected.tokenUsage
 		answerMsg.IsCompleted = !collected.suspended && collected.err == nil
 		if collected.suspended {
@@ -253,8 +261,11 @@ func (p *AgentProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOptio
 	return res, nil
 }
 
-// submitKeyFor 是结果槽键：同一运行同一节点跨尝试共用一个键（每次执行前被取空）。
-func submitKeyFor(tb TaskBook) string { return tb.RunID + "/" + tb.NodeID }
+// submitKeyFor 是结果槽键：运行 + 节点 + 尝试。带尝试号是为了隔离「提交后挂起」
+// 留下的残槽——下一次尝试（含答复续跑）绝不能命中上一次的结论。
+func submitKeyFor(tb TaskBook) string {
+	return fmt.Sprintf("%s/%s/%d", tb.RunID, tb.NodeID, tb.Attempt)
+}
 
 // defaultResultSlots 是进程内默认结果槽（与默认登记表配套：工具注册处不依赖
 // 执行器实例，只能靠进程内单例对齐）。
@@ -292,6 +303,33 @@ func (p *AgentProvider) takeSubmit(key string) (SubmitResult, bool) {
 		return SubmitResult{}, false
 	}
 	return p.deps.Results.Take(key)
+}
+
+// addTokenUsage 合并两轮的 token 统计（nil 安全）。
+func addTokenUsage(a, b *types.TokenUsage) *types.TokenUsage {
+	if b == nil {
+		return a
+	}
+	if a == nil {
+		return b
+	}
+	sum := *a
+	sum.PromptTokens += b.PromptTokens
+	sum.CompletionTokens += b.CompletionTokens
+	sum.TotalTokens += b.TotalTokens
+	return &sum
+}
+
+// joinOutputs 把追问轮的正文接在首轮正文后面（任一侧为空则返回另一侧）。
+func joinOutputs(first, second string) string {
+	switch {
+	case first == "":
+		return second
+	case second == "":
+		return first
+	default:
+		return first + "\n\n" + second
+	}
 }
 
 // askAgain 在同会话里追问一次「请提交本步骤结果」，返回本轮收集结果。

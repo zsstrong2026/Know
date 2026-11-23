@@ -66,8 +66,10 @@ func ParseSubmitArgs(args map[string]any) (SubmitResult, error) {
 	return SubmitResult{GateResult: verdict, GateReason: reason, Output: strings.TrimSpace(output)}, nil
 }
 
-// ResultSlots 是执行器与工具之间的进程内结果槽：键是「运行/节点」，一次执行结束
-// 由执行器 Take 走，避免同一节点下一轮读到旧结论。
+// ResultSlots 是执行器与工具之间的进程内结果槽：键是「运行/节点/尝试」。
+//
+// 键里带尝试号是必须的：一次执行里模型可能先提交再挂起，此时执行器不消费槽，
+// 下一次尝试若不换键就会读到上上一次的旧结论（门禁结论直接错判）。
 type ResultSlots struct {
 	mu   sync.Mutex
 	data map[string]SubmitResult
@@ -107,15 +109,22 @@ type SubmitContext struct {
 	SessionID          string
 	SessionDescription string // 调用方已知的会话描述（命中可省一次查库）
 	Slots              *ResultSlots
-	SlotKey            string // 结果槽键；执行器按「运行 + 节点」取值
+	SlotKey            string // 结果槽键；执行器按「运行 + 节点 + 尝试」取值
 	WorkspaceRoot      string
 	NodeID             string
 	Attempt            int
 }
 
+// SOP 会话判定：描述必须以标记开头（会话标题式的「[SOP] run=… node=…」），
+// 而不是「任意位置包含」——后者会把在描述里提到 [SOP] 的普通会话放进来。
+func isSOPSessionDescription(description string) bool {
+	return strings.HasPrefix(strings.TrimSpace(description), strings.TrimSpace(types.SOPSessionMarker))
+}
+
 type submitCtxKey struct{}
 
-// WithSubmitContext 把 SOP 提交上下文注入 ctx。
+// WithSubmitContext 把 SOP 提交上下文直接注入 ctx：供执行器内部直连调用与测试
+// 使用；生产路径是执行器按会话登记（SubmitBindings），工具凭会话 id 查回。
 func WithSubmitContext(ctx context.Context, sc *SubmitContext) context.Context {
 	if sc == nil {
 		return ctx
@@ -352,7 +361,7 @@ func (t *SubmitTool) assertSOPSession(ctx context.Context, sc *SubmitContext) er
 	if sessionID == "" {
 		sessionID, _ = types.SessionIDFromContext(ctx)
 	}
-	if !strings.Contains(desc, types.SOPSessionMarker) && t.sessions != nil && sessionID != "" {
+	if !isSOPSessionDescription(desc) && t.sessions != nil && sessionID != "" {
 		tenantID, _ := types.TenantIDFromContext(ctx)
 		session, err := t.sessions.GetSessionByID(ctx, tenantID, sessionID)
 		if err != nil {
@@ -362,7 +371,7 @@ func (t *SubmitTool) assertSOPSession(ctx context.Context, sc *SubmitContext) er
 			desc = session.Description
 		}
 	}
-	if !strings.Contains(desc, types.SOPSessionMarker) {
+	if !isSOPSessionDescription(desc) {
 		return errors.New("submit_node_result 只在 SOP 步骤会话内可用：当前会话不是 SOP 会话")
 	}
 	return nil

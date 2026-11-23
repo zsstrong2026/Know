@@ -110,22 +110,6 @@ func (e *Engine) Advance(ctx context.Context, runID string) (bool, error) {
 		byID[nrs[i].NodeID] = &nrs[i]
 	}
 
-	// 答复后续跑先于就绪计算：AnswerPrompt 把节点交还 running（等待本处接续），
-	// 这里原样打回 pending，让下面按正常就绪路径用之前记录的会话重新执行。
-	if ids := e.takeResumes(run.ID); len(ids) > 0 {
-		for _, id := range ids {
-			nr := byID[id]
-			if nr == nil || nr.Status != types.SopNodeRunning {
-				continue
-			}
-			nr.Status = types.SopNodePending
-			nr.FinishedAt = nil
-			if err := e.deps.Runs.UpdateNodeRun(ctx, nr); err != nil {
-				return false, err
-			}
-		}
-	}
-
 	// 子流程对账先于就绪计算：子运行可能刚刚到终态，节点状态与产物要先落地，
 	// 下一轮的 readyNodes 才能看到下游就绪。有推进就本轮收工，让调用方继续推进。
 	childMoved, err := e.reconcileChildRuns(ctx, run, byID)

@@ -53,19 +53,20 @@ type NodeResolver interface {
 
 // Deps 是引擎的全部外部依赖；零值安全（nil 的 Resolver/ItemStatus/Notify 一律跳过）。
 type Deps struct {
-	Runs           interfaces.SopRunRepository
-	Templates      interfaces.SopTemplateRepository
-	Projects       interfaces.SopProjectRepository
-	Items          interfaces.SopItemRepository
-	Extras         interfaces.SopItemExtraRepository
-	Registry       *executor.Registry
-	Resolver       NodeResolver                                                                // 可 nil
-	ItemStatus     ItemStatusUpdater                                                           // 可 nil
-	WorkspaceRoot  string                                                                      // 如 data/sop-workspaces
-	MaxParallel    int                                                                         // 默认 2
-	DisableRunLoop bool                                                                        // true=startQueued 不启动 runLoop，测试同步驱动 Advance（E2E 用 false）
-	Notify         func(ctx context.Context, tenantID uint64, kind, title, body, refID string) // 可 nil；kind=sop_approval|sop_run_finished|sop_run_failed
-	Prompts        PromptAnswerer                                                              // 可 nil；答复写入挂起提示（hitl Broker 适配，T21 接线）
+	Runs              interfaces.SopRunRepository
+	Templates         interfaces.SopTemplateRepository
+	Projects          interfaces.SopProjectRepository
+	Items             interfaces.SopItemRepository
+	Extras            interfaces.SopItemExtraRepository
+	Registry          *executor.Registry
+	Resolver          NodeResolver                                                                // 可 nil
+	ItemStatus        ItemStatusUpdater                                                           // 可 nil
+	WorkspaceRoot     string                                                                      // 如 data/sop-workspaces
+	MaxParallel       int                                                                         // 默认 2
+	DisableRunLoop    bool                                                                        // true=startQueued 不启动 runLoop，测试同步驱动 Advance（E2E 用 false）
+	Notify            func(ctx context.Context, tenantID uint64, kind, title, body, refID string) // 可 nil；kind=sop_approval|sop_run_finished|sop_run_failed
+	Prompts           PromptAnswerer                                                              // 可 nil；答复写入挂起提示（hitl Broker 适配，T21 接线）
+	SuspensionPrompts PromptSuspensionLocator                                                     // 可 nil；按会话定位待答复的挂起提示
 }
 
 // Engine 是进程内单实例调度器：一个 ticker 循环认领到期运行，每个运行一个推进协程。
@@ -88,8 +89,6 @@ type Engine struct {
 	// advanceHook 是推进步骤的测试挂点（生产恒为 nil，走 Advance 的占位实现）；
 	// 用它可以让 runLoop 在「推进途中被取消」这类时序确定地复现。
 	advanceHook func(ctx context.Context, runID string) (bool, error)
-	// resumes 是「答复已落库、等 Advance 原会话续跑」的节点登记（见 answer.go）。
-	resumes map[string]map[string]bool
 }
 
 // NewEngine 构造引擎：补默认并行上限并初始化 active 簿记。

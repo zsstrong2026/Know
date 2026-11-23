@@ -271,6 +271,7 @@ func (b *blockingQA) AgentQA(ctx context.Context, _ *types.QARequest, _ *event.E
 // slotQA 首次调用正常返回、第二次（追问）调用时通过结果槽提交结论，模拟真实模型。
 type slotQA struct {
 	slots *ResultSlots
+	key   string
 	calls []*types.QARequest
 	put   bool
 	// putOnCall 指定在第几次调用（1 起）提交结果；0 表示 put 为 true 时每次都提交。
@@ -284,7 +285,11 @@ func (s *slotQA) AgentQA(_ context.Context, req *types.QARequest, bus *event.Eve
 	}})
 	call := len(s.calls)
 	if s.put && (s.putOnCall == 0 || s.putOnCall == call) {
-		s.slots.Put("r1/n1", SubmitResult{GateResult: types.SopGateRework, GateReason: "缺少测试", Output: "改后正文"})
+		key := s.key
+		if key == "" {
+			key = "r1/n1/1"
+		}
+		s.slots.Put(key, SubmitResult{GateResult: types.SopGateRework, GateReason: "缺少测试", Output: "改后正文"})
 	}
 	return nil
 }
@@ -336,4 +341,53 @@ func TestAgentProviderOverridesMaxIterations(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 3, qa.gotReq.CustomAgent.Config.MaxIterations)
 	require.Equal(t, -1, role.Config.MaxIterations, "共享角色对象不得被就地改写")
+}
+
+// 提交后挂起（执行器不消费槽）不得污染下一次尝试：键带尝试号，旧槽取不到。
+func TestSubmitSlotIsolatesAttempts(t *testing.T) {
+	slots := NewResultSlots()
+	slots.Put("r1/n1/1", SubmitResult{GateResult: types.SopGateRework, GateReason: "旧结论"})
+	qa := &slotQA{slots: slots}
+	p := NewAgentProvider(AgentDeps{QA: qa, Sessions: &stubSessions{}, Messages: &stubMessages{}, Results: slots})
+	tb := TaskBook{RunID: "r1", NodeID: "n1", NodeName: "实现", Prompt: "p", Role: &types.CustomAgent{}, Attempt: 2}
+	res, err := p.Execute(context.Background(), tb, ExecOptions{})
+	require.NoError(t, err)
+	require.Empty(t, res.GateResult, "第二次尝试不得命中第一次的残槽")
+	require.Len(t, qa.calls, 2, "残槽不计入，仍应追问一次")
+}
+
+// 追问轮正文与 token 统计都并入本轮（消息行与用量不能各说各话）。
+func TestAgentProviderMergesReminderRound(t *testing.T) {
+	slots := NewResultSlots()
+	qa := &mergeQA{slots: slots}
+	p := NewAgentProvider(AgentDeps{QA: qa, Sessions: &stubSessions{}, Messages: &stubMessages{}, Results: slots})
+	tb := TaskBook{RunID: "r1", NodeID: "n1", NodeName: "实现", Prompt: "p", Role: &types.CustomAgent{}, Attempt: 1}
+	res, err := p.Execute(context.Background(), tb, ExecOptions{})
+	require.NoError(t, err)
+	require.Contains(t, res.Output, "补充说明")
+	require.Equal(t, int64(30), res.Usage.InputTokens)
+	require.Equal(t, int64(20), res.Usage.OutputTokens)
+	require.Equal(t, types.SopGatePass, res.GateResult)
+}
+
+// mergeQA 第一轮不提交、第二轮提交，两轮各有不同的用量与正文。
+type mergeQA struct {
+	slots *ResultSlots
+	calls int
+}
+
+func (m *mergeQA) AgentQA(_ context.Context, _ *types.QARequest, bus *event.EventBus) error {
+	m.calls++
+	content := "首轮正文"
+	if m.calls > 1 {
+		content = "补充说明"
+		m.slots.Put("r1/n1/1", SubmitResult{GateResult: types.SopGatePass})
+	}
+	bus.Emit(context.Background(), event.Event{
+		Type: event.EventAgentFinalAnswer, Data: event.AgentFinalAnswerData{Content: content},
+	})
+	bus.Emit(context.Background(), event.Event{Type: event.EventAgentComplete, Data: event.AgentCompleteData{
+		FinalAnswer: content, Usage: &types.TokenUsage{PromptTokens: 15, CompletionTokens: 10},
+	}})
+	return nil
 }
