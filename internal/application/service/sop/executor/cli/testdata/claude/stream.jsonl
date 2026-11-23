@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"sess-abc","model":"claude-x"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"开始实现"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"path":"out/a.md"}}]}}
+{"type":"result","subtype":"success","session_id":"sess-abc","result":"实现完成","usage":{"input_tokens":120,"output_tokens":80},"total_cost_usd":0.01}

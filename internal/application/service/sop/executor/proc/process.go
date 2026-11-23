@@ -41,9 +41,22 @@ type Proc struct {
 func Start(
 	ctx context.Context, name string, args []string, env []string, dir string, stdin io.Reader,
 ) (*Proc, error) {
+	return StartIO(ctx, name, args, env, dir, stdin, nil, nil)
+}
+
+// StartIO 同 Start，但由调用方接管 stdout/stderr（nil 表示丢弃）。
+//
+// 分开给 stdout/stderr 是为了让「流式解析只看 stdout、失败提示只看 stderr」成为
+// 结构性事实：混在一起后既无法可靠解析 JSONL，也容易被日志噪声带偏。
+func StartIO(
+	ctx context.Context, name string, args []string, env []string, dir string,
+	stdin io.Reader, stdout, stderr io.Writer,
+) (*Proc, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Env = env
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	if stdin != nil {
 		pipe, err := cmd.StdinPipe()
 		if err != nil {
