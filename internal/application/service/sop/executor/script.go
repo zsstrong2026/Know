@@ -134,7 +134,9 @@ func (p *ScriptProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOpti
 		return ExecResult{}, fmt.Errorf("创建输出管道失败：%w", err)
 	}
 
-	cmd := exec.Command(shellBinary(), shellArgs(script)...)
+	// 用 CommandContext：cmd.WaitDelay 只有在 Cmd 绑定了 ctx 时才生效（exec 的
+	// watchCtx 会在 ctx 结束时强制关闭管道）。
+	cmd := exec.CommandContext(runCtx, shellBinary(), shellArgs(script)...)
 	cmd.Dir = root
 	cmd.Env = scriptEnv(tb.Env)
 	// 合并 stdout/stderr：模型与用户关心的是「发生了什么」，不是它来自哪个 fd；
@@ -177,13 +179,9 @@ func (p *ScriptProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOpti
 		}
 	}()
 
-	select {
-	case <-collected.done:
-	case <-runCtx.Done():
-		select {
-		case <-collected.done:
-		case <-time.After(scriptDrainGrace):
-		}
+	if !collected.wait(scriptDrainGrace) {
+		collected.close()
+		collected.wait(scriptDrainGrace)
 	}
 
 	waitErr := cmd.Wait()
@@ -224,11 +222,15 @@ func (p *ScriptProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOpti
 const scriptDrainGrace = 2 * time.Second
 
 // scriptReader 是一次输出收集：读取在协程里跑，主流程按 ctx 决定何时放弃等待。
+//
+// closed 之后不再 Emit、不再写日志：读取协程可能比 Execute 晚收尾，迟到的推送
+// 会写到已经关闭的日志文件上，还会混进超时摘要里变成一条假错误。
 type scriptReader struct {
-	pr   *os.File
-	done chan struct{}
-	mu   sync.Mutex
-	buf  strings.Builder
+	pr     *os.File
+	done   chan struct{}
+	mu     sync.Mutex
+	buf    strings.Builder
+	closed bool
 }
 
 // startScriptReader 起一个逐行读取协程：每行 Emit 一次 text_delta 并写日志。
@@ -241,7 +243,7 @@ func startScriptReader(pr *os.File, emit func(StreamEvent), logFile io.Writer) *
 		for scanner.Scan() {
 			r.push(scanner.Text(), emit, logFile)
 		}
-		if err := scanner.Err(); err != nil {
+		if err := scanner.Err(); err != nil && !errors.Is(err, os.ErrClosed) {
 			// 单行超过上限会让扫描提前结束。此时必须把剩余字节排空：读端不再读，
 			// 子进程写一个满的管道就会永远阻塞，Wait 随之挂死。
 			_, _ = io.Copy(io.Discard, pr)
@@ -251,9 +253,25 @@ func startScriptReader(pr *os.File, emit func(StreamEvent), logFile io.Writer) *
 	return r
 }
 
-// push 追加一行：缓冲、日志、SSE 三处同一份文本。
+// wait 等读取协程收尾，最多等 d；返回是否已结束。
+func (r *scriptReader) wait(d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-r.done:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
+// push 追加一行：缓冲、日志、SSE 三处同一份文本（reader 关闭后整条跳过）。
 func (r *scriptReader) push(text string, emit func(StreamEvent), logFile io.Writer) {
 	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return
+	}
 	r.buf.WriteString(text)
 	r.buf.WriteString("\n")
 	r.mu.Unlock()
@@ -266,7 +284,14 @@ func (r *scriptReader) push(text string, emit func(StreamEvent), logFile io.Writ
 }
 
 // close 掐掉读端：读取协程阻塞在 Read 上时随之中断，已收集的内容不丢。
-func (r *scriptReader) close() { _ = r.pr.Close() }
+//
+// 先置 closed 再关文件：晚到的读取行会在 push 里被丢弃，不会写进已关闭的日志。
+func (r *scriptReader) close() {
+	r.mu.Lock()
+	r.closed = true
+	r.mu.Unlock()
+	_ = r.pr.Close()
+}
 
 // output 返回已收集的全文（去掉末尾换行）。
 func (r *scriptReader) output() string {

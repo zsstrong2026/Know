@@ -5,8 +5,14 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
+	"github.com/Tencent/WeKnora/internal/application/service/sop/engine"
+	"github.com/Tencent/WeKnora/internal/application/service/sop/executor"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // stubApprover 记录委托调用（ApprovalService 的引擎侧替身）。
@@ -67,21 +73,63 @@ func TestApprovalServiceNilEngineFails(t *testing.T) {
 	require.Contains(t, err.Error(), "引擎")
 }
 
-// 活动流由引擎写（唯一出口）：服务再写一遍会出现两条 approve 记录，前端时间线立即重复。
-func TestApprovalServiceDoesNotDoubleLogActivity(t *testing.T) {
-	eng := &stubApprover{}
-	svc := NewApprovalService(eng, nil)
-	require.NoError(t, svc.Approve(context.Background(), 1, "r1", "n1", "同意", "u1"))
-	require.Len(t, eng.calls, 1)
+// 活动流由引擎唯一出口写：审批成功后事项上恰好一条 approve，不多不少。
+//
+// 这条测试用真实 sqlite 库 + 真实引擎跑，因为「服务层别重复写」这个决定的
+// 风险只有落库才看得见（stub 计数只能证明服务调了引擎一次）。
+func TestApprovalServiceWritesSingleBusinessActivity(t *testing.T) {
+	db := newApprovalTestDB(t)
+	runs := repository.NewSopRunRepo(db)
+	items := repository.NewSopItemRepo(db)
+	extras := repository.NewSopItemExtraRepo(db)
+	engineSvc := engine.NewEngine(engine.Deps{
+		Runs: runs, Items: items, Extras: extras,
+		Registry: executor.NewRegistry(), WorkspaceRoot: t.TempDir(), DisableRunLoop: true,
+	})
+	svc := NewApprovalService(engineSvc, extras)
+	ctx := context.Background()
+
+	item := &types.SopItem{TenantID: 1, ProjectID: "p1", Title: "需求", Status: types.SopItemStatusInProgress}
+	require.NoError(t, items.Create(ctx, item))
+	def := types.SopDefinition{Nodes: []types.SopNode{{ID: "n1", Type: types.SopNodeTypeApproval}}}
+	run := &types.SopRun{
+		TenantID: 1, Status: types.SopRunWaiting, WorkflowSnapshot: def,
+		WorkspaceDir: t.TempDir(), ItemID: item.ID,
+	}
+	require.NoError(t, runs.CreateRun(ctx, run))
+	require.NoError(t, runs.CreateNodeRun(ctx, &types.SopNodeRun{
+		TenantID: 1, RunID: run.ID, NodeID: "n1", Status: types.SopNodeWaitingApproval,
+	}))
+
+	require.NoError(t, svc.Approve(ctx, 1, run.ID, "n1", "同意", "u1"))
+	acts, err := extras.ListActivities(ctx, 1, item.ID, types.SopActivityKindBusiness)
+	require.NoError(t, err)
+	require.Len(t, acts, 1, "审批成功只能留一条业务活动（引擎写，服务不重复写）")
+	require.Equal(t, "approve", acts[0].Action)
+	require.Equal(t, "u1", acts[0].Actor)
 }
 
-// ApprovalTimeoutHours<=0 的节点不参与清扫（spec §6 默认无限等待）。
-func TestApprovalTimeoutPolicyReadsNodeFields(t *testing.T) {
-	def := types.SopDefinition{Nodes: []types.SopNode{
-		{ID: "n1", Type: types.SopNodeTypeApproval},
-		{ID: "n2", Type: types.SopNodeTypeApproval, ApprovalTimeoutHours: 2, ApprovalTimeoutAction: "notify"},
-	}}
-	require.Equal(t, 0, def.Nodes[0].ApprovalTimeoutHours, "未配置=无限等待")
-	require.Equal(t, 2, def.Nodes[1].ApprovalTimeoutHours)
-	require.Equal(t, "notify", def.Nodes[1].ApprovalTimeoutAction)
+// newApprovalTestDB 建 sqlite :memory: 测试库（单连接，与引擎测试同口径）。
+func newApprovalTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	require.NoError(t, db.AutoMigrate(
+		&types.SopProject{}, &types.SopItem{}, &types.SopItemAttachment{},
+		&types.SopItemClarification{}, &types.SopItemActivity{},
+		&types.SopTemplate{}, &types.SopTemplateRevision{},
+		&types.SopRun{}, &types.SopNodeRun{}, &types.SopArtifact{},
+		&types.SopCLICredential{}, &types.SopTriggerConfig{}, &types.SopTriggerLog{},
+		&types.SopDispatchReservation{},
+	))
+	require.NoError(t, db.Exec(
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_sop_node_runs_run_node ON sop_node_runs(run_id, node_id)",
+	).Error)
+	return db
 }
