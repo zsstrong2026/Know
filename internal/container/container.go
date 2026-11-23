@@ -1090,6 +1090,13 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		return sop.NewTemplateService(templates, projects)
 	}))
 	must(container.Provide(func(
+		templates interfaces.SopTemplateRepository, runs interfaces.SopRunRepository,
+		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
+	) *sop.RunService {
+		return sop.NewRunService(templates, runs, projects, items)
+	}))
+	must(container.Provide(sop.NewEventHub))
+	must(container.Provide(func(
 		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
 		extras interfaces.SopItemExtraRepository, runs interfaces.SopRunRepository,
 	) *sop.ItemService {
@@ -1100,7 +1107,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
 		extras interfaces.SopItemExtraRepository, registry *sopexecutor.Registry,
 		resolver *sop.ContextResolver, notices *service.NotificationService,
-		broker *hitl.Broker, itemSvc *sop.ItemService,
+		broker *hitl.Broker, itemSvc *sop.ItemService, hub *sop.EventHub,
 	) *sopengine.Engine {
 		return sopengine.NewEngine(sopengine.Deps{
 			Runs: runs, Templates: templates, Projects: projects, Items: items,
@@ -1123,6 +1130,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 			},
 			Prompts:           sop.NewPromptBridge(broker),
 			SuspensionPrompts: sop.NewPromptBridge(broker),
+			// 节点流事件与状态变更推到 SSE 订阅方（同一进程内的 EventHub）。
+			EventSink: hub.Publish,
 		})
 	}))
 	must(container.Provide(func(
@@ -1138,9 +1147,11 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(func(
 		projects interfaces.SopProjectRepository, runs interfaces.SopRunRepository,
 		items *sop.ItemService, templates *sop.TemplateService,
+		runSvc *sop.RunService, eng *sopengine.Engine, hub *sop.EventHub,
 	) *handler.SOPHandler {
 		return handler.NewSOPHandler(handler.SOPHandlerDeps{
 			Projects: projects, Runs: runs, Items: items, Templates: templates,
+			RunSvc: runSvc, Engine: eng, Hub: hub,
 		})
 	}))
 	logger.Debugf(ctx, "[Container] HTTP handlers registered")

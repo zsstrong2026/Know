@@ -150,3 +150,46 @@ func TestSOPTemplateRoutesDeclareCapabilities(t *testing.T) {
 		require.Contains(t, policy.Capabilities, types.APIKeyCapabilityManageSOP, key)
 	}
 }
+
+// 运行路由能力声明：读→read_sop，写→run_sop。
+func TestSOPRunRoutesDeclareCapabilities(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := handler.NewSOPHandler(handler.SOPHandlerDeps{})
+	g := &rbacGuards{cfg: testSOPConfig()}
+	RegisterSOPRunRoutes(gin.New().Group("/api/v1"), h, g)
+
+	reads := []string{
+		"GET /api/v1/sop/runs",
+		"GET /api/v1/sop/runs/stats/summary",
+		"GET /api/v1/sop/runs/:id",
+		"GET /api/v1/sop/runs/:id/events",
+		"GET /api/v1/sop/runs/:id/artifacts",
+		"GET /api/v1/sop/runs/:id/artifacts/:aid/file",
+		"GET /api/v1/sop/runs/:id/nodes/:nid/logs",
+	}
+	writes := []string{
+		"POST /api/v1/sop/runs",
+		"POST /api/v1/sop/runs/:id/retry",
+		"POST /api/v1/sop/runs/:id/pause",
+		"POST /api/v1/sop/runs/:id/resume",
+		"POST /api/v1/sop/runs/:id/cancel",
+		"POST /api/v1/sop/runs/:id/human-context",
+		"POST /api/v1/sop/runs/:id/nodes/:nid/approve",
+		"POST /api/v1/sop/runs/:id/nodes/:nid/reject",
+		"POST /api/v1/sop/runs/:id/nodes/:nid/rework",
+		"POST /api/v1/sop/runs/:id/nodes/:nid/terminate",
+		"POST /api/v1/sop/runs/:id/nodes/:nid/answer",
+	}
+	for _, key := range reads {
+		method, path := splitRouteKey(t, key)
+		policy, ok := g.apiKeyAuthorizer.Lookup(method, path)
+		require.True(t, ok, "路由 %s 未声明策略", key)
+		require.Contains(t, policy.Capabilities, types.APIKeyCapabilityReadSOP, key)
+	}
+	for _, key := range writes {
+		method, path := splitRouteKey(t, key)
+		policy, ok := g.apiKeyAuthorizer.Lookup(method, path)
+		require.True(t, ok, "路由 %s 未声明策略", key)
+		require.Contains(t, policy.Capabilities, types.APIKeyCapabilityRunSOP, key)
+	}
+}

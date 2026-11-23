@@ -23,6 +23,8 @@ const (
 	StreamEventToolResult = "tool_result" // 工具调用结果
 	StreamEventResult     = "result"      // 节点最终结果
 	StreamEventError      = "error"       // 执行错误
+	// StreamEventNodeStatus 节点状态变更（引擎侧产生，不是执行器输出）。
+	StreamEventNodeStatus = "node_status"
 )
 
 // ---- 常量：Provider 种类（Kind() 的返回值口径）----

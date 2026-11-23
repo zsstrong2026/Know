@@ -562,6 +562,31 @@ func (e *Engine) executeNode(
 	return nil
 }
 
+// publishEvent 把事件推给 SSE 订阅方（EventSink 未装配时静默跳过）。
+func (e *Engine) publishEvent(runID string, ev executor.StreamEvent) {
+	if e.deps.EventSink == nil || runID == "" {
+		return
+	}
+	if ev.At.IsZero() {
+		ev.At = time.Now()
+	}
+	e.deps.EventSink(runID, ev)
+}
+
+// publishNodeStatus 广播节点状态变更（前端据此刷新步骤卡片）。
+func (e *Engine) publishNodeStatus(runID string, nr *types.SopNodeRun) {
+	if e.deps.EventSink == nil || nr == nil {
+		return
+	}
+	payload, err := json.Marshal(nr)
+	if err != nil {
+		return
+	}
+	e.publishEvent(runID, executor.StreamEvent{
+		Type: executor.StreamEventNodeStatus, Payload: payload, At: time.Now(),
+	})
+}
+
 // executionError 落实「执行器报错」的重试口径：预算内回 pending 并带反馈；
 // 预算耗尽转人工（run waiting），不发失败通知。
 func (e *Engine) executionError(
@@ -723,7 +748,11 @@ func (e *Engine) applyGateOutcome(
 		e.markRunStatus(ctx, run, types.SopRunWaiting)
 		e.notifyApproval(ctx, run, node, reason)
 	}
-	return e.deps.Runs.UpdateNodeRun(ctx, nr)
+	if err := e.deps.Runs.UpdateNodeRun(ctx, nr); err != nil {
+		return err
+	}
+	e.publishNodeStatus(run.ID, nr)
+	return nil
 }
 
 // handleFailure 落实失败四策略（spec §4.2）：fail 直接失败、human 转人工、

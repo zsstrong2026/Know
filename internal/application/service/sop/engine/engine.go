@@ -67,6 +67,8 @@ type Deps struct {
 	Notify            func(ctx context.Context, tenantID uint64, kind, title, body, refID string) // 可 nil；kind=sop_approval|sop_run_finished|sop_run_failed
 	Prompts           PromptAnswerer                                                              // 可 nil；答复写入挂起提示（hitl Broker 适配，T21 接线）
 	SuspensionPrompts PromptSuspensionLocator                                                     // 可 nil；按会话定位待答复的挂起提示
+	// EventSink 把节点流事件与状态变更推给 SSE 订阅方（可 nil；T24 接线）。
+	EventSink func(runID string, ev executor.StreamEvent)
 }
 
 // Engine 是进程内单实例调度器：一个 ticker 循环认领到期运行，每个运行一个推进协程。

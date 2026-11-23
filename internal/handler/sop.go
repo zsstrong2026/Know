@@ -21,6 +21,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Tencent/WeKnora/internal/application/service/sop"
+	sopengine "github.com/Tencent/WeKnora/internal/application/service/sop/engine"
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -35,6 +36,10 @@ type SOPHandler struct {
 	items *sop.ItemService
 	// templates 是模板服务（T23 接线）。
 	templates *sop.TemplateService
+	// runs2 是运行业务（T24 接线）；engine 承载运行级/节点级人工操作。
+	runs2  *sop.RunService
+	engine *sopengine.Engine
+	hub    *sop.EventHub
 }
 
 // SOPHandlerDeps 是 handler 的依赖集合（后续任务继续加字段）。
@@ -43,11 +48,17 @@ type SOPHandlerDeps struct {
 	Runs      interfaces.SopRunRepository
 	Items     *sop.ItemService
 	Templates *sop.TemplateService
+	RunSvc    *sop.RunService
+	Engine    *sopengine.Engine
+	Hub       *sop.EventHub
 }
 
 // NewSOPHandler 构造 SOP handler。
 func NewSOPHandler(d SOPHandlerDeps) *SOPHandler {
-	return &SOPHandler{projects: d.Projects, runs: d.Runs, items: d.Items, templates: d.Templates}
+	return &SOPHandler{
+		projects: d.Projects, runs: d.Runs, items: d.Items, templates: d.Templates,
+		runs2: d.RunSvc, engine: d.Engine, hub: d.Hub,
+	}
 }
 
 // RegisterSOPRoutes 把项目组挂到 /api/v1/sop 下（事项组在 RegisterSOPItemRoutes）。
@@ -97,6 +108,7 @@ var sopSentinels = []error{
 	sop.ErrSopAttachmentEmpty, sop.ErrSopAttachmentTooLarge, sop.ErrSopAttachmentType,
 	sop.ErrSopClarificationOpen, sop.ErrSopIllegalTransition,
 	sop.ErrSopTemplateReadonly, sop.ErrSopTemplateInvalid, sop.ErrSopTemplateNameRequired,
+	sop.ErrSopTemplateUnpublished, sop.ErrSopRunInputMissing,
 }
 
 // sopIsClientError 判断是否为业务校验错误（也接受 types 层直接给出的校验文案）。

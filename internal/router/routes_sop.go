@@ -96,3 +96,33 @@ func RegisterSOPTemplateRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rb
 	manage.POST("/templates/:id/publish", g.Contributor(), h.PublishTemplate)
 	manage.POST("/templates/:id/copy", g.Contributor(), h.CopyTemplate)
 }
+
+// RegisterSOPRunRoutes 挂运行组：创建/列表/统计/详情/SSE/产物/日志与全部人工操作。
+//
+// 读路由声明 read_sop，写路由声明 run_sop（发起运行与人工处置属于「跑」而不是
+// 「管」：允许一个只负责执行的集成方不碰项目与模板的编辑面）。
+func RegisterSOPRunRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGuards) {
+	runs := v1.Group("/sop")
+	read := g.apiKeyGroup(runs, apiKeyReadSOP(apiKeyFullAccess()))
+	run := g.apiKeyGroup(runs, apiKeyRunSOP(apiKeyFullAccess()))
+
+	read.GET("/runs", g.Viewer(), h.ListRuns)
+	read.GET("/runs/stats/summary", g.Viewer(), h.RunStats)
+	read.GET("/runs/:id", g.Viewer(), h.GetRun)
+	read.GET("/runs/:id/events", g.Viewer(), h.RunEvents)
+	read.GET("/runs/:id/artifacts", g.Viewer(), h.ListRunArtifacts)
+	read.GET("/runs/:id/artifacts/:aid/file", g.Viewer(), h.DownloadArtifact)
+	read.GET("/runs/:id/nodes/:nid/logs", g.Viewer(), h.NodeLogs)
+
+	run.POST("/runs", g.Contributor(), h.CreateRun)
+	run.POST("/runs/:id/retry", g.Contributor(), h.RetryRun)
+	run.POST("/runs/:id/pause", g.Contributor(), h.PauseRun)
+	run.POST("/runs/:id/resume", g.Contributor(), h.ResumeRunPaused)
+	run.POST("/runs/:id/cancel", g.Contributor(), h.CancelRun)
+	run.POST("/runs/:id/human-context", g.Contributor(), h.AddRunHumanContext)
+	run.POST("/runs/:id/nodes/:nid/approve", g.Contributor(), h.ApproveNode)
+	run.POST("/runs/:id/nodes/:nid/reject", g.Contributor(), h.RejectNode)
+	run.POST("/runs/:id/nodes/:nid/rework", g.Contributor(), h.ReworkNode)
+	run.POST("/runs/:id/nodes/:nid/terminate", g.Contributor(), h.TerminateNode)
+	run.POST("/runs/:id/nodes/:nid/answer", g.Contributor(), h.AnswerNode)
+}
