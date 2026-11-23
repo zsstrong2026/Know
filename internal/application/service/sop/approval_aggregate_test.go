@@ -105,7 +105,7 @@ func newAggregateTestService(t *testing.T) *ApprovalService {
 				WorkflowSnapshot: def, ProjectID: "p1", ItemID: "i1",
 			}},
 			nodes: map[string][]types.SopNodeRun{"run1": {{
-				TenantID: 1, RunID: "run1", NodeID: "n1",
+				TenantID: 1, RunID: "run1", NodeID: "n1", SessionID: "s-sop",
 				Status: types.SopNodeWaitingApproval, GateReason: "等待确认方案",
 				UpdatedAt: now.Add(-3 * time.Hour),
 			}}},
@@ -113,14 +113,14 @@ func newAggregateTestService(t *testing.T) *ApprovalService {
 		Projects: aggProjectRepo{names: map[string]string{"p1": "核心项目"}},
 		Items:    aggItemRepo{titles: map[string]string{"i1": "登录改造"}},
 		Prompts: aggPromptLister{prompts: []*types.AgentPrompt{{
-			ID: "p-1", TenantID: 1, SessionID: "s1", Kind: types.AgentPromptKindAskUser,
+			ID: "p-1", TenantID: 1, SessionID: "s-free", Kind: types.AgentPromptKindAskUser,
 			Request:   types.JSON(`{"question":"用哪个方案？"}`),
 			Status:    types.AgentPromptSuspended,
 			CreatedAt: now.Add(-1 * time.Hour),
 		}}},
 		Automations: aggAutomationLister{items: []PendingAutomation{{
-			RunID: "ar1", AutomationName: "周报生成", Reason: "等待确认是否发布",
-			WaitingSince: now.Add(-2 * time.Hour),
+			RunID: "ar1", AutomationName: "周报生成", SessionID: "s-auto", PromptID: "p-auto",
+			Reason: "等待确认是否发布", WaitingSince: now.Add(-2 * time.Hour),
 		}}},
 	})
 	return svc
@@ -145,8 +145,8 @@ func TestListPendingAggregatesThreeSources(t *testing.T) {
 			require.Equal(t, "等待确认方案", e.Reason)
 			require.Equal(t, []string{"approve", "reject", "rework", "terminate"}, e.Actions)
 		case "agent_prompt":
-			require.Equal(t, "p-1", e.RefID)
-			require.Equal(t, "s1", e.SessionID)
+			require.Equal(t, "p-1", e.RefID, "SOP 与自动化已覆盖的提示不再重复列出")
+			require.Equal(t, "s-free", e.SessionID)
 			require.Equal(t, "用哪个方案？", e.Title)
 			require.Equal(t, []string{"answer"}, e.Actions)
 		case "automation":
@@ -281,4 +281,64 @@ func newAggregateAdapterDB(t *testing.T) *gorm.DB {
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	require.NoError(t, db.AutoMigrate(&types.AgentPrompt{}, &types.Automation{}, &types.AutomationRun{}))
 	return db
+}
+
+// 同一件事只出现一次：SOP 节点会话上的开放提示、自动化运行挂着的提示，
+// 都不再以 agent_prompt 身份重复列出。
+func TestListPendingDedupesPromptsCoveredByRuns(t *testing.T) {
+	now := time.Now()
+	def := types.SopDefinition{Nodes: []types.SopNode{{ID: "n1", Name: "确认"}}}
+	svc := NewApprovalService(&stubApprover{}, nil).WithAggregateSources(AggregateDeps{
+		Runs: aggRunRepo{
+			runs: []types.SopRun{{ID: "run1", TenantID: 1, Status: types.SopRunWaiting, WorkflowSnapshot: def}},
+			nodes: map[string][]types.SopNodeRun{"run1": {{
+				TenantID: 1, RunID: "run1", NodeID: "n1", SessionID: "s-sop",
+				Status: types.SopNodePendingInput, UpdatedAt: now,
+			}}},
+		},
+		Prompts: aggPromptLister{prompts: []*types.AgentPrompt{
+			{ID: "p-sop", TenantID: 1, SessionID: "s-sop", Kind: types.AgentPromptKindAskUser, CreatedAt: now},
+			{ID: "p-auto", TenantID: 1, SessionID: "s-auto", Kind: types.AgentPromptKindToolApproval, CreatedAt: now},
+			{ID: "p-free", TenantID: 1, SessionID: "s-free", Kind: types.AgentPromptKindAskUser, CreatedAt: now},
+		}},
+		Automations: aggAutomationLister{items: []PendingAutomation{{
+			RunID: "ar1", AutomationName: "自动化", SessionID: "s-auto", PromptID: "p-auto", WaitingSince: now,
+		}}},
+	})
+	entries, err := svc.ListPending(context.Background(), 1)
+	require.NoError(t, err)
+
+	var promptIDs []string
+	for _, e := range entries {
+		if e.Kind == ApprovalKindAgentPrompt {
+			promptIDs = append(promptIDs, e.RefID)
+		}
+	}
+	require.Equal(t, []string{"p-free"}, promptIDs,
+		"被 SOP 会话与自动化运行覆盖的提示不再以第三行出现")
+}
+
+func TestListPendingRejectsZeroTenant(t *testing.T) {
+	svc := newAggregateTestService(t)
+	_, err := svc.ListPending(context.Background(), 0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "租户")
+}
+
+// 旧模块口径：工单审批与 MCP 授权没配问题文本时，标题要能说出「谁在请求」。
+func TestListPendingToolApprovalTitle(t *testing.T) {
+	svc := NewApprovalService(&stubApprover{}, nil).WithAggregateSources(AggregateDeps{
+		Prompts: aggPromptLister{prompts: []*types.AgentPrompt{
+			{ID: "p-1", TenantID: 1, Kind: types.AgentPromptKindToolApproval,
+				Request: types.JSON(`{"service_name":"GitHub","mcp_tool_name":"create_issue"}`)},
+			{ID: "p-2", TenantID: 1, Kind: types.AgentPromptKindMCPOAuth,
+				Request: types.JSON(`{"service_name":"飞书"}`)},
+		}},
+	})
+	entries, err := svc.ListPending(context.Background(), 1)
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+	titles := []string{entries[0].Title, entries[1].Title}
+	require.Contains(t, titles, "GitHub 调用待确认")
+	require.Contains(t, titles, "飞书 授权待确认")
 }

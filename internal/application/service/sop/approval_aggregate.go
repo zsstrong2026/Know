@@ -4,9 +4,13 @@
 // 三条口径：
 //   - 只读：本文件不写任何业务表，也不改 automation/hitl 的既有代码。聚合源以窄
 //     接口注入（SOP 运行仓储方法集正好满足，项目/事项复用 context.go 的两个
-//     Getter）；跨租户列表查询由本文件提供的 gorm 适配器完成（T21 接线直接注入）。
+//     Getter）；两路旧模块的列表查询由本文件提供的 gorm 适配器完成（T21 接线
+//     直接注入），查询条件与 notification.go 的待审批口径保持一致。
 //   - 来源失败不拖垮整页：哪一路读失败就少哪一路，其余照常返回（审批中心空白
 //     比缺一路更难排查）。
+//   - 去重：SOP 挂起与自动化待审批底层也各有一条 agent_prompts 行，若再来一路
+//     「智能体挂起」，同一件事会以两行出现、前端会分别调两个接口。这里用会话 id
+//     与提示 id 反查剔除，保证「一件事只出现一次」。
 //   - 处置分发不在本层：前端按 entry.kind + actions 调各自接口（SOP → ApprovalService，
 //     agent_prompt → 现有答复 API，automation → 现有审批 API）。
 package sop
@@ -27,11 +31,13 @@ import (
 
 // ApprovalEntry 是审批中心的一行待办（字段名即前端契约）。
 type ApprovalEntry struct {
-	Kind         string    `json:"kind"` // sop | agent_prompt | automation
-	RefID        string    `json:"ref_id"`
-	RunID        string    `json:"run_id,omitempty"`
-	NodeID       string    `json:"node_id,omitempty"`
-	SessionID    string    `json:"session_id,omitempty"`
+	Kind      string `json:"kind"` // sop | agent_prompt | automation
+	RefID     string `json:"ref_id"`
+	RunID     string `json:"run_id,omitempty"`
+	NodeID    string `json:"node_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	// PromptID 仅自动化行使用：运行挂起的提示主键（前端回答时可直接定位）。
+	PromptID     string    `json:"prompt_id,omitempty"`
 	Title        string    `json:"title"`
 	ProjectName  string    `json:"project_name,omitempty"`
 	ItemTitle    string    `json:"item_title,omitempty"`
@@ -61,8 +67,10 @@ type PendingAutomation struct {
 	RunID          string
 	AutomationName string
 	SessionID      string
-	Reason         string
-	WaitingSince   time.Time
+	// PromptID 是该运行挂起的提示主键：聚合层用它剔除重复的「智能体挂起」行。
+	PromptID     string
+	Reason       string
+	WaitingSince time.Time
 }
 
 // ApprovalRunSource 是聚合需要的运行读能力（真实实现 = repository.SopRunRepo）。
@@ -103,22 +111,60 @@ func (s *ApprovalService) WithAggregateSources(d AggregateDeps) *ApprovalService
 	return s
 }
 
-// ListPending 三源聚合，按 WaitingSince 升序（等最久的在最前）。
+// ListPending 三源聚合，按 WaitingSince 升序（等最久的最前）。
+//
+// tenantID==0 直接拒绝：运行仓储把 0 当「跨租户扫描」（引擎内部专用），
+// 审批中心是 HTTP 入口，漏解析租户时宁可报错也不能把别家的待办列出来。
 func (s *ApprovalService) ListPending(ctx context.Context, tenantID uint64) ([]ApprovalEntry, error) {
 	if s == nil {
 		return nil, errors.New("审批服务未就绪：服务未构造")
 	}
-	var entries []ApprovalEntry
-	entries = append(entries, s.listSOPPending(ctx, tenantID)...)
-	entries = append(entries, s.listPromptPending(ctx, tenantID)...)
-	entries = append(entries, s.listAutomationPending(ctx, tenantID)...)
-	sort.SliceStable(entries, func(i, j int) bool {
-		return entries[i].WaitingSince.Before(entries[j].WaitingSince)
-	})
-	if entries == nil {
-		entries = []ApprovalEntry{}
+	if tenantID == 0 {
+		return nil, errors.New("缺少租户上下文：无法查询审批待办")
 	}
+	sopEntries := s.listSOPPending(ctx, tenantID)
+	automationEntries := s.listAutomationPending(ctx, tenantID)
+	promptEntries := s.listPromptPending(ctx, tenantID, dedupeKeys(sopEntries, automationEntries))
+
+	entries := make([]ApprovalEntry, 0, len(sopEntries)+len(promptEntries)+len(automationEntries))
+	entries = append(entries, sopEntries...)
+	entries = append(entries, promptEntries...)
+	entries = append(entries, automationEntries...)
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].WaitingSince.Before(entries[j].WaitingSince) // 时间越早=等得越久=越靠前
+	})
 	return entries, nil
+}
+
+// dedupeKeys 收集「已经以 sop / automation 身份出现」的提示：同一个 agent_prompts
+// 行若同时被这两路覆盖，就不再以 agent_prompt 身份重复列出。
+//
+// SOP 侧按会话 id 命中（节点会话上一条开放提示就是它挂起的那条），自动化侧按
+// 运行登记的 pending_prompt_id 命中。
+func dedupeKeys(sop, automation []ApprovalEntry) promptDedupe {
+	keys := promptDedupe{sessions: map[string]bool{}, prompts: map[string]bool{}}
+	for _, e := range sop {
+		if e.SessionID != "" {
+			keys.sessions[e.SessionID] = true
+		}
+	}
+	for _, e := range automation {
+		if e.PromptID != "" {
+			keys.prompts[e.PromptID] = true
+		}
+	}
+	return keys
+}
+
+// promptDedupe 是提示去重的两个键：会话（SOP 节点会话）与提示主键（自动化运行）。
+type promptDedupe struct {
+	sessions map[string]bool
+	prompts  map[string]bool
+}
+
+// hit 判断一条开放提示是否已被前两路覆盖。
+func (d promptDedupe) hit(p *types.AgentPrompt) bool {
+	return d.prompts[p.ID] || (p.SessionID != "" && d.sessions[p.SessionID])
 }
 
 // listSOPPending 收集 SOP 的 waiting_approval / pending_input 节点。
@@ -135,6 +181,10 @@ func (s *ApprovalService) listSOPPending(ctx context.Context, tenantID uint64) [
 	var out []ApprovalEntry
 	for i := range runs {
 		run := &runs[i]
+		// 项目名与事项标题按运行缓存：同一次运行通常有多个等待节点，逐节点回查
+		// 会把同一行读两遍（N+1 的最常见形态）。
+		project := s.projectName(ctx, run)
+		item := s.itemTitle(ctx, run)
 		nrs, err := d.Runs.ListNodeRuns(ctx, run.TenantID, run.ID)
 		if err != nil {
 			log.Printf("[sop-approval] 运行 %s 节点读取失败：%v", run.ID, err)
@@ -150,9 +200,10 @@ func (s *ApprovalService) listSOPPending(ctx context.Context, tenantID uint64) [
 				RefID:        run.ID + "/" + nr.NodeID,
 				RunID:        run.ID,
 				NodeID:       nr.NodeID,
+				SessionID:    nr.SessionID,
 				Title:        sopNodeTitle(run, nr.NodeID),
-				ProjectName:  s.projectName(ctx, run),
-				ItemTitle:    s.itemTitle(ctx, run),
+				ProjectName:  project,
+				ItemTitle:    item,
 				Reason:       sopWaitingReason(nr),
 				WaitingSince: nr.UpdatedAt,
 				Actions:      sopWaitingActions(nr.Status),
@@ -219,8 +270,10 @@ func (s *ApprovalService) itemTitle(ctx context.Context, run *types.SopRun) stri
 	return item.Title
 }
 
-// listPromptPending 收集智能体追问/审批挂起。
-func (s *ApprovalService) listPromptPending(ctx context.Context, tenantID uint64) []ApprovalEntry {
+// listPromptPending 收集智能体追问/审批挂起（跳过已被 SOP/自动化覆盖的提示）。
+func (s *ApprovalService) listPromptPending(
+	ctx context.Context, tenantID uint64, dedupe promptDedupe,
+) []ApprovalEntry {
 	if s.aggregates.Prompts == nil {
 		return nil
 	}
@@ -231,7 +284,7 @@ func (s *ApprovalService) listPromptPending(ctx context.Context, tenantID uint64
 	}
 	out := make([]ApprovalEntry, 0, len(prompts))
 	for _, p := range prompts {
-		if p == nil {
+		if p == nil || dedupe.hit(p) {
 			continue
 		}
 		out = append(out, ApprovalEntry{
@@ -247,7 +300,7 @@ func (s *ApprovalService) listPromptPending(ctx context.Context, tenantID uint64
 	return out
 }
 
-// promptTitle 从提示请求里取问题；解析不出时按种类给白话兜底。
+// promptTitle 从提示请求里取问题；解析不出时按种类给更具体的白话兜底。
 func promptTitle(p *types.AgentPrompt) string {
 	var req types.AskUserPromptRequest
 	if len(p.Request) > 0 && json.Unmarshal(p.Request, &req) == nil {
@@ -257,8 +310,20 @@ func promptTitle(p *types.AgentPrompt) string {
 	}
 	switch p.Kind {
 	case types.AgentPromptKindToolApproval:
+		var req types.ToolApprovalPromptRequest
+		if len(p.Request) > 0 && json.Unmarshal(p.Request, &req) == nil {
+			if name := firstNotEmpty(req.ServiceName, req.RegisteredToolName); name != "" {
+				return name + " 调用待确认"
+			}
+		}
 		return "工具调用待确认"
 	case types.AgentPromptKindMCPOAuth:
+		var req types.MCPOAuthPromptRequest
+		if len(p.Request) > 0 && json.Unmarshal(p.Request, &req) == nil {
+			if name := firstNotEmpty(req.ServiceName, req.MCPToolName); name != "" {
+				return name + " 授权待确认"
+			}
+		}
 		return "MCP 授权待确认"
 	default:
 		return "智能体等待你的回答"
@@ -298,6 +363,7 @@ func (s *ApprovalService) listAutomationPending(ctx context.Context, tenantID ui
 			RefID:        it.RunID,
 			RunID:        it.RunID,
 			SessionID:    it.SessionID,
+			PromptID:     it.PromptID,
 			Title:        title,
 			Reason:       firstNotEmpty(it.Reason, "自动化运行等待确认"),
 			WaitingSince: it.WaitingSince,
@@ -330,10 +396,12 @@ func (l *promptLister) ListOpenByTenant(ctx context.Context, tenantID uint64) ([
 		return nil, nil
 	}
 	var rows []*types.AgentPrompt
+	// 过期提示答不了，不列；再按主键兜底排序，保证同一时刻创建的多行顺序稳定。
 	err := l.db.WithContext(ctx).
 		Where("tenant_id = ? AND status IN ?", tenantID,
 			[]string{types.AgentPromptPending, types.AgentPromptSuspended}).
-		Order("created_at ASC").
+		Where("expires_at IS NULL OR expires_at > ?", time.Now()).
+		Order("created_at ASC").Order("id ASC").
 		Find(&rows).Error
 	return rows, err
 }
@@ -353,17 +421,23 @@ func (l *automationLister) ListPendingApprovals(
 		return nil, nil
 	}
 	var rows []struct {
-		RunID          string
-		SessionID      string
-		AutomationName string
-		UpdatedAt      time.Time
+		RunID           string
+		SessionID       string
+		PendingPromptID string
+		AutomationName  string
+		UpdatedAt       time.Time
 	}
+	// 口径与 notification.go 的待审批查询保持一致：已取消的运行、已软删的自动化、
+	// 已过期/已答复的提示都不再是待办（否则前端会列出点不动的行）。
 	err := l.db.WithContext(ctx).
 		Table("automation_runs AS r").
-		Select("r.id AS run_id, r.session_id AS session_id, a.name AS automation_name, r.updated_at AS updated_at").
-		Joins("JOIN automations AS a ON a.id = r.automation_id").
-		Where("r.tenant_id = ? AND r.status = ?", tenantID, types.AutomationRunAwaitingApproval).
-		Order("r.updated_at ASC").
+		Select("r.id AS run_id, r.session_id AS session_id, r.pending_prompt_id AS pending_prompt_id, "+
+			"a.name AS automation_name, r.updated_at AS updated_at").
+		Joins("JOIN automations AS a ON a.id = r.automation_id AND a.tenant_id = r.tenant_id").
+		Where("r.tenant_id = ? AND r.status = ? AND r.cancel_requested = ?", tenantID,
+			types.AutomationRunAwaitingApproval, false).
+		Where("a.deleted_at IS NULL").
+		Order("r.updated_at ASC").Order("r.id ASC").
 		Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("读取自动化待审批失败：%w", err)
@@ -374,6 +448,7 @@ func (l *automationLister) ListPendingApprovals(
 			RunID:          r.RunID,
 			AutomationName: r.AutomationName,
 			SessionID:      r.SessionID,
+			PromptID:       r.PendingPromptID,
 			WaitingSince:   r.UpdatedAt,
 		})
 	}
