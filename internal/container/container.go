@@ -976,6 +976,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// Start only after the delegation close hook is installed.
 	must(container.Invoke(startAgentPromptReaper))
 	must(container.Invoke(startSOPEngine))
+	must(container.Invoke(startSOPTriggerScheduler))
 	must(container.Provide(handler.NewMCPCredentialsHandler))
 	must(container.Provide(handler.NewMCPOAuthHandler))
 	must(container.Provide(handler.NewModelCredentialsHandler))
@@ -1121,6 +1122,22 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		return sop.NewCredentialService(creds)
 	}))
 	must(container.Provide(func(
+		triggers interfaces.SopTriggerRepository, items interfaces.SopItemRepository,
+		runSvc *sop.RunService, templates interfaces.SopTemplateRepository,
+	) *sop.TriggerService {
+		return sop.NewTriggerService(sop.TriggerDeps{
+			Triggers: triggers, Items: items, Runs: runSvc, Templates: templates,
+		})
+	}))
+	must(container.Provide(func(
+		triggers interfaces.SopTriggerRepository, items interfaces.SopItemRepository,
+		runSvc *sop.RunService, templates interfaces.SopTemplateRepository,
+	) *sop.TriggerScheduler {
+		return sop.NewTriggerScheduler(sop.TriggerDeps{
+			Triggers: triggers, Items: items, Runs: runSvc, Templates: templates,
+		})
+	}))
+	must(container.Provide(func(
 		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
 		runs interfaces.SopRunRepository,
 	) *sop.ArchiveService {
@@ -1181,12 +1198,13 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		ai *sop.AIService, aiRunner sop.Runner,
 		approvals *sop.ApprovalService, triggers interfaces.SopTriggerRepository,
 		creds interfaces.SopCredentialRepository, credSvc *sop.CredentialService,
-		archive *sop.ArchiveService,
+		archive *sop.ArchiveService, trigger *sop.TriggerService,
 	) *handler.SOPHandler {
 		return handler.NewSOPHandler(handler.SOPHandlerDeps{
 			Projects: projects, Runs: runs, Items: items, Templates: templates,
 			RunSvc: runSvc, Engine: eng, Hub: hub, AIService: ai, AIRunner: aiRunner,
-			Approvals: approvals, Triggers: triggers, Creds: creds, CredSvc: credSvc, Archive: archive,
+			Approvals: approvals, Triggers: triggers, Creds: creds, CredSvc: credSvc,
+			Archive: archive, Trigger: trigger,
 			CredDelete: func(ctx context.Context, tenantID uint64, id string) error {
 				return creds.Delete(ctx, tenantID, id)
 			},
@@ -2643,6 +2661,18 @@ func startAgentPromptReaper(runs *service.SuspendedRunService, cleaner interface
 	}()
 	cleaner.RegisterWithName("AgentPromptReaper", func() error {
 		close(stop)
+		return nil
+	})
+}
+
+// startSOPTriggerScheduler 启动任务触发调度（30s tick），停机时先停调度再退引擎。
+func startSOPTriggerScheduler(sched *sop.TriggerScheduler, cleaner interfaces.ResourceCleaner) {
+	if sched == nil {
+		return
+	}
+	sched.Start(context.Background())
+	cleaner.RegisterWithName("SOPTriggerScheduler", func() error {
+		sched.Stop()
 		return nil
 	})
 }

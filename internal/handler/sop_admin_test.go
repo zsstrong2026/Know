@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -22,7 +23,12 @@ func newSOPAdminTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	lastSOPTestDB = db
 	require.NoError(t, db.AutoMigrate(
 		&types.SopCLICredential{}, &types.SopTriggerConfig{}, &types.SopTriggerLog{},
+		&types.SopDispatchReservation{}, &types.SopTemplate{}, &types.SopTemplateRevision{},
 	))
+	require.NoError(t, db.Exec(
+		`CREATE UNIQUE INDEX IF NOT EXISTS ux_sop_dispatch_slot
+		 ON sop_dispatch_reservations(config_id, item_id, slot)`,
+	).Error)
 	items := sop.NewItemService(repository.NewSopProjectRepo(db), repository.NewSopItemRepo(db),
 		repository.NewSopItemExtraRepo(db), repository.NewSopRunRepo(db))
 	creds := repository.NewSopCredentialRepo(db)
@@ -40,6 +46,13 @@ func newSOPAdminTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		Triggers:  repository.NewSopTriggerRepo(db),
 		Creds:     creds,
 		CredSvc:   sop.NewCredentialService(creds),
+		Trigger: sop.NewTriggerService(sop.TriggerDeps{
+			Triggers: repository.NewSopTriggerRepo(db),
+			Items:    repository.NewSopItemRepo(db),
+			Runs: sop.NewRunService(repository.NewSopTemplateRepo(db), repository.NewSopRunRepo(db),
+				repository.NewSopProjectRepo(db), repository.NewSopItemRepo(db)),
+			Templates: repository.NewSopTemplateRepo(db),
+		}),
 		Archive: sop.NewArchiveService(repository.NewSopProjectRepo(db),
 			repository.NewSopItemRepo(db), repository.NewSopRunRepo(db)),
 	})
@@ -56,6 +69,7 @@ func newSOPAdminTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		admin.DELETE("/cli-credentials/:kind", h.DeleteCredential)
 		admin.GET("/pm-archive/summary", h.PMArchiveSummary)
 		admin.GET("/cli-status", h.CLIStatus)
+		admin.POST("/projects/:id/trigger-config/run-now", h.RunNowTrigger)
 	}
 	return r, db
 }
@@ -218,4 +232,37 @@ func TestCLIStatusEndpoint(t *testing.T) {
 			require.NotEmpty(t, st.Guidance, "%s 未安装时必须给安装指引", st.Kind)
 		}
 	}
+}
+
+// 立即运行：202 立即返回，后台 goroutine 完成扫描并写一条 manual 历史。
+func TestRunNowEndpointBackground(t *testing.T) {
+	r, db := newSOPAdminTestRouter(t)
+	pid := createTestProject(t, r)
+
+	// 已发布模板 + 一条待办事项（否则扫描无所事事，历史里看不出效果）
+	repo := repository.NewSopTemplateRepo(db)
+	tpl := &types.SopTemplate{TenantID: 1, Name: "流程", Definition: types.SopDefinition{
+		Nodes: []types.SopNode{{ID: "n1", Name: "实现", Type: "agent",
+			Executor: types.SopNodeExecutor{Kind: "platform_agent", AgentID: "a"}}},
+	}}
+	require.NoError(t, repo.Create(context.Background(), tpl))
+	_, err := repo.Publish(context.Background(), 1, tpl.ID, "u1")
+	require.NoError(t, err)
+	require.NoError(t, repository.NewSopItemRepo(db).Create(context.Background(), &types.SopItem{
+		TenantID: 1, ProjectID: pid, No: "TP-1", Title: "待办", Status: "todo", Source: "internal",
+	}))
+
+	cfg := sopDoJSON(t, r, "PUT", "/api/v1/sop/projects/"+pid+"/trigger-config",
+		`{"mode":"interval","interval_key":"15m","per_run_limit":5,"statuses":["todo"],`+
+			`"sources":"all","enabled":false,"default_template_id":"`+tpl.ID+`"}`)
+	require.Equal(t, http.StatusOK, cfg.Code, cfg.Body.String())
+
+	w := sopDoJSON(t, r, "POST", "/api/v1/sop/projects/"+pid+"/trigger-config/run-now", "")
+	require.Equal(t, http.StatusAccepted, w.Code, "未启用也允许手动；立即返回 body=%s", w.Body.String())
+
+	require.Eventually(t, func() bool {
+		var n int64
+		db.Raw("SELECT COUNT(*) FROM sop_trigger_logs WHERE kind='manual'").Scan(&n)
+		return n == 1
+	}, 5*time.Second, 50*time.Millisecond, "后台 goroutine 必须完成扫描并写历史")
 }

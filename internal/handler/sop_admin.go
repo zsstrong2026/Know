@@ -9,6 +9,8 @@
 package handler
 
 import (
+	"context"
+	"log"
 	"net/http"
 	"strings"
 
@@ -224,6 +226,24 @@ func translateCredentialError(err error) string {
 		return "不支持的本地 CLI 类型"
 	}
 	return msg
+}
+
+// RunNowTrigger 立即跑一轮扫描（未启用的配置也允许）。
+//
+// 用 context.WithoutCancel 起 goroutine：用户关掉设置页不该中断这次派发。
+func (h *SOPHandler) RunNowTrigger(c *gin.Context) {
+	tenantID := sopTenantID(c)
+	if tenantID == 0 || h.trigger == nil {
+		return
+	}
+	userID, projectID := sopUserID(c), c.Param("id")
+	ctx := context.WithoutCancel(c.Request.Context())
+	go func() {
+		if err := h.trigger.RunNow(ctx, tenantID, userID, projectID); err != nil {
+			log.Printf("[sop-trigger] 立即运行 %s 失败：%v", projectID, err)
+		}
+	}()
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": gin.H{"started": true}})
 }
 
 // ---- PM 归档摘要 ----

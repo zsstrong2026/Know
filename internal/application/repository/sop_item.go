@@ -38,6 +38,28 @@ func (r *SopItemRepo) GetByID(ctx context.Context, tenantID uint64, id string) (
 	return &it, err
 }
 
+// ListTriggerCandidates 列触发扫描的候选事项：状态命中 ∧ 来源命中 ∧ 从未跑过。
+//
+// 「从未跑过」用 NOT EXISTS 子查询判定（而不是 join 聚合）：候选集通常很小，
+// 而 sop_runs 会随时间膨胀，NOT EXISTS 能直接吃 (item_id) 索引且不受历史行数影响。
+// sources 含 "all" 或为空表示不限来源。
+func (r *SopItemRepo) ListTriggerCandidates(
+	ctx context.Context, tenantID uint64, projectID string, statuses, sources []string,
+) ([]types.SopItem, error) {
+	if len(statuses) == 0 {
+		return nil, nil
+	}
+	var items []types.SopItem
+	q := r.db.WithContext(ctx).Model(&types.SopItem{}).
+		Where("tenant_id = ? AND project_id = ? AND status IN ?", tenantID, projectID, statuses).
+		Where("NOT EXISTS (SELECT 1 FROM sop_runs r WHERE r.item_id = sop_items.id AND r.deleted_at IS NULL)")
+	if len(sources) > 0 && sources[0] != "all" {
+		q = q.Where("source IN ?", sources)
+	}
+	err := q.Order("created_at ASC").Find(&items).Error
+	return items, err
+}
+
 // ListByProjectNo 按项目列出全部未软删事项（按创建时间升序），供统计/简报等聚合使用。
 // 分页与派生字段请走 ListWithDerived。
 func (r *SopItemRepo) ListByProjectNo(ctx context.Context, tenantID uint64, projectID string) ([]types.SopItem, error) {

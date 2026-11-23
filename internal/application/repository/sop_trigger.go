@@ -88,6 +88,19 @@ func (r *SopTriggerRepo) GetConfig(
 	return &c, err
 }
 
+// ListEnabledConfigs 列全部启用中的触发配置（跨租户，调度器内部用）。
+//
+// 有意不带租户条件：调度循环本身没有租户上下文（与引擎扫 waiting 运行同款），
+// 返回的行仍带真实 TenantID，后续写路径照常按租户收口。
+func (r *SopTriggerRepo) ListEnabledConfigs(ctx context.Context) ([]types.SopTriggerConfig, error) {
+	var list []types.SopTriggerConfig
+	err := r.db.WithContext(ctx).
+		Where("enabled = ? AND deleted_at IS NULL", true).
+		Order("created_at ASC").
+		Find(&list).Error
+	return list, err
+}
+
 // AddLog 追加一条触发历史（只增不改；id/created_at/kind 由模型 BeforeCreate 补齐）。
 func (r *SopTriggerRepo) AddLog(ctx context.Context, l *types.SopTriggerLog) error {
 	return r.db.WithContext(ctx).Create(l).Error

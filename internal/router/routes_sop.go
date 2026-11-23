@@ -152,6 +152,7 @@ func RegisterSOPAdminRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacG
 	read.GET("/cli-status", g.Viewer(), h.CLIStatus)
 
 	manage.PUT("/projects/:id/trigger-config", g.Contributor(), h.PutTriggerConfig)
+	manage.POST("/projects/:id/trigger-config/run-now", g.Contributor(), h.RunNowTrigger)
 	// 凭据涉及密钥：读也要 manage（列表会暴露「有哪些 CLI 配了密钥」）。
 	manage.GET("/cli-credentials", g.Contributor(), h.ListCredentials)
 	manage.PUT("/cli-credentials/:kind", g.Contributor(), h.PutCredential)

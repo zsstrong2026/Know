@@ -58,6 +58,10 @@ type SopItemRepository interface {
 	ListAttachments(ctx context.Context, tenantID uint64, itemID string) ([]types.SopItemAttachment, error)
 	// ListByProjectNo 按项目列出全部未软删事项（created_at, no 升序）。
 	ListByProjectNo(ctx context.Context, tenantID uint64, projectID string) ([]types.SopItem, error)
+	// ListTriggerCandidates 列触发扫描候选：状态命中 ∧ 来源命中 ∧ 从未跑过。
+	ListTriggerCandidates(
+		ctx context.Context, tenantID uint64, projectID string, statuses, sources []string,
+	) ([]types.SopItem, error)
 }
 
 // SopItemExtraRepository 事项澄清与活动日志仓储（实现：repository.SopItemExtraRepo）。
@@ -207,4 +211,6 @@ type SopTriggerRepository interface {
 	) ([]types.SopTriggerLog, error)
 	// ReserveDispatch 预约一次派发；返回 false 表示该调度槽已被占用（幂等）。
 	ReserveDispatch(ctx context.Context, configID, itemID string, slot time.Time) (bool, error)
+	// ListEnabledConfigs 列全部启用中的触发配置（跨租户，调度器内部用）。
+	ListEnabledConfigs(ctx context.Context) ([]types.SopTriggerConfig, error)
 }
