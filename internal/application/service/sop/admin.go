@@ -24,26 +24,26 @@ type PMArchiveCounts struct {
 	Attachments int `json:"attachments"`
 }
 
-// ArchiveService PM 迁移归档摘要。
-type ArchiveService struct {
+// PMMigrationService PM→SOP 迁移的归档摘要（与产物入库的 ArchiveService 是两件事）。
+type PMMigrationService struct {
 	projects interfaces.SopProjectRepository
 	items    interfaces.SopItemRepository
 	runs     interfaces.SopRunRepository
 }
 
-// NewArchiveService 构造归档摘要服务。
-func NewArchiveService(
+// NewPMMigrationService 构造迁移摘要服务。
+func NewPMMigrationService(
 	projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
 	runs interfaces.SopRunRepository,
-) *ArchiveService {
-	return &ArchiveService{projects: projects, items: items, runs: runs}
+) *PMMigrationService {
+	return &PMMigrationService{projects: projects, items: items, runs: runs}
 }
 
 // Summary 汇总本租户「从 PM 迁移而来」的项目/事项/运行/附件数量。
 //
 // 判定：事项的 domain_data 里带 pm_source_id（T7 迁移写入的幂等键）。
 // 项目只要有一个迁移事项就算迁移项目；运行与附件跟随其事项。
-func (s *ArchiveService) Summary(ctx context.Context, tenantID uint64) (*PMArchiveCounts, error) {
+func (s *PMMigrationService) Summary(ctx context.Context, tenantID uint64) (*PMArchiveCounts, error) {
 	if s == nil || s.projects == nil || s.items == nil {
 		return &PMArchiveCounts{}, nil
 	}

@@ -244,6 +244,27 @@ func (h *SOPHandler) DownloadArtifact(c *gin.Context) {
 	c.File(full)
 }
 
+// IngestArtifact 把产物归档进知识库（可选 body {kb_id}）。
+func (h *SOPHandler) IngestArtifact(c *gin.Context) {
+	tenantID := sopTenantID(c)
+	if tenantID == 0 || h.ingest == nil {
+		return
+	}
+	var req struct {
+		KBID string `json:"kb_id"`
+	}
+	if !sopBindJSON(c, &req) {
+		return
+	}
+	art, err := h.ingest.IngestArtifact(c.Request.Context(), tenantID, sopUserID(c),
+		c.Param("id"), c.Param("aid"), req.KBID)
+	if err != nil {
+		sopAbort(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": art})
+}
+
 // NodeLogs 节点历史日志：默认取最近一次尝试的 jsonl，退化为 .log。
 func (h *SOPHandler) NodeLogs(c *gin.Context) {
 	tenantID := sopTenantID(c)

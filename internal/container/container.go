@@ -1140,8 +1140,16 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(func(
 		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
 		runs interfaces.SopRunRepository,
+	) *sop.PMMigrationService {
+		return sop.NewPMMigrationService(projects, items, runs)
+	}))
+	must(container.Provide(func(
+		runs interfaces.SopRunRepository, items interfaces.SopItemRepository,
+		projects interfaces.SopProjectRepository, knowledge interfaces.KnowledgeService,
 	) *sop.ArchiveService {
-		return sop.NewArchiveService(projects, items, runs)
+		return sop.NewArchiveService(sop.ArchiveDeps{
+			Runs: runs, Items: items, Projects: projects, Knowledge: knowledge,
+		})
 	}))
 	must(container.Provide(func(
 		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
@@ -1155,6 +1163,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		extras interfaces.SopItemExtraRepository, registry *sopexecutor.Registry,
 		resolver *sop.ContextResolver, notices *service.NotificationService,
 		broker *hitl.Broker, itemSvc *sop.ItemService, hub *sop.EventHub,
+		archive *sop.ArchiveService,
 	) *sopengine.Engine {
 		return sopengine.NewEngine(sopengine.Deps{
 			Runs: runs, Templates: templates, Projects: projects, Items: items,
@@ -1179,6 +1188,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 			SuspensionPrompts: sop.NewPromptBridge(broker),
 			// 节点流事件与状态变更推到 SSE 订阅方（同一进程内的 EventHub）。
 			EventSink: hub.Publish,
+			// 产物自动归档（节点开 auto_ingest 且门禁通过时触发；失败只记日志）。
+			AutoIngest: archive.IngestNodeArtifacts,
 		})
 	}))
 	must(container.Provide(func(
@@ -1198,13 +1209,14 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		ai *sop.AIService, aiRunner sop.Runner,
 		approvals *sop.ApprovalService, triggers interfaces.SopTriggerRepository,
 		creds interfaces.SopCredentialRepository, credSvc *sop.CredentialService,
-		archive *sop.ArchiveService, trigger *sop.TriggerService,
+		archive *sop.PMMigrationService, trigger *sop.TriggerService,
+		ingest *sop.ArchiveService,
 	) *handler.SOPHandler {
 		return handler.NewSOPHandler(handler.SOPHandlerDeps{
 			Projects: projects, Runs: runs, Items: items, Templates: templates,
 			RunSvc: runSvc, Engine: eng, Hub: hub, AIService: ai, AIRunner: aiRunner,
 			Approvals: approvals, Triggers: triggers, Creds: creds, CredSvc: credSvc,
-			Archive: archive, Trigger: trigger,
+			Archive: archive, Trigger: trigger, Ingest: ingest,
 			CredDelete: func(ctx context.Context, tenantID uint64, id string) error {
 				return creds.Delete(ctx, tenantID, id)
 			},

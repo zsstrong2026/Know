@@ -51,7 +51,8 @@ type SOPHandler struct {
 	// credSvc 是凭据业务服务（T34）：与仓储二选一，优先用它。
 	credSvc    *sop.CredentialService
 	trigger    *sop.TriggerService
-	archive    *sop.ArchiveService
+	archive    *sop.PMMigrationService
+	ingest     *sop.ArchiveService
 	credDelete func(ctx context.Context, tenantID uint64, id string) error
 }
 
@@ -73,7 +74,9 @@ type SOPHandlerDeps struct {
 	CredSvc *sop.CredentialService
 	// Trigger 是触发服务（T35）：立即运行端点用它。
 	Trigger *sop.TriggerService
-	Archive *sop.ArchiveService
+	Archive *sop.PMMigrationService
+	// Ingest 是产物归档服务（T36）。
+	Ingest *sop.ArchiveService
 	// CredDelete 是凭据删除的实现（仓储没有 Delete，接线时给出）。
 	CredDelete func(ctx context.Context, tenantID uint64, id string) error
 }
@@ -86,7 +89,7 @@ func NewSOPHandler(d SOPHandlerDeps) *SOPHandler {
 		ai: d.AIService, airunner: d.AIRunner,
 		approvals: d.Approvals, triggers: d.Triggers, creds: d.Creds, credSvc: d.CredSvc,
 		trigger: d.Trigger,
-		archive: d.Archive, credDelete: d.CredDelete,
+		archive: d.Archive, credDelete: d.CredDelete, ingest: d.Ingest,
 	}
 }
 

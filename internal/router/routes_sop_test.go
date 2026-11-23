@@ -245,3 +245,16 @@ func TestSOPAdminRoutesDeclareCapabilities(t *testing.T) {
 		require.Contains(t, policy.Capabilities, types.APIKeyCapabilityManageSOP, key)
 	}
 }
+
+// 产物归档端点：必须声明能力（run_sop）。
+func TestSOPIngestRouteDeclaresCapability(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := handler.NewSOPHandler(handler.SOPHandlerDeps{})
+	g := &rbacGuards{cfg: testSOPConfig()}
+	RegisterSOPRunRoutes(gin.New().Group("/api/v1"), h, g)
+
+	policy, ok := g.apiKeyAuthorizer.Lookup(http.MethodPost,
+		"/api/v1/sop/runs/:id/artifacts/:aid/ingest")
+	require.True(t, ok, "归档端点未声明策略（会被默认拒绝）")
+	require.Contains(t, policy.Capabilities, types.APIKeyCapabilityRunSOP)
+}

@@ -53,7 +53,7 @@ func newSOPAdminTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 				repository.NewSopProjectRepo(db), repository.NewSopItemRepo(db)),
 			Templates: repository.NewSopTemplateRepo(db),
 		}),
-		Archive: sop.NewArchiveService(repository.NewSopProjectRepo(db),
+		Archive: sop.NewPMMigrationService(repository.NewSopProjectRepo(db),
 			repository.NewSopItemRepo(db), repository.NewSopRunRepo(db)),
 	})
 	// newSOPTestRouterWith 已挂项目组与事项组；这里只补管理组。

@@ -482,6 +482,26 @@ func (r *SopRunRepo) GetArtifact(
 	return &a, err
 }
 
+// UpdateArtifact 保存产物的归档回填列（kb_id/knowledge_id/ingested_at）。
+//
+// 条件强制拼接 tenant_id；未命中返回 gorm.ErrRecordNotFound。
+func (r *SopRunRepo) UpdateArtifact(ctx context.Context, art *types.SopArtifact) error {
+	if art == nil {
+		return gorm.ErrRecordNotFound
+	}
+	res := r.db.WithContext(ctx).Model(&types.SopArtifact{}).
+		Where("id = ? AND tenant_id = ?", art.ID, art.TenantID).
+		Select("kb_id", "knowledge_id", "ingested_at").
+		Updates(art)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 // DeleteArtifactsByNode 软删某运行某节点的全部产物行，返回删除条数。
 //
 // 子流程节点重新拉起子运行后，父运行该节点此前的产物行属于旧子运行的事实：先整体

@@ -129,6 +129,8 @@ type SopRunRepository interface {
 	CreateArtifact(ctx context.Context, a *types.SopArtifact) error
 	ListArtifacts(ctx context.Context, tenantID uint64, runID string) ([]types.SopArtifact, error)
 	GetArtifact(ctx context.Context, tenantID uint64, id string) (*types.SopArtifact, error)
+	// UpdateArtifact 保存产物的归档回填列（kb_id/knowledge_id/ingested_at）。
+	UpdateArtifact(ctx context.Context, art *types.SopArtifact) error
 	// DeleteArtifactsByNode 软删某运行某节点的全部产物行，返回删除条数。
 	//
 	// 用途：子流程节点重新拉起子运行后，父运行下该节点此前导入的产物属于旧子运行的

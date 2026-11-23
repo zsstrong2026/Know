@@ -559,6 +559,22 @@ func (e *Engine) executeNode(
 		return err
 	}
 	ws.CheckpointBestEffort(ctx, fmt.Sprintf("node %s attempt %d %s", node.ID, nr.Attempt, nr.GateResult))
+	// 自动归档：门禁通过且节点开了 auto_ingest 才做；失败只是少一次沉淀。
+	if node.AutoIngest && e.deps.AutoIngest != nil && nr.Status == types.SopNodeSucceeded {
+		arts, err := e.deps.Runs.ListArtifacts(ctx, run.TenantID, run.ID)
+		if err == nil {
+			var own []*types.SopArtifact
+			for i := range arts {
+				if arts[i].NodeID == node.ID && arts[i].Attempt == nr.Attempt {
+					art := arts[i]
+					own = append(own, &art)
+				}
+			}
+			if len(own) > 0 {
+				e.deps.AutoIngest(ctx, run, node, own)
+			}
+		}
+	}
 	return nil
 }
 

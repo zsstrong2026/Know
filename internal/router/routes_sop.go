@@ -125,6 +125,8 @@ func RegisterSOPRunRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGua
 	run.POST("/runs/:id/nodes/:nid/rework", g.Contributor(), h.ReworkNode)
 	run.POST("/runs/:id/nodes/:nid/terminate", g.Contributor(), h.TerminateNode)
 	run.POST("/runs/:id/nodes/:nid/answer", g.Contributor(), h.AnswerNode)
+	// 产物归档是「消费产物」的写操作：run_sop 足够（不属于配置管理）。
+	run.POST("/runs/:id/artifacts/:aid/ingest", g.Contributor(), h.IngestArtifact)
 }
 
 // RegisterSOPAIRoutes 挂 AI 助手组：拆解/分析/澄清/编排，全部声明 run_sop
