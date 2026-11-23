@@ -110,6 +110,22 @@ func (e *Engine) Advance(ctx context.Context, runID string) (bool, error) {
 		byID[nrs[i].NodeID] = &nrs[i]
 	}
 
+	// 答复后续跑先于就绪计算：AnswerPrompt 把节点交还 running（等待本处接续），
+	// 这里原样打回 pending，让下面按正常就绪路径用之前记录的会话重新执行。
+	if ids := e.takeResumes(run.ID); len(ids) > 0 {
+		for _, id := range ids {
+			nr := byID[id]
+			if nr == nil || nr.Status != types.SopNodeRunning {
+				continue
+			}
+			nr.Status = types.SopNodePending
+			nr.FinishedAt = nil
+			if err := e.deps.Runs.UpdateNodeRun(ctx, nr); err != nil {
+				return false, err
+			}
+		}
+	}
+
 	// 子流程对账先于就绪计算：子运行可能刚刚到终态，节点状态与产物要先落地，
 	// 下一轮的 readyNodes 才能看到下游就绪。有推进就本轮收工，让调用方继续推进。
 	childMoved, err := e.reconcileChildRuns(ctx, run, byID)
@@ -485,27 +501,28 @@ func (e *Engine) executeNode(
 		model = node.Executor.Model
 	}
 	tb := executor.TaskBook{
-		RunID:           run.ID,
-		NodeRunID:       nr.ID,
-		NodeID:          node.ID,
-		NodeName:        node.Name,
-		Prompt:          prompt,
-		SystemPrompt:    RenderAgentSystem(resolved.Role, resolved.Skills, node.ExtraRules, ""),
-		WorkspaceRoot:   ws.Root,
-		InputsDir:       slashJoin(ws.InputsDir, sanitizeSegment(node.ID)),
-		OutDir:          outDir,
-		Feedback:        nr.Feedback,
-		Attempt:         nr.Attempt,
-		ResumeSessionID: nr.ResumeSessionID,
-		Timeout:         nodeTimeout(node),
-		Env:             node.CredentialEnv,
-		Script:          node.Script,
-		Model:           model,
-		Credential:      resolved.Credential,
-		Role:            resolved.Role,
-		MCPServers:      resolved.MCPServers,
-		Skills:          resolved.Skills,
-		KBIDs:           resolved.KBIDs,
+		RunID:             run.ID,
+		NodeRunID:         nr.ID,
+		NodeID:            node.ID,
+		NodeName:          node.Name,
+		Prompt:            prompt,
+		SystemPrompt:      RenderAgentSystem(resolved.Role, resolved.Skills, node.ExtraRules, ""),
+		WorkspaceRoot:     ws.Root,
+		InputsDir:         slashJoin(ws.InputsDir, sanitizeSegment(node.ID)),
+		OutDir:            outDir,
+		Feedback:          nr.Feedback,
+		Attempt:           nr.Attempt,
+		ResumeSessionID:   nr.ResumeSessionID,
+		Timeout:           nodeTimeout(node),
+		Env:               node.CredentialEnv,
+		Script:            node.Script,
+		Model:             model,
+		Credential:        resolved.Credential,
+		Role:              resolved.Role,
+		MCPServers:        resolved.MCPServers,
+		Skills:            resolved.Skills,
+		KBIDs:             resolved.KBIDs,
+		LoopMaxIterations: node.LoopMaxIterations,
 	}
 
 	logFile := e.openAttemptLog(ws, node.ID, nr.Attempt)

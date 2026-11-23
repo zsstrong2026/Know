@@ -81,6 +81,9 @@ type TaskBook struct {
 	// 显式 [] 表示范围内没有可用知识库）。平台智能体执行器据此收敛检索范围。
 	KBIDs   []string
 	KnowMCP *KnowMCPEndpoint // CLI 节点专用：Know MCP scoped endpoint（T37 供给；平台节点 nil）
+	// LoopMaxIterations 是节点的单轮迭代上限（T17 用它覆盖角色 MaxIterations）；
+	// 0 表示未设置，沿用角色配置。
+	LoopMaxIterations int
 }
 
 // KnowMCPEndpoint 是 T37 MCPProvisioner 为 CLI 节点签发的受限检索端点。

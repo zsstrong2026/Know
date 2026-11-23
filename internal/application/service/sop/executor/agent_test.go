@@ -267,3 +267,73 @@ func (b *blockingQA) AgentQA(ctx context.Context, _ *types.QARequest, _ *event.E
 	<-ctx.Done()
 	return ctx.Err()
 }
+
+// slotQA 首次调用正常返回、第二次（追问）调用时通过结果槽提交结论，模拟真实模型。
+type slotQA struct {
+	slots *ResultSlots
+	calls []*types.QARequest
+	put   bool
+	// putOnCall 指定在第几次调用（1 起）提交结果；0 表示 put 为 true 时每次都提交。
+	putOnCall int
+}
+
+func (s *slotQA) AgentQA(_ context.Context, req *types.QARequest, bus *event.EventBus) error {
+	s.calls = append(s.calls, req)
+	bus.Emit(context.Background(), event.Event{Type: event.EventAgentComplete, Data: event.AgentCompleteData{
+		FinalAnswer: "正文",
+	}})
+	call := len(s.calls)
+	if s.put && (s.putOnCall == 0 || s.putOnCall == call) {
+		s.slots.Put("r1/n1", SubmitResult{GateResult: types.SopGateRework, GateReason: "缺少测试", Output: "改后正文"})
+	}
+	return nil
+}
+
+func TestAgentProviderPrefersSubmittedResult(t *testing.T) {
+	slots := NewResultSlots()
+	qa := &slotQA{slots: slots, put: true}
+	p := NewAgentProvider(AgentDeps{QA: qa, Sessions: &stubSessions{}, Messages: &stubMessages{}, Results: slots})
+	tb := TaskBook{RunID: "r1", NodeID: "n1", NodeName: "实现", Prompt: "p", Role: &types.CustomAgent{}, Attempt: 1}
+	res, err := p.Execute(context.Background(), tb, ExecOptions{})
+	require.NoError(t, err)
+	require.Equal(t, types.SopGateRework, res.GateResult)
+	require.Equal(t, "缺少测试", res.GateReason)
+	require.Equal(t, "改后正文", res.Output)
+	require.Len(t, qa.calls, 1, "提交了结果就不该追问")
+}
+
+func TestAgentProviderAsksOnceWhenResultMissing(t *testing.T) {
+	slots := NewResultSlots()
+	// 首次执行不提交（模拟模型忘了调工具），追问那一轮才提交。
+	qa := &slotQA{slots: slots, put: true, putOnCall: 2}
+	p := NewAgentProvider(AgentDeps{QA: qa, Sessions: &stubSessions{}, Messages: &stubMessages{}, Results: slots})
+	tb := TaskBook{RunID: "r1", NodeID: "n1", NodeName: "实现", Prompt: "p", Role: &types.CustomAgent{}, Attempt: 1}
+	res, err := p.Execute(context.Background(), tb, ExecOptions{})
+	require.NoError(t, err)
+	require.Len(t, qa.calls, 2, "缺失结果应追问一次")
+	require.Contains(t, qa.calls[1].Query, "submit_node_result")
+	require.False(t, qa.calls[1].Suspendable, "追问轮不得再次挂起")
+	require.Equal(t, types.SopGateRework, res.GateResult)
+}
+
+func TestAgentProviderLeavesGateEmptyWhenResultStillMissing(t *testing.T) {
+	slots := NewResultSlots()
+	qa := &slotQA{slots: slots}
+	p := NewAgentProvider(AgentDeps{QA: qa, Sessions: &stubSessions{}, Messages: &stubMessages{}, Results: slots})
+	tb := TaskBook{RunID: "r1", NodeID: "n1", NodeName: "实现", Prompt: "p", Role: &types.CustomAgent{}, Attempt: 1}
+	res, err := p.Execute(context.Background(), tb, ExecOptions{})
+	require.NoError(t, err)
+	require.Len(t, qa.calls, 2, "只追问一次")
+	require.Empty(t, res.GateResult, "缺失时交门禁裁定")
+}
+
+func TestAgentProviderOverridesMaxIterations(t *testing.T) {
+	qa := &stubQA{}
+	p := NewAgentProvider(AgentDeps{QA: qa, Sessions: &stubSessions{}, Messages: &stubMessages{}})
+	role := &types.CustomAgent{Config: types.CustomAgentConfig{MaxIterations: -1}}
+	tb := TaskBook{RunID: "r1", NodeID: "n1", NodeName: "实现", Prompt: "p", Role: role, Attempt: 1, LoopMaxIterations: 3}
+	_, err := p.Execute(context.Background(), tb, ExecOptions{})
+	require.NoError(t, err)
+	require.Equal(t, 3, qa.gotReq.CustomAgent.Config.MaxIterations)
+	require.Equal(t, -1, role.Config.MaxIterations, "共享角色对象不得被就地改写")
+}

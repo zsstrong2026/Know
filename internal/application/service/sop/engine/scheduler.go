@@ -319,6 +319,7 @@ func (e *Engine) finishCancelled(ctx context.Context, runID string) {
 			}
 		}
 	}
+	e.clearResumes(runID)
 	run.Status = types.SopRunCancelled
 	run.CancelRequested = false
 	run.FinishedAt = &now

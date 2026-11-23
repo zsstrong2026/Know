@@ -88,11 +88,18 @@ type AgentDeps struct {
 	QA          AgentQACaller    // AgentQA（真实实现 = interfaces.SessionService）
 	Suspensions SuspensionReader // 挂起快照（可 nil；T17 消费）
 	Agents      RoleGetter       // 角色（可 nil：Prepare 的重排校验退化为「无角色即不合格」）
+	// Results 是 submit_node_result 的进程内结果槽（nil 时用进程内默认槽；
+	// 工具与执行器必须共享同一份，默认槽就是为此存在）。
+	Results *ResultSlots
+	// Submits 把「会话 → SOP 提交上下文」登记给工具（nil 时用进程内默认登记表）。
+	Submits *SubmitBindings
 }
 
 // AgentProvider 平台智能体执行器（Kind = platform_agent）。
 type AgentProvider struct {
 	deps AgentDeps
+	// submitEnabled 表示装配时显式给了提交通道（结果槽/登记表）。
+	submitEnabled bool
 
 	// mu/cancel 让 Cancel 能中断在途的 AgentQA：AgentQA 尊重 ctx，取消它即可。
 	mu     sync.Mutex
@@ -100,7 +107,18 @@ type AgentProvider struct {
 }
 
 // NewAgentProvider 构造平台智能体执行器。
-func NewAgentProvider(d AgentDeps) *AgentProvider { return &AgentProvider{deps: d} }
+func NewAgentProvider(d AgentDeps) *AgentProvider {
+	// 显式装配了结果通道才启用「结果优先 + 缺失追问」：测试桩/单节点预演没有
+	// 提交通道，追问只会白烧一轮 token。
+	enabled := d.Results != nil || d.Submits != nil
+	if d.Results == nil {
+		d.Results = defaultResultSlots
+	}
+	if d.Submits == nil {
+		d.Submits = defaultSubmitBindings
+	}
+	return &AgentProvider{deps: d, submitEnabled: enabled}
+}
 
 // Kind 返回注册表键：platform_agent。
 func (p *AgentProvider) Kind() string { return ProviderKindPlatformAgent }
@@ -175,6 +193,14 @@ func (p *AgentProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOptio
 		return res, err
 	}
 
+	submitKey, unbind := p.bindSubmit(tb, session)
+	if unbind != nil {
+		defer unbind()
+	}
+	// 工具注册处（agent_service）按 ctx 里的登记表判断本会话是不是 SOP 会话，
+	// 命中才挂出 submit_node_result。
+	runCtx = WithSubmitBindings(runCtx, p.deps.Submits)
+
 	req, err := p.buildRequest(runCtx, tb, session, userMsg, answerMsg)
 	if err != nil {
 		return res, err
@@ -184,6 +210,26 @@ func (p *AgentProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOptio
 	res.Output = collected.output
 	res.Usage = collected.usage
 	res.Suspended = collected.suspended
+	// 结果以 submit_node_result 为准；缺失时同会话追问一次（只问一次，仍缺失就
+	// 留空交门禁三段裁定，绝不臆测模型意图）。结果槽未装配（单节点预演/测试桩）
+	// 时不追问：没有通道能收回结论，追问只会白烧一轮 token。
+	if !collected.suspended && collected.err == nil && p.submitEnabled {
+		submitted, ok := p.takeSubmit(submitKey)
+		if !ok {
+			if again, askErr := p.askAgain(runCtx, req, opts); askErr == nil {
+				collected.usage.InputTokens += again.usage.InputTokens
+				collected.usage.OutputTokens += again.usage.OutputTokens
+				res.Usage = collected.usage
+				submitted, ok = p.takeSubmit(submitKey)
+			}
+		}
+		if ok {
+			res.GateResult, res.GateReason = submitted.GateResult, submitted.GateReason
+			if strings.TrimSpace(submitted.Output) != "" {
+				res.Output = submitted.Output
+			}
+		}
+	}
 	if answerMsg != nil && p.deps.Messages != nil {
 		answerMsg.Content = collected.output
 		answerMsg.Usage = collected.tokenUsage
@@ -206,6 +252,75 @@ func (p *AgentProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOptio
 	}
 	return res, nil
 }
+
+// submitKeyFor 是结果槽键：同一运行同一节点跨尝试共用一个键（每次执行前被取空）。
+func submitKeyFor(tb TaskBook) string { return tb.RunID + "/" + tb.NodeID }
+
+// defaultResultSlots 是进程内默认结果槽（与默认登记表配套：工具注册处不依赖
+// 执行器实例，只能靠进程内单例对齐）。
+var defaultResultSlots = NewResultSlots()
+
+// DefaultResultSlots 返回进程内默认结果槽（工具注册处与测试可显式复用）。
+func DefaultResultSlots() *ResultSlots { return defaultResultSlots }
+
+// bindSubmit 登记本会话的提交上下文并返回结果槽键；nil 解绑函数表示未登记。
+func (p *AgentProvider) bindSubmit(tb TaskBook, session *types.Session) (string, func()) {
+	slots := p.deps.Results
+	if slots == nil && p.deps.Submits == nil {
+		return "", nil
+	}
+	key := submitKeyFor(tb)
+	sc := &SubmitContext{
+		SessionID:          session.ID,
+		SessionDescription: session.Description,
+		Slots:              slots,
+		SlotKey:            key,
+		WorkspaceRoot:      tb.WorkspaceRoot,
+		NodeID:             tb.NodeID,
+		Attempt:            tb.Attempt,
+	}
+	if p.deps.Submits != nil {
+		p.deps.Submits.Bind(session.ID, sc)
+		return key, func() { p.deps.Submits.Unbind(session.ID, sc) }
+	}
+	return key, func() {}
+}
+
+// takeSubmit 取走结果槽里的提交（无槽时视为未提交）。
+func (p *AgentProvider) takeSubmit(key string) (SubmitResult, bool) {
+	if p.deps.Results == nil || key == "" {
+		return SubmitResult{}, false
+	}
+	return p.deps.Results.Take(key)
+}
+
+// askAgain 在同会话里追问一次「请提交本步骤结果」，返回本轮收集结果。
+//
+// 追问复用原请求的会话与角色配置，只换 Query、去掉 Resume、不再可挂起：
+// 本轮已正常结束，续问就是新的一轮，不能因为模型又去提问而把节点挂起第二次。
+func (p *AgentProvider) askAgain(
+	ctx context.Context, first *types.QARequest, opts ExecOptions,
+) (agentRun, error) {
+	if p.deps.QA == nil || first == nil || first.Session == nil {
+		return agentRun{}, errors.New("无法追问：执行器未就绪")
+	}
+	req := *first
+	req.Query = submitReminder
+	// 同一个 assistant 行续写：追问的产出仍归本轮，事件流也不会另起一条消息。
+	req.Resume = nil
+	req.Suspendable = false
+	req.UserMessageID = ""
+	req.RunNote = strings.TrimSpace(first.RunNote) + "\n本轮是结果提交追问。"
+	again := p.run(ctx, &req, opts)
+	if again.suspended {
+		again.suspended = false
+	}
+	return again, again.err
+}
+
+// submitReminder 是缺失结果时的追问指令（一次，语气明确但不动摇已完成的工作）。
+const submitReminder = "你还没有提交本步骤结果。请立即调用 submit_node_result 汇报结果（pass/rework/fail/human），" +
+	"rework/fail/human 必须写 reason；如果已完成就提交 pass，不要重复做一遍工作。"
 
 // Cancel 中断在途执行：AgentQA 尊重 ctx，取消它即可（无在途执行时是 no-op）。
 func (p *AgentProvider) Cancel(_ context.Context) error {
@@ -377,6 +492,11 @@ func agentForNode(tb TaskBook) *types.CustomAgent {
 	if tb.KBIDs != nil {
 		cfg.KBSelectionMode = "selected"
 		cfg.KnowledgeBases = append([]string{}, tb.KBIDs...)
+	}
+	// 迭代上限按节点收敛：SOP 步骤是无人值守的有限任务，跑满角色默认上限（可能
+	// 是无限）会把「卡住的步骤」变成「永远在跑的运行」。节点未设置时保持角色口径。
+	if tb.LoopMaxIterations > 0 {
+		cfg.MaxIterations = tb.LoopMaxIterations
 	}
 	cfg.AllowedTools = withSubmitTool(cfg.AllowedTools)
 	clone.Config = cfg

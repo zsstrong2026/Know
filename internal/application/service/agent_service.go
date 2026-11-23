@@ -17,6 +17,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/application/access"
 	"github.com/Tencent/WeKnora/internal/application/attachment"
 	"github.com/Tencent/WeKnora/internal/application/repository"
+	sopexecutor "github.com/Tencent/WeKnora/internal/application/service/sop/executor"
 	"github.com/Tencent/WeKnora/internal/background"
 	"github.com/Tencent/WeKnora/internal/browserskill"
 	"github.com/Tencent/WeKnora/internal/config"
@@ -262,6 +263,7 @@ func (s *agentService) CreateAgentEngine(
 	s.registerMCPTools(ctx, toolRegistry, config)
 	s.registerOperationTools(ctx, toolRegistry, config)
 	registerProductDocTools(ctx, toolRegistry, config)
+	s.registerSOPSubmitTool(ctx, toolRegistry, config, sessionID)
 
 	// Register the shell first: file discovery needs a separate tool only
 	// when no shell is available. File access still follows the sandbox
@@ -590,6 +592,33 @@ func (s *agentService) registerOperationTools(
 			toolRegistry.RegisterTool(tools.NewFillPageTool(actor))
 		}
 	}
+}
+
+// registerSOPSubmitTool mounts submit_node_result for SOP step sessions only:
+// the tool reports the gate verdict for one workflow node, so it must not be
+// offered in ordinary conversations even when an allowlist names it.
+func (s *agentService) registerSOPSubmitTool(
+	ctx context.Context,
+	toolRegistry *tools.ToolRegistry,
+	config *types.AgentConfig,
+	sessionID string,
+) {
+	if config == nil || sessionID == "" || toolRegistry == nil {
+		return
+	}
+	// 不看 allowed_tools：该工具是 SOP 节点唯一的结果提交通道，而 allowed_tools
+	// 为 nil 时表示「平台默认集」，往里塞它反而会把默认工具整组挤掉。作用域由
+	// 会话登记（bindings）与本工具自身的 [SOP] 校验双重把住。
+	bindings, ok := sopexecutor.SubmitBindingsFrom(ctx)
+	if !ok {
+		bindings = sopexecutor.DefaultSubmitBindings()
+	}
+	if !bindings.Has(sessionID) {
+		return
+	}
+	tool := sopexecutor.NewSubmitTool(nil).WithBindings(bindings)
+	toolRegistry.RegisterTool(tool)
+	logger.Infof(ctx, "Registered %s tool for SOP session", sopexecutor.SubmitToolName)
 }
 
 // registerProductDocTools gives a granted run the documentation bundled with
