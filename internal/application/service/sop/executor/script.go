@@ -162,7 +162,10 @@ func (p *ScriptProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOpti
 		defer logFile.Close()
 	}
 
-	// ctx 结束（超时/取消）：按进程组杀，管道随之关闭，读取循环自然收尾。
+	// 读取放在协程里：进程被杀后仍可能有孙进程握着写端（Windows 上 taskkill 也可能
+	// 失败），此时阻塞在 EOF 上就等于把超时变成「等到脚本自己跑完」。这里以 ctx 结束
+	// 为准，最多再给读取一小段收尾时间就掐掉读端。
+	collected := startScriptReader(pr, opts.Emit, logFile)
 	killWatch := make(chan struct{})
 	var stopOnce sync.Once
 	stopWatch := func() { stopOnce.Do(func() { close(killWatch) }) }
@@ -174,11 +177,19 @@ func (p *ScriptProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOpti
 		}
 	}()
 
-	output := drainScriptOutput(pr, opts.Emit, logFile)
+	select {
+	case <-collected.done:
+	case <-runCtx.Done():
+		select {
+		case <-collected.done:
+		case <-time.After(scriptDrainGrace):
+		}
+	}
 
 	waitErr := cmd.Wait()
 	stopWatch()
-	_ = pr.Close()
+	collected.close()
+	output := collected.output()
 
 	res := ExecResult{Output: tailRunes(output, scriptOutputTail)}
 	switch {
@@ -209,38 +220,59 @@ func (p *ScriptProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOpti
 
 // ---- 输出收集 ----
 
-// drainScriptOutput 逐行读合并输出：每行 Emit 一次 text_delta 并写日志，返回全文。
-func drainScriptOutput(pr *os.File, emit func(StreamEvent), logFile io.Writer) string {
-	var (
-		buf strings.Builder
-		mu  sync.Mutex
-	)
-	scanner := bufio.NewScanner(pr)
-	scanner.Buffer(make([]byte, 0, 64*1024), scriptScanBuf)
-	push := func(text string) {
-		mu.Lock()
-		buf.WriteString(text)
-		buf.WriteString("\n")
-		mu.Unlock()
-		if logFile != nil {
-			_, _ = io.WriteString(logFile, text+"\n")
+// scriptDrainGrace 是进程结束后等读取协程收尾的上限：孙进程握着管道时不能无限等。
+const scriptDrainGrace = 2 * time.Second
+
+// scriptReader 是一次输出收集：读取在协程里跑，主流程按 ctx 决定何时放弃等待。
+type scriptReader struct {
+	pr   *os.File
+	done chan struct{}
+	mu   sync.Mutex
+	buf  strings.Builder
+}
+
+// startScriptReader 起一个逐行读取协程：每行 Emit 一次 text_delta 并写日志。
+func startScriptReader(pr *os.File, emit func(StreamEvent), logFile io.Writer) *scriptReader {
+	r := &scriptReader{pr: pr, done: make(chan struct{})}
+	go func() {
+		defer close(r.done)
+		scanner := bufio.NewScanner(pr)
+		scanner.Buffer(make([]byte, 0, 64*1024), scriptScanBuf)
+		for scanner.Scan() {
+			r.push(scanner.Text(), emit, logFile)
 		}
-		if emit != nil {
-			emit(StreamEvent{Type: StreamEventTextDelta, Text: text + "\n", At: time.Now()})
+		if err := scanner.Err(); err != nil {
+			// 单行超过上限会让扫描提前结束。此时必须把剩余字节排空：读端不再读，
+			// 子进程写一个满的管道就会永远阻塞，Wait 随之挂死。
+			_, _ = io.Copy(io.Discard, pr)
+			r.push("[读取脚本输出失败] "+err.Error(), emit, logFile)
 		}
+	}()
+	return r
+}
+
+// push 追加一行：缓冲、日志、SSE 三处同一份文本。
+func (r *scriptReader) push(text string, emit func(StreamEvent), logFile io.Writer) {
+	r.mu.Lock()
+	r.buf.WriteString(text)
+	r.buf.WriteString("\n")
+	r.mu.Unlock()
+	if logFile != nil {
+		_, _ = io.WriteString(logFile, text+"\n")
 	}
-	for scanner.Scan() {
-		push(scanner.Text())
+	if emit != nil {
+		emit(StreamEvent{Type: StreamEventTextDelta, Text: text + "\n", At: time.Now()})
 	}
-	if err := scanner.Err(); err != nil {
-		// 单行超过上限会让扫描提前结束。此时必须把剩余字节排空：读端不再读，
-		// 子进程写一个满的管道就会永远阻塞，Wait 随之挂死。
-		_, _ = io.Copy(io.Discard, pr)
-		push("[读取脚本输出失败] " + err.Error())
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	return strings.TrimRight(buf.String(), "\n")
+}
+
+// close 掐掉读端：读取协程阻塞在 Read 上时随之中断，已收集的内容不丢。
+func (r *scriptReader) close() { _ = r.pr.Close() }
+
+// output 返回已收集的全文（去掉末尾换行）。
+func (r *scriptReader) output() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return strings.TrimRight(r.buf.String(), "\n")
 }
 
 // openScriptLog 打开 logs/<node>-attempt-N.log（失败只放弃日志，不影响执行）。
