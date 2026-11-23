@@ -1109,6 +1109,12 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	}))
 	must(container.Provide(func(
 		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
+		runs interfaces.SopRunRepository,
+	) *sop.ArchiveService {
+		return sop.NewArchiveService(projects, items, runs)
+	}))
+	must(container.Provide(func(
+		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
 		extras interfaces.SopItemExtraRepository, runs interfaces.SopRunRepository,
 	) *sop.ItemService {
 		return sop.NewItemService(projects, items, extras, runs)
@@ -1160,10 +1166,16 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		items *sop.ItemService, templates *sop.TemplateService,
 		runSvc *sop.RunService, eng *sopengine.Engine, hub *sop.EventHub,
 		ai *sop.AIService, aiRunner sop.Runner,
+		approvals *sop.ApprovalService, triggers interfaces.SopTriggerRepository,
+		creds interfaces.SopCredentialRepository, archive *sop.ArchiveService,
 	) *handler.SOPHandler {
 		return handler.NewSOPHandler(handler.SOPHandlerDeps{
 			Projects: projects, Runs: runs, Items: items, Templates: templates,
 			RunSvc: runSvc, Engine: eng, Hub: hub, AIService: ai, AIRunner: aiRunner,
+			Approvals: approvals, Triggers: triggers, Creds: creds, Archive: archive,
+			CredDelete: func(ctx context.Context, tenantID uint64, id string) error {
+				return creds.Delete(ctx, tenantID, id)
+			},
 		})
 	}))
 	logger.Debugf(ctx, "[Container] HTTP handlers registered")

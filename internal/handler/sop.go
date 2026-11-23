@@ -10,6 +10,7 @@
 package handler
 
 import (
+	"context"
 	stderrors "errors"
 	"io"
 	"net/http"
@@ -43,6 +44,12 @@ type SOPHandler struct {
 	// ai 是 AI 助手能力（T25）；airunner 是它背后的问答执行器。
 	ai       *sop.AIService
 	airunner sop.Runner
+	// 管理端点依赖（T26）：审批中心聚合、触发配置/历史、CLI 凭据、归档摘要。
+	approvals  *sop.ApprovalService
+	triggers   interfaces.SopTriggerRepository
+	creds      interfaces.SopCredentialRepository
+	archive    *sop.ArchiveService
+	credDelete func(ctx context.Context, tenantID uint64, id string) error
 }
 
 // SOPHandlerDeps 是 handler 的依赖集合（后续任务继续加字段）。
@@ -56,6 +63,12 @@ type SOPHandlerDeps struct {
 	Hub       *sop.EventHub
 	AIService *sop.AIService
 	AIRunner  sop.Runner
+	Approvals *sop.ApprovalService
+	Triggers  interfaces.SopTriggerRepository
+	Creds     interfaces.SopCredentialRepository
+	Archive   *sop.ArchiveService
+	// CredDelete 是凭据删除的实现（仓储没有 Delete，接线时给出）。
+	CredDelete func(ctx context.Context, tenantID uint64, id string) error
 }
 
 // NewSOPHandler 构造 SOP handler。
@@ -64,6 +77,8 @@ func NewSOPHandler(d SOPHandlerDeps) *SOPHandler {
 		projects: d.Projects, runs: d.Runs, items: d.Items, templates: d.Templates,
 		runs2: d.RunSvc, engine: d.Engine, hub: d.Hub,
 		ai: d.AIService, airunner: d.AIRunner,
+		approvals: d.Approvals, triggers: d.Triggers, creds: d.Creds,
+		archive: d.Archive, credDelete: d.CredDelete,
 	}
 }
 

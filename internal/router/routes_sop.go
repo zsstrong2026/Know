@@ -136,3 +136,22 @@ func RegisterSOPAIRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGuar
 	ai.POST("/ai/clarify-generate", g.Contributor(), h.GenerateItemClarifications)
 	ai.POST("/ai/orchestrate", g.Contributor(), h.OrchestrateSop)
 }
+
+// RegisterSOPAdminRoutes 挂管理组：审批中心聚合、触发配置与历史、CLI 凭据、
+// PM 迁移归档摘要。（cli-status 与 run-now 由 T34/T35 追加，此处不注册。）
+func RegisterSOPAdminRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGuards) {
+	admin := v1.Group("/sop")
+	read := g.apiKeyGroup(admin, apiKeyReadSOP(apiKeyFullAccess()))
+	manage := g.apiKeyGroup(admin, apiKeyManageSOP(apiKeyFullAccess()))
+
+	read.GET("/approvals", g.Viewer(), h.ListApprovals)
+	read.GET("/projects/:id/trigger-config", g.Viewer(), h.GetTriggerConfig)
+	read.GET("/projects/:id/trigger-logs", g.Viewer(), h.ListTriggerLogs)
+	read.GET("/pm-archive/summary", g.Viewer(), h.PMArchiveSummary)
+
+	manage.PUT("/projects/:id/trigger-config", g.Contributor(), h.PutTriggerConfig)
+	// 凭据涉及密钥：读也要 manage（列表会暴露「有哪些 CLI 配了密钥」）。
+	manage.GET("/cli-credentials", g.Contributor(), h.ListCredentials)
+	manage.PUT("/cli-credentials/:kind", g.Contributor(), h.PutCredential)
+	manage.DELETE("/cli-credentials/:kind", g.Contributor(), h.DeleteCredential)
+}

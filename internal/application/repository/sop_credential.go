@@ -88,6 +88,21 @@ func (r *SopCredentialRepo) Get(
 	return &c, err
 }
 
+// Delete 软删某条凭据（(租户, id) 命中）；查不到返回 gorm.ErrRecordNotFound。
+//
+// 凭据是用户私有数据：删了不复活，软删只保留审计痕迹。
+func (r *SopCredentialRepo) Delete(ctx context.Context, tenantID uint64, id string) error {
+	res := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND id = ?", tenantID, id).Delete(&types.SopCLICredential{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 // ListByOwner 列某用户在本租户的全部凭据（cli_kind 升序，前端下拉稳定顺序）。
 func (r *SopCredentialRepo) ListByOwner(
 	ctx context.Context, tenantID uint64, ownerUserID string,

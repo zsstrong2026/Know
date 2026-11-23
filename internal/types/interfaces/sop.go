@@ -185,6 +185,8 @@ type SopCredentialRepository interface {
 	Get(ctx context.Context, tenantID uint64, ownerUserID, cliKind string) (*types.SopCLICredential, error)
 	// ListByOwner 列某用户在本租户的全部凭据（cli_kind 升序）。
 	ListByOwner(ctx context.Context, tenantID uint64, ownerUserID string) ([]types.SopCLICredential, error)
+	// Delete 软删某条凭据（(租户, id) 命中）；查不到返回 gorm.ErrRecordNotFound。
+	Delete(ctx context.Context, tenantID uint64, id string) error
 }
 
 // SopTriggerRepository 触发配置、触发历史与派发预约仓储（实现：repository.SopTriggerRepo）。
