@@ -59,6 +59,9 @@ import (
 	"github.com/Tencent/WeKnora/internal/application/service/memory"
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
 	"github.com/Tencent/WeKnora/internal/application/service/sandboxalloc"
+	sop "github.com/Tencent/WeKnora/internal/application/service/sop"
+	sopengine "github.com/Tencent/WeKnora/internal/application/service/sop/engine"
+	sopexecutor "github.com/Tencent/WeKnora/internal/application/service/sop/executor"
 	workbenchservice "github.com/Tencent/WeKnora/internal/application/service/workbench"
 	"github.com/Tencent/WeKnora/internal/browserskill"
 	"github.com/Tencent/WeKnora/internal/common"
@@ -190,6 +193,28 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewMCPServiceRepository))
 	must(container.Provide(repository.NewMCPToolApprovalRepository))
 	must(container.Provide(repository.NewAgentPromptRepository))
+	// SOP 工作台仓储（T1–T6）：项目/事项/澄清与活动/模板/运行/凭据/触发器。
+	must(container.Provide(func(db *gorm.DB) interfaces.SopProjectRepository {
+		return repository.NewSopProjectRepo(db)
+	}))
+	must(container.Provide(func(db *gorm.DB) interfaces.SopItemRepository {
+		return repository.NewSopItemRepo(db)
+	}))
+	must(container.Provide(func(db *gorm.DB) interfaces.SopItemExtraRepository {
+		return repository.NewSopItemExtraRepo(db)
+	}))
+	must(container.Provide(func(db *gorm.DB) interfaces.SopTemplateRepository {
+		return repository.NewSopTemplateRepo(db)
+	}))
+	must(container.Provide(func(db *gorm.DB) interfaces.SopRunRepository {
+		return repository.NewSopRunRepo(db)
+	}))
+	must(container.Provide(func(db *gorm.DB) interfaces.SopCredentialRepository {
+		return repository.NewSopCredentialRepo(db)
+	}))
+	must(container.Provide(func(db *gorm.DB) interfaces.SopTriggerRepository {
+		return repository.NewSopTriggerRepo(db)
+	}))
 	must(container.Provide(repository.NewAgentGrantRepository))
 	must(container.Provide(repository.NewAgentRunSuspensionRepository))
 	must(container.Provide(repository.NewMCPOAuthRepository))
@@ -200,6 +225,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewMeetingParticipantRepository))
 	must(container.Provide(repository.NewMeetingMessageRepository))
 	must(container.Provide(repository.NewMeetingAgendaRepository))
+	must(container.Provide(repository.NewMeetingEventRepository))
 	must(container.Provide(repository.NewMeetingArtifactRepository))
 	must(container.Provide(repository.NewAgentEvalRepository))
 	must(container.Provide(repository.NewOrganizationRepository))
@@ -948,6 +974,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	}))
 	// Start only after the delegation close hook is installed.
 	must(container.Invoke(startAgentPromptReaper))
+	must(container.Invoke(startSOPEngine))
 	must(container.Provide(handler.NewMCPCredentialsHandler))
 	must(container.Provide(handler.NewMCPOAuthHandler))
 	must(container.Provide(handler.NewModelCredentialsHandler))
@@ -1030,6 +1057,70 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewWeKnoraCloudHandler))
 	// PM 工作站聚合 Handler（Task 12）
 	must(container.Provide(handler.NewPMHandler))
+
+	// ---- SOP 工作台装配（T21）----
+	// 执行器注册表 → 引擎 → 审批服务 → HTTP 处理器；生命周期由 startSOPEngine 启动。
+	must(container.Provide(func(
+		sessions interfaces.SessionService, messages interfaces.MessageService,
+		agents interfaces.CustomAgentRepository, broker *hitl.Broker,
+	) *sopexecutor.Registry {
+		reg := sopexecutor.NewRegistry()
+		reg.Register(sopexecutor.NewAgentProvider(sopexecutor.AgentDeps{
+			Sessions:    sessions,
+			Messages:    messages,
+			QA:          sessions,
+			Suspensions: sop.NewSuspensionBridge(broker),
+			Agents:      agents,
+		}))
+		reg.Register(sopexecutor.NewScriptProvider())
+		return reg
+	}))
+	must(container.Provide(func(
+		agents interfaces.CustomAgentRepository, projects interfaces.SopProjectRepository,
+		items interfaces.SopItemRepository, mcps interfaces.MCPServiceRepository,
+		kbs interfaces.KnowledgeBaseRepository, creds interfaces.SopCredentialRepository,
+	) *sop.ContextResolver {
+		return sop.NewContextResolver(sop.ResolverDeps{
+			Agents: agents, Projects: projects, Items: items, MCPs: mcps, KBs: kbs, Credentials: creds,
+		})
+	}))
+	must(container.Provide(func(
+		runs interfaces.SopRunRepository, templates interfaces.SopTemplateRepository,
+		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
+		extras interfaces.SopItemExtraRepository, registry *sopexecutor.Registry,
+		resolver *sop.ContextResolver, notices *service.NotificationService,
+		broker *hitl.Broker,
+	) *sopengine.Engine {
+		return sopengine.NewEngine(sopengine.Deps{
+			Runs: runs, Templates: templates, Projects: projects, Items: items,
+			Extras: extras, Registry: registry, Resolver: resolver,
+			// 工作区落在配置目录旁的 data/sop-workspaces（与运行时数据同盘）。
+			WorkspaceRoot: filepath.Join(config.ConfigDir(), "data", "sop-workspaces"),
+			Notify: func(ctx context.Context, tenantID uint64, kind, title, body, refID string) {
+				notices.Notify(ctx, &types.Notification{
+					TenantID: tenantID, Kind: kind, Title: title, Body: body,
+					SourceType: "sop", SourceID: refID, Link: "/platform/sop/runs/" + refID,
+				})
+			},
+			Prompts:           sop.NewPromptBridge(broker),
+			SuspensionPrompts: sop.NewPromptBridge(broker),
+		})
+	}))
+	must(container.Provide(func(
+		eng *sopengine.Engine, extras interfaces.SopItemExtraRepository,
+		runs interfaces.SopRunRepository, projects interfaces.SopProjectRepository,
+		items interfaces.SopItemRepository, db *gorm.DB,
+	) *sop.ApprovalService {
+		return sop.NewApprovalService(eng, extras).WithAggregateSources(sop.AggregateDeps{
+			Runs: runs, Projects: projects, Items: items,
+			Prompts: sop.NewOpenPromptLister(db), Automations: sop.NewAutomationApprovalLister(db),
+		})
+	}))
+	must(container.Provide(func(
+		projects interfaces.SopProjectRepository, runs interfaces.SopRunRepository,
+	) *handler.SOPHandler {
+		return handler.NewSOPHandler(handler.SOPHandlerDeps{Projects: projects, Runs: runs})
+	}))
 	logger.Debugf(ctx, "[Container] HTTP handlers registered")
 
 	// Wire the chat package's local image resolver so multimodal chat can read
@@ -2482,6 +2573,27 @@ func startAgentPromptReaper(runs *service.SuspendedRunService, cleaner interface
 	cleaner.RegisterWithName("AgentPromptReaper", func() error {
 		close(stop)
 		return nil
+	})
+}
+
+// startSOPEngine 启动 SOP 推进引擎（ticker + 每条运行的推进协程），
+// 并把 Stop 挂到资源清理器上：停机时先取消推进协程，残留运行由租约在下次启动时回收。
+func startSOPEngine(eng *sopengine.Engine, cleaner interfaces.ResourceCleaner) {
+	if eng == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := eng.Start(ctx); err != nil {
+		logger.Warnf(context.Background(), "[SOPEngine] start failed: %v", err)
+		cancel()
+		return
+	}
+	cleaner.RegisterWithName("SOPEngine", func() error {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer stopCancel()
+		err := eng.Stop(stopCtx)
+		cancel()
+		return err
 	})
 }
 

@@ -117,6 +117,8 @@ type RouterParams struct {
 	HostSandbox             service.HostSandboxManager
 	// PMHandler PM 工作站端点聚合（项目/规划/需求/版本/功能清单/任务）
 	PMHandler *handler.PMHandler
+	// SOPHandler SOP 工作台端点聚合（项目先行，事项/模板/运行/审批后续挂载）
+	SOPHandler *handler.SOPHandler
 	// v0.9.0：自动化（定时任务）与操作分发
 	AutomationHandler   *handler.AutomationHandler
 	OperationDispatcher *operations.HandlerDispatcher
@@ -361,6 +363,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterCustomAgentRoutes(v1, params.CustomAgentHandler, params.AgentEvalHandler, rbacGuards)
 		RegisterMeetingRoutes(v1, params.MeetingHandler, rbacGuards)
 		RegisterPMRoutes(v1, params.PMHandler, rbacGuards)
+		RegisterSOPRoutes(v1, params.SOPHandler, rbacGuards)
 		RegisterUserFavoriteRoutes(v1, params.UserFavoriteHandler, rbacGuards)
 		RegisterSkillRoutes(v1, params.SkillHandler, rbacGuards)
 		RegisterOrganizationRoutes(v1, params.OrganizationHandler, rbacGuards)

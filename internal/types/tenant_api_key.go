@@ -150,6 +150,16 @@ const (
 	// full-access keys (and JWT) and scoped keys stay default-deny. This
 	// capability never lifts it.
 	APIKeyCapabilityManageSpaces APIKeyCapability = "manage_spaces"
+	// APIKeyCapabilityReadSOP lets a key read the SOP workbench: projects,
+	// items, templates and runs. It does not allow changing anything.
+	APIKeyCapabilityReadSOP APIKeyCapability = "read_sop"
+	// APIKeyCapabilityRunSOP lets a key start runs and answer/approve nodes
+	// without granting project or template management.
+	APIKeyCapabilityRunSOP APIKeyCapability = "run_sop"
+	// APIKeyCapabilityManageSOP lets a key manage SOP projects, items,
+	// templates and triggers. It is separate from run_sop: running a workflow
+	// does not imply redefining it.
+	APIKeyCapabilityManageSOP APIKeyCapability = "manage_sop"
 	// APIKeyCapabilityManageTenantSettings lets a key read and update
 	// tenant-scoped integration settings exposed under /tenants, such as API
 	// principal mode, request headers, and tenant KV. It does not include API
@@ -202,6 +212,12 @@ func NormalizeAPIKeyCapability(c APIKeyCapability) APIKeyCapability {
 		return APIKeyCapabilityManageMembers
 	case APIKeyCapabilityManageSpaces:
 		return APIKeyCapabilityManageSpaces
+	case APIKeyCapabilityReadSOP:
+		return APIKeyCapabilityReadSOP
+	case APIKeyCapabilityRunSOP:
+		return APIKeyCapabilityRunSOP
+	case APIKeyCapabilityManageSOP:
+		return APIKeyCapabilityManageSOP
 	case APIKeyCapabilityManageTenantSettings:
 		return APIKeyCapabilityManageTenantSettings
 	case APIKeyCapabilitySystemTenantsRead:
