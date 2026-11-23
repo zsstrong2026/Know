@@ -1,0 +1,3 @@
+{"timestamp_ms":1,"delta":{"type":"text","text":"开始"}}
+{"timestamp_ms":2,"delta":{"type":"text","text":"分析"}}
+{"type":"result","session_id":"sess-2","status":"success","text":"完成"}

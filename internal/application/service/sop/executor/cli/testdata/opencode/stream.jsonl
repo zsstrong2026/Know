@@ -1,0 +1,5 @@
+{"type":"step_start","session_id":"sess-1"}
+{"type":"part","part":{"type":"text","text":"先读代码"}}
+{"type":"part","part":{"type":"tool","tool":"read","args":{"path":"main.go"}}}
+{"type":"part","part":{"type":"text","text":"然后改"}}
+{"type":"step_finish","session_id":"sess-1","usage":{"input":40,"output":20}}

@@ -1,0 +1,4 @@
+{"event":"init"}
+{"event":"step_update","text":"第一步"}
+{"event":"step_update","text":"第二步"}
+{"event":"result","status":"success"}
