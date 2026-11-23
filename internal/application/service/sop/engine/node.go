@@ -509,6 +509,22 @@ func (e *Engine) executeNode(
 		LoopMaxIterations: node.LoopMaxIterations,
 	}
 
+	// CLI 节点：签发受限 Know MCP 端点（检索 + 工作区读写）。
+	// 平台节点不需要：它通过会话工具直接检索，MCP 子集由 Resolver 给。
+	if node.Executor.Kind == types.SopExecutorCLI && e.deps.MCP != nil {
+		kbIDs := resolved.KBIDs
+		if node.Executor.KBScope == "all" {
+			kbIDs = nil // 空=全部自有 KB（服务端语义）
+		}
+		url, token, mcpErr := e.deps.MCP.EnsureNodeEndpoint(ctx, run.TenantID, run.ID, node.ID, kbIDs)
+		if mcpErr != nil {
+			return e.executionError(ctx, run, node, nr, "无法生成 Know MCP 凭据："+mcpErr.Error(), ws)
+		}
+		tb.KnowMCP = &executor.KnowMCPEndpoint{
+			URL: url, Token: token, KBScope: node.Executor.KBScope, KBIDs: resolved.KBIDs,
+		}
+	}
+
 	logFile := e.openAttemptLog(ws, node.ID, nr.Attempt)
 	if logFile != nil {
 		defer logFile.Close()

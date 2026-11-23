@@ -72,6 +72,15 @@ type Deps struct {
 	// AutoIngest 门禁通过后自动归档产物到绑定 KB（可 nil；T36 接线）。
 	// 错误只记日志，不影响运行结论——沉淀不是门禁。
 	AutoIngest func(ctx context.Context, run *types.SopRun, node *types.SopNode, arts []*types.SopArtifact)
+	// MCP 为 CLI 节点签发受限 Know MCP 端点（可 nil；T37 接线）。
+	MCP MCPEndpointProvisioner
+}
+
+// MCPEndpointProvisioner 签发「运行 × 节点」的受限 MCP 端点。
+type MCPEndpointProvisioner interface {
+	EnsureNodeEndpoint(
+		ctx context.Context, tenantID uint64, runID, nodeID string, kbIDs []string,
+	) (url, token string, err error)
 }
 
 // Engine 是进程内单实例调度器：一个 ticker 循环认领到期运行，每个运行一个推进协程。

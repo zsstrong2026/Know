@@ -19,6 +19,24 @@ func NewMCPEndpointRepository(db *gorm.DB) interfaces.MCPEndpointRepository {
 	return &mcpEndpointRepository{db: db}
 }
 
+// GetByName 按 (租户, 名称) 取端点；不存在返回 (nil, nil)。
+//
+// SOP 按「运行+节点」确定性命名端点（sop:<run>:<node>），需要按名幂等复用。
+func (r *mcpEndpointRepository) GetByName(
+	ctx context.Context, tenantID uint64, name string,
+) (*types.MCPEndpoint, error) {
+	var ep types.MCPEndpoint
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND name = ?", tenantID, name).First(&ep).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &ep, nil
+}
+
 func (r *mcpEndpointRepository) Create(ctx context.Context, ep *types.MCPEndpoint) error {
 	return r.db.WithContext(ctx).Create(ep).Error
 }

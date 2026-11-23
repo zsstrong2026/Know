@@ -11,6 +11,8 @@ type MCPEndpointRepository interface {
 	Create(ctx context.Context, ep *types.MCPEndpoint) error
 	GetByID(ctx context.Context, id string) (*types.MCPEndpoint, error)
 	GetByTokenHash(ctx context.Context, tokenHash string) (*types.MCPEndpoint, error)
+	// GetByName 按 (租户, 名称) 取端点；不存在返回 (nil, nil)。
+	GetByName(ctx context.Context, tenantID uint64, name string) (*types.MCPEndpoint, error)
 	ListByTenant(ctx context.Context, tenantID uint64) ([]*types.MCPEndpoint, error)
 	Update(ctx context.Context, ep *types.MCPEndpoint) error
 	Delete(ctx context.Context, tenantID uint64, id string) error

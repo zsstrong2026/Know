@@ -61,7 +61,9 @@ type Server struct {
 	limiter   *ratelimit.Limiter
 	lastTouch sync.Map // endpoint id -> time.Time of the last last_used_at write
 
-	mcp     *server.MCPServer
+	mcp *server.MCPServer
+	// sopDeps 由 RegisterSOPTools 填入（SOP 工具组依赖运行/模板服务）。
+	sopDeps SOPToolDeps
 	handler http.Handler
 }
 
@@ -115,6 +117,8 @@ func NewServer(
 		server.WithInstructions(serverInstructions),
 	)
 	s.mcp.AddTools(s.toolCatalog()...)
+	s.mcp.AddTools(s.sopTools()...)
+
 	s.handler = server.NewStreamableHTTPServer(
 		s.mcp,
 		server.WithStateLess(true),

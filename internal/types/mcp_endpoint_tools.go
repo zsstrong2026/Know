@@ -13,6 +13,9 @@ const (
 	MCPEndpointToolGroupChat     MCPEndpointToolGroup = "chat"
 	MCPEndpointToolGroupWiki     MCPEndpointToolGroup = "wiki"
 	MCPEndpointToolGroupIngest   MCPEndpointToolGroup = "ingest"
+	// MCPEndpointToolGroupSOP drives the SOP workbench: create/inspect runs,
+	// approve nodes, and read/write the run workspace.
+	MCPEndpointToolGroupSOP MCPEndpointToolGroup = "sop"
 )
 
 // MCP endpoint tool names. These are the names external MCP clients see.
@@ -31,6 +34,17 @@ const (
 	MCPEndpointToolAddDocument        = "add_document"
 	MCPEndpointToolUpdateDocument     = "update_document"
 	MCPEndpointToolDeleteDocument     = "delete_document"
+
+	// SOP workbench tools (the "sop" group).
+	MCPEndpointToolSOPListTemplates  = "sop_list_templates"
+	MCPEndpointToolSOPCreateRun      = "sop_create_run"
+	MCPEndpointToolSOPGetRun         = "sop_get_run"
+	MCPEndpointToolSOPListRuns       = "sop_list_runs"
+	MCPEndpointToolSOPApproveNode    = "sop_approve_node"
+	MCPEndpointToolSOPRejectNode     = "sop_reject_node"
+	MCPEndpointToolSOPWorkspaceList  = "sop_workspace_list"
+	MCPEndpointToolSOPWorkspaceRead  = "sop_workspace_read"
+	MCPEndpointToolSOPWorkspaceWrite = "sop_workspace_write"
 )
 
 // MCPEndpointToolDefinition is the settings-facing description of one tool.
@@ -58,6 +72,15 @@ var mcpEndpointToolCatalog = []MCPEndpointToolDefinition{
 	{Name: MCPEndpointToolAddDocument, Group: MCPEndpointToolGroupIngest, Destructive: true},
 	{Name: MCPEndpointToolUpdateDocument, Group: MCPEndpointToolGroupIngest, Destructive: true},
 	{Name: MCPEndpointToolDeleteDocument, Group: MCPEndpointToolGroupIngest, Destructive: true},
+	{Name: MCPEndpointToolSOPListTemplates, Group: MCPEndpointToolGroupSOP},
+	{Name: MCPEndpointToolSOPGetRun, Group: MCPEndpointToolGroupSOP},
+	{Name: MCPEndpointToolSOPListRuns, Group: MCPEndpointToolGroupSOP},
+	{Name: MCPEndpointToolSOPCreateRun, Group: MCPEndpointToolGroupSOP, Destructive: true},
+	{Name: MCPEndpointToolSOPApproveNode, Group: MCPEndpointToolGroupSOP, Destructive: true},
+	{Name: MCPEndpointToolSOPRejectNode, Group: MCPEndpointToolGroupSOP, Destructive: true},
+	{Name: MCPEndpointToolSOPWorkspaceList, Group: MCPEndpointToolGroupSOP},
+	{Name: MCPEndpointToolSOPWorkspaceRead, Group: MCPEndpointToolGroupSOP},
+	{Name: MCPEndpointToolSOPWorkspaceWrite, Group: MCPEndpointToolGroupSOP, Destructive: true},
 }
 
 // MCPEndpointToolCatalog returns a copy of the ordered tool catalog.
@@ -74,6 +97,7 @@ func MCPEndpointToolGroups() []MCPEndpointToolGroup {
 		MCPEndpointToolGroupChat,
 		MCPEndpointToolGroupWiki,
 		MCPEndpointToolGroupIngest,
+		MCPEndpointToolGroupSOP,
 	}
 }
 
@@ -138,6 +162,10 @@ func MCPEndpointCapabilitiesForTools(tools []string) []string {
 	}
 	if groups[MCPEndpointToolGroupIngest] {
 		caps = append(caps, string(APIKeyCapabilityIngest))
+	}
+	// SOP 组同时需要读与跑：查模板/运行是读，发起与审批是跑。
+	if groups[MCPEndpointToolGroupSOP] {
+		caps = append(caps, string(APIKeyCapabilityReadSOP), string(APIKeyCapabilityRunSOP))
 	}
 	return caps
 }

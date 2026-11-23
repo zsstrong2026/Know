@@ -977,6 +977,17 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Invoke(startAgentPromptReaper))
 	must(container.Invoke(startSOPEngine))
 	must(container.Invoke(startSOPTriggerScheduler))
+	// SOP 工具组：给 MCP 服务端注入模板/运行/引擎依赖（工具本身在 NewServer 已注册）。
+	must(container.Invoke(func(
+		srv *mcpserver.Server, templates interfaces.SopTemplateRepository,
+		runs interfaces.SopRunRepository, runSvc *sop.RunService, eng *sopengine.Engine,
+	) {
+		if srv != nil {
+			srv.RegisterSOPTools(mcpserver.SOPToolDeps{
+				Templates: templates, Runs: runs, RunSvc: runSvc, Engine: eng,
+			})
+		}
+	}))
 	must(container.Provide(handler.NewMCPCredentialsHandler))
 	must(container.Provide(handler.NewMCPOAuthHandler))
 	must(container.Provide(handler.NewModelCredentialsHandler))
@@ -1129,6 +1140,10 @@ func BuildContainer(container *dig.Container) *dig.Container {
 			Triggers: triggers, Items: items, Runs: runSvc, Templates: templates,
 		})
 	}))
+	must(container.Provide(func(eps interfaces.MCPEndpointRepository) *sop.MCPProvisioner {
+		// MCP 地址读配置里的服务地址；未配置时用本地默认（8777 之外的 /mcp 路由同源）。
+		return sop.NewMCPProvisioner(eps, mcpEndpointBaseURL())
+	}))
 	must(container.Provide(func(
 		triggers interfaces.SopTriggerRepository, items interfaces.SopItemRepository,
 		runSvc *sop.RunService, templates interfaces.SopTemplateRepository,
@@ -1163,7 +1178,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		extras interfaces.SopItemExtraRepository, registry *sopexecutor.Registry,
 		resolver *sop.ContextResolver, notices *service.NotificationService,
 		broker *hitl.Broker, itemSvc *sop.ItemService, hub *sop.EventHub,
-		archive *sop.ArchiveService,
+		archive *sop.ArchiveService, mcpProv *sop.MCPProvisioner,
 	) *sopengine.Engine {
 		return sopengine.NewEngine(sopengine.Deps{
 			Runs: runs, Templates: templates, Projects: projects, Items: items,
@@ -1190,6 +1205,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 			EventSink: hub.Publish,
 			// 产物自动归档（节点开 auto_ingest 且门禁通过时触发；失败只记日志）。
 			AutoIngest: archive.IngestNodeArtifacts,
+			// CLI 节点的受限 Know MCP 端点（检索 + 工作区读写）。
+			MCP: mcpProv,
 		})
 	}))
 	must(container.Provide(func(
@@ -2796,4 +2813,14 @@ func startAuditLogRetention(
 		runner.StopWithin(cleanupStepTimeout)
 		return nil
 	})
+}
+
+// mcpEndpointBaseURL 返回 Know MCP 服务的地址（CLI 执行器从这里拉知识库与工作区）。
+//
+// 默认与服务同源（:8080/mcp）：单机部署下 CLI 与平台在同机，跨机部署时改这个值。
+func mcpEndpointBaseURL() string {
+	if v := strings.TrimSpace(os.Getenv("SOP_MCP_BASE_URL")); v != "" {
+		return v
+	}
+	return "http://127.0.0.1:8080/mcp"
 }
