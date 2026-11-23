@@ -116,3 +116,21 @@ func TestSuspensionBridgeReturnsAnsweredSnapshot(t *testing.T) {
 	require.Equal(t, "p1", got.Prompt.ID)
 	require.JSONEq(t, `{"q":"hi"}`, string(got.Snapshot))
 }
+
+// SOP 答复通道不能替人批准工具调用/MCP 授权：那是会话里的显式授权动作。
+func TestPromptBridgeRefusesToolApprovalAndOAuth(t *testing.T) {
+	broker := newBridgeBroker(t)
+	ctx := context.Background()
+	require.NoError(t, broker.Store().Create(ctx, &types.AgentPrompt{
+		ID: "p-tool", TenantID: 1, SessionID: "s1", Kind: types.AgentPromptKindToolApproval,
+		Request: types.JSON(`{"service_name":"GitHub","mcp_tool_name":"create_issue"}`),
+		Status:  types.AgentPromptSuspended,
+	}))
+	err := NewPromptBridge(broker).Answer(ctx, engine.PromptAnswer{
+		TenantID: 1, SessionID: "s1", PromptID: "p-tool", Text: "同意",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "会话界面确认")
+	row, _ := broker.Store().Get(ctx, "p-tool")
+	require.Equal(t, types.AgentPromptSuspended, row.Status, "被拒绝的答复不得改动提示状态")
+}

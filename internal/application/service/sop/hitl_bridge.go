@@ -114,8 +114,11 @@ func (b *PromptBridge) Answer(ctx context.Context, req engine.PromptAnswer) erro
 	if err != nil {
 		return err
 	}
+	// UserID 取提示自己登记的那位：Broker 对「有用户归属」的提示做严格匹配，
+	// 传空会被判越权（fail-close），传错人同理。
 	if _, err := b.broker.Resolve(ctx, hitl.ResolveRequest{
-		TenantID: req.TenantID, SessionID: req.SessionID, PromptID: promptID, Response: response,
+		TenantID: req.TenantID, UserID: row.UserID, SessionID: req.SessionID,
+		PromptID: promptID, Response: response,
 	}); err != nil {
 		return fmt.Errorf("提交答复失败：%w", err)
 	}
@@ -143,8 +146,9 @@ func answerResponse(p *types.AgentPrompt, text string) (json.RawMessage, error) 
 			}
 		}
 		return json.Marshal(types.AskUserPromptResponse{Text: text})
-	case types.AgentPromptKindToolApproval:
-		return json.Marshal(types.ToolApprovalPromptResponse{Approved: true, Reason: text})
+	case types.AgentPromptKindToolApproval, types.AgentPromptKindMCPOAuth:
+		// 自动批准等于绕过授权：这两类必须由人在会话/审批界面里显式确认。
+		return nil, errors.New("工具调用与 MCP 授权需在会话界面确认，不能用文字答复代替")
 	default:
 		return nil, fmt.Errorf("该类型的挂起（%s）请在对应页面处理", p.Kind)
 	}

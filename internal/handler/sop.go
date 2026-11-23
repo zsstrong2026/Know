@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"strings"
 
+	"fmt"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
@@ -71,17 +73,29 @@ func sopFail(c *gin.Context, err error, notFoundMsg string) {
 	}
 }
 
-// sopClientErrorPrefixes 是业务校验类错误的文案前缀：这些错误由本包或 types 直接
-// 构造，用 Error() 的前缀识别即可，避免为此在 types 里堆一堆哨兵。
-var sopClientErrorPrefixes = []string{
-	"编号前缀", "项目名称", "项目编号", "仓库", "该仓库", "请选择", "缺少租户", "项目还有",
-	"仅支持", // 仓库地址校验（types.ValidateSopRepoURL）
+// sopClientError 标记「可以直接展示给用户的校验失败」：由 handler 自己构造，
+// 用类型识别而不是文案前缀——前缀匹配会随文案改动静默失效，也会把内部错误误判成 400。
+type sopClientError struct{ msg string }
+
+func (e sopClientError) Error() string { return e.msg }
+
+// sopClientf 构造一条客户端可见的业务错误。
+func sopClientf(format string, args ...any) error {
+	return sopClientError{msg: fmt.Sprintf(format, args...)}
 }
 
+// sopIsClientError 判断是否为业务校验错误（也接受 types 层直接给出的校验文案）。
 func sopIsClientError(err error) bool {
+	var clientErr sopClientError
+	if stderrors.As(err, &clientErr) {
+		return true
+	}
+	// types 层与仓储层直接返回普通 error，文案固定且面向用户。
 	msg := err.Error()
-	for _, prefix := range sopClientErrorPrefixes {
-		if strings.HasPrefix(msg, prefix) || strings.Contains(msg, prefix) {
+	for _, prefix := range []string{
+		"仅支持 HTTPS 或 SSH Git 地址", "编号前缀须为", "该仓库已绑定", "仓库不存在", "请选择仓库",
+	} {
+		if strings.HasPrefix(msg, prefix) {
 			return true
 		}
 	}
@@ -97,11 +111,20 @@ func sopBindJSON(c *gin.Context, req any) bool {
 	return true
 }
 
+// sopAbort 结束请求：业务校验错误统一 400，其它错误交给 sopFail 分流。
+func sopAbort(c *gin.Context, err error) {
+	if sopIsClientError(err) {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	sopFail(c, err, "")
+}
+
 // sopTenantID 取租户；缺失时写 400 并返回 0（调用方据此提前返回）。
 func sopTenantID(c *gin.Context) uint64 {
 	tenantID, _ := types.TenantIDFromContext(c.Request.Context())
 	if tenantID == 0 {
-		c.Error(errors.NewBadRequestError("缺少租户上下文：无法处理 SOP 请求"))
+		sopAbort(c, sopClientf("缺少租户上下文：无法处理 SOP 请求"))
 	}
 	return tenantID
 }
@@ -177,16 +200,20 @@ func (h *SOPHandler) CreateProject(c *gin.Context) {
 		return
 	}
 	if strings.TrimSpace(req.Name) == "" {
-		c.Error(errors.NewBadRequestError("项目名称不能为空"))
+		sopAbort(c, sopClientf("项目名称不能为空"))
+		return
+	}
+	if sopUserID(c) == "" {
+		sopAbort(c, sopClientf("缺少用户身份：无法确定项目负责人"))
 		return
 	}
 	if err := types.ValidateSopProjectCode(req.Code); err != nil {
-		c.Error(errors.NewBadRequestError(err.Error()))
+		sopAbort(c, err)
 		return
 	}
 	for _, repo := range req.Repos {
 		if err := types.ValidateSopRepoURL(repo.URL); err != nil {
-			c.Error(errors.NewBadRequestError(err.Error()))
+			sopAbort(c, err)
 			return
 		}
 	}
@@ -196,7 +223,7 @@ func (h *SOPHandler) CreateProject(c *gin.Context) {
 		sopFail(c, err, "")
 		return
 	} else if dup != "" {
-		c.Error(errors.NewBadRequestError(dup))
+		sopAbort(c, sopClientError{msg: dup})
 		return
 	}
 	proj := &types.SopProject{TenantID: tenantID, OwnerUserID: sopUserID(c)}
@@ -255,12 +282,12 @@ func (h *SOPHandler) UpdateProject(c *gin.Context) {
 		return
 	}
 	if req.Code != "" && !strings.EqualFold(req.Code, proj.Code) {
-		c.Error(errors.NewBadRequestError("项目编号创建后不可修改"))
+		sopAbort(c, sopClientf("项目编号创建后不可修改"))
 		return
 	}
 	for _, repo := range req.Repos {
 		if err := types.ValidateSopRepoURL(repo.URL); err != nil {
-			c.Error(errors.NewBadRequestError(err.Error()))
+			sopAbort(c, err)
 			return
 		}
 	}
@@ -268,7 +295,7 @@ func (h *SOPHandler) UpdateProject(c *gin.Context) {
 		sopFail(c, err, "")
 		return
 	} else if dup != "" {
-		c.Error(errors.NewBadRequestError(dup))
+		sopAbort(c, sopClientError{msg: dup})
 		return
 	}
 	req.applyTo(proj)
@@ -292,7 +319,7 @@ func (h *SOPHandler) DeleteProject(c *gin.Context) {
 		return
 	}
 	if active > 0 {
-		c.Error(errors.NewBadRequestError("该项目还有进行中的运行，请先取消或等待结束"))
+		sopAbort(c, sopClientf("该项目还有进行中的运行，请先取消或等待结束"))
 		return
 	}
 	if err := h.projects.Delete(c.Request.Context(), tenantID, id); err != nil {

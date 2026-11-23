@@ -1097,8 +1097,14 @@ func BuildContainer(container *dig.Container) *dig.Container {
 			// 工作区落在配置目录旁的 data/sop-workspaces（与运行时数据同盘）。
 			WorkspaceRoot: filepath.Join(config.ConfigDir(), "data", "sop-workspaces"),
 			Notify: func(ctx context.Context, tenantID uint64, kind, title, body, refID string) {
+				// 通知必须落到人身上（NotificationService 对空 UserID 直接丢弃）：
+				// 收件人取运行创建者，读不到就跳过，绝不广播。
+				run, err := runs.GetRun(ctx, tenantID, refID)
+				if err != nil || run == nil || run.CreatedBy == "" {
+					return
+				}
 				notices.Notify(ctx, &types.Notification{
-					TenantID: tenantID, Kind: kind, Title: title, Body: body,
+					TenantID: tenantID, UserID: run.CreatedBy, Kind: kind, Title: title, Body: body,
 					SourceType: "sop", SourceID: refID, Link: "/platform/sop/runs/" + refID,
 				})
 			},
