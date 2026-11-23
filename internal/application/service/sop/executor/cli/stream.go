@@ -57,7 +57,10 @@ func RunStream(
 	defer home.Close()
 
 	// 配置与系统提示先落盘：CLI 启动时就要读它们。
-	for rel, content := range a.ConfigFiles(tb) {
+	// MCP 段在这里统一合并（而不是每个适配器各写一遍）：只渲染节点勾选的 server
+	// 与平台 Know 端点，凭据进头不进文件正文。
+	configFiles, mcpEnv := MergeMCPIntoConfig(a.ConfigFiles(tb), RenderMCPConfig(a.Kind(), tb.MCPServers, knowEndpoint(tb)))
+	for rel, content := range configFiles {
 		if err := home.WriteFile(rel, []byte(content)); err != nil {
 			return executor.ExecResult{}, err
 		}
@@ -78,7 +81,7 @@ func RunStream(
 	}
 
 	args := a.BuildArgs(tb, delivery.Argv, strings.TrimSpace(tb.ResumeSessionID))
-	env := proc.ScriptEnv(mergedEnv(home, a, tb))
+	env := proc.ScriptEnv(mergedEnv(home, a, tb, mcpEnv))
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -158,13 +161,29 @@ func withTail(stderr string) string {
 	return "：" + tailRunes(trimmed, 800)
 }
 
+// knowEndpoint 取本次注入的 Know MCP 端点（T37 供给；未供给时 URL 为空=不注入）。
+func knowEndpoint(tb executor.TaskBook) KnowMCPEndpoint {
+	if tb.KnowMCP == nil {
+		return KnowMCPEndpoint{}
+	}
+	return *tb.KnowMCP
+}
+
+// mcpConfigPath 是 claude --mcp-config 指向的文件（私有 HOME 内的相对路径，
+// RunStream 以 $HOME 为工作基底写入；这里用绝对形式由 CLI 自行展开）。
+const mcpConfigPath = ".sop/mcp.json"
+
 // mergedEnv 组装子进程环境：系统环境打底 → 私有 HOME → 凭据/适配器变量。
 //
 // HOME/USERPROFILE 指向私有目录：CLI 会把凭据与缓存写进 HOME，共享 HOME 等于
 // 把 A 节点的密钥暴露给 B 节点（spec §5.2）。
-func mergedEnv(home *Home, a Adapter, tb executor.TaskBook) map[string]string {
+func mergedEnv(home *Home, a Adapter, tb executor.TaskBook, mcpEnv map[string]string) map[string]string {
 	extra := map[string]string{}
 	for k, v := range a.Env(tb) {
+		extra[k] = v
+	}
+	// MCP 的 env 类配置（opencode 整段 JSON）覆盖同名项。
+	for k, v := range mcpEnv {
 		extra[k] = v
 	}
 	if home != nil && home.Dir != "" {

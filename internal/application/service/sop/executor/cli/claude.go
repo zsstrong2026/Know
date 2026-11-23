@@ -39,6 +39,9 @@ func (ClaudeAdapter) BuildArgs(tb executor.TaskBook, prompt, resumeID string) []
 	if id := strings.TrimSpace(resumeID); id != "" {
 		args = append(args, "--resume", id)
 	}
+	// MCP 配置走独立文件（--mcp-config）：claude 不读 settings.json 里的 mcpServers。
+	// 路径是私有 HOME 内的绝对路径，由 RunStream 落盘后存在。
+	args = append(args, "--mcp-config", mcpConfigPath)
 	if p := strings.TrimSpace(prompt); p != "" {
 		args = append(args, p)
 	}
