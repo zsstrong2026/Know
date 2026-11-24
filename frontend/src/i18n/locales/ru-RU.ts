@@ -9403,6 +9403,10 @@
       switchFailed: 'Не удалось переключить проект, повторите позже'
     },
     items: {
+      kanbanDropHere: 'Перетащите задачи сюда',
+      kanbanIllegal: 'Нельзя перейти из «{from}» сразу в «{to}»',
+      kanbanMoved: '«{title}» перемещена в «{to}»',
+      kanbanMoveFailed: 'Не удалось переместить — статус восстановлен',
       currentProject: 'Текущий проект',
       statTotal: 'Задачи',
       statAllHint: 'Показать все задачи',

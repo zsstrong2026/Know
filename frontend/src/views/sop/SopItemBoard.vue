@@ -94,10 +94,12 @@
         @update:model-value="(v: any) => setFilter('kind', v)"
       />
       <div class="sop-seg">
-        <button type="button" class="on">{{ $t('sop.items.viewList') }}</button>
-        <t-tooltip :content="$t('sop.items.viewKanbanSoon')">
-          <button type="button" disabled>{{ $t('sop.items.viewKanban') }}</button>
-        </t-tooltip>
+        <button type="button" :class="{ on: viewMode === 'list' }" @click="viewMode = 'list'">
+          {{ $t('sop.items.viewList') }}
+        </button>
+        <button type="button" :class="{ on: viewMode === 'kanban' }" @click="viewMode = 'kanban'">
+          {{ $t('sop.items.viewKanban') }}
+        </button>
       </div>
     </div>
 
@@ -114,7 +116,53 @@
       </t-button>
     </div>
 
-    <div class="sop-table-wrap">
+    <!-- 看板视图：与列表共享 store.items（同一筛选项），拖拽改状态 -->
+    <div v-if="viewMode === 'kanban'" class="sop-board-cols">
+      <div
+        v-for="column in KANBAN_COLUMNS"
+        :key="column"
+        class="sop-bcol"
+        :class="{ 'is-over': dragOver === column }"
+        @dragover.prevent="onDragOver(column)"
+        @dragleave="onDragLeave(column)"
+        @drop.prevent="onDrop(column)"
+      >
+        <div class="sop-bcol-head">
+          <i :style="{ background: ITEM_STATUS_COLORS[column] }" />
+          {{ ITEM_STATUS_LABELS[column] }}
+          <span class="cnt">{{ columnItems(column).length }}</span>
+        </div>
+        <div class="sop-bcol-body">
+          <div
+            v-for="item in columnItems(column)"
+            :key="item.id"
+            class="sop-icard"
+            :class="{ dragging: draggingId === item.id }"
+            draggable="true"
+            @dragstart="onDragStart(item)"
+            @dragend="onDragEnd"
+            @click="openItem(item)"
+          >
+            <div class="sop-icard-title">{{ item.title }}</div>
+            <div class="sop-icard-meta">
+              <span class="mono">{{ item.no || '' }}</span>
+              <span class="sop-prio" :class="`is-${item.priority || 'P2'}`">{{ item.priority || 'P2' }}</span>
+              <span class="sop-kind">{{ KIND_LABELS[item.kind] || item.kind }}</span>
+              <span class="sop-src">{{ SOURCE_LABELS[item.source] || item.source }}</span>
+            </div>
+            <div class="sop-icard-foot">
+              <span>{{ item.current_node || '—' }}</span>
+              <span class="mono">{{ progressText(item.progress_done, item.progress_total) }}</span>
+            </div>
+          </div>
+          <div v-if="!columnItems(column).length" class="sop-bcol-empty">
+            {{ $t('sop.items.kanbanDropHere') }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-else class="sop-table-wrap">
       <table class="sop-table">
         <thead>
           <tr>
@@ -218,6 +266,8 @@ import {
   bulkClose,
   createRun,
   listRuns,
+  setItemStatus,
+  type ItemStatus,
   type SopItemWithDerived,
 } from '@/api/sop';
 import {
@@ -225,8 +275,10 @@ import {
   EXEC_STATE_LABELS,
   ITEM_STATUS_COLORS,
   ITEM_STATUS_LABELS,
+  KANBAN_COLUMNS,
   KIND_LABELS,
   SOURCE_LABELS,
+  canTransitItem,
   progressText,
 } from '@/api/sop/helpers';
 import type { ExecState } from '@/api/sop';
@@ -242,6 +294,9 @@ const search = ref(String(store.itemFilter.q || ''));
 const selected = ref(new Set<string>());
 // 每条事项最近一次运行的 id（用于「查看运行」按钮）
 const latestRuns = ref<Record<string, string>>({});
+const viewMode = ref<'list' | 'kanban'>('list');
+const draggingId = ref('');
+const dragOver = ref<ItemStatus | ''>('');
 const launchingId = ref('');
 const bulkBusy = ref(false);
 const refreshing = ref(false);
@@ -295,6 +350,61 @@ const defaultTemplateName = computed(() => {
 const allSelected = computed(
   () => store.items.length > 0 && store.items.every((item) => selected.value.has(item.id)),
 );
+
+function columnItems(column: ItemStatus): SopItemWithDerived[] {
+  return store.items.filter((item) => item.status === column);
+}
+
+function onDragStart(item: SopItemWithDerived) {
+  draggingId.value = item.id;
+}
+
+function onDragEnd() {
+  draggingId.value = '';
+  dragOver.value = '';
+}
+
+function onDragOver(column: ItemStatus) {
+  if (draggingId.value) dragOver.value = column;
+}
+
+function onDragLeave(column: ItemStatus) {
+  if (dragOver.value === column) dragOver.value = '';
+}
+
+/**
+ * 拖拽改状态：先本地判定状态机（非法直接提示，不动数据），
+ * 合法则乐观更新 → setItemStatus → 失败回滚并透出后端错误。
+ */
+async function onDrop(column: ItemStatus) {
+  const id = draggingId.value;
+  onDragEnd();
+  if (!id) return;
+  const item = store.items.find((it) => it.id === id);
+  if (!item || item.status === column) return;
+
+  if (!canTransitItem(item.status, column)) {
+    MessagePlugin.warning(t('sop.items.kanbanIllegal', {
+      from: ITEM_STATUS_LABELS[item.status] || item.status,
+      to: ITEM_STATUS_LABELS[column],
+    }));
+    return;
+  }
+
+  const previous = item.status;
+  item.status = column;
+  try {
+    await setItemStatus(item.id, column);
+    MessagePlugin.success(t('sop.items.kanbanMoved', {
+      title: item.title,
+      to: ITEM_STATUS_LABELS[column],
+    }));
+    await Promise.all([store.loadItems(), store.loadStats()]);
+  } catch (error: any) {
+    item.status = previous;
+    MessagePlugin.error(error?.message || t('sop.items.kanbanMoveFailed'));
+  }
+}
 
 function templateName(id: string): string {
   if (!id) return '';

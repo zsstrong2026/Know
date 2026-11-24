@@ -9404,6 +9404,10 @@
       switchFailed: '切换项目失败，请稍后重试'
     },
     items: {
+      kanbanDropHere: '拖拽事项到此列',
+      kanbanIllegal: '不能从「{from}」直接到「{to}」',
+      kanbanMoved: '「{title}」已移至「{to}」',
+      kanbanMoveFailed: '移动失败，已恢复原状态',
       currentProject: '当前项目',
       statTotal: '工作项',
       statAllHint: '显示全部工作项',

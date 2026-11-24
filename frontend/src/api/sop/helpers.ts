@@ -279,3 +279,33 @@ export function matchExecOptions(
   if (!q) return options;
   return options.filter((option) => option.label.toLowerCase().includes(q));
 }
+
+/** 看板列：7 个可停留状态（cancelled 不进看板，与原型一致）。 */
+export const KANBAN_COLUMNS: ItemStatus[] = [
+  'backlog',
+  'todo',
+  'in_progress',
+  'in_review',
+  'blocked',
+  'done',
+  'closed',
+];
+
+// 事项状态机：与后端 types.sopItemTransitions 逐条对齐（唯一权威在后端）。
+const ITEM_TRANSITIONS: Record<string, string[]> = {
+  backlog: ['todo', 'cancelled'],
+  todo: ['in_progress', 'backlog', 'cancelled'],
+  in_progress: ['in_review', 'blocked', 'done', 'cancelled'],
+  in_review: ['in_progress', 'done', 'cancelled'],
+  blocked: ['in_progress', 'todo', 'cancelled'],
+  done: ['closed'],
+  closed: ['todo'],
+  cancelled: ['todo'],
+};
+
+/** 迁移是否合法（本地预判，最终以后端 CanTransitSopItem 为准；同状态放行）。 */
+export function canTransitItem(from: string, to: string): boolean {
+  if (!from || !to) return false;
+  if (from === to) return true;
+  return (ITEM_TRANSITIONS[from] || []).includes(to);
+}

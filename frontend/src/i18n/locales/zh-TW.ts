@@ -9404,6 +9404,10 @@
       switchFailed: '切換專案失敗，請稍後再試'
     },
     items: {
+      kanbanDropHere: '拖曳事項到此欄',
+      kanbanIllegal: '不能從「{from}」直接到「{to}」',
+      kanbanMoved: '「{title}」已移至「{to}」',
+      kanbanMoveFailed: '移動失敗，已恢復原狀態',
       currentProject: '目前專案',
       statTotal: '工作項',
       statAllHint: '顯示全部工作項',

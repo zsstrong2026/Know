@@ -622,6 +622,10 @@
       switchFailed: 'Failed to switch project, please try again later'
     },
     items: {
+      kanbanDropHere: 'Drag items here',
+      kanbanIllegal: 'Cannot move from “{from}” straight to “{to}”',
+      kanbanMoved: '“{title}” moved to “{to}”',
+      kanbanMoveFailed: 'Move failed — status restored',
       currentProject: 'Current project',
       statTotal: 'Items',
       statAllHint: 'Show all items',

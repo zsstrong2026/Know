@@ -622,6 +622,10 @@
       switchFailed: 'プロジェクトの切り替えに失敗しました。後でもう一度お試しください'
     },
     items: {
+      kanbanDropHere: 'ここに項目をドラッグ',
+      kanbanIllegal: '「{from}」から「{to}」へ直接移動できません',
+      kanbanMoved: '「{title}」を「{to}」に移動しました',
+      kanbanMoveFailed: '移動に失敗しました。元の状態に戻しました',
       currentProject: '現在のプロジェクト',
       statTotal: '項目',
       statAllHint: 'すべての項目を表示',

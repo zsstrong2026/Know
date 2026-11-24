@@ -14,6 +14,8 @@ import {
   validateRepoURL,
   repoDisplayName,
   matchExecOptions,
+  KANBAN_COLUMNS,
+  canTransitItem,
   progressText,
   shortSha,
   formatBytes,
@@ -134,4 +136,17 @@ test('进度、短 sha 与字节格式化', () => {
   assert.equal(shortSha(''), '');
   assert.equal(formatBytes(512), '512 B');
   assert.equal(formatBytes(2048), '2.0 KB');
+});
+
+test('看板列与状态机镜像', () => {
+  assert.deepEqual(KANBAN_COLUMNS, ['backlog', 'todo', 'in_progress', 'in_review', 'blocked', 'done', 'closed']);
+  assert.ok(canTransitItem('backlog', 'todo'));
+  assert.ok(!canTransitItem('backlog', 'done')); // 非法跨跃与后端一致
+  assert.ok(canTransitItem('in_progress', 'blocked'));
+  assert.ok(canTransitItem('done', 'closed'));
+  assert.ok(canTransitItem('closed', 'todo'));
+  assert.ok(canTransitItem('blocked', 'cancelled'));
+  assert.ok(!canTransitItem('done', 'in_progress'));
+  assert.ok(!canTransitItem('', 'todo'));
+  assert.ok(canTransitItem('todo', 'todo')); // 同状态幂等放行
 });

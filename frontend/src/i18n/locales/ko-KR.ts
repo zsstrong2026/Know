@@ -9403,6 +9403,10 @@
       switchFailed: '프로젝트 전환에 실패했습니다. 잠시 후 다시 시도하세요'
     },
     items: {
+      kanbanDropHere: '여기로 항목을 끌어다 놓으세요',
+      kanbanIllegal: '"{from}"에서 "{to}"(으)로 바로 이동할 수 없습니다',
+      kanbanMoved: '"{title}"을(를) "{to}"(으)로 옮겼습니다',
+      kanbanMoveFailed: '이동에 실패하여 원래 상태로 되돌렸습니다',
       currentProject: '현재 프로젝트',
       statTotal: '항목',
       statAllHint: '모든 항목 표시',
