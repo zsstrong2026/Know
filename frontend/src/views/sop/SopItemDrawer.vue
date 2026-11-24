@@ -70,6 +70,9 @@
           <div class="sop-kv"><span class="k">{{ $t('sop.drawer.repos') }}</span><span class="v">{{ repoSummary }}</span></div>
           <div class="sop-kv sop-kv--last"><span class="k">{{ $t('sop.drawer.createdAt') }}</span><span class="v">{{ formatTime(item.created_at) }}</span></div>
           <div class="sop-row">
+            <t-button size="small" :loading="busy" @click="runAiAnalysis">
+              ✦ {{ $t('sop.drawer.aiAnalyze') }}
+            </t-button>
             <t-button size="small" variant="outline" @click="activeTab = 'clarify'">
               {{ $t('sop.drawer.clarifyEntry', { n: openClarifications }) }}
             </t-button>
@@ -249,6 +252,7 @@ import { useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import {
   addHumanContext,
+  analyzeItem,
   answerClarification,
   createRun,
   deleteItem,
@@ -433,6 +437,22 @@ watch(
   },
   { immediate: true },
 );
+
+/** AI 分析：后端建会话并返回 session_id，前端跳到现有会话页看流式结论。 */
+async function runAiAnalysis() {
+  if (!item.value) return;
+  busy.value = true;
+  try {
+    const sessionId = await analyzeItem(item.value.id);
+    MessagePlugin.success(t('sop.drawer.aiAnalyzeStarted'));
+    emit('close');
+    await router.push({ name: 'chat', params: { chatid: sessionId } });
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('sop.drawer.aiAnalyzeFailed'));
+  } finally {
+    busy.value = false;
+  }
+}
 
 function openRunDetail(runId: string) {
   void router.push({ name: 'sopRunDetail', params: { id: runId } });
