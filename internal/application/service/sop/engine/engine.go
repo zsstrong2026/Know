@@ -74,6 +74,9 @@ type Deps struct {
 	AutoIngest func(ctx context.Context, run *types.SopRun, node *types.SopNode, arts []*types.SopArtifact)
 	// MCP 为 CLI 节点签发受限 Know MCP 端点（可 nil；T37 接线）。
 	MCP MCPEndpointProvisioner
+	// OnRunFinal 在运行收口（终态 + FinishedAt 已落库）后调用一次（可 nil；T61 接线）。
+	// 用于项目黑板自动摘要：失败只记日志，绝不影响运行结论。
+	OnRunFinal func(ctx context.Context, run *types.SopRun)
 }
 
 // MCPEndpointProvisioner 签发「运行 × 节点」的受限 MCP 端点。
@@ -315,7 +318,21 @@ func (e *Engine) finalizeRun(ctx context.Context, run *types.SopRun) error {
 		e.linkItemOnSuccess(ctx, run)
 	}
 	e.notifyFinished(ctx, run)
+	e.notifyRunFinal(ctx, run)
 	return nil
+}
+
+// notifyRunFinal 调 OnRunFinal（项目黑板自动摘要）：panic 与错误都只记日志。
+func (e *Engine) notifyRunFinal(ctx context.Context, run *types.SopRun) {
+	if e.deps.OnRunFinal == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[sop-engine] 运行 %s 终态回调 panic：%v", run.ID, r)
+		}
+	}()
+	e.deps.OnRunFinal(ctx, run)
 }
 
 // linkItemOnSuccess 按快照声明的 OnSuccessItemStatus 推进事项（仅成功时）。

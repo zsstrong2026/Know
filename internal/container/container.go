@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/url"
 	"os"
@@ -215,6 +216,9 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	}))
 	must(container.Provide(func(db *gorm.DB) interfaces.SopTriggerRepository {
 		return repository.NewSopTriggerRepo(db)
+	}))
+	must(container.Provide(func(db *gorm.DB) interfaces.SopProjectNoteRepository {
+		return repository.NewSopProjectNoteRepo(db)
 	}))
 	must(container.Provide(repository.NewAgentGrantRepository))
 	must(container.Provide(repository.NewAgentRunSuspensionRepository))
@@ -1172,13 +1176,32 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	) *sop.ItemService {
 		return sop.NewItemService(projects, items, extras, runs)
 	}))
+	// 项目黑板与简报（T59/T60/T61）：黑板是唯一事实来源，简报只是它的投影。
+	// 依赖方向固定为 BriefService ← NotesService ← Engine.OnRunFinal，无环。
+	must(container.Provide(func(
+		projects interfaces.SopProjectRepository, notes interfaces.SopProjectNoteRepository,
+		items *sop.ItemService, knowledge interfaces.KnowledgeService,
+	) *sop.BriefService {
+		return sop.NewBriefService(sop.BriefDeps{
+			Projects: projects, Notes: notes, Items: items, Knowledge: knowledge,
+		})
+	}))
+	must(container.Provide(func(
+		projects interfaces.SopProjectRepository, notes interfaces.SopProjectNoteRepository,
+		runs interfaces.SopRunRepository, items *sop.ItemService, brief *sop.BriefService,
+	) *sop.NotesService {
+		return sop.NewNotesService(sop.NoteDeps{
+			Projects: projects, Notes: notes, Items: items, Runs: runs,
+			OnRecord: brief.Trigger,
+		})
+	}))
 	must(container.Provide(func(
 		runs interfaces.SopRunRepository, templates interfaces.SopTemplateRepository,
 		projects interfaces.SopProjectRepository, items interfaces.SopItemRepository,
 		extras interfaces.SopItemExtraRepository, registry *sopexecutor.Registry,
 		resolver *sop.ContextResolver, notices *service.NotificationService,
 		broker *hitl.Broker, itemSvc *sop.ItemService, hub *sop.EventHub,
-		archive *sop.ArchiveService, mcpProv *sop.MCPProvisioner,
+		archive *sop.ArchiveService, mcpProv *sop.MCPProvisioner, notesSvc *sop.NotesService,
 	) *sopengine.Engine {
 		return sopengine.NewEngine(sopengine.Deps{
 			Runs: runs, Templates: templates, Projects: projects, Items: items,
@@ -1207,6 +1230,12 @@ func BuildContainer(container *dig.Container) *dig.Container {
 			AutoIngest: archive.IngestNodeArtifacts,
 			// CLI 节点的受限 Know MCP 端点（检索 + 工作区读写）。
 			MCP: mcpProv,
+			// 运行收口后写一条项目黑板摘要（失败只记日志，不影响运行结论）。
+			OnRunFinal: func(ctx context.Context, run *types.SopRun) {
+				if err := notesSvc.RecordRunFinal(ctx, run); err != nil {
+					log.Printf("[sop-container] 运行 %s 黑板摘要失败：%v", run.ID, err)
+				}
+			},
 		})
 	}))
 	must(container.Provide(func(
