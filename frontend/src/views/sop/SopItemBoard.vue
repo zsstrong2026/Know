@@ -48,9 +48,9 @@
         <t-button size="small" variant="outline" :loading="refreshing" @click="refreshAll">
           ⟳
         </t-button>
-        <t-tooltip :content="$t('sop.items.newItemSoon')">
-          <t-button size="small" theme="primary" disabled>＋ {{ $t('sop.items.newItem') }}</t-button>
-        </t-tooltip>
+        <t-button size="small" theme="primary" @click="createVisible = true">
+          ＋ {{ $t('sop.items.newItem') }}
+        </t-button>
       </div>
     </div>
 
@@ -259,6 +259,12 @@
       @close="drawerItemId = null"
       @changed="onDrawerChanged"
     />
+
+    <SopItemCreateModal
+      v-model:visible="createVisible"
+      :project-id="store.currentProjectId"
+      @created="onItemCreated"
+    />
   </div>
 </template>
 
@@ -291,6 +297,7 @@ import type { ExecState } from '@/api/sop';
 import { useSopStore } from '@/stores/sop';
 import SopExecFilter from './components/SopExecFilter.vue';
 import SopItemDrawer from './SopItemDrawer.vue';
+import SopItemCreateModal from './SopItemCreateModal.vue';
 
 const router = useRouter();
 const { t } = useI18n();
@@ -303,6 +310,7 @@ const selected = ref(new Set<string>());
 const latestRuns = ref<Record<string, string>>({});
 const viewMode = ref<'list' | 'kanban'>('list');
 const drawerItemId = ref<string | null>(null);
+const createVisible = ref(false);
 const draggingId = ref('');
 const dragOver = ref<ItemStatus | ''>('');
 const launchingId = ref('');
@@ -582,6 +590,12 @@ function openItem(item: SopItemWithDerived) {
 }
 
 async function onDrawerChanged() {
+  await refreshAll();
+}
+
+async function onItemCreated() {
+  // 关窗由父级负责：子组件在过渡动画中改 visible 会让 TDesign 卡在 enter/leave 类
+  createVisible.value = false;
   await refreshAll();
 }
 

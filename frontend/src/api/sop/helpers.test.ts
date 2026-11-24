@@ -18,6 +18,8 @@ import {
   canTransitItem,
   mergeActivities,
   outcomeSummary,
+  upsertBreakdownBlock,
+  parseBreakdownCard,
   progressText,
   shortSha,
   formatBytes,
@@ -163,4 +165,24 @@ test('活动合并降序与 outcome 摘要', () => {
   assert.equal(outcomeSummary({} as any), '尚未回填');
   assert.equal(outcomeSummary({ summary: '  ' } as any), '尚未回填');
   assert.equal(outcomeSummary({ value_achieved: 'partial' } as any), '部分达成');
+});
+
+test('拆解块重复写入为覆盖不重复', () => {
+  const block = '目标：X\n子事项：a、b';
+  const d1 = upsertBreakdownBlock('原始描述', block);
+  assert.ok(d1.includes('原始描述'));
+  assert.ok(d1.includes('<!-- sop-ai-breakdown -->'));
+  const d2 = upsertBreakdownBlock(d1, '目标：Y');
+  assert.equal(d2.match(/<!-- sop-ai-breakdown -->/g)?.length, 1); // 覆盖
+  assert.ok(d2.includes('目标：Y'));
+  assert.ok(!d2.includes('目标：X'));
+  assert.ok(d2.includes('原始描述')); // 用户原文不动
+});
+
+test('拆解卡解析容错', () => {
+  const card = parseBreakdownCard('前言 ```json\n{"goal":"G","sub_items":[{"title":"a","executor":"platform_agent"}],"acceptance":"A"}\n``` 后语');
+  assert.equal(card?.goal, 'G');
+  assert.equal(card?.sub_items[0].executor, 'platform_agent');
+  assert.equal(parseBreakdownCard('没有 JSON'), null);
+  assert.equal(parseBreakdownCard(''), null);
 });

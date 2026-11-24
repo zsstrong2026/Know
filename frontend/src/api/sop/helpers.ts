@@ -357,3 +357,53 @@ export function outcomeSummary(outcome: Record<string, unknown> | undefined | nu
   if (value && OUTCOME_LABELS[value]) return OUTCOME_LABELS[value];
   return '尚未回填';
 }
+
+/** AI 拆解块在描述里的标记：重写时整块替换，用户原文始终保持不动。 */
+export const BREAKDOWN_MARKER = '<!-- sop-ai-breakdown -->';
+
+/**
+ * 把 AI 拆解结果写进描述：重复写入是**覆盖**而不是追加，
+ * 用户自己写的内容（标记块之外）永远保留。
+ */
+/** 拆解块的结束标记：与起始标记不同，替换范围才唯一。 */
+export const BREAKDOWN_END_MARKER = '<!-- /sop-ai-breakdown -->';
+
+export function upsertBreakdownBlock(description: string, block: string): string {
+  const base = String(description || '');
+  const payload = [
+    BREAKDOWN_MARKER,
+    String(block || '').trim(),
+    BREAKDOWN_END_MARKER,
+  ].join('\n');
+  const pattern = new RegExp(`${BREAKDOWN_MARKER}[\\s\\S]*?${BREAKDOWN_END_MARKER}`);
+  if (pattern.test(base)) return base.replace(pattern, payload);
+  return base.trim() ? `${base.trimEnd()}\n\n${payload}` : payload;
+}
+
+export interface BreakdownCard {
+  goal: string;
+  sub_items: { title: string; description?: string; executor?: string; priority?: string }[];
+  acceptance: string;
+}
+
+/** 从 AI 回复里抠出第一个 JSON 代码块并解析成拆解卡；失败返回 null（容错不抛错）。 */
+export function parseBreakdownCard(text: string): BreakdownCard | null {
+  const source = String(text || '');
+  const fenced = source.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const candidate = (fenced ? fenced[1] : source).trim();
+  if (!candidate) return null;
+  const start = candidate.indexOf('{');
+  const end = candidate.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(candidate.slice(start, end + 1)) as Partial<BreakdownCard>;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      goal: String(parsed.goal || ''),
+      sub_items: Array.isArray(parsed.sub_items) ? parsed.sub_items : [],
+      acceptance: String(parsed.acceptance || ''),
+    };
+  } catch {
+    return null;
+  }
+}
