@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCanTransitSopItem(t *testing.T) {
 	allowed := [][2]string{
@@ -137,5 +140,22 @@ func TestParseSopNodeRef(t *testing.T) {
 	status, name = ParseSopNodeRef("succeeded")
 	if status != "succeeded" || name != "" {
 		t.Fatalf("no separator: got %q/%q want succeeded/\"\"", status, name)
+	}
+}
+
+func TestSopItemStatusPath(t *testing.T) {
+	// backlog 不能直接到 done：必须经过 todo→in_progress→in_review
+	path := SopItemStatusPath(SopItemStatusBacklog, SopItemStatusDone)
+	if got := strings.Join(path, ">"); got != "todo>in_progress>done" {
+		t.Fatalf("backlog→done path = %q", got)
+	}
+	if p := SopItemStatusPath(SopItemStatusInReview, SopItemStatusDone); len(p) != 1 || p[0] != SopItemStatusDone {
+		t.Fatalf("in_review→done = %v", p)
+	}
+	if p := SopItemStatusPath(SopItemStatusDone, SopItemStatusDone); p != nil {
+		t.Fatalf("same status path should be nil, got %v", p)
+	}
+	if p := SopItemStatusPath("bogus", SopItemStatusDone); p != nil {
+		t.Fatalf("unknown from should be nil, got %v", p)
 	}
 }

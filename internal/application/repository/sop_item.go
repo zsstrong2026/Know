@@ -124,6 +124,46 @@ func (r *SopItemRepo) Update(ctx context.Context, it *types.SopItem) error {
 	})
 }
 
+// SetBig 只写 is_big 结构列：拆分入口用它把独立事项升级为大项。
+//
+// 单独成方法而不是走 Update：Update 的列白名单刻意不含结构列（会被零值 DTO 冲掉），
+// 结构变化只能经由专门的入口发生。
+func (r *SopItemRepo) SetBig(ctx context.Context, tenantID uint64, id string, isBig bool) error {
+	res := r.db.WithContext(ctx).Model(&types.SopItem{}).
+		Where("id = ? AND tenant_id = ?", id, tenantID).
+		UpdateColumns(map[string]any{"is_big": isBig, "updated_at": time.Now()})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+// SetParent 只写 parent_id/split_source 结构列：拆出子项与移出大项共用。
+//
+// 空 parentID 表示移出大项，此时 split_source 一并清空（独立事项没有拆分来源）。
+func (r *SopItemRepo) SetParent(
+	ctx context.Context, tenantID uint64, id, parentID, splitSource string,
+) error {
+	if parentID == "" {
+		splitSource = ""
+	}
+	res := r.db.WithContext(ctx).Model(&types.SopItem{}).
+		Where("id = ? AND tenant_id = ?", id, tenantID).
+		UpdateColumns(map[string]any{
+			"parent_id": parentID, "split_source": splitSource, "updated_at": time.Now(),
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 // Delete 软删事项（只按租户 + id 命中），未命中返回 gorm.ErrRecordNotFound。
 func (r *SopItemRepo) Delete(ctx context.Context, tenantID uint64, id string) error {
 	res := r.db.WithContext(ctx).Where("tenant_id = ? AND id = ?", tenantID, id).Delete(&types.SopItem{})

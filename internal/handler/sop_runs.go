@@ -54,6 +54,13 @@ func (h *SOPHandler) CreateRun(c *gin.Context) {
 	if !sopBindJSON(c, &req) {
 		return
 	}
+	// 大项/已有子项的父项不能直接触发（spec 全局约束 21：避免父子双轨执行）。
+	if h.items != nil && req.ItemID != "" {
+		if err := h.items.EnsureNotBigParent(c.Request.Context(), tenantID, req.ItemID); err != nil {
+			sopAbort(c, err)
+			return
+		}
+	}
 	run, err := h.runs2.Create(c.Request.Context(), tenantID, sopUserID(c), sop.CreateRunInput{
 		TemplateID: req.TemplateID, ItemID: req.ItemID, Input: req.Input,
 		TriggerKind: req.TriggerKind, TriggerRefID: req.TriggerRefID,

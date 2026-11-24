@@ -2,6 +2,7 @@ package sop
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -252,4 +253,133 @@ func TestUpdateKeepsStatus(t *testing.T) {
 	empty := " "
 	_, err = svc.Update(ctx, 1, "u1", it.ID, UpdateItemInput{Title: &empty})
 	require.ErrorIs(t, err, ErrSopItemTitleRequired)
+}
+
+// 全部子项进入终态后父项自动推进为 done；仍有未完成子项时不动。
+func TestParentAutoAdvancesWhenAllChildrenDone(t *testing.T) {
+	svc, db := newItemTestService(t)
+	ctx := context.Background()
+	p := &types.SopProject{TenantID: 1, Name: "P", Code: "TP"}
+	require.NoError(t, repository.NewSopProjectRepo(db).Create(ctx, p))
+
+	parent, err := svc.Create(ctx, 1, "u1", p.ID, CreateItemInput{Title: "大需求", IsBig: true})
+	require.NoError(t, err)
+	kids, err := svc.Split(ctx, 1, "u1", parent.ID, []types.SopChildItemSpec{
+		{Title: "子一"}, {Title: "子二"},
+	}, types.SopSplitSourceManual)
+	require.NoError(t, err)
+	require.Len(t, kids, 2)
+
+	for _, to := range []string{types.SopItemStatusTodo, types.SopItemStatusInProgress,
+		types.SopItemStatusInReview, types.SopItemStatusDone} {
+		require.NoError(t, svc.UpdateStatus(ctx, 1, kids[0].ID, to))
+	}
+	got, err := svc.Get(ctx, 1, parent.ID)
+	require.NoError(t, err)
+	require.NotEqual(t, types.SopItemStatusDone, got.Status, "还有未完成子项时父项不动")
+
+	for _, to := range []string{types.SopItemStatusTodo, types.SopItemStatusCancelled, types.SopItemStatusTodo,
+		types.SopItemStatusInProgress, types.SopItemStatusInReview, types.SopItemStatusDone} {
+		require.NoError(t, svc.UpdateStatus(ctx, 1, kids[1].ID, to))
+	}
+	got, err = svc.Get(ctx, 1, parent.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.SopItemStatusDone, got.Status, "全部子项 done/closed 时父项自动 done")
+}
+
+// 三级嵌套拒绝、空清单拒绝、超限拒绝；子项编号与独立事项同一序列。
+func TestSplitGuardsAndNumbering(t *testing.T) {
+	svc, db := newItemTestService(t)
+	ctx := context.Background()
+	p := &types.SopProject{TenantID: 1, Name: "P", Code: "TP"}
+	require.NoError(t, repository.NewSopProjectRepo(db).Create(ctx, p))
+
+	standalone, err := svc.Create(ctx, 1, "u1", p.ID, CreateItemInput{Title: "独立"})
+	require.NoError(t, err)
+	parent, err := svc.Create(ctx, 1, "u1", p.ID, CreateItemInput{Title: "大需求"})
+	require.NoError(t, err)
+
+	_, err = svc.Split(ctx, 1, "u1", parent.ID, nil, "")
+	require.ErrorIs(t, err, ErrSopItemSplitEmpty)
+
+	specs := make([]types.SopChildItemSpec, 21)
+	for i := range specs {
+		specs[i] = types.SopChildItemSpec{Title: fmt.Sprintf("子%d", i)}
+	}
+	_, err = svc.Split(ctx, 1, "u1", parent.ID, specs, "")
+	require.ErrorIs(t, err, ErrSopItemSplitTooMany)
+
+	kids, err := svc.Split(ctx, 1, "u1", parent.ID, []types.SopChildItemSpec{{Title: "子一"}}, "")
+	require.NoError(t, err)
+	// 编号序列：独立(TP-1) → 大需求(TP-2) → 超限尝试不占号 → 子一(TP-3)
+	require.Equal(t, "TP-3", kids[0].No, "子项编号与独立事项同一序列")
+
+	_, err = svc.Split(ctx, 1, "u1", kids[0].ID, []types.SopChildItemSpec{{Title: "三级"}}, "")
+	require.ErrorIs(t, err, ErrSopItemSplitTooDeep)
+
+	listed, err := svc.ListChildren(ctx, 1, parent.ID)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	require.Equal(t, types.SopSplitSourceManual, listed[0].SplitSource)
+
+	require.NoError(t, svc.DetachChild(ctx, 1, "u1", parent.ID, kids[0].ID))
+	detached, err := svc.Get(ctx, 1, kids[0].ID)
+	require.NoError(t, err)
+	require.Empty(t, detached.ParentID)
+	require.Empty(t, detached.SplitSource)
+	_ = standalone
+}
+
+// 大项与已有子项的父项都不能直接触发。
+func TestEnsureNotBigParent(t *testing.T) {
+	svc, db := newItemTestService(t)
+	ctx := context.Background()
+	p := &types.SopProject{TenantID: 1, Name: "P", Code: "TP"}
+	require.NoError(t, repository.NewSopProjectRepo(db).Create(ctx, p))
+
+	big, err := svc.Create(ctx, 1, "u1", p.ID, CreateItemInput{Title: "大项", IsBig: true})
+	require.NoError(t, err)
+	require.ErrorIs(t, svc.EnsureNotBigParent(ctx, 1, big.ID), ErrSopItemParentIsBig)
+
+	plain, err := svc.Create(ctx, 1, "u1", p.ID, CreateItemInput{Title: "普通"})
+	require.NoError(t, err)
+	require.NoError(t, svc.EnsureNotBigParent(ctx, 1, plain.ID))
+
+	_, err = svc.Split(ctx, 1, "u1", plain.ID, []types.SopChildItemSpec{{Title: "子"}}, "")
+	require.NoError(t, err)
+	require.ErrorIs(t, svc.EnsureNotBigParent(ctx, 1, plain.ID), ErrSopItemParentIsBig,
+		"被拆过的父项同样不能直接触发")
+}
+
+// 列表里大项带子项汇总：执行情况按子项算，空容器=none。
+func TestListRollsUpParentExec(t *testing.T) {
+	svc, db := newItemTestService(t)
+	ctx := context.Background()
+	p := &types.SopProject{TenantID: 1, Name: "P", Code: "TP"}
+	require.NoError(t, repository.NewSopProjectRepo(db).Create(ctx, p))
+
+	empty, err := svc.Create(ctx, 1, "u1", p.ID, CreateItemInput{Title: "空容器", IsBig: true})
+	require.NoError(t, err)
+	full, err := svc.Create(ctx, 1, "u1", p.ID, CreateItemInput{Title: "有子项"})
+	require.NoError(t, err)
+	kids, err := svc.Split(ctx, 1, "u1", full.ID, []types.SopChildItemSpec{
+		{Title: "子一"}, {Title: "子二"},
+	}, "")
+	require.NoError(t, err)
+	for _, to := range []string{types.SopItemStatusTodo, types.SopItemStatusInProgress,
+		types.SopItemStatusInReview, types.SopItemStatusDone, types.SopItemStatusClosed} {
+		require.NoError(t, svc.UpdateStatus(ctx, 1, kids[0].ID, to))
+	}
+
+	list, err := svc.ListWithDerived(ctx, 1, p.ID, types.SopItemFilter{})
+	require.NoError(t, err)
+	byID := map[string]types.SopItemWithDerived{}
+	for _, it := range list {
+		byID[it.ID] = it
+	}
+	require.Equal(t, types.SopExecStateNone, byID[empty.ID].ChildExec, "空容器执行情况=none")
+	require.Zero(t, byID[empty.ID].ChildTotal)
+	require.Equal(t, 2, byID[full.ID].ChildTotal)
+	require.Equal(t, 1, byID[full.ID].ChildDone)
+	require.NotEmpty(t, byID[full.ID].ChildExec)
 }

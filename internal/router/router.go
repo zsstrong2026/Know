@@ -369,6 +369,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterSOPRunRoutes(v1, params.SOPHandler, rbacGuards)
 		RegisterSOPAIRoutes(v1, params.SOPHandler, rbacGuards)
 		RegisterSOPAdminRoutes(v1, params.SOPHandler, rbacGuards)
+		RegisterSOPNoteRoutes(v1, params.SOPHandler, rbacGuards)
 		RegisterUserFavoriteRoutes(v1, params.UserFavoriteHandler, rbacGuards)
 		RegisterSkillRoutes(v1, params.SkillHandler, rbacGuards)
 		RegisterOrganizationRoutes(v1, params.OrganizationHandler, rbacGuards)

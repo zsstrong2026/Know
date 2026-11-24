@@ -48,6 +48,7 @@ func newSOPTestRouterWith(t *testing.T, h *SOPHandler) *gin.Engine {
 	sop := r.Group("/api/v1/sop")
 	h.RegisterSOPRoutes(sop)
 	h.RegisterItemRoutes(sop)
+	h.RegisterBriefRoutes(sop)
 	return r
 }
 
@@ -65,7 +66,12 @@ func newSOPHandlerTestDB(t *testing.T) *gorm.DB {
 		&types.SopProject{}, &types.SopItem{}, &types.SopItemAttachment{},
 		&types.SopItemClarification{}, &types.SopItemActivity{},
 		&types.SopRun{}, &types.SopNodeRun{},
+		&types.SopProjectNote{},
 	))
+	require.NoError(t, db.Exec(
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_sop_notes_project_seq "+
+			"ON sop_project_notes(project_id, seq) WHERE deleted_at IS NULL",
+	).Error)
 	return db
 }
 

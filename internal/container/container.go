@@ -1256,13 +1256,15 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		approvals *sop.ApprovalService, triggers interfaces.SopTriggerRepository,
 		creds interfaces.SopCredentialRepository, credSvc *sop.CredentialService,
 		archive *sop.PMMigrationService, trigger *sop.TriggerService,
-		ingest *sop.ArchiveService,
+		ingest *sop.ArchiveService, notes *sop.NotesService, brief *sop.BriefService,
+		kbSvc interfaces.KnowledgeBaseService, modelSvc interfaces.ModelService,
 	) *handler.SOPHandler {
 		return handler.NewSOPHandler(handler.SOPHandlerDeps{
 			Projects: projects, Runs: runs, Items: items, Templates: templates,
 			RunSvc: runSvc, Engine: eng, Hub: hub, AIService: ai, AIRunner: aiRunner,
 			Approvals: approvals, Triggers: triggers, Creds: creds, CredSvc: credSvc,
 			Archive: archive, Trigger: trigger, Ingest: ingest,
+			Notes: notes, Brief: brief, KBSvc: kbSvc, ModelSvc: modelSvc,
 			CredDelete: func(ctx context.Context, tenantID uint64, id string) error {
 				return creds.Delete(ctx, tenantID, id)
 			},

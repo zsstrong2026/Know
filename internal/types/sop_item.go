@@ -133,6 +133,19 @@ type SopItemWithDerived struct {
 	ProgressTotal int `json:"progress_total"`
 	// ExecState 执行情况五态（none/running/intervene/pr/closed）。
 	ExecState string `json:"exec_state"`
+	// ChildTotal/ChildDone/ChildExec 只对 is_big=true 的大项填充：子项总数、
+	// 其中 done/closed 的个数、以及按子项汇总出的执行情况（空容器→none）。
+	ChildTotal int    `json:"child_total,omitempty"`
+	ChildDone  int    `json:"child_done,omitempty"`
+	ChildExec  string `json:"child_exec,omitempty"`
+}
+
+// SopChildItemSpec 是拆分/模板产出子事项的一条规格（T62 拆分与 T63 模板产出共用）。
+type SopChildItemSpec struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Kind        string `json:"kind,omitempty"`
+	TemplateID  string `json:"template_id,omitempty"`
 }
 
 // SopItemFilter 列表查询条件；零值表示不过滤。
@@ -174,6 +187,41 @@ func CanTransitSopItem(from, to string) bool {
 		}
 	}
 	return false
+}
+
+// SopItemStatusPath 求 from→to 的最短合法迁移路径（不含 from、含 to）。
+//
+// 用于「批量/派生推进」这类一次要到位的场景：状态机只允许逐步迁移（backlog 不能直接
+// 到 done），调用方按返回的步骤逐条走 UpdateStatus，仍然只有一个裁决点。
+// 不可达时返回 nil（调用方视为「不允许推进」，不做任何写入）。
+func SopItemStatusPath(from, to string) []string {
+	if from == to {
+		return nil
+	}
+	if _, ok := sopItemTransitions[from]; !ok {
+		return nil
+	}
+	prev := map[string]string{from: ""}
+	queue := []string{from}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, next := range sopItemTransitions[cur] {
+			if _, seen := prev[next]; seen {
+				continue
+			}
+			prev[next] = cur
+			if next == to {
+				path := make([]string, 0, 4)
+				for node := to; node != from; node = prev[node] {
+					path = append([]string{node}, path...)
+				}
+				return path
+			}
+			queue = append(queue, next)
+		}
+	}
+	return nil
 }
 
 // IsSopItemStatus 判断 s 是否为 8 态状态机中的合法状态（触发配置的候选状态校验用）。

@@ -31,6 +31,23 @@ func RegisterSOPRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGuards
 	manage.POST("/:id/repos", g.Contributor(), h.AddRepo)
 	manage.DELETE("/:id/repos/:name", g.Contributor(), h.RemoveRepo)
 	manage.PUT("/:id/repos/default", g.Contributor(), h.SetDefaultRepo)
+
+	// 项目黑板与简报（T62）：简报读、黑板读写、改绑知识库。
+	read.GET("/:id/stats", g.Viewer(), h.ProjectStats)
+	read.GET("/:id/brief", g.Viewer(), h.GetProjectBrief)
+	read.GET("/:id/notes", g.Viewer(), h.ListProjectNotes)
+	manage.POST("/:id/brief/render", g.Contributor(), h.RenderProjectBrief)
+	manage.POST("/:id/notes", g.Contributor(), h.CreateProjectNote)
+	manage.POST("/:id/kb", g.Contributor(), h.ReplaceProjectKB)
+}
+
+// RegisterSOPNoteRoutes 挂黑板条目组（按 id 的编辑/删除，路径不在项目前缀下）。
+func RegisterSOPNoteRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGuards) {
+	run := g.apiKeyGroup(v1.Group("/sop"), apiKeyRunSOP(apiKeyFullAccess()))
+	// 决策草稿是「让助手跑一次」，与 AI 组同一能力口径。
+	run.POST("/projects/:id/notes/decision-draft", g.Contributor(), h.DecisionDraft)
+	run.PATCH("/notes/:id", g.Contributor(), h.UpdateProjectNote)
+	run.DELETE("/notes/:id", g.Contributor(), h.DeleteProjectNote)
 }
 
 // RegisterSOPItemRoutes 挂事项组：项目下的事项列表/新建与按事项 id 的其余端点。
@@ -55,6 +72,11 @@ func RegisterSOPItemRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGu
 	manage.POST("/items/:id/attachments", g.Contributor(), h.UploadItemAttachment)
 	manage.POST("/items/:id/clarifications", g.Contributor(), h.CreateItemClarification)
 	manage.PATCH("/items/:id/clarifications/:cid/answer", g.Contributor(), h.AnswerItemClarification)
+
+	// 大需求拆分（T62）：拆子项、列子项、移出子项。
+	read.GET("/items/:id/children", g.Viewer(), h.ListItemChildren)
+	manage.POST("/items/:id/split", g.Contributor(), h.SplitItem)
+	manage.POST("/items/:id/children/:cid/detach", g.Contributor(), h.DetachItemChild)
 }
 
 // apiKeyReadSOP 让带 read_sop 能力的 key 读取 SOP 工作台（项目/事项/运行）。
@@ -114,6 +136,8 @@ func RegisterSOPRunRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGua
 	read.GET("/runs/:id/artifacts/:aid/file", g.Viewer(), h.DownloadArtifact)
 	read.GET("/runs/:id/nodes/:nid/logs", g.Viewer(), h.NodeLogs)
 
+	// 整条重触发属于「跑」：用事项模板新建运行（大项一律 400）。
+	run.POST("/items/:id/relaunch", g.Contributor(), h.RelaunchItem)
 	run.POST("/runs", g.Contributor(), h.CreateRun)
 	run.POST("/runs/:id/retry", g.Contributor(), h.RetryRun)
 	run.POST("/runs/:id/pause", g.Contributor(), h.PauseRun)

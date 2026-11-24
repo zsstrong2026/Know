@@ -47,6 +47,10 @@ type SopItemRepository interface {
 	) ([]types.SopItemWithDerived, error)
 	// Update 全列保存可编辑字段；状态不随此方法落库（唯一写入口是 UpdateStatus）。
 	Update(ctx context.Context, it *types.SopItem) error
+	// SetBig 只写 is_big 结构列（独立事项被拆分时升级为大项）。
+	SetBig(ctx context.Context, tenantID uint64, id string, isBig bool) error
+	// SetParent 只写 parent_id/split_source 结构列（拆出子项 / 移出大项）。
+	SetParent(ctx context.Context, tenantID uint64, id, parentID, splitSource string) error
 	Delete(ctx context.Context, tenantID uint64, id string) error
 	// UpdateStatus 唯一的状态写入口：内部过 CanTransitSopItem，非法迁移不落库。
 	UpdateStatus(ctx context.Context, tenantID uint64, id, to string) error

@@ -13,6 +13,7 @@ import (
 	"context"
 	stderrors "errors"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -49,10 +50,15 @@ type SOPHandler struct {
 	triggers  interfaces.SopTriggerRepository
 	creds     interfaces.SopCredentialRepository
 	// credSvc 是凭据业务服务（T34）：与仓储二选一，优先用它。
-	credSvc    *sop.CredentialService
-	trigger    *sop.TriggerService
-	archive    *sop.PMMigrationService
-	ingest     *sop.ArchiveService
+	credSvc *sop.CredentialService
+	trigger *sop.TriggerService
+	archive *sop.PMMigrationService
+	ingest  *sop.ArchiveService
+	// notes/brief 是项目黑板与简报（T62）；kbSvc 供项目建库/改绑使用。
+	notes      *sop.NotesService
+	brief      *sop.BriefService
+	kbSvc      interfaces.KnowledgeBaseService
+	modelSvc   interfaces.ModelService
 	credDelete func(ctx context.Context, tenantID uint64, id string) error
 }
 
@@ -77,6 +83,12 @@ type SOPHandlerDeps struct {
 	Archive *sop.PMMigrationService
 	// Ingest 是产物归档服务（T36）。
 	Ingest *sop.ArchiveService
+	// Notes/Brief 是项目黑板与简报（T62）。
+	Notes *sop.NotesService
+	Brief *sop.BriefService
+	// KBSvc/ModelSvc 供项目自动建库（选默认嵌入模型）使用；未注入时降级不建库。
+	KBSvc    interfaces.KnowledgeBaseService
+	ModelSvc interfaces.ModelService
 	// CredDelete 是凭据删除的实现（仓储没有 Delete，接线时给出）。
 	CredDelete func(ctx context.Context, tenantID uint64, id string) error
 }
@@ -90,6 +102,7 @@ func NewSOPHandler(d SOPHandlerDeps) *SOPHandler {
 		approvals: d.Approvals, triggers: d.Triggers, creds: d.Creds, credSvc: d.CredSvc,
 		trigger: d.Trigger,
 		archive: d.Archive, credDelete: d.CredDelete, ingest: d.Ingest,
+		notes: d.Notes, brief: d.Brief, kbSvc: d.KBSvc, modelSvc: d.ModelSvc,
 	}
 }
 
@@ -142,6 +155,8 @@ var sopSentinels = []error{
 	sop.ErrSopTemplateReadonly, sop.ErrSopTemplateInvalid, sop.ErrSopTemplateNameRequired,
 	sop.ErrSopTemplateUnpublished, sop.ErrSopRunInputMissing,
 	sop.ErrSopAIModeInvalid, sop.ErrSopAIOutputInvalid,
+	sop.ErrSopItemSplitTooDeep, sop.ErrSopItemSplitEmpty, sop.ErrSopItemSplitTooMany,
+	sop.ErrSopItemParentIsBig, sop.ErrSopItemChildNotFound,
 }
 
 // sopIsClientError 判断是否为业务校验错误（也接受 types 层直接给出的校验文案）。
@@ -216,6 +231,8 @@ type sopProjectPayload struct {
 	OnRunSuccessItemStatus string                 `json:"on_run_success_item_status"`
 	NotifyOnGateOrFail     *bool                  `json:"notify_on_gate_or_fail"`
 	WorkspaceRoot          string                 `json:"workspace_root"`
+	// KBMode 只在创建时生效：new（默认，自动建项目知识库）/ existing（绑既有库）/ none（暂不建）。
+	KBMode string `json:"kb_mode"`
 }
 
 // applyTo 把请求体合并进项目（只覆盖字段有意义的项）。
@@ -293,11 +310,65 @@ func (h *SOPHandler) CreateProject(c *gin.Context) {
 	}
 	proj := &types.SopProject{TenantID: tenantID, OwnerUserID: sopUserID(c)}
 	req.applyTo(proj)
+
+	// 知识库三选（spec §16.22）：new=自动建库（失败只 warn，不阻断项目创建）、
+	// existing=绑既有库（写 kb_owner=linked）、none=暂不建。
+	switch strings.TrimSpace(req.KBMode) {
+	case "", "new":
+		if h.kbSvc != nil && strings.TrimSpace(proj.KBID) == "" {
+			if kb, err := h.kbSvc.CreateKnowledgeBase(c.Request.Context(), &types.KnowledgeBase{
+				Name:             strings.TrimSpace(req.Name),
+				EmbeddingModelID: h.defaultEmbeddingModelID(c),
+			}); err == nil && kb != nil {
+				proj.KBID = kb.ID
+				proj.KBOwner = types.SopKBOwnerProject
+			} else if err != nil {
+				log.Printf("[sop-project] 自动建库失败 project=%s：%v", req.Name, err)
+			}
+		}
+	case "existing":
+		if strings.TrimSpace(proj.KBID) == "" {
+			sopAbort(c, sopClientf("请选择要绑定的知识库"))
+			return
+		}
+		proj.KBOwner = types.SopKBOwnerLinked
+	case "none":
+		proj.KBID = ""
+		proj.KBOwner = ""
+	default:
+		sopAbort(c, sopClientf("知识库选项不合法：只能是 new / existing / none"))
+		return
+	}
+
 	if err := h.projects.Create(c.Request.Context(), proj); err != nil {
 		sopFail(c, err, "")
 		return
 	}
+	// 首次渲染简报（未绑库/失败都只记日志：项目本身已创建成功）。
+	if h.brief != nil && strings.TrimSpace(proj.KBID) != "" {
+		if err := h.brief.EnsureInitial(c.Request.Context(), tenantID, proj.ID); err != nil {
+			log.Printf("[sop-project] 首次渲染简报失败 project=%s：%v", proj.ID, err)
+		}
+	}
 	c.JSON(http.StatusCreated, gin.H{"success": true, "data": proj})
+}
+
+// defaultEmbeddingModelID 取当前租户的默认 Embedding 模型（自动建库必填）。
+func (h *SOPHandler) defaultEmbeddingModelID(c *gin.Context) string {
+	if h.modelSvc == nil {
+		return ""
+	}
+	models, err := h.modelSvc.ListModels(c.Request.Context())
+	if err != nil {
+		log.Printf("[sop-project] 查询默认嵌入模型失败：%v", err)
+		return ""
+	}
+	for _, m := range models {
+		if m.IsDefault && m.Type == types.ModelTypeEmbedding {
+			return m.ID
+		}
+	}
+	return ""
 }
 
 // ListProjects 列本租户全部项目。
@@ -574,5 +645,29 @@ func (h *SOPHandler) RegisterAIRoutes(sopGroup *gin.RouterGroup) {
 		ai.POST("/analyze-item", h.AnalyzeSopItem)
 		ai.POST("/clarify-generate", h.GenerateItemClarifications)
 		ai.POST("/orchestrate", h.OrchestrateSop)
+	}
+}
+
+// RegisterBriefRoutes 挂黑板/简报/拆分组（handler 包内测试与 router 共用路径清单）。
+func (h *SOPHandler) RegisterBriefRoutes(sopGroup *gin.RouterGroup) {
+	p := sopGroup.Group("/projects")
+	{
+		p.GET("/:id/stats", h.ProjectStats)
+		p.GET("/:id/brief", h.GetProjectBrief)
+		p.POST("/:id/brief/render", h.RenderProjectBrief)
+		p.GET("/:id/notes", h.ListProjectNotes)
+		p.POST("/:id/notes", h.CreateProjectNote)
+		p.POST("/:id/notes/decision-draft", h.DecisionDraft)
+		p.POST("/:id/kb", h.ReplaceProjectKB)
+	}
+	sopGroup.PATCH("/notes/:id", h.UpdateProjectNote)
+	sopGroup.DELETE("/notes/:id", h.DeleteProjectNote)
+
+	items := sopGroup.Group("/items")
+	{
+		items.GET("/:id/children", h.ListItemChildren)
+		items.POST("/:id/split", h.SplitItem)
+		items.POST("/:id/relaunch", h.RelaunchItem)
+		items.POST("/:id/children/:cid/detach", h.DetachItemChild)
 	}
 }

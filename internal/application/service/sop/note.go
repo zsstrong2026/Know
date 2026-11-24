@@ -133,6 +133,46 @@ func (s *NotesService) List(
 	return s.d.Notes.List(ctx, tenantID, projectID, kind, nil, 0)
 }
 
+// ListFiltered 列项目黑板（kind/pinned/limit 均可选；limit<=0 用仓储默认上限）。
+func (s *NotesService) ListFiltered(
+	ctx context.Context, tenantID uint64, projectID, kind string, pinned *bool, limit int,
+) ([]types.SopProjectNote, error) {
+	if err := s.ensureProject(ctx, tenantID, projectID); err != nil {
+		return nil, err
+	}
+	return s.d.Notes.List(ctx, tenantID, projectID, kind, pinned, limit)
+}
+
+// DecisionDraft 让 AI 基于最近黑板与运行摘要起草一条决策（不落库）。
+//
+// 只返回文本：落库必须由人确认后走 Create（AI 不能直接改项目事实）。
+func (s *NotesService) DecisionDraft(
+	ctx context.Context, tenantID uint64, projectID string, ai *AIService,
+) (string, error) {
+	if ai == nil {
+		return "", fmt.Errorf("AI 助手暂未启用，请直接填写决策内容")
+	}
+	notes, err := s.d.Notes.List(ctx, tenantID, projectID, "", nil, 10)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, n := range notes {
+		fmt.Fprintf(&b, "- [%s] %s：%s\n", types.SopNoteKindLabel(n.Kind), n.Title, firstLineText(n.Body))
+	}
+	draft, _, err := ai.runner.Ask(ctx, AIRequest{
+		TenantID: tenantID,
+		System: "你是项目决策助手。基于最近的项目动态，起草一条决策记录。" +
+			"输出三行：第一行「决策：<标题>」，第二行「理由：<一句话>」，第三行「影响：<范围>」。" +
+			"不要输出 Markdown 代码块，不要编造未出现过的事实。",
+		Prompt: "最近动态：\n" + b.String(),
+	})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(draft), nil
+}
+
 // AutoRecordRun 运行终态自动摘要：确定性文本（同入参恒等），来源恒 engine。
 //
 // 只记录事实（状态、节点、产物、用量、审批原话），不带主观评价——摘要不是第二个真相。
