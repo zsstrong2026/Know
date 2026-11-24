@@ -49,6 +49,34 @@ const loadStoredProject = (): string => {
   }
 };
 
+/**
+ * 页面级筛选条件。`exec` 是产品与原型里的叫法，落到请求时映射成后端参数
+ * `exec_state`；`q` 映射成 `keyword`（T40 的检索框直接写这两项）。
+ */
+export interface SopItemFilterState {
+  q?: string;
+  status?: string;
+  owner?: string;
+  source?: string;
+  kind?: string;
+  exec?: ExecState | '';
+  page?: number;
+  page_size?: number;
+}
+
+function toItemQuery(filter: SopItemFilterState): SopItemFilter {
+  return {
+    keyword: filter.q || undefined,
+    status: filter.status || undefined,
+    owner: filter.owner || undefined,
+    source: filter.source || undefined,
+    kind: filter.kind || undefined,
+    exec_state: filter.exec || undefined,
+    page: filter.page,
+    page_size: filter.page_size,
+  };
+}
+
 const storeProject = (id: string) => {
   try {
     if (id) localStorage.setItem(SOP_CURRENT_PROJECT_KEY, id);
@@ -78,7 +106,7 @@ export const useSopStore = defineStore('sop', () => {
 
   const items = ref<SopItemWithDerived[]>([]);
   const itemStats = ref<SopItemStats>(emptyStats());
-  const itemFilter = ref<SopItemFilter>({});
+  const itemFilter = ref<SopItemFilterState>({});
   const loadingItems = ref(false);
 
   const templates = ref<SopTemplate[]>([]);
@@ -122,7 +150,7 @@ export const useSopStore = defineStore('sop', () => {
     loadingItems.value = true;
     try {
       // 只写列表：统计带必须是全量口径，由 loadStats 单独负责
-      items.value = await listItems(projectId, itemFilter.value);
+      items.value = await listItems(projectId, toItemQuery(itemFilter.value));
     } finally {
       loadingItems.value = false;
     }

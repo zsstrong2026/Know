@@ -237,3 +237,45 @@ export function repoDisplayName(url: string): string {
   const base = value.slice(Math.max(value.lastIndexOf('/'), value.lastIndexOf(':')) + 1);
   return base.replace(/\.git$/, '') || value;
 }
+
+/** 事项类型中文（与原型 KINDS 一致；未知类型原样返回）。 */
+export const KIND_LABELS: Record<string, string> = {
+  requirement: '需求',
+  bug: '缺陷',
+  task: '任务',
+  incident: '故障',
+  research: '调研',
+  custom: '自定义',
+  other: '其他',
+};
+
+/** 事项状态主题色（列表状态点与看板列头共用，与原型 STATUSES 对齐）。 */
+export const ITEM_STATUS_COLORS: Record<ItemStatus, string> = {
+  backlog: '#9aa1a9',
+  todo: '#0052d9',
+  in_progress: '#366ef4',
+  in_review: '#e37318',
+  blocked: '#d54941',
+  done: '#2ba471',
+  closed: '#8b939e',
+  cancelled: '#c3c8cf',
+};
+
+export interface ExecOption {
+  value: ExecState | '';
+  label: string;
+  count: number;
+}
+
+/**
+ * 执行情况下拉的可搜索过滤：只匹配选项名（计数不参与匹配），空关键词返回全部。
+ * 否则输入「3」会把带计数 3 的选项全筛出来。
+ */
+export function matchExecOptions(
+  options: ExecOption[],
+  keyword: string,
+): ExecOption[] {
+  const q = String(keyword || '').trim().toLowerCase();
+  if (!q) return options;
+  return options.filter((option) => option.label.toLowerCase().includes(q));
+}

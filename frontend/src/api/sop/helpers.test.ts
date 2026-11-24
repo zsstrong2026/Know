@@ -13,6 +13,7 @@ import {
   validateProjectCode,
   validateRepoURL,
   repoDisplayName,
+  matchExecOptions,
   progressText,
   shortSha,
   formatBytes,
@@ -115,6 +116,15 @@ test('repoDisplayName 取 basename 去 .git', () => {
   assert.equal(repoDisplayName('git@github.com:a/my-repo.git'), 'my-repo');
   assert.equal(repoDisplayName('https://github.com/a/trailing/'), 'trailing');
   assert.equal(repoDisplayName(''), '');
+});
+
+test('执行情况搜索只匹配选项名不匹配计数', () => {
+  const opts = EXEC_STATES.map((s, i) => ({ value: s, label: EXEC_STATE_LABELS[s], count: 3 + i }));
+  assert.deepEqual(matchExecOptions(opts, '介入').map((o) => o.value), ['intervene']);
+  assert.deepEqual(matchExecOptions(opts, '3').map((o) => o.value), []); // 数字不匹配
+  assert.deepEqual(matchExecOptions(opts, '').map((o) => o.value), EXEC_STATES);
+  assert.deepEqual(matchExecOptions(opts, '  ').map((o) => o.value), EXEC_STATES);
+  assert.deepEqual(matchExecOptions(opts, '待处理').map((o) => o.value), ['pr']);
 });
 
 test('进度、短 sha 与字节格式化', () => {
