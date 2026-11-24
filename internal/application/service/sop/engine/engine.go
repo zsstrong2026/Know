@@ -127,6 +127,9 @@ func NewEngine(d Deps) *Engine {
 	}
 }
 
+// Deps 返回引擎依赖集（只读；测试与诊断需要按 id 直读运行/模板）。
+func (e *Engine) Deps() Deps { return e.deps }
+
 // defaultMaxParallel 是未配置时的并行运行上限。
 const defaultMaxParallel = 2
 

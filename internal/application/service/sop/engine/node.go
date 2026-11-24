@@ -441,6 +441,14 @@ func (e *Engine) executeNode(
 	}
 
 	projectContext := e.projectContextFor(ctx, run, ws)
+	// 首个节点把「项目现状」文本回写运行行：运行详情「任务书」视图要展示本次实际注入的内容
+	// （后续节点重算的文本可能因黑板新增而不同，展示口径以首次注入为准）。
+	if strings.TrimSpace(projectContext) != "" && strings.TrimSpace(run.ProjectContext) == "" {
+		run.ProjectContext = projectContext
+		if err := e.deps.Runs.UpdateRun(ctx, run); err != nil {
+			log.Printf("[sop-engine] 运行 %s 回写项目现状失败：%v", run.ID, err)
+		}
+	}
 	prompt := RenderTaskBook(TaskBookInput{
 		Node:                   *node,
 		Item:                   e.loadItem(ctx, run),

@@ -147,7 +147,7 @@ T46：`clampTipPosition` 视口双向钳位与上方翻转有单测；浏览器�
 ## 与 §16.22–26（M11）的关系
 
 本表的 1–21 与 T68 的 22–26 合并构成 spec §16 全量验收；M11 部分见
-`docs/superpowers/verification/2026-11-20-sop-brief-split.md`（T68 产出）。
+[`2026-11-20-sop-brief-split.md`](./2026-11-20-sop-brief-split.md)（T68 产出，含 22–26 逐项结论与本环境未验证清单）。
 
 ## 本环境无法验证项汇总（不计入 PASS）
 
