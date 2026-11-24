@@ -604,3 +604,51 @@ export function diffLineClass(line: string): string {
   if (line.startsWith('-') && !line.startsWith('---')) return 'diff-del';
   return '';
 }
+
+// ---- 项目共享上下文与大需求拆分（T65） ----
+
+/** 父项执行情况：与后端 types.DeriveParentExecState 同口径（intervene>running>pr>全 closed；空=none）。 */
+export function deriveParentExecState(states: string[]): ExecState {
+  if (!states.length) return 'none';
+  const seen = new Set(states);
+  if (seen.has('intervene')) return 'intervene';
+  if (seen.has('running')) return 'running';
+  if (seen.has('pr')) return 'pr';
+  if (seen.has('closed') && seen.size === 1) return 'closed';
+  return 'none';
+}
+
+/** 子项进度文案：`3/7 子项已完成`；没有子项给破折号。 */
+export function childProgressText(done: number, total: number): string {
+  if (!total || total <= 0) return '—';
+  return `${done}/${total} 子项已完成`;
+}
+
+const NOTE_KIND_LABELS: Record<string, string> = {
+  decision: '决策',
+  run_summary: '运行结论',
+  risk: '风险',
+  release: '发布',
+  note: '随手记',
+};
+
+/** 黑板条目类型中文名（未知类型按「随手记」）。 */
+export function noteKindLabel(kind: string): string {
+  return NOTE_KIND_LABELS[kind] || NOTE_KIND_LABELS.note;
+}
+
+const NOTE_SOURCE_LABELS: Record<string, string> = {
+  human: '人工',
+  engine: '引擎',
+  ai: 'AI',
+};
+
+/** 黑板条目来源中文名（未知来源按「人工」）。 */
+export function noteSourceLabel(source: string): string {
+  return NOTE_SOURCE_LABELS[source] || NOTE_SOURCE_LABELS.human;
+}
+
+/** 简报是否落后于黑板：渲染水位小于黑板最大 seq 即有未同步动态。 */
+export function briefSeqStale(renderedSeq: number, notesMaxSeq: number): boolean {
+  return notesMaxSeq > renderedSeq;
+}

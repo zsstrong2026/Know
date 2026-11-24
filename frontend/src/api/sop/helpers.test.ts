@@ -28,6 +28,11 @@ import {
   stripFrontmatter,
   diffLineClass,
   progressText,
+  deriveParentExecState,
+  childProgressText,
+  noteKindLabel,
+  noteSourceLabel,
+  briefSeqStale,
   shortSha,
   formatBytes,
 } from './helpers';
@@ -253,4 +258,33 @@ test('预览类型分派与 frontmatter 剥离', () => {
   assert.equal(diffLineClass('-removed'), 'diff-del');
   assert.equal(diffLineClass('@@ -1,2 +1,2 @@'), 'diff-hunk');
   assert.equal(diffLineClass(' context'), '');
+});
+
+test('父项执行情况汇总与子项进度文案', () => {
+  assert.equal(deriveParentExecState([]), 'none');
+  assert.equal(deriveParentExecState(['closed', 'intervene']), 'intervene');
+  assert.equal(deriveParentExecState(['closed', 'running']), 'running');
+  assert.equal(deriveParentExecState(['closed', 'closed']), 'closed');
+  assert.equal(deriveParentExecState(['closed', 'pr']), 'pr');
+  assert.equal(deriveParentExecState(['closed', 'none']), 'none');
+  assert.equal(childProgressText(3, 7), '3/7 子项已完成');
+  assert.equal(childProgressText(0, 0), '—');
+  assert.equal(childProgressText(0, 4), '0/4 子项已完成');
+});
+
+test('黑板标签与序差判定', () => {
+  assert.equal(noteKindLabel('decision'), '决策');
+  assert.equal(noteKindLabel('run_summary'), '运行结论');
+  assert.equal(noteKindLabel('risk'), '风险');
+  assert.equal(noteKindLabel('release'), '发布');
+  assert.equal(noteKindLabel('note'), '随手记');
+  assert.equal(noteKindLabel('unknown'), '随手记');
+  assert.equal(noteSourceLabel('human'), '人工');
+  assert.equal(noteSourceLabel('engine'), '引擎');
+  assert.equal(noteSourceLabel('ai'), 'AI');
+  assert.equal(noteSourceLabel('x'), '人工');
+  assert.equal(briefSeqStale(3, 4), true);
+  assert.equal(briefSeqStale(4, 4), false);
+  assert.equal(briefSeqStale(0, 0), false);
+  assert.equal(briefSeqStale(5, 4), false);
 });

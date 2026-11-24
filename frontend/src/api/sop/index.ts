@@ -96,6 +96,8 @@ export interface SopProject {
   updated_at: string;
 }
 
+export type KBMode = 'new' | 'existing' | 'none';
+
 export interface SopProjectInput {
   name?: string;
   description?: string;
@@ -107,6 +109,8 @@ export interface SopProjectInput {
   on_run_success_item_status?: string;
   notify_on_gate_or_fail?: boolean;
   workspace_root?: string;
+  /** 只在创建时生效：new=自动建库 / existing=绑既有库 / none=暂不建。 */
+  kb_mode?: KBMode;
 }
 
 // ---- 事项 ----
@@ -143,6 +147,77 @@ export interface SopItemWithDerived extends SopItem {
   progress_done: number;
   progress_total: number;
   exec_state: ExecState;
+  /** 大项（is_big）才有：子项总数 / 已完成数 / 子项汇总执行情况。 */
+  child_total?: number;
+  child_done?: number;
+  child_exec?: ExecState;
+}
+
+// ---- 项目黑板与简报 ----
+
+export type SopNoteKind = 'decision' | 'run_summary' | 'risk' | 'release' | 'note';
+export type SopNoteSource = 'human' | 'engine' | 'ai';
+
+export interface SopProjectNote {
+  id: string;
+  project_id: string;
+  kind: SopNoteKind;
+  title: string;
+  body: string;
+  item_id: string;
+  run_id: string;
+  source: SopNoteSource;
+  pinned: boolean;
+  seq: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SopNoteInput {
+  kind?: SopNoteKind;
+  title?: string;
+  body?: string;
+  item_id?: string;
+  run_id?: string;
+  pinned?: boolean;
+}
+
+export interface SopBriefStatus {
+  markdown: string;
+  rendered_seq: number;
+  notes_max_seq: number;
+  kb_bound: boolean;
+  brief_knowledge_id: string;
+  last_rendered_at: string;
+}
+
+export interface SopProjectStats {
+  total: number;
+  none: number;
+  running: number;
+  intervene: number;
+  pr: number;
+  closed: number;
+}
+
+// ---- 大需求拆分 ----
+
+export interface SopChildItemSpec {
+  title: string;
+  description?: string;
+  kind?: string;
+  template_id?: string;
+}
+
+export interface SopSplitInput {
+  children: SopChildItemSpec[];
+  /** 来源：manual（默认，手工加行）/ ai（AI 拆解）。 */
+  source?: 'manual' | 'ai';
+}
+
+export interface SopSplitResult {
+  created: SopItem[];
 }
 
 export interface SopItemAttachment {
@@ -716,6 +791,75 @@ export async function listActivities(itemId: string, kind?: 'business' | 'audit'
 }
 
 // ---- 模板 ----
+
+// ---- 黑板与简报 ----
+
+export async function getBrief(projectId: string): Promise<SopBriefStatus> {
+  return get<{ data: SopBriefStatus }>(`${SOP_BASE}/projects/${projectId}/brief`).then((r) => r.data);
+}
+
+export async function renderBrief(projectId: string): Promise<SopBriefStatus> {
+  return post<{ data: SopBriefStatus }>(`${SOP_BASE}/projects/${projectId}/brief/render`, {}).then((r) => r.data);
+}
+
+export async function listNotes(
+  projectId: string,
+  params: { kind?: string; pinned?: boolean; limit?: number } = {},
+): Promise<SopProjectNote[]> {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === '') continue;
+    qs.set(key, String(value));
+  }
+  const suffix = qs.toString() ? `?${qs}` : '';
+  return get<{ data: SopProjectNote[] }>(`${SOP_BASE}/projects/${projectId}/notes${suffix}`).then((r) => r.data);
+}
+
+export async function createNote(projectId: string, input: SopNoteInput): Promise<SopProjectNote> {
+  return post<{ data: SopProjectNote }>(`${SOP_BASE}/projects/${projectId}/notes`, input).then((r) => r.data);
+}
+
+export async function updateNote(id: string, input: SopNoteInput): Promise<SopProjectNote> {
+  return patch<{ data: SopProjectNote }>(`${SOP_BASE}/notes/${id}`, input).then((r) => r.data);
+}
+
+export async function deleteNote(id: string): Promise<void> {
+  await del(`${SOP_BASE}/notes/${id}`);
+}
+
+/** 生成决策草稿（不落库；人确认后走 createNote）。 */
+export async function decisionDraft(projectId: string): Promise<string> {
+  return post<{ data: { draft: string } }>(`${SOP_BASE}/projects/${projectId}/notes/decision-draft`, {})
+    .then((r) => r.data.draft);
+}
+
+/** 改绑项目知识库（旧自建库只改名「（已迁移）」，不删）。 */
+export async function replaceProjectKB(projectId: string, kbId: string): Promise<SopProject> {
+  return post<{ data: SopProject }>(`${SOP_BASE}/projects/${projectId}/kb`, { kb_id: kbId }).then((r) => r.data);
+}
+
+export async function projectStats(projectId: string): Promise<SopProjectStats> {
+  return get<{ data: SopProjectStats }>(`${SOP_BASE}/projects/${projectId}/stats`).then((r) => r.data);
+}
+
+// ---- 拆分 ----
+
+export async function splitItem(itemId: string, input: SopSplitInput): Promise<SopSplitResult> {
+  return post<{ data: SopSplitResult }>(`${SOP_BASE}/items/${itemId}/split`, input).then((r) => r.data);
+}
+
+export async function listChildren(itemId: string): Promise<SopItemWithDerived[]> {
+  return get<{ data: SopItemWithDerived[] }>(`${SOP_BASE}/items/${itemId}/children`).then((r) => r.data);
+}
+
+export async function detachChild(itemId: string, childId: string): Promise<void> {
+  await post(`${SOP_BASE}/items/${itemId}/children/${childId}/detach`, {});
+}
+
+/** 整条重触发：用事项绑定的模板新建运行（大项会被后端 400）。 */
+export async function relaunch(itemId: string): Promise<SopRun> {
+  return post<{ data: SopRun }>(`${SOP_BASE}/items/${itemId}/relaunch`, {}).then((r) => r.data);
+}
 
 export async function listTemplates(projectId?: string): Promise<SopTemplate[]> {
   const suffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
