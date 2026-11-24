@@ -7,6 +7,14 @@
         <span v-if="template?.is_builtin" class="sop-tag">{{ $t('sop.designer.builtinReadonly') }}</span>
       </div>
       <div class="sop-designer-actions">
+        <div class="sop-seg">
+          <button type="button" :class="{ on: sidePanel === 'inspector' }" @click="sidePanel = 'inspector'">
+            {{ $t('sop.designer.panelCanvas') }}
+          </button>
+          <button type="button" :class="{ on: sidePanel === 'ai' }" @click="sidePanel = 'ai'">
+            {{ $t('sop.ai.title') }}
+          </button>
+        </div>
         <t-button size="small" variant="outline" :loading="saving" :disabled="readonly" @click="saveDraft">
           {{ $t('sop.designer.saveDraft') }}
         </t-button>
@@ -109,13 +117,24 @@
       </div>
 
       <SopInspector
-        v-if="selectedNode"
+        v-if="sidePanel === 'inspector' && selectedNode"
         :key="selectedNode.id"
         :node="selectedNode"
         :def="definition"
         :readonly="readonly"
         @change="onInspectorChange"
         @ai-configure="onAiConfigure"
+      />
+
+      <SopAiPanel
+        v-else-if="sidePanel === 'ai'"
+        :template-id="String(route.params.id || '')"
+        :def="definition"
+        :readonly="readonly"
+        :node-id="aiNodeId || undefined"
+        :node-name="aiNodeName"
+        @apply-definition="onAiApply"
+        @exit-node-mode="aiNodeId = ''"
       />
     </div>
   </div>
@@ -141,6 +160,7 @@ import '@vue-flow/core/dist/theme-default.css';
 import SopNodeCard from './components/SopNodeCard.vue';
 import SopCanvasToolbar from './components/SopCanvasToolbar.vue';
 import SopInspector from './components/SopInspector.vue';
+import SopAiPanel from './components/SopAiPanel.vue';
 import { SnapshotHistory } from './canvas/history';
 import { autoLayout } from './canvas/layout';
 import { minimapTransform } from './canvas/anchors';
@@ -160,6 +180,7 @@ const pendingSource = ref<{ nodeId: string; kind: 'success' | 'reject' } | null>
 const flowWrapEl = ref<HTMLElement | null>(null);
 const dragType = ref('');
 const selectedNodeId = ref('');
+const sidePanel = ref<'inspector' | 'ai'>('inspector');
 
 const { fitView, setViewport, onViewportChange } = useVueFlow();
 
@@ -387,10 +408,21 @@ function onInspectorChange(fields: Partial<SopNode>) {
   commit({ ...definition.value, nodes });
 }
 
-/** ✦ AI 配这一步：T47 的 AI 面板接入点（先提示，不假装已实现）。 */
+const aiNodeId = ref('');
+
+const aiNodeName = computed(
+  () => (definition.value.nodes || []).find((node) => node.id === aiNodeId.value)?.name || '',
+);
+
+/** ✦ AI 配这一步：切到 AI 面板并进入 node 模式（与检查器互斥）。 */
 function onAiConfigure(nodeId: string) {
-  void nodeId;
-  MessagePlugin.info(t('sop.designer.aiPanelSoon'));
+  aiNodeId.value = nodeId;
+  sidePanel.value = 'ai';
+}
+
+/** AI 产出草稿：只改未保存定义并入历史栈，不自动保存/发布。 */
+function onAiApply(next: SopDefinition) {
+  commit(next);
 }
 
 function onNodeDragStop(event: { node: Node }) {

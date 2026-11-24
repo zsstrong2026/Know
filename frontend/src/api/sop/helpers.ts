@@ -11,6 +11,7 @@ import type {
   SopNode,
   SopNodeOp,
   SopTriggerConfig,
+  DiffCard,
 } from './index';
 
 export const EXEC_STATES: ExecState[] = ['none', 'running', 'intervene', 'pr', 'closed'];
@@ -406,4 +407,131 @@ export function parseBreakdownCard(text: string): BreakdownCard | null {
   } catch {
     return null;
   }
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  name: '步骤名称',
+  task_prompt: '这一步做什么',
+  extra_rules: '补充规则',
+  executor: '执行者',
+  on_failure: '失败策略',
+  reject_to: '打回目标',
+  mcp: 'MCP 服务',
+  skills: '技能',
+  artifact_outputs: '交付物',
+  max_attempts: '重试次数',
+  max_reworks: '返工上限',
+  timeout_minutes: '超时（分钟）',
+  carry_over: '保留上一轮产物',
+  auto_ingest: '通过后自动入库',
+};
+
+const FAILURE_LABELS: Record<string, string> = {
+  loop: '原地重试',
+  reject: '打回上游',
+  fail: '直接失败',
+  human: '转人工',
+};
+
+const EXECUTOR_KIND_LABELS: Record<string, string> = {
+  platform_agent: '平台智能体',
+  cli: '本机 CLI',
+  script: '脚本',
+};
+
+export function briefValue(field: string, value: unknown): string {
+  if (value === undefined || value === null || value === '') return '未配置';
+  if (field === 'on_failure') return FAILURE_LABELS[String(value)] || String(value);
+  if (field === 'executor' && value && typeof value === 'object') {
+    const executor = value as Record<string, unknown>;
+    const kind = EXECUTOR_KIND_LABELS[String(executor.kind)] || String(executor.kind || '未配置');
+    const target = executor.agent_id || executor.cli_kind || '';
+    return target ? `${kind} · ${target}` : kind;
+  }
+  if (Array.isArray(value)) return value.length ? value.join('、') : '未配置';
+  if (typeof value === 'object') return JSON.stringify(value);
+  if (typeof value === 'boolean') return value ? '开启' : '关闭';
+  return String(value);
+}
+
+/**
+ * 把 AI 编排的 ops 转成字段级差异卡（原值 → 新值 + 理由）。
+ * 只处理 `set`（其它 op 属结构变更，画布上直接可见，不需要逐字段解释）。
+ */
+export function formatDiffCards(
+  def: SopDefinition,
+  ops: { op: string; node_id?: string; fields?: Record<string, unknown>; reason?: string }[],
+): DiffCard[] {
+  const cards: DiffCard[] = [];
+  for (const op of ops || []) {
+    if (op.op !== 'set' || !op.node_id || !op.fields) continue;
+    const node = (def.nodes || []).find((item) => item.id === op.node_id);
+    if (!node) continue;
+    for (const [field, value] of Object.entries(op.fields)) {
+      const before = (node as unknown as Record<string, unknown>)[field];
+      cards.push({
+        nodeId: node.id,
+        nodeName: node.name || node.id,
+        field: FIELD_LABELS[field] || field,
+        from: briefValue(field, before),
+        to: briefValue(field, value),
+        reason: op.reason || '',
+        fieldKey: field,
+      });
+    }
+  }
+  return cards;
+}
+
+/**
+ * 两份定义的字段级差异（用于 AI 只返回合并结果的场景）。
+ *
+ * 后端 node 模式返回 applied/skipped + 合并后的定义，不回传 ops；
+ * 这里按「逐节点逐字段」比对还原差异卡，口径与 formatDiffCards 一致。
+ */
+export function diffDefinitions(before: SopDefinition, after: SopDefinition): DiffCard[] {
+  const cards: DiffCard[] = [];
+  const beforeNodes = new Map((before.nodes || []).map((node) => [node.id, node]));
+  for (const node of after.nodes || []) {
+    const prev = beforeNodes.get(node.id);
+    if (!prev) {
+      cards.push({
+        nodeId: node.id,
+        nodeName: node.name || node.id,
+        field: '新节点',
+        from: '—',
+        to: node.name || node.id,
+        reason: '',
+        fieldKey: '',
+      });
+      continue;
+    }
+    for (const key of Object.keys(FIELD_LABELS)) {
+      const fromValue = JSON.stringify((prev as unknown as Record<string, unknown>)[key] ?? null);
+      const toValue = JSON.stringify((node as unknown as Record<string, unknown>)[key] ?? null);
+      if (fromValue === toValue) continue;
+      cards.push({
+        nodeId: node.id,
+        nodeName: node.name || node.id,
+        field: FIELD_LABELS[key],
+        from: briefValue(key, (prev as unknown as Record<string, unknown>)[key]),
+        to: briefValue(key, (node as unknown as Record<string, unknown>)[key]),
+        reason: '',
+        fieldKey: key,
+      });
+    }
+  }
+  for (const prev of before.nodes || []) {
+    if ((after.nodes || []).some((node) => node.id === prev.id)) continue;
+    cards.push({
+      nodeId: prev.id,
+      nodeName: prev.name || prev.id,
+      field: '删除节点',
+      from: prev.name || prev.id,
+      to: '—',
+      reason: '',
+      fieldKey: '',
+    });
+  }
+  return cards;
 }

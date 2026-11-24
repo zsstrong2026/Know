@@ -603,6 +603,8 @@ export interface DiffCard {
   from: string;
   to: string;
   reason: string;
+  /** 原始字段名（field 是中文标签；应用单条时需要它定位 op）。 */
+  fieldKey?: string;
 }
 
 // ---- 项目 ----

@@ -20,6 +20,8 @@ import {
   outcomeSummary,
   upsertBreakdownBlock,
   parseBreakdownCard,
+  formatDiffCards,
+  diffDefinitions,
   progressText,
   shortSha,
   formatBytes,
@@ -185,4 +187,40 @@ test('拆解卡解析容错', () => {
   assert.equal(card?.sub_items[0].executor, 'platform_agent');
   assert.equal(parseBreakdownCard('没有 JSON'), null);
   assert.equal(parseBreakdownCard(''), null);
+});
+
+test('差异卡原值→新值白话格式化', () => {
+  const def: any = {
+    nodes: [{ id: 'n1', name: '分析', executor: { kind: 'platform_agent', agent_id: '' }, on_failure: 'loop' }],
+    edges: [],
+  };
+  const cards = formatDiffCards(def, [
+    {
+      op: 'set',
+      node_id: 'n1',
+      fields: { executor: { kind: 'platform_agent', agent_id: 'a1' }, on_failure: 'reject' },
+      reason: '需要专业角色',
+    } as any,
+  ]);
+  assert.equal(cards.length, 2);
+  const exec = cards.find((c) => c.field.includes('执行'))!;
+  assert.ok(exec.from.includes('未配置') || exec.from.includes('平台'));
+  assert.ok(exec.to.includes('a1') || exec.to.includes('角色'));
+  assert.equal(exec.reason, '需要专业角色');
+  const fail = cards.find((c) => c.field.includes('失败'))!;
+  assert.equal(fail.from, '原地重试');
+  assert.equal(fail.to, '打回上游');
+});
+
+test('两份定义逐字段比对出差', () => {
+  const before: any = { nodes: [{ id: 'n1', name: '分析', on_failure: 'loop', task_prompt: '旧' }], edges: [] };
+  const after: any = { nodes: [{ id: 'n1', name: '分析', on_failure: 'reject', task_prompt: '新' }, { id: 'n2', name: '实现' }], edges: [] };
+  const cards = diffDefinitions(before, after);
+  const fields = cards.map((c) => c.field);
+  assert.ok(fields.includes('失败策略'));
+  assert.ok(fields.includes('这一步做什么'));
+  assert.ok(fields.includes('新节点'));
+  assert.equal(cards.find((c) => c.field === '失败策略')!.to, '打回上游');
+  const removed = diffDefinitions(after, before);
+  assert.ok(removed.some((c) => c.field === '删除节点'));
 });
