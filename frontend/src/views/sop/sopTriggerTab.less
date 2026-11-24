@@ -1,0 +1,120 @@
+// SOP 任务 Tab
+.sop-trigger {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--app-space-5);
+}
+
+.sop-trigger-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--app-space-3);
+  margin-bottom: var(--app-space-4);
+}
+
+.sop-trigger-title {
+  margin: 0;
+  font-size: var(--app-text-lg);
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.sop-trigger-desc {
+  margin: 6px 0 0;
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-sm);
+}
+
+.sop-trigger-actions {
+  display: flex;
+  gap: var(--app-space-2);
+}
+
+.sop-summary-card {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--app-space-2) var(--app-space-4);
+  padding: var(--app-space-4);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-lg);
+  background: var(--td-bg-color-container);
+}
+
+.sop-summary-kv {
+  display: flex;
+  gap: var(--app-space-2);
+  font-size: var(--app-text-sm);
+
+  .k {
+    flex: 0 0 96px;
+    color: var(--td-text-color-placeholder);
+  }
+
+  .v {
+    flex: 1;
+    min-width: 0;
+    color: var(--td-text-color-primary);
+    overflow-wrap: anywhere;
+  }
+}
+
+.sop-logs {
+  margin-top: var(--app-space-4);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-lg);
+  background: var(--td-bg-color-container);
+  overflow: hidden;
+}
+
+.sop-logs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--app-space-2) var(--app-space-3);
+  border-bottom: 1px solid var(--td-component-stroke);
+
+  b {
+    font-size: var(--app-text-sm);
+  }
+}
+
+.sop-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--app-text-sm);
+
+  th,
+  td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--td-component-stroke);
+    text-align: left;
+  }
+
+  th {
+    background: var(--td-bg-color-secondarycontainer);
+    color: var(--td-text-color-secondary);
+    font-weight: 600;
+  }
+}
+
+.sop-note {
+  max-width: 360px;
+  color: var(--td-text-color-secondary);
+  overflow-wrap: anywhere;
+}
+
+.sop-empty-row {
+  padding: var(--app-space-6) !important;
+  color: var(--td-text-color-placeholder);
+  text-align: center !important;
+}
+
+.sop-empty {
+  padding: var(--app-space-8);
+  border: 1px dashed var(--td-component-stroke);
+  border-radius: var(--app-radius-lg);
+  color: var(--td-text-color-placeholder);
+  text-align: center;
+}
