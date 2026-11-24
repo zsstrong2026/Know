@@ -123,6 +123,8 @@ type SopNode struct {
 	AutoIngest bool `json:"auto_ingest,omitempty"`
 	// ChildTemplateID sop 节点引用的子流程模板。
 	ChildTemplateID string `json:"child_template_id,omitempty"`
+	// ProducesChildItems 门禁通过后读 out/child-items.json 自动建子事项（T63）。
+	ProducesChildItems bool `json:"produces_child_items,omitempty"`
 }
 
 // SopEdge 节点依赖边；失败打回不建边，写 node.reject_to。

@@ -700,7 +700,17 @@ func (s *ItemService) CreateChildItems(
 		return 0, nil
 	}
 	created, err := s.createChildren(ctx, tenantID, "system", parent, specs, source)
-	return len(created), err
+	if err != nil {
+		return len(created), err
+	}
+	// 模板产出子项同样把父项标记为大项：大项不能直接触发，否则父子会双轨执行。
+	if !parent.IsBig {
+		if err := s.items.SetBig(ctx, tenantID, parent.ID, true); err != nil {
+			return len(created), err
+		}
+		s.logActivity(ctx, tenantID, parent.ID, "system", "split", "模板产出子事项，事项升级为大项")
+	}
+	return len(created), nil
 }
 
 // createChildren 逐条落库子项（编号由项目游标分配）；空标题跳过。

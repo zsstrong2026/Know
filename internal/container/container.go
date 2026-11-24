@@ -1230,6 +1230,11 @@ func BuildContainer(container *dig.Container) *dig.Container {
 			AutoIngest: archive.IngestNodeArtifacts,
 			// CLI 节点的受限 Know MCP 端点（检索 + 工作区读写）。
 			MCP: mcpProv,
+			// 模板节点声明 produces_child_items 时，门禁通过后建子事项（split_source=template）。
+			CreateItems: func(ctx context.Context, run *types.SopRun, specs []types.SopChildItemSpec) error {
+				_, err := itemSvc.CreateChildItems(ctx, run.TenantID, run.ItemID, specs, types.SopSplitSourceTemplate)
+				return err
+			},
 			// 运行收口后写一条项目黑板摘要（失败只记日志，不影响运行结论）。
 			OnRunFinal: func(ctx context.Context, run *types.SopRun) {
 				if err := notesSvc.RecordRunFinal(ctx, run); err != nil {

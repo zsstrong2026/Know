@@ -574,6 +574,20 @@ func (e *Engine) executeNode(
 	if err := e.applyGateOutcome(ctx, run, node, nr, res, ws); err != nil {
 		return err
 	}
+	// 门禁通过后按节点声明建子事项（清单格式错/超限 → 节点失败）。
+	if nr.Status == types.SopNodeSucceeded {
+		if err := e.maybeCreateChildItems(ctx, run, node, ws); err != nil {
+			nr.Status, nr.Error = types.SopNodeFailed, err.Error()
+			now := time.Now()
+			nr.FinishedAt = &now
+			if uerr := e.deps.Runs.UpdateNodeRun(ctx, nr); uerr != nil {
+				return uerr
+			}
+			e.publishNodeStatus(run.ID, nr)
+			e.markRunFailed(ctx, run, err.Error())
+			return nil
+		}
+	}
 	ws.CheckpointBestEffort(ctx, fmt.Sprintf("node %s attempt %d %s", node.ID, nr.Attempt, nr.GateResult))
 	// 自动归档：门禁通过且节点开了 auto_ingest 才做；失败只是少一次沉淀。
 	if node.AutoIngest && e.deps.AutoIngest != nil && nr.Status == types.SopNodeSucceeded {

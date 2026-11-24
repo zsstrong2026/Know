@@ -77,6 +77,9 @@ type Deps struct {
 	// OnRunFinal 在运行收口（终态 + FinishedAt 已落库）后调用一次（可 nil；T61 接线）。
 	// 用于项目黑板自动摘要：失败只记日志，绝不影响运行结论。
 	OnRunFinal func(ctx context.Context, run *types.SopRun)
+	// CreateItems 在节点声明 produces_child_items 且门禁通过后建子事项（可 nil；T63 接线）。
+	// 返回错误即节点失败（清单格式错/超限不静默忽略）。
+	CreateItems func(ctx context.Context, run *types.SopRun, specs []types.SopChildItemSpec) error
 }
 
 // MCPEndpointProvisioner 签发「运行 × 节点」的受限 MCP 端点。
