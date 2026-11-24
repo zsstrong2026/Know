@@ -210,6 +210,14 @@
           <pre class="sop-pre">{{ JSON.stringify(runDetail.run.input || {}, null, 2) }}</pre>
         </div>
       </section>
+
+      <SopDocPreview
+        v-model:visible="previewVisible"
+        :artifact="previewArtifact"
+        :run-id="runDetail?.run.id"
+        :knowledge-allowed="!!store.currentProject?.kb_id"
+        @ingested="onArtifactIngested"
+      />
     </template>
   </div>
 </template>
@@ -252,6 +260,7 @@ import {
 import { streamGet, type SopStreamEvent } from '@/api/sop/sse';
 import { useSopStore } from '@/stores/sop';
 import { SOP_BASE } from '@/api/sop';
+import SopDocPreview from './components/SopDocPreview.vue';
 
 interface StreamLine {
   node?: string;
@@ -717,9 +726,22 @@ async function loadLogs() {
   }
 }
 
-async function openArtifact(artifact: SopArtifact) {
-  // 大弹窗预览属 T50；先开文件地址（下载/内联由后端 media type 决定）
-  window.open(`${SOP_BASE}/runs/${artifact.run_id}/artifacts/${artifact.id}/file`, '_blank');
+const previewArtifact = ref<SopArtifact | null>(null);
+const previewVisible = ref(false);
+
+function openArtifact(artifact: SopArtifact) {
+  previewArtifact.value = artifact;
+  previewVisible.value = true;
+}
+
+/** 入库成功回写 knowledge_id，让标签与按钮即时更新。 */
+function onArtifactIngested(updated: SopArtifact) {
+  if (!runDetail.value) return;
+  runDetail.value = {
+    ...runDetail.value,
+    artifacts: (runDetail.value.artifacts || []).map((art) => (art.id === updated.id ? updated : art)),
+  };
+  previewArtifact.value = updated;
 }
 
 function backToList() {

@@ -9802,6 +9802,22 @@
       },
     },
 
+    doc: {
+      preview: '预览',
+      source: '源码',
+      copy: '复制',
+      copyFallback: '浏览器禁止了剪贴板：已选中正文，请按 Ctrl+C 复制',
+      binary: '这个文件不支持在线预览，请下载到本地查看',
+      loadFailed: '加载产物失败，请稍后重试',
+      downloadFailed: '下载失败，请稍后重试',
+      ingest: '入知识库',
+      ingestDone: '已把 .md 源文档经 ingest 链路入库',
+      ingestFailed: '入库失败，请稍后重试',
+      ingestNoRun: '该资料没有关联运行，无法入库',
+      ingestNoKb: '请先在项目配置里绑定知识库',
+      ingested: '已入知识库',
+      ingestedDone: '已入库 ✓',
+    },
     runDetailPage: {
       back: '返回运行记录',
       notFound: '运行不存在或已被删除',

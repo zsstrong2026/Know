@@ -9801,6 +9801,22 @@
       },
     },
 
+    doc: {
+      preview: '미리보기',
+      source: '소스',
+      copy: '복사',
+      copyFallback: '클립보드가 차단되었습니다. 본문이 선택되어 있으니 Ctrl+C로 복사하세요',
+      binary: '이 파일은 미리보기를 지원하지 않습니다. 다운로드해 확인하세요',
+      loadFailed: '산출물을 불러오지 못했습니다',
+      downloadFailed: '다운로드에 실패했습니다',
+      ingest: '지식 베이스에 수집',
+      ingestDone: '.md 원본을 ingest 경로로 수집했습니다',
+      ingestFailed: '수집에 실패했습니다',
+      ingestNoRun: '이 자료에는 실행이 없어 수집할 수 없습니다',
+      ingestNoKb: '먼저 프로젝트 설정에서 지식 베이스를 연결하세요',
+      ingested: '수집됨',
+      ingestedDone: '수집됨 ✓',
+    },
     runDetailPage: {
       back: '실행 기록으로',
       notFound: '실행을 찾을 수 없습니다',

@@ -1020,6 +1020,22 @@
       },
     },
 
+    doc: {
+      preview: 'Preview',
+      source: 'Source',
+      copy: 'Copy',
+      copyFallback: 'Clipboard blocked — text selected, press Ctrl+C to copy',
+      binary: 'This file cannot be previewed inline — download it to view',
+      loadFailed: 'Failed to load the artifact',
+      downloadFailed: 'Download failed, please try again later',
+      ingest: 'Ingest',
+      ingestDone: 'The .md source was ingested through the ingest pipeline',
+      ingestFailed: 'Ingest failed, please try again later',
+      ingestNoRun: 'This material has no run and cannot be ingested',
+      ingestNoKb: 'Bind a knowledge base in project settings first',
+      ingested: 'Ingested',
+      ingestedDone: 'Ingested ✓',
+    },
     runDetailPage: {
       back: 'Back to runs',
       notFound: 'Run not found or deleted',

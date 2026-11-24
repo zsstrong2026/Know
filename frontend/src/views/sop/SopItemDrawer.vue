@@ -231,6 +231,13 @@
         </ul>
         <div v-if="!auditActivities.length" class="sop-empty">{{ $t('sop.drawer.noAudit') }}</div>
       </section>
+      <SopDocPreview
+        v-model:visible="docPreviewVisible"
+        :artifact="docPreview"
+        :run-id="docPreview?.run_id || latestRunId"
+        :knowledge-allowed="!!projectKbId"
+        @ingested="onDocIngested"
+      />
     </div>
   </t-drawer>
 </template>
@@ -273,7 +280,9 @@ import {
   type MergeableActivity,
 } from '@/api/sop/helpers';
 import PmMarkdown from '@/views/pm/components/PmMarkdown.vue';
+import { useSopStore } from '@/stores/sop';
 import { useConfirmDelete } from '@/components/settings/useConfirmDelete';
+import SopDocPreview from './components/SopDocPreview.vue';
 
 type DrawerTab =
   | 'overview'
@@ -292,6 +301,7 @@ const emit = defineEmits<{ close: []; changed: [] }>();
 const router = useRouter();
 const { t } = useI18n();
 const confirmDanger = useConfirmDelete();
+const store = useSopStore();
 
 const item = ref<(SopItem & Partial<SopItemWithDerived>) | null>(null);
 const nodeRuns = ref<SopNodeRun[]>([]);
@@ -322,6 +332,8 @@ const templateName = computed(() => {
 });
 
 const repoSummary = computed(() => '—');
+
+const projectKbId = computed(() => store.currentProject?.kb_id || '');
 
 const drawerTitle = computed(() =>
   item.value
@@ -468,9 +480,17 @@ async function relaunch() {
   }
 }
 
+const docPreview = ref<SopArtifact | null>(null);
+const docPreviewVisible = ref(false);
+
 function previewArtifact(artifact: SopArtifact) {
-  // 大弹窗预览属 T50；在此之前直接给下载/打开地址，避免假装能渲染
-  window.open(`/api/v1/sop/runs/${artifact.run_id}/artifacts/${artifact.id}/file`, '_blank');
+  docPreview.value = artifact;
+  docPreviewVisible.value = true;
+}
+
+function onDocIngested(updated: SopArtifact) {
+  artifacts.value = artifacts.value.map((art) => (art.id === updated.id ? updated : art));
+  docPreview.value = updated;
 }
 
 async function submitAnswer(clarificationId: string) {

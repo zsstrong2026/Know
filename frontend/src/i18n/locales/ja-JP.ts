@@ -1020,6 +1020,22 @@
       },
     },
 
+    doc: {
+      preview: 'プレビュー',
+      source: 'ソース',
+      copy: 'コピー',
+      copyFallback: 'クリップボードが使えません。本文を選択済みなので Ctrl+C でコピーしてください',
+      binary: 'このファイルはインライン表示できません。ダウンロードして確認してください',
+      loadFailed: '成果物の読み込みに失敗しました',
+      downloadFailed: 'ダウンロードに失敗しました',
+      ingest: 'ナレッジへ取り込み',
+      ingestDone: '.md ソースを ingest 経由で取り込みました',
+      ingestFailed: '取り込みに失敗しました',
+      ingestNoRun: 'この資料には実行が紐付いていないため取り込めません',
+      ingestNoKb: '先にプロジェクト設定でナレッジベースを紐付けてください',
+      ingested: '取り込み済み',
+      ingestedDone: '取り込み済み ✓',
+    },
     runDetailPage: {
       back: '実行履歴へ',
       notFound: '実行が見つかりません',

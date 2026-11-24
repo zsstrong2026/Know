@@ -9802,6 +9802,22 @@
       },
     },
 
+    doc: {
+      preview: '預覽',
+      source: '原始碼',
+      copy: '複製',
+      copyFallback: '瀏覽器禁止了剪貼簿：已選取正文，請按 Ctrl+C 複製',
+      binary: '這個檔案不支援線上預覽，請下載到本機查看',
+      loadFailed: '載入產物失敗，請稍後再試',
+      downloadFailed: '下載失敗，請稍後再試',
+      ingest: '入知識庫',
+      ingestDone: '已把 .md 源文件經 ingest 鏈路入庫',
+      ingestFailed: '入庫失敗，請稍後再試',
+      ingestNoRun: '該資料沒有關聯執行，無法入庫',
+      ingestNoKb: '請先在專案設定裡綁定知識庫',
+      ingested: '已入知識庫',
+      ingestedDone: '已入庫 ✓',
+    },
     runDetailPage: {
       back: '返回執行紀錄',
       notFound: '執行不存在或已被刪除',

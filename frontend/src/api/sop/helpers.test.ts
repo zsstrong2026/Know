@@ -24,6 +24,9 @@ import {
   diffDefinitions,
   triggerSourceLabel,
   successRate,
+  previewKind,
+  stripFrontmatter,
+  diffLineClass,
   progressText,
   shortSha,
   formatBytes,
@@ -235,4 +238,19 @@ test('触发来源中文与成功率口径', () => {
   assert.equal(successRate({ succeeded: 3, finished: 4 }), '75%');
   assert.equal(successRate({ succeeded: 0, finished: 0 }), '—');
   assert.equal(successRate({ status_counts: { succeeded: 2 }, finished_count: 5 }), '40%');
+});
+
+test('预览类型分派与 frontmatter 剥离', () => {
+  assert.equal(previewKind('out/a.md'), 'markdown');
+  assert.equal(previewKind('out/a.log'), 'text');
+  assert.equal(previewKind('out/a.diff'), 'diff');
+  assert.equal(previewKind('out/a.json'), 'json');
+  assert.equal(previewKind('out/a.html'), 'html');
+  assert.equal(previewKind('out/a.zip'), 'binary');
+  assert.equal(stripFrontmatter('---\ntitle: x\n---\n\n# 正文'), '# 正文');
+  assert.equal(stripFrontmatter('# 无 frontmatter'), '# 无 frontmatter');
+  assert.equal(diffLineClass('+added'), 'diff-add');
+  assert.equal(diffLineClass('-removed'), 'diff-del');
+  assert.equal(diffLineClass('@@ -1,2 +1,2 @@'), 'diff-hunk');
+  assert.equal(diffLineClass(' context'), '');
 });

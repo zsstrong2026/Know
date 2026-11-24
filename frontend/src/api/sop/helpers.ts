@@ -567,3 +567,40 @@ export function successRate(stats: {
   const succeeded = stats?.succeeded ?? stats?.status_counts?.succeeded ?? 0;
   return `${Math.round((succeeded / finished) * 100)}%`;
 }
+
+export type PreviewKind = 'markdown' | 'text' | 'diff' | 'json' | 'html' | 'binary';
+
+const TEXT_EXTS = new Set([
+  'txt', 'log', 'csv', 'tsv', 'yaml', 'yml', 'toml', 'ini', 'xml', 'sh', 'py', 'go', 'ts', 'js', 'sql', 'mdx',
+]);
+
+/** 预览器分派：按扩展名决定用哪种视图（未知类型按二进制处理）。 */
+export function previewKind(path: string): PreviewKind {
+  const clean = String(path || '').split('?')[0];
+  const ext = clean.slice(clean.lastIndexOf('.') + 1).toLowerCase();
+  if (ext === 'md' || ext === 'markdown') return 'markdown';
+  if (ext === 'diff' || ext === 'patch') return 'diff';
+  if (ext === 'json') return 'json';
+  if (ext === 'html' || ext === 'htm') return 'html';
+  if (TEXT_EXTS.has(ext)) return 'text';
+  return 'binary';
+}
+
+/** 去掉 YAML frontmatter（只处理文件开头的 `---` 块），正文无变化时原样返回。 */
+export function stripFrontmatter(markdown: string): string {
+  const text = String(markdown || '');
+  if (!text.startsWith('---')) return text;
+  const end = text.indexOf('\n---', 3);
+  if (end < 0) return text;
+  const rest = text.slice(end + 4);
+  // 吃掉 frontmatter 后面紧跟的空行（正文自身的首行结构保留）
+  return rest.replace(/^(\r?\n)+/, '');
+}
+
+/** diff 行着色类名：+ 增 / − 删 / @@ hunk 头 / 其它 context。 */
+export function diffLineClass(line: string): string {
+  if (line.startsWith('@@')) return 'diff-hunk';
+  if (line.startsWith('+') && !line.startsWith('+++')) return 'diff-add';
+  if (line.startsWith('-') && !line.startsWith('---')) return 'diff-del';
+  return '';
+}
