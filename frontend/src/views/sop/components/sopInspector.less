@@ -1,0 +1,223 @@
+// 五步检查器（右栏 360px）
+.sop-inspector {
+  flex: 0 0 360px;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--app-space-3) var(--app-space-4);
+  border-left: 1px solid var(--td-component-stroke);
+  background: var(--td-bg-color-container);
+}
+
+.sop-inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+  margin-bottom: var(--app-space-3);
+}
+
+.sop-type {
+  padding: 1px 8px;
+  border-radius: var(--app-radius-pill);
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-2xs);
+
+  &.is-approval {
+    background: var(--td-warning-color-1);
+    color: var(--td-warning-color);
+  }
+
+  &.is-script {
+    background: var(--td-success-color-1);
+    color: var(--td-success-color);
+  }
+
+  &.is-sop {
+    background: var(--td-brand-color-1);
+    color: var(--td-brand-color);
+  }
+}
+
+.sop-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: var(--app-space-3);
+
+  > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--td-text-color-secondary);
+    font-size: var(--app-text-sm);
+  }
+}
+
+.sop-cols2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--app-space-2);
+}
+
+.sop-step {
+  margin-bottom: var(--app-space-4);
+  padding-bottom: var(--app-space-3);
+  border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.sop-step-head {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  margin-bottom: var(--app-space-2);
+
+  b {
+    font-size: var(--app-text-sm);
+    color: var(--td-text-color-primary);
+  }
+}
+
+/* 主五步序号：18px 实心浅绿圆 */
+.sop-step-no {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--app-radius-pill);
+  background: var(--td-brand-color-1);
+  color: var(--td-brand-color);
+  font-size: var(--app-text-2xs);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.sop-textarea {
+  width: 100%;
+  margin-bottom: var(--app-space-2);
+  padding: 8px 10px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-sm);
+  color: var(--td-text-color-primary);
+  font-family: inherit;
+  font-size: var(--app-text-sm);
+  line-height: 1.6;
+  resize: vertical;
+
+  &:focus {
+    border-color: var(--td-brand-color);
+    outline: none;
+  }
+
+  &.mono {
+    font-family: var(--app-font-family-mono);
+    font-size: var(--app-text-xs);
+  }
+}
+
+.sop-hint {
+  color: var(--td-text-color-placeholder);
+  font-size: var(--app-text-xs);
+}
+
+.sop-rules {
+  margin-bottom: var(--app-space-2);
+  padding: var(--app-space-2);
+  border-radius: var(--app-radius-sm);
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-xs);
+}
+
+.sop-card {
+  margin-bottom: var(--app-space-2);
+  padding: var(--app-space-2);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-md);
+}
+
+.sop-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--app-space-2);
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-xs);
+}
+
+.sop-report {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sop-tag {
+  padding: 1px 8px;
+  border-radius: var(--app-radius-pill);
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-2xs);
+}
+
+.sop-artifact {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  margin-bottom: var(--app-space-2);
+  padding-bottom: var(--app-space-2);
+  border-bottom: 1px dashed var(--td-component-stroke);
+}
+
+/* 失败四卡 2×2 */
+.sop-fail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--app-space-2);
+  margin-bottom: var(--app-space-3);
+}
+
+.sop-fail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--app-space-2);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-md);
+  background: var(--td-bg-color-container);
+  text-align: left;
+  cursor: pointer;
+
+  b {
+    font-size: var(--app-text-sm);
+    color: var(--td-text-color-primary);
+  }
+
+  span {
+    color: var(--td-text-color-placeholder);
+    font-size: var(--app-text-2xs);
+  }
+
+  &:hover:not(:disabled) {
+    border-color: var(--td-brand-color);
+  }
+
+  &.on {
+    border-color: var(--td-brand-color);
+    background: var(--td-brand-color-1);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+}
+
+.sop-switchrow {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  margin-top: var(--app-space-2);
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-sm);
+}

@@ -112,6 +112,9 @@
   position: relative;
   flex: 1;
   min-width: 0;
+  /* 右栏出现/消失时画布不能塌成 0 高（vue-flow 会报 parent needs width and height） */
+  min-height: 320px;
+  height: 100%;
   background:
     radial-gradient(var(--td-component-stroke) 1px, transparent 1px) 0 0 / 18px 18px;
 }

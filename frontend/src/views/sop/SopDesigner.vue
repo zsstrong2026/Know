@@ -107,6 +107,16 @@
           />
         </svg>
       </div>
+
+      <SopInspector
+        v-if="selectedNode"
+        :key="selectedNode.id"
+        :node="selectedNode"
+        :def="definition"
+        :readonly="readonly"
+        @change="onInspectorChange"
+        @ai-configure="onAiConfigure"
+      />
     </div>
   </div>
 </template>
@@ -130,6 +140,7 @@ import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
 import SopNodeCard from './components/SopNodeCard.vue';
 import SopCanvasToolbar from './components/SopCanvasToolbar.vue';
+import SopInspector from './components/SopInspector.vue';
 import { SnapshotHistory } from './canvas/history';
 import { autoLayout } from './canvas/layout';
 import { minimapTransform } from './canvas/anchors';
@@ -148,6 +159,7 @@ const minimap = ref(false);
 const pendingSource = ref<{ nodeId: string; kind: 'success' | 'reject' } | null>(null);
 const flowWrapEl = ref<HTMLElement | null>(null);
 const dragType = ref('');
+const selectedNodeId = ref('');
 
 const { fitView, setViewport, onViewportChange } = useVueFlow();
 
@@ -156,6 +168,10 @@ onViewportChange((viewport) => {
 });
 
 const readonly = computed(() => !!template.value?.is_builtin);
+
+const selectedNode = computed(
+  () => (definition.value.nodes || []).find((node) => node.id === selectedNodeId.value) || null,
+);
 
 const paletteKinds = computed(() => [
   { type: 'agent', label: t('sop.designer.typeAgent'), hint: t('sop.designer.paletteAgent') },
@@ -353,10 +369,28 @@ function connectToTarget(targetId: string) {
   });
 }
 
-/** 有待连接的出口时，点目标节点即完成连线（成功=边，失败=reject_to）。 */
+/** 有待连接的出口时，点目标节点即完成连线；否则选中节点交给检查器。 */
 function onNodeClick(event: { node: Node }) {
-  if (!pendingSource.value) return;
-  connectToTarget(event.node.id);
+  if (pendingSource.value) {
+    connectToTarget(event.node.id);
+    return;
+  }
+  selectedNodeId.value = event.node.id;
+}
+
+/** 检查器改字段：合并进定义并 push 历史（与拖拽/连线同一套撤销栈）。 */
+function onInspectorChange(fields: Partial<SopNode>) {
+  if (!selectedNode.value) return;
+  const nodes = definition.value.nodes.map((node) =>
+    node.id === selectedNode.value!.id ? { ...node, ...fields } : node,
+  );
+  commit({ ...definition.value, nodes });
+}
+
+/** ✦ AI 配这一步：T47 的 AI 面板接入点（先提示，不假装已实现）。 */
+function onAiConfigure(nodeId: string) {
+  void nodeId;
+  MessagePlugin.info(t('sop.designer.aiPanelSoon'));
 }
 
 function onNodeDragStop(event: { node: Node }) {
@@ -369,7 +403,10 @@ function onNodeDragStop(event: { node: Node }) {
 
 function undo() {
   const snap = history.undo();
-  if (snap) definition.value = snap;
+  if (snap) {
+    definition.value = snap;
+    if (!snap.nodes.some((node) => node.id === selectedNodeId.value)) selectedNodeId.value = '';
+  }
 }
 
 function redo() {
