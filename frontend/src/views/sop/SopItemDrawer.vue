@@ -1,0 +1,561 @@
+<template>
+  <t-drawer
+    :visible="!!itemId"
+    size="min(1080px, 94vw)"
+    placement="right"
+    :header="drawerTitle"
+    :footer="false"
+    :on-close="close"
+    @close="close"
+  >
+    <div v-if="item" class="sop-drawer">
+      <div class="sop-drawer-tabs">
+        <button
+          v-for="tab in tabs"
+          :key="tab.key"
+          type="button"
+          class="sop-drawer-tab"
+          :class="{ on: activeTab === tab.key }"
+          @click="activeTab = tab.key"
+        >
+          {{ tab.label }}
+          <span v-if="tab.count" class="badge">{{ tab.count }}</span>
+        </button>
+      </div>
+
+      <!-- 概览 -->
+      <section v-if="activeTab === 'overview'" class="sop-pane">
+        <div class="sop-card">
+          <h4>{{ $t('sop.drawer.latestRun') }}</h4>
+          <template v-if="latestRun">
+            <div class="sop-kv">
+              <span class="k">{{ $t('sop.drawer.runStatus') }}</span>
+              <span class="v">{{ runStatusLabel(latestRun.status) }}</span>
+            </div>
+            <div class="sop-kv">
+              <span class="k">{{ $t('sop.drawer.runProgress') }}</span>
+              <span class="v">{{ progressText(item.progress_done || 0, item.progress_total || 0) }}</span>
+            </div>
+            <div v-if="latestRun.status === 'failed'" class="sop-retry">
+              <textarea
+                v-model="retryContext"
+                class="sop-textarea"
+                rows="3"
+                :placeholder="$t('sop.drawer.retryContextPlaceholder')"
+              />
+              <t-button size="small" theme="primary" :loading="busy" @click="retryLatestRun">
+                {{ $t('sop.drawer.retryWithContext') }}
+              </t-button>
+            </div>
+            <div class="sop-row">
+              <t-button size="small" variant="outline" @click="openRunDetail(latestRun.id)">
+                {{ $t('sop.drawer.investigate') }}
+              </t-button>
+              <t-button size="small" variant="outline" :loading="busy" @click="relaunch">
+                {{ $t('sop.drawer.relaunch') }}
+              </t-button>
+            </div>
+          </template>
+          <p v-else class="sop-muted">{{ $t('sop.drawer.noRun') }}</p>
+        </div>
+
+        <div class="sop-card">
+          <h4>{{ $t('sop.drawer.fields') }}</h4>
+          <div class="sop-kv"><span class="k">{{ $t('sop.items.colSource') }}</span><span class="v">{{ SOURCE_LABELS[item.source] || item.source }}</span></div>
+          <div class="sop-kv"><span class="k">{{ $t('sop.drawer.proposer') }}</span><span class="v">{{ item.proposer || '—' }}</span></div>
+          <div class="sop-kv"><span class="k">{{ $t('sop.items.colPriority') }}</span><span class="v">{{ item.priority }}</span></div>
+          <div class="sop-kv"><span class="k">{{ $t('sop.drawer.kind') }}</span><span class="v">{{ KIND_LABELS[item.kind] || item.kind }}</span></div>
+          <div class="sop-kv"><span class="k">{{ $t('sop.items.colTemplate') }}</span><span class="v">{{ templateName || $t('sop.items.templateUnbound') }}</span></div>
+          <div class="sop-kv"><span class="k">{{ $t('sop.drawer.kb') }}</span><span class="v">{{ item.kb_id || $t('sop.settings.kbUnbound') }}</span></div>
+          <div class="sop-kv"><span class="k">{{ $t('sop.drawer.repos') }}</span><span class="v">{{ repoSummary }}</span></div>
+          <div class="sop-kv sop-kv--last"><span class="k">{{ $t('sop.drawer.createdAt') }}</span><span class="v">{{ formatTime(item.created_at) }}</span></div>
+          <div class="sop-row">
+            <t-button size="small" variant="outline" @click="activeTab = 'clarify'">
+              {{ $t('sop.drawer.clarifyEntry', { n: openClarifications }) }}
+            </t-button>
+            <t-button size="small" :loading="busy" @click="closeItem">
+              {{ $t('sop.drawer.closeItem') }}
+            </t-button>
+            <t-button size="small" theme="danger" variant="outline" @click="askDelete">
+              {{ $t('common.delete') }}
+            </t-button>
+          </div>
+        </div>
+
+        <div class="sop-card">
+          <h4>{{ $t('sop.drawer.description') }}</h4>
+          <PmMarkdown v-if="item.description" :content="item.description" />
+          <p v-else class="sop-muted">{{ $t('sop.drawer.noDescription') }}</p>
+        </div>
+      </section>
+
+      <!-- 执行进展 -->
+      <section v-if="activeTab === 'progress'" class="sop-pane">
+        <div v-if="!nodeRuns.length" class="sop-empty">{{ $t('sop.drawer.noProgress') }}</div>
+        <ol v-else class="sop-timeline">
+          <li v-for="node in nodeRuns" :key="node.id" class="sop-timeline-item">
+            <div class="sop-timeline-head">
+              <b>{{ nodeName(node.node_id) }}</b>
+              <span class="sop-status">{{ NODE_STATUS_LABELS[node.status] || node.status }}</span>
+            </div>
+            <div class="sop-timeline-meta">
+              <span>attempt {{ node.attempt }}</span>
+              <span v-if="node.rework_count">rework {{ node.rework_count }}</span>
+              <span v-if="node.gate_result">{{ $t('sop.drawer.gate') }}：{{ node.gate_result }}</span>
+              <span>{{ durationText(node) }}</span>
+            </div>
+            <p v-if="node.error" class="sop-error">{{ node.error }}</p>
+          </li>
+        </ol>
+      </section>
+
+      <!-- 产物 -->
+      <section v-if="activeTab === 'artifacts'" class="sop-pane">
+        <div v-if="!artifacts.length" class="sop-empty">{{ $t('sop.drawer.noArtifacts') }}</div>
+        <table v-else class="sop-table">
+          <thead>
+            <tr>
+              <th>{{ $t('sop.drawer.artifactName') }}</th>
+              <th>{{ $t('sop.drawer.artifactPath') }}</th>
+              <th>{{ $t('sop.drawer.artifactSize') }}</th>
+              <th>{{ $t('sop.drawer.artifactSha') }}</th>
+              <th>{{ $t('sop.drawer.artifactIngested') }}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="art in artifacts" :key="art.id">
+              <td>{{ art.name }}</td>
+              <td class="mono">{{ art.path }}</td>
+              <td>{{ formatBytes(art.size) }}</td>
+              <td class="mono">{{ shortSha(art.sha256) }}</td>
+              <td>{{ art.knowledge_id ? $t('sop.drawer.ingested') : '—' }}</td>
+              <td>
+                <t-button size="small" variant="text" @click="previewArtifact(art)">
+                  {{ $t('sop.drawer.preview') }}
+                </t-button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- 会话 -->
+      <section v-if="activeTab === 'sessions'" class="sop-pane">
+        <div class="sop-empty">{{ $t('sop.drawer.sessionsSoon') }}</div>
+      </section>
+
+      <!-- 澄清 -->
+      <section v-if="activeTab === 'clarify'" class="sop-pane">
+        <div class="sop-row sop-row--end">
+          <t-button size="small" variant="outline" :loading="busy" @click="generateClarificationsForItem">
+            {{ $t('sop.drawer.aiClarify') }}
+          </t-button>
+        </div>
+        <div v-if="!clarifications.length" class="sop-empty">{{ $t('sop.drawer.noClarify') }}</div>
+        <div v-for="entry in clarifications" :key="entry.id" class="sop-clarify">
+          <div class="sop-clarify-q">
+            <span class="sop-tag" :class="entry.status === 'open' ? 'sop-tag--brand' : 'sop-tag--gray'">
+              {{ entry.status === 'open' ? $t('sop.drawer.open') : $t('sop.drawer.answered') }}
+            </span>
+            {{ entry.question }}
+          </div>
+          <p v-if="entry.answer" class="sop-clarify-a">{{ entry.answer }}</p>
+          <div v-else class="sop-clarify-form">
+            <t-input v-model="answerDrafts[entry.id]" :placeholder="$t('sop.drawer.answerPlaceholder')" />
+            <t-button size="small" theme="primary" :disabled="!answerDrafts[entry.id]" @click="submitAnswer(entry.id)">
+              {{ $t('common.confirm') }}
+            </t-button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 交付 -->
+      <section v-if="activeTab === 'delivery'" class="sop-pane">
+        <div class="sop-card">
+          <h4>{{ $t('sop.drawer.outcome') }}</h4>
+          <p>{{ outcomeSummary(item.outcome) }}</p>
+        </div>
+        <div v-if="!artifacts.length" class="sop-empty">{{ $t('sop.drawer.noArtifacts') }}</div>
+      </section>
+
+      <!-- 验收 -->
+      <section v-if="activeTab === 'accept'" class="sop-pane">
+        <div class="sop-card">
+          <h4>{{ $t('sop.drawer.acceptance') }}</h4>
+          <label class="sop-field">
+            <span>{{ $t('sop.drawer.valueAchieved') }}</span>
+            <t-radio-group v-model="outcomeForm.value_achieved">
+              <t-radio value="achieved">{{ $t('sop.drawer.achieved') }}</t-radio>
+              <t-radio value="partial">{{ $t('sop.drawer.partial') }}</t-radio>
+              <t-radio value="not_achieved">{{ $t('sop.drawer.notAchieved') }}</t-radio>
+            </t-radio-group>
+          </label>
+          <label class="sop-field">
+            <span>{{ $t('sop.drawer.summary') }}</span>
+            <textarea v-model="outcomeForm.summary" class="sop-textarea" rows="4" />
+          </label>
+          <div class="sop-row sop-row--end">
+            <t-button theme="primary" :loading="busy" @click="saveOutcome">
+              {{ $t('common.save') }}
+            </t-button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 活动 -->
+      <section v-if="activeTab === 'activity'" class="sop-pane">
+        <div class="sop-row sop-row--end">
+          <t-button size="small" variant="outline" @click="mergedView = !mergedView">
+            {{ mergedView ? $t('sop.drawer.businessOnly') : $t('sop.drawer.mergedView') }}
+          </t-button>
+        </div>
+        <ul class="sop-activities">
+          <li v-for="(entry, index) in activityList" :key="index">
+            <span class="sop-activity-time">{{ formatTime(activityTime(entry)) }}</span>
+            <span class="sop-tag sop-tag--sm">{{ entry.kind || 'business' }}</span>
+            <span>{{ entry.text || entry.action || entry.detail }}</span>
+            <span v-if="entry.actor" class="sop-muted">· {{ entry.actor }}</span>
+          </li>
+        </ul>
+      </section>
+
+      <!-- 操作日志 -->
+      <section v-if="activeTab === 'audit'" class="sop-pane">
+        <ul class="sop-activities">
+          <li v-for="(entry, index) in auditActivities" :key="index">
+            <span class="sop-activity-time">{{ formatTime(activityTime(entry)) }}</span>
+            <span>{{ entry.action || entry.detail }}</span>
+            <span v-if="entry.actor" class="sop-muted">· {{ entry.actor }}</span>
+          </li>
+        </ul>
+        <div v-if="!auditActivities.length" class="sop-empty">{{ $t('sop.drawer.noAudit') }}</div>
+      </section>
+    </div>
+  </t-drawer>
+</template>
+
+<script setup lang="ts">
+import { computed, reactive, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useRouter } from 'vue-router';
+import { MessagePlugin } from 'tdesign-vue-next';
+import {
+  addHumanContext,
+  answerClarification,
+  createRun,
+  deleteItem,
+  generateClarifications,
+  getItem,
+  getRun,
+  listActivities,
+  listArtifacts,
+  listClarifications,
+  setOutcome as apiSetOutcome,
+  setItemStatus,
+  type SopArtifact,
+  type SopItem,
+  type SopItemActivity,
+  type SopItemWithDerived,
+  type SopItemClarification,
+  type SopNodeRun,
+} from '@/api/sop';
+import {
+  KIND_LABELS,
+  NODE_STATUS_LABELS,
+  RUN_STATUS_LABELS,
+  SOURCE_LABELS,
+  formatBytes,
+  mergeActivities,
+  outcomeSummary,
+  progressText,
+  shortSha,
+  type MergeableActivity,
+} from '@/api/sop/helpers';
+import PmMarkdown from '@/views/pm/components/PmMarkdown.vue';
+import { useConfirmDelete } from '@/components/settings/useConfirmDelete';
+
+type DrawerTab =
+  | 'overview'
+  | 'progress'
+  | 'artifacts'
+  | 'sessions'
+  | 'clarify'
+  | 'delivery'
+  | 'accept'
+  | 'activity'
+  | 'audit';
+
+const props = defineProps<{ itemId: string | null }>();
+const emit = defineEmits<{ close: []; changed: [] }>();
+
+const router = useRouter();
+const { t } = useI18n();
+const confirmDanger = useConfirmDelete();
+
+const item = ref<(SopItem & Partial<SopItemWithDerived>) | null>(null);
+const nodeRuns = ref<SopNodeRun[]>([]);
+const artifacts = ref<SopArtifact[]>([]);
+const latestRunId = ref('');
+const latestRunStatus = ref('');
+const clarifications = ref<SopItemClarification[]>([]);
+const businessActivities = ref<SopItemActivity[]>([]);
+const auditActivities = ref<SopItemActivity[]>([]);
+const activeTab = ref<DrawerTab>('overview');
+const mergedView = ref(false);
+const busy = ref(false);
+const retryContext = ref('');
+const answerDrafts = reactive<Record<string, string>>({});
+const outcomeForm = reactive({ value_achieved: '', summary: '' });
+
+const latestRun = computed(() =>
+  latestRunId.value ? { id: latestRunId.value, status: latestRunStatus.value } : null,
+);
+
+const openClarifications = computed(
+  () => clarifications.value.filter((entry) => entry.status === 'open').length,
+);
+
+const templateName = computed(() => {
+  const id = item.value?.template_id;
+  return id || '';
+});
+
+const repoSummary = computed(() => '—');
+
+const drawerTitle = computed(() =>
+  item.value
+    ? `${item.value.no || ''} ${item.value.title}`.trim()
+    : t('sop.drawer.title'),
+);
+
+const tabs = computed<{ key: DrawerTab; label: string; count?: number }[]>(() => [
+  { key: 'overview', label: t('sop.drawer.tabOverview') },
+  { key: 'progress', label: t('sop.drawer.tabProgress') },
+  { key: 'artifacts', label: t('sop.drawer.tabArtifacts'), count: artifacts.value.length },
+  { key: 'sessions', label: t('sop.drawer.tabSessions') },
+  { key: 'clarify', label: t('sop.drawer.tabClarify'), count: openClarifications.value },
+  { key: 'delivery', label: t('sop.drawer.tabDelivery') },
+  { key: 'accept', label: t('sop.drawer.tabAccept') },
+  { key: 'activity', label: t('sop.drawer.tabActivity') },
+  { key: 'audit', label: t('sop.drawer.tabAudit') },
+]);
+
+const activityList = computed<MergeableActivity[]>(() =>
+  mergedView.value
+    ? mergeActivities(businessActivities.value as any, auditActivities.value as any)
+    : (businessActivities.value as any),
+);
+
+function runStatusLabel(status: string): string {
+  return (RUN_STATUS_LABELS as Record<string, string>)[status] || status;
+}
+
+function nodeName(nodeId: string): string {
+  return nodeId || '—';
+}
+
+function durationText(node: SopNodeRun): string {
+  if (!node.started_at || !node.finished_at) return '';
+  const ms = new Date(node.finished_at).getTime() - new Date(node.started_at).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  return `${Math.round(ms / 1000)}s`;
+}
+
+function formatTime(value?: string | null): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function activityTime(entry: MergeableActivity): string {
+  return String(entry.at || entry.created_at || '');
+}
+
+function close() {
+  emit('close');
+}
+
+async function load() {
+  const id = props.itemId;
+  if (!id) return;
+  const detail = await getItem(id).catch(() => null);
+  if (!detail) {
+    MessagePlugin.error(t('sop.drawer.loadFailed'));
+    return;
+  }
+  item.value = detail;
+  outcomeForm.value_achieved = String(detail.outcome?.value_achieved || '');
+  outcomeForm.summary = String(detail.outcome?.summary || '');
+  latestRunId.value = detail.last_run_id || '';
+  latestRunStatus.value = '';
+  nodeRuns.value = [];
+  artifacts.value = [];
+  if (latestRunId.value) {
+    const run = await getRun(latestRunId.value).catch(() => null);
+    if (run) {
+      nodeRuns.value = run.node_runs || [];
+      artifacts.value = run.artifacts || [];
+      latestRunStatus.value = run.run.status;
+    }
+  }
+  const [cls, biz, audit] = await Promise.all([
+    listClarifications(id).catch(() => []),
+    listActivities(id, 'business').catch(() => []),
+    listActivities(id, 'audit').catch(() => []),
+  ]);
+  clarifications.value = cls;
+  businessActivities.value = biz;
+  auditActivities.value = audit;
+}
+
+watch(
+  () => props.itemId,
+  async (id) => {
+    activeTab.value = 'overview';
+    mergedView.value = false;
+    retryContext.value = '';
+    if (id) await load();
+    else item.value = null;
+  },
+  { immediate: true },
+);
+
+function openRunDetail(runId: string) {
+  void router.push({ name: 'sopRunDetail', params: { id: runId } });
+}
+
+/** 失败重试：把补充上下文写进运行，再让引擎重试（后端 retry 即从失败节点续跑）。 */
+async function retryLatestRun() {
+  if (!latestRunId.value) return;
+  busy.value = true;
+  try {
+    if (retryContext.value.trim()) {
+      await addHumanContext(latestRunId.value, retryContext.value.trim());
+    }
+    const { retryRun } = await import('@/api/sop');
+    await retryRun(latestRunId.value);
+    MessagePlugin.success(t('sop.drawer.retryStarted'));
+    retryContext.value = '';
+    await load();
+    emit('changed');
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('sop.drawer.retryFailed'));
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 整条重触发：新 run 冻结新快照，旧 run 保留为历史。 */
+async function relaunch() {
+  if (!item.value) return;
+  const templateId = item.value.template_id;
+  if (!templateId) {
+    MessagePlugin.warning(t('sop.items.noTemplate'));
+    return;
+  }
+  busy.value = true;
+  try {
+    await createRun({ item_id: item.value.id, template_id: templateId });
+    MessagePlugin.success(t('sop.drawer.relaunched'));
+    await load();
+    emit('changed');
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('sop.items.launchFailed'));
+  } finally {
+    busy.value = false;
+  }
+}
+
+function previewArtifact(artifact: SopArtifact) {
+  // 大弹窗预览属 T50；在此之前直接给下载/打开地址，避免假装能渲染
+  window.open(`/api/v1/sop/runs/${artifact.run_id}/artifacts/${artifact.id}/file`, '_blank');
+}
+
+async function submitAnswer(clarificationId: string) {
+  if (!item.value) return;
+  const answer = (answerDrafts[clarificationId] || '').trim();
+  if (!answer) return;
+  busy.value = true;
+  try {
+    await answerClarification(item.value.id, clarificationId, answer);
+    answerDrafts[clarificationId] = '';
+    MessagePlugin.success(t('sop.drawer.answeredDone'));
+    await load();
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('sop.drawer.answerFailed'));
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function generateClarificationsForItem() {
+  if (!item.value) return;
+  busy.value = true;
+  try {
+    await generateClarifications(item.value.id);
+    await load();
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('sop.drawer.clarifyFailed'));
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function saveOutcome() {
+  if (!item.value) return;
+  busy.value = true;
+  try {
+    await apiSetOutcome(item.value.id, {
+      value_achieved: outcomeForm.value_achieved,
+      summary: outcomeForm.summary.trim(),
+    });
+    MessagePlugin.success(t('sop.drawer.outcomeSaved'));
+    await load();
+    emit('changed');
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('sop.drawer.outcomeFailed'));
+  } finally {
+    busy.value = false;
+  }
+}
+
+function askDelete() {
+  if (!item.value) return;
+  const target = item.value;
+  confirmDanger({
+    title: t('sop.drawer.deleteTitle'),
+    body: t('sop.drawer.deleteConfirm', { title: target.title }),
+    confirmText: t('common.delete'),
+    onConfirm: async () => {
+      try {
+        await deleteItem(target.id);
+        MessagePlugin.success(t('sop.drawer.deleted'));
+        emit('changed');
+        emit('close');
+      } catch (error: any) {
+        MessagePlugin.error(error?.message || t('sop.drawer.deleteFailed'));
+      }
+    },
+  });
+}
+
+/** 快捷关闭：状态机允许就直接 closed，不允许则透出后端白话原因。 */
+async function closeItem() {
+  if (!item.value) return;
+  busy.value = true;
+  try {
+    await setItemStatus(item.value.id, 'closed');
+    MessagePlugin.success(t('sop.drawer.closed'));
+    await load();
+    emit('changed');
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('sop.drawer.closeFailed'));
+  } finally {
+    busy.value = false;
+  }
+}
+</script>
+
+<style lang="less" scoped src="./sopItemDrawer.less"></style>

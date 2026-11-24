@@ -309,3 +309,51 @@ export function canTransitItem(from: string, to: string): boolean {
   if (from === to) return true;
   return (ITEM_TRANSITIONS[from] || []).includes(to);
 }
+
+/** 活动条目（business/audit 两源合并视图共用；at 兼容后端 at/created_at）。 */
+export interface MergeableActivity {
+  at?: string;
+  created_at?: string;
+  kind?: string;
+  text?: string;
+  action?: string;
+  detail?: string;
+  actor?: string;
+  [key: string]: unknown;
+}
+
+function activityTime(entry: MergeableActivity): string {
+  return String(entry.at || entry.created_at || '');
+}
+
+/** 业务活动与审计日志按时间降序合并（同刻保持 business 在前）。 */
+export function mergeActivities(
+  business: MergeableActivity[],
+  audit: MergeableActivity[],
+): MergeableActivity[] {
+  return [...(business || []), ...(audit || [])].sort((a, b) => {
+    const ta = activityTime(a);
+    const tb = activityTime(b);
+    if (ta === tb) return 0;
+    return ta < tb ? 1 : -1;
+  });
+}
+
+const OUTCOME_LABELS: Record<string, string> = {
+  achieved: '已达成',
+  partial: '部分达成',
+  not_achieved: '未达成',
+};
+
+/**
+ * 产物结论的白话摘要：优先用 summary，其次按 value_achieved 三档，
+ * 都没有时给「尚未回填」（验收 tab 与概览共用）。
+ */
+export function outcomeSummary(outcome: Record<string, unknown> | undefined | null): string {
+  if (!outcome) return '尚未回填';
+  const summary = typeof outcome.summary === 'string' ? outcome.summary.trim() : '';
+  if (summary) return summary;
+  const value = typeof outcome.value_achieved === 'string' ? outcome.value_achieved : '';
+  if (value && OUTCOME_LABELS[value]) return OUTCOME_LABELS[value];
+  return '尚未回填';
+}

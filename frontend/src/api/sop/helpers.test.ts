@@ -16,6 +16,8 @@ import {
   matchExecOptions,
   KANBAN_COLUMNS,
   canTransitItem,
+  mergeActivities,
+  outcomeSummary,
   progressText,
   shortSha,
   formatBytes,
@@ -149,4 +151,16 @@ test('看板列与状态机镜像', () => {
   assert.ok(!canTransitItem('done', 'in_progress'));
   assert.ok(!canTransitItem('', 'todo'));
   assert.ok(canTransitItem('todo', 'todo')); // 同状态幂等放行
+});
+
+test('活动合并降序与 outcome 摘要', () => {
+  const merged = mergeActivities(
+    [{ at: '2026-11-19T10:00:00Z', kind: 'business', text: '创建' } as any],
+    [{ at: '2026-11-19T11:00:00Z', kind: 'audit', text: '编辑' } as any],
+  );
+  assert.equal(merged[0].text, '编辑');
+  assert.equal(outcomeSummary({ value_achieved: 'achieved', summary: '上线达标' } as any), '上线达标');
+  assert.equal(outcomeSummary({} as any), '尚未回填');
+  assert.equal(outcomeSummary({ summary: '  ' } as any), '尚未回填');
+  assert.equal(outcomeSummary({ value_achieved: 'partial' } as any), '部分达成');
 });

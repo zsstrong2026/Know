@@ -253,6 +253,12 @@
     </div>
 
     <div class="sop-count">{{ $t('sop.items.count', { n: store.items.length }) }}</div>
+
+    <SopItemDrawer
+      :item-id="drawerItemId"
+      @close="drawerItemId = null"
+      @changed="onDrawerChanged"
+    />
   </div>
 </template>
 
@@ -284,6 +290,7 @@ import {
 import type { ExecState } from '@/api/sop';
 import { useSopStore } from '@/stores/sop';
 import SopExecFilter from './components/SopExecFilter.vue';
+import SopItemDrawer from './SopItemDrawer.vue';
 
 const router = useRouter();
 const { t } = useI18n();
@@ -295,6 +302,7 @@ const selected = ref(new Set<string>());
 // 每条事项最近一次运行的 id（用于「查看运行」按钮）
 const latestRuns = ref<Record<string, string>>({});
 const viewMode = ref<'list' | 'kanban'>('list');
+const drawerItemId = ref<string | null>(null);
 const draggingId = ref('');
 const dragOver = ref<ItemStatus | ''>('');
 const launchingId = ref('');
@@ -570,7 +578,11 @@ async function openLatestRun(item: SopItemWithDerived) {
 }
 
 function openItem(item: SopItemWithDerived) {
-  void openLatestRun(item);
+  drawerItemId.value = item.id;
+}
+
+async function onDrawerChanged() {
+  await refreshAll();
 }
 
 function openSettings() {
