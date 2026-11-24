@@ -95,7 +95,7 @@
                         <div class="menu_item-box">
                             <div class="menu_icon" :class="`menu_icon--${item.icon}`">
                                 <img class="icon"
-                                    :src="getImgSrc(item.icon == 'doc-assistant' ? docAssistantIcon : item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'workbench' ? workbenchIcon : item.icon == 'agent' ? agentIcon : item.icon == 'meeting' ? meetingIcon : item.icon == 'artifact' ? artifactIcon : item.icon == 'pm' ? pmIcon : item.icon == 'automation' ? automationIcon : item.icon == 'toolbox' ? toolboxIcon : item.icon == 'organization' ? organizationIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)"
+                                    :src="getImgSrc(item.icon == 'doc-assistant' ? docAssistantIcon : item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'workbench' ? workbenchIcon : item.icon == 'agent' ? agentIcon : item.icon == 'meeting' ? meetingIcon : item.icon == 'artifact' ? artifactIcon : item.icon == 'sop' ? sopIcon : item.icon == 'automation' ? automationIcon : item.icon == 'toolbox' ? toolboxIcon : item.icon == 'organization' ? organizationIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)"
                                     alt="">
                             </div>
                             <template v-if="!uiStore.sidebarCollapsed">
@@ -468,9 +468,9 @@ const isMenuItemActive = (itemPath: string): boolean => {
             return currentRoute === 'toolbox';
         case 'artifacts':
             return currentRoute === 'artifactLibrary';
-        case 'pm':
-            // PM 工作站为多级路由（pmRoadmap/pmRequirements/...），父路由无独立路由名
-            return typeof currentRoute === 'string' && currentRoute.startsWith('pm');
+        case 'sop':
+            // SOP 工作台为多级路由（sopItems/sopTemplates/...），父路由无独立路由名
+            return typeof currentRoute === 'string' && currentRoute.startsWith('sop');
         case 'workbench':
             // 工作台同样是多级路由（workbenchRecent/workbenchItem/...）
             return typeof currentRoute === 'string' && currentRoute.startsWith('workbench');
@@ -506,7 +506,7 @@ const getIconActiveState = (itemPath: string) => {
 
 // 分离上下两部分菜单（使用 visibleMenuArr 以便 lite 模式过滤 logout）
 // 注意：不在 TOP_MENU_PATHS 中的项不会被渲染，新增顶级入口时必须同步加入
-const TOP_MENU_PATHS = new Set(['creatChat', 'knowledge-bases', 'workbench', 'doc-assistant', 'artifacts', 'agents', 'meetings', 'pm', 'automations', 'toolbox', 'organizations']);
+const TOP_MENU_PATHS = new Set(['creatChat', 'knowledge-bases', 'workbench', 'doc-assistant', 'artifacts', 'agents', 'meetings', 'sop', 'automations', 'toolbox', 'organizations']);
 
 const topMenuItems = computed<MenuItem[]>(() => {
     return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) => TOP_MENU_PATHS.has(item.path));
@@ -1159,8 +1159,8 @@ let artifactIcon = ref('artifact.svg');
 let toolboxIcon = ref('toolbox.svg');
 let automationIcon = ref('automation.svg');
 let organizationIcon = ref('organization.svg');
-// PM 工作站独立图标
-let pmIcon = ref('pm.svg');
+// SOP 工作台独立图标（沿用 PM 工作站的双色图标资源）
+let sopIcon = ref('pm.svg');
 // 工作台独立图标
 let workbenchIcon = ref('workbench.svg');
 let docAssistantIcon = ref('doc-assistant.svg');
@@ -1191,8 +1191,8 @@ const getIcon = (path: string) => {
     // 产物图标：只在产物页面显示绿色
     artifactIcon.value = artifactsActiveState ? 'artifact-green.svg' : 'artifact.svg';
 
-    // PM 图标：只在 PM 工作站页面显示绿色
-    pmIcon.value = typeof route.name === 'string' && route.name.startsWith('pm') ? 'pm-green.svg' : 'pm.svg';
+    // SOP 图标：只在 SOP 工作台页面显示绿色
+    sopIcon.value = typeof route.name === 'string' && route.name.startsWith('sop') ? 'pm-green.svg' : 'pm.svg';
 
     // 工作台图标：只在工作台页面显示绿色
     workbenchIcon.value = typeof route.name === 'string' && route.name.startsWith('workbench')

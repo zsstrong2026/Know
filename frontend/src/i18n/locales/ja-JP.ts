@@ -583,7 +583,92 @@
     meetings: '会議室',
     docAssistant: 'ソリューションアシスタント',
     pm: 'PMワークステーション',
+    sop: 'SOPワークベンチ',
     workbench: 'インクウェル'
+  },
+  // SOPワークベンチ：項目 / テンプレート / 実行履歴 / 承認センター / SOPタスク
+  sop: {
+    shell: {
+      more: 'その他',
+      noProject: 'SOPプロジェクトがありません',
+      noProjectHint: 'まずプロジェクトを作成してください。項目番号はプロジェクトの接頭辞から自動生成されます',
+      tabItems: '項目',
+      tabTemplates: 'テンプレート',
+      tabRuns: '実行履歴',
+      tabApprovals: '承認センター',
+      tabTasks: 'SOPタスク',
+      executorSettings: '実行者設定',
+      pmArchive: 'PMアーカイブ（読み取り専用）',
+      loadProjectsFailed: 'プロジェクトの読み込みに失敗しました。後でもう一度お試しください'
+    },
+    project: {
+      label: 'プロジェクト',
+      none: 'プロジェクト未選択',
+      create: '新規プロジェクト',
+      createEllipsis: '新規プロジェクト…',
+      name: 'プロジェクト名',
+      namePlaceholder: '例：セキュリティ知識プロジェクト',
+      code: '接頭辞',
+      codePlaceholder: '例：SEC',
+      codeHint: '項目番号は SEC-1 の形式 · 2〜10文字の英数字（先頭は英字）· 作成後は変更不可',
+      description: '説明',
+      descriptionPlaceholder: 'このプロジェクトが何を提供するかを1〜2文で',
+      nameRequired: 'プロジェクト名を入力してください',
+      codeRequired: '接頭辞を入力してください',
+      codeInvalid: '接頭辞は2〜10文字の英数字で、先頭は英字にしてください',
+      codeDuplicate: '接頭辞 {code} は既に使用されています',
+      createSuccess: 'プロジェクト「{name}」を作成して切り替えました',
+      createFailed: 'プロジェクトの作成に失敗しました。後でもう一度お試しください',
+      switchFailed: 'プロジェクトの切り替えに失敗しました。後でもう一度お試しください'
+    },
+    items: {
+      title: '項目',
+      desc: '作業項目、実行状況、進捗',
+      empty: '項目はまだありません'
+    },
+    templates: {
+      title: 'テンプレート',
+      desc: '再利用可能なフロー定義。公開すると実行を開始できます',
+      empty: 'テンプレートはまだありません'
+    },
+    runs: {
+      title: '実行履歴',
+      desc: '各実行の状態、成果物、人による対応',
+      empty: '実行履歴はまだありません'
+    },
+    approvals: {
+      title: '承認センター',
+      desc: 'SOPゲート、エージェントの保留、自動化の承認待ちをまとめて表示',
+      empty: '承認待ちはありません'
+    },
+    tasks: {
+      title: 'SOPタスク',
+      desc: '未実行の項目に対して計画通りにフローを自動配信します',
+      empty: 'トリガーはまだ設定されていません'
+    },
+    designer: {
+      title: 'フローデザイナー',
+      desc: 'ノードを配置し、依存関係を接続し、実行者と成果物の約束を設定します',
+      empty: 'デザイナーは準備中です'
+    },
+    runDetail: {
+      title: '実行詳細',
+      desc: 'ノードの進捗、リアルタイム出力、成果物、人手のコンテキスト',
+      empty: '実行詳細は準備中です'
+    },
+    settings: {
+      projectTitle: 'プロジェクト設定',
+      projectDesc: '基本情報、ナレッジベース、リポジトリ、危険な操作',
+      projectEmpty: 'プロジェクト設定は準備中です',
+      cliTitle: '実行者設定',
+      cliDesc: 'ローカルCLIの認証情報、インストール状態、ワークスペース',
+      cliEmpty: '実行者設定は準備中です'
+    },
+    archive: {
+      title: 'PMアーカイブ',
+      desc: '旧PMワークステーションのデータ（読み取り専用）',
+      empty: 'アーカイブページは準備中です'
+    }
   },
   // インクウェル：最近 / データベース / お気に入り / ゴミ箱 / アイテム編集 / アーカイブ
   workbench: {

@@ -9365,7 +9365,92 @@
     meetings: '会议室',
     docAssistant: '方案助手',
     pm: 'PM 工作站',
+    sop: 'SOP 工作台',
     workbench: '墨匣'
+  },
+  // SOP 工作台：事项 / 流程模板 / 运行记录 / 审批中心 / SOP 任务
+  sop: {
+    shell: {
+      more: '更多',
+      noProject: '还没有 SOP 项目',
+      noProjectHint: '先建一个项目，事项编号会按项目的编号前缀自动生成',
+      tabItems: '事项',
+      tabTemplates: '流程模板',
+      tabRuns: '运行记录',
+      tabApprovals: '审批中心',
+      tabTasks: 'SOP 任务',
+      executorSettings: '执行器设置',
+      pmArchive: 'PM 归档（只读）',
+      loadProjectsFailed: '加载项目失败，请稍后重试'
+    },
+    project: {
+      label: '项目',
+      none: '未选择项目',
+      create: '新建项目',
+      createEllipsis: '新建项目…',
+      name: '项目名称',
+      namePlaceholder: '例如：安防知识项目',
+      code: '编号前缀',
+      codePlaceholder: '例如：SEC',
+      codeHint: '事项编号如 SEC-1 · 2–10 位字母数字且字母开头 · 创建后锁定',
+      description: '项目描述',
+      descriptionPlaceholder: '一两句话说明这个项目做什么、交付什么',
+      nameRequired: '请填写项目名称',
+      codeRequired: '请填写编号前缀',
+      codeInvalid: '编号前缀须为 2–10 位字母数字且以字母开头',
+      codeDuplicate: '编号前缀 {code} 已被占用，请换一个',
+      createSuccess: '已创建并切换到项目「{name}」',
+      createFailed: '创建项目失败，请稍后重试',
+      switchFailed: '切换项目失败，请稍后重试'
+    },
+    items: {
+      title: '事项',
+      desc: '工作项清单、执行情况与推进状态',
+      empty: '还没有事项'
+    },
+    templates: {
+      title: '流程模板',
+      desc: '可复用的流程定义，发布后即可发起运行',
+      empty: '还没有流程模板'
+    },
+    runs: {
+      title: '运行记录',
+      desc: '每一次流程执行的状态、产物与人工处置',
+      empty: '还没有运行记录'
+    },
+    approvals: {
+      title: '审批中心',
+      desc: 'SOP 关口、智能体挂起与自动化待审批的聚合待办',
+      empty: '当前没有待审批事项'
+    },
+    tasks: {
+      title: 'SOP 任务',
+      desc: '按计划为本项目尚未跑过 SOP 的事项自动派发流程',
+      empty: '还没有配置触发'
+    },
+    designer: {
+      title: '流程设计器',
+      desc: '拖拽节点、连接依赖、配置每个环节的执行器与产物约定',
+      empty: '设计器正在完善中'
+    },
+    runDetail: {
+      title: '运行详情',
+      desc: '节点进度、实时输出、产物与人工上下文',
+      empty: '运行详情正在完善中'
+    },
+    settings: {
+      projectTitle: '项目配置',
+      projectDesc: '基本信息、知识库、代码仓库与危险操作',
+      projectEmpty: '项目配置正在完善中',
+      cliTitle: '执行器设置',
+      cliDesc: '本机 CLI 凭据、安装状态与工作区配置',
+      cliEmpty: '执行器设置正在完善中'
+    },
+    archive: {
+      title: 'PM 归档',
+      desc: '原 PM 工作站数据，冻结只读',
+      empty: '归档页面正在完善中'
+    }
   },
   // 墨匣：最近 / 数据库 / 收藏 / 回收站 / 条目编辑 / 归档
   workbench: {

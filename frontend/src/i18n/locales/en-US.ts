@@ -583,7 +583,92 @@
     meetings: 'Meeting Rooms',
     docAssistant: 'Solution Assistant',
     pm: 'PM Workstation',
+    sop: 'SOP Workbench',
     workbench: 'Inkwell'
+  },
+  // SOP workbench: items / templates / runs / approvals / scheduled tasks
+  sop: {
+    shell: {
+      more: 'More',
+      noProject: 'No SOP project yet',
+      noProjectHint: 'Create a project first — item numbers are generated from its code prefix',
+      tabItems: 'Items',
+      tabTemplates: 'Templates',
+      tabRuns: 'Runs',
+      tabApprovals: 'Approvals',
+      tabTasks: 'SOP Tasks',
+      executorSettings: 'Executor settings',
+      pmArchive: 'PM archive (read-only)',
+      loadProjectsFailed: 'Failed to load projects, please try again later'
+    },
+    project: {
+      label: 'Project',
+      none: 'No project selected',
+      create: 'New project',
+      createEllipsis: 'New project…',
+      name: 'Project name',
+      namePlaceholder: 'e.g. Security knowledge project',
+      code: 'Code prefix',
+      codePlaceholder: 'e.g. SEC',
+      codeHint: 'Item numbers look like SEC-1 · 2–10 letters or digits starting with a letter · locked after creation',
+      description: 'Description',
+      descriptionPlaceholder: 'One or two sentences about what this project delivers',
+      nameRequired: 'Project name is required',
+      codeRequired: 'Code prefix is required',
+      codeInvalid: 'Code prefix must be 2–10 letters or digits and start with a letter',
+      codeDuplicate: 'Code prefix {code} is already taken, please pick another',
+      createSuccess: 'Created and switched to project "{name}"',
+      createFailed: 'Failed to create project, please try again later',
+      switchFailed: 'Failed to switch project, please try again later'
+    },
+    items: {
+      title: 'Items',
+      desc: 'Work items, execution status and progress',
+      empty: 'No items yet'
+    },
+    templates: {
+      title: 'Templates',
+      desc: 'Reusable workflow definitions; publish to start runs',
+      empty: 'No templates yet'
+    },
+    runs: {
+      title: 'Runs',
+      desc: 'Status, artifacts and human actions for every execution',
+      empty: 'No runs yet'
+    },
+    approvals: {
+      title: 'Approvals',
+      desc: 'SOP gates, agent suspensions and automation approvals in one list',
+      empty: 'Nothing waiting for approval'
+    },
+    tasks: {
+      title: 'SOP Tasks',
+      desc: 'Dispatch workflows automatically for items that never ran',
+      empty: 'No trigger configured yet'
+    },
+    designer: {
+      title: 'Flow designer',
+      desc: 'Drag nodes, connect dependencies, configure executors and artifact contracts',
+      empty: 'The designer is being finished'
+    },
+    runDetail: {
+      title: 'Run detail',
+      desc: 'Node progress, live output, artifacts and human context',
+      empty: 'Run detail is being finished'
+    },
+    settings: {
+      projectTitle: 'Project settings',
+      projectDesc: 'Basics, knowledge base, repositories and danger zone',
+      projectEmpty: 'Project settings are being finished',
+      cliTitle: 'Executor settings',
+      cliDesc: 'Local CLI credentials, install status and workspace',
+      cliEmpty: 'Executor settings are being finished'
+    },
+    archive: {
+      title: 'PM archive',
+      desc: 'Legacy PM workstation data, frozen read-only',
+      empty: 'The archive page is being finished'
+    }
   },
   // Inkwell: recents / databases / favorites / trash / item editor / archive
   workbench: {

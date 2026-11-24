@@ -177,54 +177,83 @@ const router = createRouter({
           ],
         },
         {
-          // PM 工作站：顶部切换项目 + Tab 导航，右侧为子路由出口（无项目时展示空态）
-          path: "pm",
-          component: () => import("../views/pm/PmLayoutView.vue"),
-          meta: { requiresInit: true, requiresAuth: true },
+          // SOP 工作台：顶部五 Tab + 项目切换（项目 id 走 store/localStorage，不进路由）。
+          // 子页用 meta.sopTab 保持所属主 Tab 高亮。
+          path: "sop",
+          component: () => import("../views/sop/SopLayoutView.vue"),
+          meta: { requiresInit: true, requiresAuth: true, sopTab: "items" },
           children: [
             {
-              path: ":projectId/roadmap",
-              name: "pmRoadmap",
-              component: () => import("../views/pm/PmRoadmapView.vue"),
-              meta: { requiresInit: true, requiresAuth: true }
+              path: "",
+              redirect: { name: "sopItems" },
             },
             {
-              path: ":projectId/requirements",
-              name: "pmRequirements",
-              component: () => import("../views/pm/PmRequirementBoard.vue"),
-              meta: { requiresInit: true, requiresAuth: true }
+              path: "items",
+              name: "sopItems",
+              component: () => import("../views/sop/SopItemBoard.vue"),
+              meta: { requiresInit: true, requiresAuth: true, sopTab: "items" },
             },
             {
-              path: ":projectId/versions",
-              name: "pmVersions",
-              component: () => import("../views/pm/PmVersionList.vue"),
-              meta: { requiresInit: true, requiresAuth: true }
+              path: "templates",
+              name: "sopTemplates",
+              component: () => import("../views/sop/SopTemplateList.vue"),
+              meta: { requiresInit: true, requiresAuth: true, sopTab: "templates" },
             },
             {
-              path: ":projectId/versions/:versionId",
-              name: "pmVersionDetail",
-              component: () => import("../views/pm/PmVersionDetail.vue"),
-              meta: { requiresInit: true, requiresAuth: true }
+              path: "templates/designer/:id",
+              name: "sopDesigner",
+              component: () => import("../views/sop/SopDesigner.vue"),
+              meta: { requiresInit: true, requiresAuth: true, sopTab: "templates" },
             },
             {
-              path: ":projectId/features",
-              name: "pmFeatures",
-              component: () => import("../views/pm/PmFeatureTree.vue"),
-              meta: { requiresInit: true, requiresAuth: true }
+              path: "runs",
+              name: "sopRuns",
+              component: () => import("../views/sop/SopRunList.vue"),
+              meta: { requiresInit: true, requiresAuth: true, sopTab: "runs" },
             },
             {
-              path: ":projectId/materials",
-              name: "pmMaterials",
-              component: () => import("../views/pm/PmMaterialList.vue"),
-              meta: { requiresInit: true, requiresAuth: true }
+              path: "runs/:id",
+              name: "sopRunDetail",
+              component: () => import("../views/sop/SopRunDetail.vue"),
+              meta: { requiresInit: true, requiresAuth: true, sopTab: "runs" },
             },
             {
-              path: ":projectId/materials/:materialId",
-              name: "pmMaterialPreview",
-              component: () => import("../views/pm/PmMaterialPreview.vue"),
-              meta: { requiresInit: true, requiresAuth: true }
+              path: "approvals",
+              name: "sopApprovals",
+              component: () => import("../views/sop/SopApprovalCenter.vue"),
+              meta: { requiresInit: true, requiresAuth: true, sopTab: "approvals" },
+            },
+            {
+              path: "tasks",
+              name: "sopTasks",
+              component: () => import("../views/sop/SopTriggerTab.vue"),
+              meta: { requiresInit: true, requiresAuth: true, sopTab: "tasks" },
+            },
+            {
+              path: "settings/project",
+              name: "sopProjectSettings",
+              component: () => import("../views/sop/SopProjectSettings.vue"),
+              meta: { requiresInit: true, requiresAuth: true, sopTab: "items" },
+            },
+            {
+              path: "settings/cli",
+              name: "sopSettings",
+              component: () => import("../views/sop/SopSettings.vue"),
+              meta: { requiresInit: true, requiresAuth: true, sopTab: "items" },
+            },
+            {
+              path: "archive",
+              name: "sopArchive",
+              component: () => import("../views/sop/PmArchive.vue"),
+              meta: { requiresInit: true, requiresAuth: true, sopTab: "items" },
             },
           ],
+        },
+        {
+          // PM 工作站并入 SOP：旧链接（含事项定位参数）一律带到事项页，保留 query
+          path: "pm",
+          redirect: (to) => ({ path: "/platform/sop/items", query: to.query }),
+          meta: { requiresInit: true, requiresAuth: true },
         },
         {
           path: "integrations",

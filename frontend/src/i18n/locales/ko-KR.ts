@@ -9364,7 +9364,92 @@
     meetings: '회의실',
     docAssistant: '솔루션 도우미',
     pm: 'PM 워크스테이션',
+    sop: 'SOP 워크벤치',
     workbench: '인크웰'
+  },
+  // SOP 워크벤치: 항목 / 템플릿 / 실행 기록 / 승인 센터 / SOP 작업
+  sop: {
+    shell: {
+      more: '더 보기',
+      noProject: '아직 SOP 프로젝트가 없습니다',
+      noProjectHint: '먼저 프로젝트를 만드세요. 항목 번호는 프로젝트 접두사에서 자동 생성됩니다',
+      tabItems: '항목',
+      tabTemplates: '템플릿',
+      tabRuns: '실행 기록',
+      tabApprovals: '승인 센터',
+      tabTasks: 'SOP 작업',
+      executorSettings: '실행기 설정',
+      pmArchive: 'PM 아카이브(읽기 전용)',
+      loadProjectsFailed: '프로젝트를 불러오지 못했습니다. 잠시 후 다시 시도하세요'
+    },
+    project: {
+      label: '프로젝트',
+      none: '선택된 프로젝트 없음',
+      create: '새 프로젝트',
+      createEllipsis: '새 프로젝트…',
+      name: '프로젝트 이름',
+      namePlaceholder: '예: 보안 지식 프로젝트',
+      code: '접두사',
+      codePlaceholder: '예: SEC',
+      codeHint: '항목 번호는 SEC-1 형식 · 2–10자 영숫자(영문으로 시작) · 생성 후 변경 불가',
+      description: '설명',
+      descriptionPlaceholder: '이 프로젝트가 무엇을 하는지 한두 문장으로',
+      nameRequired: '프로젝트 이름을 입력하세요',
+      codeRequired: '접두사를 입력하세요',
+      codeInvalid: '접두사는 2–10자 영숫자이며 영문으로 시작해야 합니다',
+      codeDuplicate: '접두사 {code}은(는) 이미 사용 중입니다',
+      createSuccess: '프로젝트 "{name}"을(를) 만들고 전환했습니다',
+      createFailed: '프로젝트 생성에 실패했습니다. 잠시 후 다시 시도하세요',
+      switchFailed: '프로젝트 전환에 실패했습니다. 잠시 후 다시 시도하세요'
+    },
+    items: {
+      title: '항목',
+      desc: '작업 항목, 실행 상태 및 진행 상황',
+      empty: '아직 항목이 없습니다'
+    },
+    templates: {
+      title: '템플릿',
+      desc: '재사용 가능한 워크플로 정의. 게시하면 실행을 시작할 수 있습니다',
+      empty: '아직 템플릿이 없습니다'
+    },
+    runs: {
+      title: '실행 기록',
+      desc: '각 실행의 상태, 산출물 및 수동 처리',
+      empty: '아직 실행 기록이 없습니다'
+    },
+    approvals: {
+      title: '승인 센터',
+      desc: 'SOP 게이트, 에이전트 보류 및 자동화 승인 대기를 한 목록으로',
+      empty: '승인 대기 항목이 없습니다'
+    },
+    tasks: {
+      title: 'SOP 작업',
+      desc: '아직 실행되지 않은 항목에 대해 계획대로 워크플로를 자동 배포합니다',
+      empty: '아직 트리거가 설정되지 않았습니다'
+    },
+    designer: {
+      title: '플로 디자이너',
+      desc: '노드를 배치하고 의존성을 연결하며 실행기와 산출물 규약을 설정합니다',
+      empty: '디자이너 준비 중입니다'
+    },
+    runDetail: {
+      title: '실행 상세',
+      desc: '노드 진행, 실시간 출력, 산출물 및 사람 컨텍스트',
+      empty: '실행 상세 준비 중입니다'
+    },
+    settings: {
+      projectTitle: '프로젝트 설정',
+      projectDesc: '기본 정보, 지식 베이스, 리포지토리 및 위험 작업',
+      projectEmpty: '프로젝트 설정 준비 중입니다',
+      cliTitle: '실행기 설정',
+      cliDesc: '로컬 CLI 자격 증명, 설치 상태 및 워크스페이스',
+      cliEmpty: '실행기 설정 준비 중입니다'
+    },
+    archive: {
+      title: 'PM 아카이브',
+      desc: '기존 PM 워크스테이션 데이터, 읽기 전용',
+      empty: '아카이브 페이지 준비 중입니다'
+    }
   },
   // 인크웰: 최근 / 데이터베이스 / 즐겨찾기 / 휴지통 / 항목 편집 / 아카이브
   workbench: {

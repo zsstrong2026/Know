@@ -9365,7 +9365,92 @@
     meetings: '會議室',
     docAssistant: '方案助手',
     pm: 'PM 工作站',
+    sop: 'SOP 工作台',
     workbench: '墨匣'
+  },
+  // SOP 工作台：事項 / 流程範本 / 執行紀錄 / 審批中心 / SOP 任務
+  sop: {
+    shell: {
+      more: '更多',
+      noProject: '還沒有 SOP 專案',
+      noProjectHint: '先建一個專案，事項編號會依專案的編號前綴自動產生',
+      tabItems: '事項',
+      tabTemplates: '流程範本',
+      tabRuns: '執行紀錄',
+      tabApprovals: '審批中心',
+      tabTasks: 'SOP 任務',
+      executorSettings: '執行器設定',
+      pmArchive: 'PM 歸檔（唯讀）',
+      loadProjectsFailed: '載入專案失敗，請稍後再試'
+    },
+    project: {
+      label: '專案',
+      none: '未選擇專案',
+      create: '新增專案',
+      createEllipsis: '新增專案…',
+      name: '專案名稱',
+      namePlaceholder: '例如：安防知識專案',
+      code: '編號前綴',
+      codePlaceholder: '例如：SEC',
+      codeHint: '事項編號如 SEC-1 · 2–10 位字母數字且字母開頭 · 建立後鎖定',
+      description: '專案描述',
+      descriptionPlaceholder: '一兩句話說明這個專案做什麼、交付什麼',
+      nameRequired: '請填寫專案名稱',
+      codeRequired: '請填寫編號前綴',
+      codeInvalid: '編號前綴須為 2–10 位字母數字且以字母開頭',
+      codeDuplicate: '編號前綴 {code} 已被占用，請換一個',
+      createSuccess: '已建立並切換到專案「{name}」',
+      createFailed: '建立專案失敗，請稍後再試',
+      switchFailed: '切換專案失敗，請稍後再試'
+    },
+    items: {
+      title: '事項',
+      desc: '工作項清單、執行情況與推進狀態',
+      empty: '還沒有事項'
+    },
+    templates: {
+      title: '流程範本',
+      desc: '可重複使用的流程定義，發佈後即可發起執行',
+      empty: '還沒有流程範本'
+    },
+    runs: {
+      title: '執行紀錄',
+      desc: '每一次流程執行的狀態、產物與人工處置',
+      empty: '還沒有執行紀錄'
+    },
+    approvals: {
+      title: '審批中心',
+      desc: 'SOP 關口、智慧體掛起與自動化待審批的聚合待辦',
+      empty: '目前沒有待審批事項'
+    },
+    tasks: {
+      title: 'SOP 任務',
+      desc: '依排程為本專案尚未跑過 SOP 的事項自動派發流程',
+      empty: '還沒有設定觸發'
+    },
+    designer: {
+      title: '流程設計器',
+      desc: '拖曳節點、連接依賴、設定每個環節的執行器與產物約定',
+      empty: '設計器正在完善中'
+    },
+    runDetail: {
+      title: '執行詳情',
+      desc: '節點進度、即時輸出、產物與人工上下文',
+      empty: '執行詳情正在完善中'
+    },
+    settings: {
+      projectTitle: '專案設定',
+      projectDesc: '基本資訊、知識庫、程式碼倉庫與危險操作',
+      projectEmpty: '專案設定正在完善中',
+      cliTitle: '執行器設定',
+      cliDesc: '本機 CLI 憑證、安裝狀態與工作區設定',
+      cliEmpty: '執行器設定正在完善中'
+    },
+    archive: {
+      title: 'PM 歸檔',
+      desc: '原 PM 工作站資料，凍結唯讀',
+      empty: '歸檔頁面正在完善中'
+    }
   },
   // 墨匣：最近 / 資料庫 / 收藏 / 回收站 / 條目編輯 / 歸檔
   workbench: {
