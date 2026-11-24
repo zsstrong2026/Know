@@ -499,3 +499,38 @@
 .mono {
   font-family: var(--app-font-family-mono);
 }
+
+// 大项折叠与子项行（T67）
+.sop-expander {
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-xs);
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.sop-row--child .sop-title {
+  padding-left: 20px;
+  color: var(--td-text-color-secondary);
+}
+
+.sop-row--child {
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.sop-child-exec {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+}

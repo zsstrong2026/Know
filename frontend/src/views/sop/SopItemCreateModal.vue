@@ -63,6 +63,17 @@
             :placeholder="$t('sop.items.templateUnbound')" />
         </label>
 
+        <label v-if="bigParentOptions.length" class="sop-field">
+          <span>{{ $t('sop.split.parentPicker') }}</span>
+          <t-select
+            v-model="form.parent_id"
+            :options="bigParentOptions"
+            clearable
+            :placeholder="$t('sop.split.parentNone')"
+          />
+          <small class="sop-hint">{{ $t('sop.split.parentHint') }}</small>
+        </label>
+
         <label class="sop-field">
           <span>{{ $t('sop.create.attachments') }}</span>
           <input type="file" multiple @change="onFilesPicked" />
@@ -103,16 +114,34 @@
           <div v-if="card" class="sop-ai-card">
             <h5>{{ $t('sop.create.cardGoal') }}：{{ card.goal }}</h5>
             <ul>
-              <li v-for="(sub, index) in card.sub_items" :key="index">
-                <b>{{ sub.title }}</b>
-                <span v-if="sub.executor" class="sop-tag sop-tag--gray">{{ executorLabel(sub.executor) }}</span>
-                <p v-if="sub.description">{{ sub.description }}</p>
+              <li v-for="(sub, index) in card.sub_items" :key="index" class="sop-sub-row">
+                <input
+                  type="checkbox"
+                  :checked="pickedSubs.has(index)"
+                  @change="toggleSub(index, ($event.target as HTMLInputElement).checked)"
+                />
+                <div>
+                  <b>{{ sub.title }}</b>
+                  <span v-if="sub.executor" class="sop-tag sop-tag--gray">{{ executorLabel(sub.executor) }}</span>
+                  <p v-if="sub.description">{{ sub.description }}</p>
+                </div>
               </li>
             </ul>
             <p class="sop-ai-acceptance">{{ $t('sop.create.cardAcceptance') }}：{{ card.acceptance }}</p>
-            <t-button size="small" variant="outline" @click="writeToDescription">
-              {{ $t('sop.create.writeToDesc') }}
-            </t-button>
+            <div class="sop-ai-card-actions">
+              <t-button size="small" variant="outline" @click="writeToDescription">
+                {{ $t('sop.create.writeToDesc') }}
+              </t-button>
+              <t-button
+                size="small"
+                theme="primary"
+                :loading="submitting"
+                :disabled="!pickedSubs.size"
+                @click="submitWithSplit"
+              >
+                {{ $t('sop.split.submitCount', { n: pickedSubs.size }) }}
+              </t-button>
+            </div>
           </div>
         </div>
 
@@ -147,7 +176,9 @@ import {
   addClarification,
   answerClarification,
   createItem,
+  splitItem,
   type ItemStatus,
+  type SopChildItemSpec,
   type SopItem,
 } from '@/api/sop';
 import {
@@ -181,9 +212,11 @@ const form = reactive({
   priority: 'P2',
   kind: 'requirement',
   template_id: '',
+  parent_id: '',
 });
 
 const attachments = ref<{ id: string; name: string }[]>([]);
+const pickedSubs = ref(new Set<number>());
 const messages = ref<ChatMessage[]>([]);
 const card = ref<BreakdownCard | null>(null);
 const followUp = ref('');
@@ -208,6 +241,20 @@ const templateOptions = computed(() =>
 
 const agentOptions = computed(() => [{ value: 'default', label: t('sop.create.agentDefault') }]);
 
+/** 归属大项下拉：只列大项（两级上限由后端兜底）。 */
+const bigParentOptions = computed(() =>
+  store.items
+    .filter((it) => it.is_big)
+    .map((it) => ({ value: it.id, label: `${it.no} ${it.title}`.trim() })),
+);
+
+function toggleSub(index: number, checked: boolean) {
+  const next = new Set(pickedSubs.value);
+  if (checked) next.add(index);
+  else next.delete(index);
+  pickedSubs.value = next;
+}
+
 watch(
   () => props.visible,
   (open) => {
@@ -219,6 +266,8 @@ watch(
     form.priority = 'P2';
     form.kind = 'requirement';
     form.template_id = '';
+    form.parent_id = '';
+    pickedSubs.value = new Set();
     attachments.value = [];
     messages.value = [];
     card.value = null;
@@ -335,6 +384,44 @@ async function onFilesPicked(event: Event) {
 
 const pendingFiles = new Map<string, File>();
 
+/** 拆解卡上的「拆成子事项」：先建父项，再按勾选条目 split（split_source=ai）。 */
+async function submitWithSplit() {
+  if (!form.title.trim()) {
+    MessagePlugin.warning(t('sop.create.titleRequired'));
+    return;
+  }
+  if (!card.value || !pickedSubs.value.size) {
+    MessagePlugin.warning(t('sop.split.empty'));
+    return;
+  }
+  submitting.value = true;
+  try {
+    const parent = await createItem(props.projectId, {
+      title: form.title.trim(),
+      description: form.description,
+      source: form.source,
+      proposer: form.proposer.trim(),
+      priority: form.priority,
+      kind: form.kind,
+      outcome: {},
+      domain_data: {},
+    });
+    const specs: SopChildItemSpec[] = [...pickedSubs.value]
+      .sort((a, b) => a - b)
+      .map((index) => card.value!.sub_items[index])
+      .filter(Boolean)
+      .map((sub) => ({ title: sub.title, description: sub.description }));
+    const result = await splitItem(parent.id, { children: specs, source: 'ai' });
+    MessagePlugin.success(t('sop.split.created', { n: result.created.length }));
+    pickedSubs.value = new Set();
+    emit('created', parent);
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('sop.split.failed'));
+  } finally {
+    submitting.value = false;
+  }
+}
+
 async function submit(status: ItemStatus) {
   if (!form.title.trim()) {
     MessagePlugin.warning(t('sop.create.titleRequired'));
@@ -350,6 +437,7 @@ async function submit(status: ItemStatus) {
       priority: form.priority,
       kind: form.kind,
       template_id: form.template_id || undefined,
+      parent_id: form.parent_id || undefined,
       outcome: {},
       domain_data: {},
     });

@@ -59,6 +59,35 @@
           <p v-else class="sop-muted">{{ $t('sop.drawer.noRun') }}</p>
         </div>
 
+        <div v-if="parentItem" class="sop-card">
+          <h4>{{ $t('sop.split.parentTitle') }}</h4>
+          <div class="sop-kv sop-kv--last">
+            <span class="k">{{ $t('sop.split.parentLabel') }}</span>
+            <span class="v">
+              <button type="button" class="sop-link" @click="openItemById(parentItem.id)">
+                {{ parentItem.no }} {{ parentItem.title }}
+              </button>
+            </span>
+          </div>
+        </div>
+
+        <div v-if="item.is_big" class="sop-card">
+          <h4>{{ $t('sop.split.childProgress') }}</h4>
+          <div class="sop-kv">
+            <span class="k">{{ $t('sop.items.colProgress') }}</span>
+            <span class="v">{{ childProgressText(childStats.done, childStats.total) }}</span>
+          </div>
+          <div class="sop-kv sop-kv--last">
+            <span class="k">{{ $t('sop.settings.statProgress') }}</span>
+            <span class="v">{{ EXEC_STATE_LABELS[childStats.exec] }}</span>
+          </div>
+          <div class="sop-row">
+            <t-button size="small" variant="outline" @click="activeTab = 'children'">
+              {{ $t('sop.split.addChild') }}
+            </t-button>
+          </div>
+        </div>
+
         <div class="sop-card">
           <h4>{{ $t('sop.drawer.fields') }}</h4>
           <div class="sop-kv"><span class="k">{{ $t('sop.items.colSource') }}</span><span class="v">{{ SOURCE_LABELS[item.source] || item.source }}</span></div>
@@ -146,6 +175,53 @@
       <!-- 会话 -->
       <section v-if="activeTab === 'sessions'" class="sop-pane">
         <div class="sop-empty">{{ $t('sop.drawer.sessionsSoon') }}</div>
+      </section>
+
+      <!-- 子事项（仅大项）：表格 + 触发 + 打开 + 移出 -->
+      <section v-if="activeTab === 'children'" class="sop-pane">
+        <div v-if="!children.length" class="sop-empty">{{ $t('sop.split.childrenEmpty') }}</div>
+        <template v-else>
+          <div class="sop-row">
+            <t-button
+              size="small"
+              theme="primary"
+              :loading="busy"
+              @click="launchChildren"
+            >
+              {{ $t('sop.split.launchAll') }}
+            </t-button>
+          </div>
+          <table class="sop-table">
+            <thead>
+              <tr>
+                <th>{{ $t('sop.items.colNo') }}</th>
+                <th>{{ $t('sop.items.colTitle') }}</th>
+                <th>{{ $t('sop.items.colStatus') }}</th>
+                <th>{{ $t('sop.items.colProgress') }}</th>
+                <th>{{ $t('sop.items.colActions') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="kid in children" :key="kid.id">
+                <td>{{ kid.no }}</td>
+                <td>{{ kid.title }}</td>
+                <td>{{ ITEM_STATUS_LABELS[kid.status] || kid.status }}</td>
+                <td>{{ progressText(kid.progress_done || 0, kid.progress_total || 0) }}</td>
+                <td>
+                  <t-button size="small" variant="text" @click="openItemById(kid.id)">
+                    {{ $t('sop.split.openChild') }}
+                  </t-button>
+                  <t-button size="small" variant="text" :loading="launchingChildId === kid.id" @click="launchChild(kid)">
+                    {{ $t('sop.items.actionLaunch') }}
+                  </t-button>
+                  <t-button size="small" variant="text" theme="danger" @click="askDetach(kid)">
+                    {{ $t('sop.split.detach') }}
+                  </t-button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
       </section>
 
       <!-- 澄清 -->
@@ -256,6 +332,8 @@ import {
   answerClarification,
   createRun,
   deleteItem,
+  detachChild,
+  listChildren,
   generateClarifications,
   getItem,
   getRun,
@@ -272,10 +350,14 @@ import {
   type SopNodeRun,
 } from '@/api/sop';
 import {
+  EXEC_STATE_LABELS,
+  ITEM_STATUS_LABELS,
   KIND_LABELS,
   NODE_STATUS_LABELS,
   RUN_STATUS_LABELS,
   SOURCE_LABELS,
+  childProgressText,
+  deriveParentExecState,
   formatBytes,
   mergeActivities,
   outcomeSummary,
@@ -293,6 +375,7 @@ type DrawerTab =
   | 'progress'
   | 'artifacts'
   | 'sessions'
+  | 'children'
   | 'clarify'
   | 'delivery'
   | 'accept'
@@ -300,7 +383,7 @@ type DrawerTab =
   | 'audit';
 
 const props = defineProps<{ itemId: string | null }>();
-const emit = defineEmits<{ close: []; changed: [] }>();
+const emit = defineEmits<{ close: []; changed: []; open: [id: string] }>();
 
 const router = useRouter();
 const { t } = useI18n();
@@ -320,6 +403,9 @@ const mergedView = ref(false);
 const busy = ref(false);
 const retryContext = ref('');
 const answerDrafts = reactive<Record<string, string>>({});
+const children = ref<SopItemWithDerived[]>([]);
+const parentItem = ref<SopItem | null>(null);
+const launchingChildId = ref('');
 const outcomeForm = reactive({ value_achieved: '', summary: '' });
 
 const latestRun = computed(() =>
@@ -345,17 +431,37 @@ const drawerTitle = computed(() =>
     : t('sop.drawer.title'),
 );
 
-const tabs = computed<{ key: DrawerTab; label: string; count?: number }[]>(() => [
-  { key: 'overview', label: t('sop.drawer.tabOverview') },
-  { key: 'progress', label: t('sop.drawer.tabProgress') },
-  { key: 'artifacts', label: t('sop.drawer.tabArtifacts'), count: artifacts.value.length },
-  { key: 'sessions', label: t('sop.drawer.tabSessions') },
+const childStats = computed(() => {
+  const done = children.value.filter(
+    (kid) => kid.status === 'done' || kid.status === 'closed',
+  ).length;
+  return {
+    total: children.value.length,
+    done,
+    exec: deriveParentExecState(children.value.map((kid) => kid.exec_state)),
+  };
+});
+
+const tabs = computed<{ key: DrawerTab; label: string; count?: number }[]>(() => {
+  const list: { key: DrawerTab; label: string; count?: number }[] = [
+    { key: 'overview', label: t('sop.drawer.tabOverview') },
+    { key: 'progress', label: t('sop.drawer.tabProgress') },
+    { key: 'artifacts', label: t('sop.drawer.tabArtifacts'), count: artifacts.value.length },
+  ];
+  // 「子事项」只对大项出现（独立事项没有子项，多一个空 tab 只会添乱）
+  if (item.value?.is_big) {
+    list.push({ key: 'children', label: t('sop.split.tabChildren'), count: children.value.length });
+  }
+  list.push(
+    { key: 'sessions', label: t('sop.drawer.tabSessions') },
   { key: 'clarify', label: t('sop.drawer.tabClarify'), count: openClarifications.value },
   { key: 'delivery', label: t('sop.drawer.tabDelivery') },
   { key: 'accept', label: t('sop.drawer.tabAccept') },
-  { key: 'activity', label: t('sop.drawer.tabActivity') },
-  { key: 'audit', label: t('sop.drawer.tabAudit') },
-]);
+    { key: 'activity', label: t('sop.drawer.tabActivity') },
+    { key: 'audit', label: t('sop.drawer.tabAudit') },
+  );
+  return list;
+});
 
 const activityList = computed<MergeableActivity[]>(() =>
   mergedView.value
@@ -416,6 +522,7 @@ async function load() {
       latestRunStatus.value = run.run.status;
     }
   }
+  await loadRelations(detail);
   const [cls, biz, audit] = await Promise.all([
     listClarifications(id).catch(() => []),
     listActivities(id, 'business').catch(() => []),
@@ -424,6 +531,92 @@ async function load() {
   clarifications.value = cls;
   businessActivities.value = biz;
   auditActivities.value = audit;
+}
+
+/** 父项/子项关系：子项取父项做面包屑，大项取子项做 tab。 */
+async function loadRelations(detail: SopItem) {
+  children.value = [];
+  parentItem.value = null;
+  if (detail.is_big) {
+    children.value = await listChildren(detail.id).catch(() => []);
+    return;
+  }
+  if (detail.parent_id) {
+    parentItem.value = await getItem(detail.parent_id).catch(() => null);
+  }
+}
+
+/** 在同一个抽屉里切到另一条事项（父项 ↔ 子项）：由父级换 id 触发重载。 */
+function openItemById(id: string) {
+  emit('open', id);
+}
+
+/** 大项批量触发：逐条 createRun，模板取子项自己的或项目默认。 */
+async function launchChildren() {
+  if (!item.value) return;
+  const templateId = store.currentProject?.default_template_id || '';
+  if (!templateId) {
+    MessagePlugin.warning(t('sop.items.noTemplate'));
+    return;
+  }
+  busy.value = true;
+  let ok = 0;
+  let skipped = 0;
+  for (const kid of children.value) {
+    if (kid.exec_state === 'running' || kid.exec_state === 'intervene') {
+      skipped += 1;
+      continue;
+    }
+    try {
+      await createRun({ item_id: kid.id, template_id: kid.template_id || templateId });
+      ok += 1;
+    } catch {
+      skipped += 1;
+    }
+  }
+  busy.value = false;
+  if (ok) MessagePlugin.success(t('sop.items.bulkStarted', { n: ok }));
+  if (skipped) MessagePlugin.info(t('sop.items.bulkSkipped', { n: skipped }));
+  await load();
+  emit('changed');
+}
+
+async function launchChild(kid: SopItemWithDerived) {
+  const templateId = kid.template_id || store.currentProject?.default_template_id || '';
+  if (!templateId) {
+    MessagePlugin.warning(t('sop.items.noTemplate'));
+    return;
+  }
+  launchingChildId.value = kid.id;
+  try {
+    await createRun({ item_id: kid.id, template_id: templateId });
+    MessagePlugin.success(t('sop.items.launchStarted', { no: kid.no || kid.title }));
+    await load();
+    emit('changed');
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('sop.items.launchFailed'));
+  } finally {
+    launchingChildId.value = '';
+  }
+}
+
+function askDetach(kid: SopItemWithDerived) {
+  if (!item.value) return;
+  confirmDanger({
+    title: t('sop.split.detach'),
+    body: t('sop.split.detachConfirm'),
+    confirmText: t('sop.split.detach'),
+    onConfirm: async () => {
+      try {
+        await detachChild(item.value!.id, kid.id);
+        MessagePlugin.success(t('sop.split.detached'));
+        await load();
+        emit('changed');
+      } catch (error: any) {
+        MessagePlugin.error(error?.message || t('sop.split.detachFailed'));
+      }
+    },
+  });
 }
 
 watch(

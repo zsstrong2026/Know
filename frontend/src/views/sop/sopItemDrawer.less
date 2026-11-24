@@ -282,3 +282,18 @@
   font-family: var(--app-font-family-mono);
   font-size: var(--app-text-xs);
 }
+
+// 父项/子项关系（T67）
+.sop-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--td-brand-color);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}

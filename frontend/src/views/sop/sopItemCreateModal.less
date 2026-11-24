@@ -201,3 +201,26 @@
     height: 420px;
   }
 }
+
+// 拆解卡逐条勾选与操作行（T67）
+.sop-sub-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+
+  input[type='checkbox'] {
+    margin-top: 3px;
+  }
+
+  div {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.sop-ai-card-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}

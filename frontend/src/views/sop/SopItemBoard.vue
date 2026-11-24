@@ -42,6 +42,9 @@
       </div>
 
       <div class="sop-band-actions">
+        <t-button size="small" variant="outline" @click="briefPanelVisible = true">
+          {{ $t('sop.split.panel') }}
+        </t-button>
         <t-button size="small" variant="outline" @click="openSettings">
           ⚙ {{ $t('sop.settings.projectTitle') }}
         </t-button>
@@ -151,8 +154,10 @@
               <span class="sop-src">{{ SOURCE_LABELS[item.source] || item.source }}</span>
             </div>
             <div class="sop-icard-foot">
-              <span>{{ item.current_node || '—' }}</span>
-              <span class="mono">{{ progressText(item.progress_done, item.progress_total) }}</span>
+              <span>{{ item.is_big ? EXEC_STATE_LABELS[item.child_exec || 'none'] : item.current_node || '—' }}</span>
+              <span class="mono">
+                {{ item.is_big ? childProgressText(item.child_done || 0, item.child_total || 0) : progressText(item.progress_done, item.progress_total) }}
+              </span>
             </div>
           </div>
           <div v-if="!columnItems(column).length" class="sop-bcol-empty">
@@ -182,53 +187,82 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in store.items" :key="item.id" class="sop-row" @click="openItem(item)">
+          <template v-for="row in visibleRows" :key="row.item.id + (row.child ? ':child' : '')">
+          <tr class="sop-row" :class="{ 'sop-row--child': row.child }" @click="openItem(row.item)">
             <td class="col-check" @click.stop>
               <input
                 type="checkbox"
-                :checked="selected.has(item.id)"
-                @change="toggleSelect(item.id, ($event.target as HTMLInputElement).checked)"
+                :checked="selected.has(row.item.id)"
+                @change="toggleSelect(row.item.id, ($event.target as HTMLInputElement).checked)"
               />
             </td>
-            <td class="col-no">{{ item.no || '—' }}</td>
+            <td class="col-no">{{ row.item.no || '—' }}</td>
             <td>
-              <span class="sop-title">{{ item.title }}</span>
-              <span class="sop-kind">{{ KIND_LABELS[item.kind] || item.kind }}</span>
+              <button
+                v-if="row.item.is_big && !row.child"
+                type="button"
+                class="sop-expander"
+                :title="expandedParents.has(row.item.id) ? $t('sop.split.collapse') : $t('sop.split.expand')"
+                @click.stop="toggleParent(row.item.id)"
+              >
+                {{ expandedParents.has(row.item.id) ? '▾' : '▸' }}
+              </button>
+              <span class="sop-title">{{ row.item.title }}</span>
+              <span v-if="row.child" class="sop-tag sop-tag--sm">{{ $t('sop.split.childBadge') }}</span>
+              <span class="sop-kind">{{ KIND_LABELS[row.item.kind] || row.item.kind }}</span>
             </td>
             <td class="col-status">
               <span class="sop-status">
-                <i :style="{ background: ITEM_STATUS_COLORS[item.status] || '#c3c8cf' }" />
-                {{ ITEM_STATUS_LABELS[item.status] || item.status }}
+                <i :style="{ background: ITEM_STATUS_COLORS[row.item.status] || '#c3c8cf' }" />
+                {{ ITEM_STATUS_LABELS[row.item.status] || row.item.status }}
               </span>
             </td>
             <td class="col-source">
-              <span class="sop-src">{{ SOURCE_LABELS[item.source] || item.source }}</span>
+              <span class="sop-src">{{ SOURCE_LABELS[row.item.source] || row.item.source }}</span>
             </td>
-            <td class="col-owner">{{ item.owner || '—' }}</td>
+            <td class="col-owner">{{ row.item.owner || '—' }}</td>
             <td class="col-prio">
-              <span class="sop-prio" :class="`is-${item.priority || 'P2'}`">{{ item.priority || 'P2' }}</span>
+              <span class="sop-prio" :class="`is-${row.item.priority || 'P2'}`">{{ row.item.priority || 'P2' }}</span>
             </td>
             <td class="col-tpl">
-              <span v-if="templateName(item.template_id)">{{ templateName(item.template_id) }}</span>
+              <span v-if="row.item.is_big">—</span>
+              <span v-else-if="templateName(row.item.template_id)">{{ templateName(row.item.template_id) }}</span>
               <span v-else class="sop-muted">{{ $t('sop.items.templateUnbound') }}</span>
             </td>
-            <td class="col-stage">{{ item.current_node || '—' }}</td>
-            <td class="col-progress">{{ progressText(item.progress_done, item.progress_total) }}</td>
+            <td class="col-stage">
+              <span v-if="row.item.is_big" class="sop-child-exec">
+                <i
+                  v-if="row.item.child_exec"
+                  :style="{ background: EXEC_STATE_COLORS[row.item.child_exec] }"
+                />
+                {{ row.item.child_total ? EXEC_STATE_LABELS[row.item.child_exec || 'none'] : $t('sop.split.emptyBig') }}
+              </span>
+              <span v-else>{{ row.item.current_node || '—' }}</span>
+            </td>
+            <td class="col-progress">
+              <span v-if="row.item.is_big">{{ childProgressText(row.item.child_done || 0, row.item.child_total || 0) }}</span>
+              <span v-else>{{ progressText(row.item.progress_done, row.item.progress_total) }}</span>
+            </td>
             <td class="col-actions" @click.stop>
+              <t-tooltip v-if="row.item.is_big" :content="$t('sop.split.bigParentCannotLaunch')">
+                <t-button size="small" variant="outline" @click="openItem(row.item)">
+                  {{ $t('sop.split.addChild') }}
+                </t-button>
+              </t-tooltip>
               <t-button
-                v-if="item.exec_state === 'intervene'"
+                v-else-if="row.item.exec_state === 'intervene'"
                 size="small"
                 theme="danger"
                 variant="outline"
-                @click="openLatestRun(item)"
+                @click="openLatestRun(row.item)"
               >
                 {{ $t('sop.items.actionHandleFailure') }}
               </t-button>
               <t-button
-                v-else-if="item.exec_state === 'running' || item.exec_state === 'pr'"
+                v-else-if="row.item.exec_state === 'running' || row.item.exec_state === 'pr'"
                 size="small"
                 variant="outline"
-                @click="openLatestRun(item)"
+                @click="openLatestRun(row.item)"
               >
                 {{ $t('sop.items.actionViewRun') }}
               </t-button>
@@ -236,13 +270,14 @@
                 v-else
                 size="small"
                 theme="primary"
-                :loading="launchingId === item.id"
-                @click="launchItem(item)"
+                :loading="launchingId === row.item.id"
+                @click="launchItem(row.item)"
               >
                 {{ $t('sop.items.actionLaunch') }}
               </t-button>
             </td>
           </tr>
+          </template>
           <tr v-if="!store.items.length">
             <td colspan="11" class="sop-empty-row">
               <div>{{ $t('sop.items.emptyRow') }}</div>
@@ -258,12 +293,21 @@
       :item-id="drawerItemId"
       @close="drawerItemId = null"
       @changed="onDrawerChanged"
+      @open="(id: string) => (drawerItemId = id)"
     />
 
     <SopItemCreateModal
       v-model:visible="createVisible"
       :project-id="store.currentProjectId"
       @created="onItemCreated"
+    />
+
+    <SopProjectBriefPanel
+      v-if="store.currentProjectId"
+      :visible="briefPanelVisible"
+      :project-id="store.currentProjectId"
+      @close="briefPanelVisible = false"
+      @changed="refreshAll"
     />
   </div>
 </template>
@@ -291,6 +335,7 @@ import {
   KIND_LABELS,
   SOURCE_LABELS,
   canTransitItem,
+  childProgressText,
   progressText,
 } from '@/api/sop/helpers';
 import type { ExecState } from '@/api/sop';
@@ -298,6 +343,7 @@ import { useSopStore } from '@/stores/sop';
 import SopExecFilter from './components/SopExecFilter.vue';
 import SopItemDrawer from './SopItemDrawer.vue';
 import SopItemCreateModal from './SopItemCreateModal.vue';
+import SopProjectBriefPanel from './components/SopProjectBriefPanel.vue';
 
 const router = useRouter();
 const { t } = useI18n();
@@ -316,6 +362,9 @@ const dragOver = ref<ItemStatus | ''>('');
 const launchingId = ref('');
 const bulkBusy = ref(false);
 const refreshing = ref(false);
+const briefPanelVisible = ref(false);
+// 展开的大项（折叠状态只影响列表展示，不影响筛选与统计）
+const expandedParents = ref(new Set<string>());
 let stopPolling: (() => void) | null = null;
 let latestRunsTick: (() => void) | null = null;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -366,6 +415,53 @@ const defaultTemplateName = computed(() => {
 const allSelected = computed(
   () => store.items.length > 0 && store.items.every((item) => selected.value.has(item.id)),
 );
+
+/** 大项执行情况色点（与统计带同一套颜色）。 */
+const EXEC_STATE_COLORS: Record<string, string> = {
+  none: '#c3c8cf',
+  running: '#0052d9',
+  intervene: '#d54941',
+  pr: '#ed7b2f',
+  closed: '#2ba471',
+};
+
+type BoardRow = { item: SopItemWithDerived; child: boolean };
+
+/**
+ * 列表行：大项与其（展开的）子项。
+ *
+ * 子项可能被当前筛选条件挡在外面（例如 exec=intervene 时只命中某些子项），
+ * 这里只用 store.items（已是筛选后的结果）配对 parent_id，不额外请求。
+ */
+const visibleRows = computed<BoardRow[]>(() => {
+  const rows: BoardRow[] = [];
+  const byParent = new Map<string, SopItemWithDerived[]>();
+  for (const item of store.items) {
+    if (!item.parent_id) continue;
+    const list = byParent.get(item.parent_id) || [];
+    list.push(item);
+    byParent.set(item.parent_id, list);
+  }
+  for (const item of store.items) {
+    if (item.parent_id) {
+      // 父项不在当前结果里（被筛选掉）时，子项按顶层行展示，否则会出现「孤儿缩进」
+      if (!store.items.some((p) => p.id === item.parent_id)) rows.push({ item, child: false });
+      continue;
+    }
+    rows.push({ item, child: false });
+    if (item.is_big && expandedParents.value.has(item.id)) {
+      for (const kid of byParent.get(item.id) || []) rows.push({ item: kid, child: true });
+    }
+  }
+  return rows;
+});
+
+function toggleParent(id: string) {
+  const next = new Set(expandedParents.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedParents.value = next;
+}
 
 function columnItems(column: ItemStatus): SopItemWithDerived[] {
   return store.items.filter((item) => item.status === column);
@@ -483,9 +579,24 @@ function toggleSelect(id: string, checked: boolean) {
   selected.value = new Set(selected.value);
 }
 
+/** 全选：大项自动展开成其子项（大项本身不能触发，勾了也没用）。 */
 function toggleAll(event: Event) {
   const checked = (event.target as HTMLInputElement).checked;
-  selected.value = checked ? new Set(store.items.map((item) => item.id)) : new Set<string>();
+  if (!checked) {
+    selected.value = new Set<string>();
+    return;
+  }
+  const next = new Set<string>();
+  let expanded = 0;
+  for (const item of store.items) {
+    if (item.is_big) {
+      expanded += 1;
+      continue;
+    }
+    next.add(item.id);
+  }
+  selected.value = next;
+  if (expanded) MessagePlugin.info(t('sop.split.expandedParents', { n: expanded }));
 }
 
 function clearSelection() {
@@ -519,7 +630,7 @@ async function launchItem(item: SopItemWithDerived) {
  * 正在推进/需要介入的事项跳过（与「跳过运行中」口径一致），其余失败逐条累计。
  */
 async function bulkLaunch() {
-  const targets = store.items.filter((item) => selected.value.has(item.id));
+  const targets = store.items.filter((item) => selected.value.has(item.id) && !item.is_big);
   const skipped = targets.filter(
     (item) => item.exec_state === 'running' || item.exec_state === 'intervene',
   );
