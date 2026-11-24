@@ -1,0 +1,148 @@
+// 模板库：卡片网格 + 版本历史抽屉 + 发布校验弹窗
+.sop-tpls {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--app-space-5);
+  overflow: auto;
+}
+
+.sop-tpls-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--app-space-3);
+  margin-bottom: var(--app-space-4);
+}
+
+.sop-tpls-title {
+  margin: 0;
+  font-size: var(--app-text-lg);
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.sop-tpls-desc {
+  margin: 6px 0 0;
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-sm);
+}
+
+.sop-tpls-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--app-space-3);
+}
+
+.sop-tpl-card {
+  display: flex;
+  flex-direction: column;
+  padding: var(--app-space-4);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-lg);
+  background: var(--td-bg-color-container);
+
+  h3 {
+    margin: 0;
+    font-size: var(--app-text-base);
+    font-weight: 600;
+    color: var(--td-text-color-primary);
+  }
+}
+
+.sop-tpl-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-2);
+}
+
+.sop-tpl-card-desc {
+  flex: 1;
+  margin: var(--app-space-2) 0;
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.sop-tpl-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-2);
+  color: var(--td-text-color-placeholder);
+  font-size: var(--app-text-xs);
+}
+
+.sop-tpl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-2);
+  margin-top: var(--app-space-3);
+}
+
+.sop-tpls-empty {
+  padding: var(--app-space-8);
+  color: var(--td-text-color-placeholder);
+  font-size: var(--app-text-sm);
+  text-align: center;
+  border: 1px dashed var(--td-component-stroke);
+  border-radius: var(--app-radius-lg);
+}
+
+.sop-tag {
+  padding: 1px 8px;
+  border-radius: var(--app-radius-pill);
+  font-size: var(--app-text-2xs);
+}
+
+.sop-tag--brand {
+  background: var(--td-brand-color-1);
+  color: var(--td-brand-color);
+}
+
+.sop-tag--gray {
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+}
+
+.sop-muted {
+  color: var(--td-text-color-placeholder);
+}
+
+.sop-hint {
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-sm);
+}
+
+.sop-rev-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sop-rev-item {
+  padding: var(--app-space-2) 0;
+  border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.sop-rev-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sop-rev-meta {
+  margin-top: 4px;
+  color: var(--td-text-color-placeholder);
+  font-size: var(--app-text-xs);
+}
+
+.sop-err-list {
+  margin: var(--app-space-2) 0 0;
+  padding-left: 20px;
+  color: var(--td-error-color);
+  font-size: var(--app-text-sm);
+  line-height: 1.7;
+}
