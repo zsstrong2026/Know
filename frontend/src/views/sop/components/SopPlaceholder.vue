@@ -1,18 +1,25 @@
 <template>
-  <!-- 后续任务会逐个替换为完整页面：这里只保证标题与空态，路由与布局先跑通 -->
+  <!-- 后续任务会逐个替换为完整页面：这里只保证标题、空态与可选操作位，路由与布局先跑通 -->
   <div class="sop-page">
     <header class="sop-page-head">
-      <h2 class="sop-page-title">{{ title }}</h2>
-      <p v-if="description" class="sop-page-desc">{{ description }}</p>
+      <div class="sop-page-heading">
+        <h2 class="sop-page-title">{{ title }}</h2>
+        <p v-if="description" class="sop-page-desc">{{ description }}</p>
+      </div>
+      <div v-if="$slots.actions" class="sop-page-actions">
+        <slot name="actions" />
+      </div>
     </header>
     <div class="sop-page-body">
-      <t-empty :description="emptyText" />
+      <slot>
+        <t-empty :description="emptyText" />
+      </slot>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-defineProps<{ title: string; description?: string; emptyText: string }>();
+defineProps<{ title: string; description?: string; emptyText?: string }>();
 </script>
 
 <style lang="less" scoped>
@@ -25,6 +32,10 @@ defineProps<{ title: string; description?: string; emptyText: string }>();
 }
 
 .sop-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--app-space-3);
   margin-bottom: var(--app-space-4);
 }
 
@@ -41,10 +52,18 @@ defineProps<{ title: string; description?: string; emptyText: string }>();
   font-size: var(--app-text-sm);
 }
 
+.sop-page-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+}
+
 .sop-page-body {
   flex: 1;
   min-height: 240px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   border: 1px dashed var(--td-component-stroke);

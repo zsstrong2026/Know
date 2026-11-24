@@ -12,6 +12,7 @@ import {
   intervalSummary,
   validateProjectCode,
   validateRepoURL,
+  repoDisplayName,
   progressText,
   shortSha,
   formatBytes,
@@ -107,6 +108,13 @@ test('项目前缀与仓库地址校验', () => {
   assert.ok(validateRepoURL('ssh://git@host/a/b'));
   assert.ok(!validateRepoURL('ftp://x/y'));
   assert.ok(!validateRepoURL('https://'));
+});
+
+test('repoDisplayName 取 basename 去 .git', () => {
+  assert.equal(repoDisplayName('https://github.com/a/b.git'), 'b');
+  assert.equal(repoDisplayName('git@github.com:a/my-repo.git'), 'my-repo');
+  assert.equal(repoDisplayName('https://github.com/a/trailing/'), 'trailing');
+  assert.equal(repoDisplayName(''), '');
 });
 
 test('进度、短 sha 与字节格式化', () => {
