@@ -586,6 +586,22 @@ export interface SopOpSkip {
   reason: string;
 }
 
+/**
+ * 编排操作（T25 NodeOp 的客户端视图，命名沿用计划锁定的 OrchestrateOp）。
+ * 后端 NodeOp 的增删边用 from_id/to_id；这里统一收敛成 edge 对象，避免两套形状。
+ */
+export type OrchestrateOp = SopNodeOp & { reason?: string };
+
+/** AI 差异卡（T47 formatDiffCards 产出，命名沿用计划锁定的 DiffCard）。 */
+export interface DiffCard {
+  nodeId: string;
+  nodeName: string;
+  field: string;
+  from: string;
+  to: string;
+  reason: string;
+}
+
 // ---- 项目 ----
 
 export async function listProjects(): Promise<SopProject[]> {
