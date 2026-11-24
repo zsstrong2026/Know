@@ -333,10 +333,9 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 		mux.HandleFunc(types.TypeWorkbenchArchiveDoc, params.WorkbenchService.ProcessDocArchive)
 	}
 
-	// Register PM workstation generation handlers
-	mux.HandleFunc(types.TypePMPRDGenerate, params.PMTaskService.ProcessTask)
-	mux.HandleFunc(types.TypePMPrototypeGenerate, params.PMTaskService.ProcessTask)
-	mux.HandleFunc(types.TypePMMaterialGenerate, params.PMTaskService.ProcessTask)
+	// PM 工作站已并入 SOP 工作台（T58）：PM 只剩只读归档，不再产生新的生成任务。
+	// 注册行下线，历史队列里的残留任务会被 asynq 记为「无处理器」，不影响其它任务。
+	// 生成实现保留在 service.PMTaskService（Deprecated），M1–M9 期间可回滚。
 
 	// Run the same mux on every pool. Shared and dedicated servers intentionally
 	// overlap, but Redis dequeue is atomic, so each task still executes once.
