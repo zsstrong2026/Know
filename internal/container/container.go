@@ -1202,6 +1202,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		resolver *sop.ContextResolver, notices *service.NotificationService,
 		broker *hitl.Broker, itemSvc *sop.ItemService, hub *sop.EventHub,
 		archive *sop.ArchiveService, mcpProv *sop.MCPProvisioner, notesSvc *sop.NotesService,
+		briefSvc *sop.BriefService, notesRepo interfaces.SopProjectNoteRepository,
 	) *sopengine.Engine {
 		return sopengine.NewEngine(sopengine.Deps{
 			Runs: runs, Templates: templates, Projects: projects, Items: items,
@@ -1235,6 +1236,9 @@ func BuildContainer(container *dig.Container) *dig.Container {
 				_, err := itemSvc.CreateChildItems(ctx, run.TenantID, run.ItemID, specs, types.SopSplitSourceTemplate)
 				return err
 			},
+			// 每个节点执行前注入「项目现状」块并把简报物化到 inputs/project-brief.md。
+			BriefProvider: briefSvc,
+			Notes:         notesRepo,
 			// 运行收口后写一条项目黑板摘要（失败只记日志，不影响运行结论）。
 			OnRunFinal: func(ctx context.Context, run *types.SopRun) {
 				if err := notesSvc.RecordRunFinal(ctx, run); err != nil {

@@ -86,6 +86,13 @@ func (s *BriefService) Render(ctx context.Context, tenantID uint64, projectID st
 	return types.RenderProjectBrief(briefInputOf(proj, items, notes)), nil
 }
 
+// ProjectBrief 是 engine.BriefProvider 的实现：只读渲染（不写库、不动水位）。
+//
+// 引擎在每个节点执行前调用它，把正文物化到工作区 inputs/project-brief.md。
+func (s *BriefService) ProjectBrief(ctx context.Context, tenantID uint64, projectID string) (string, error) {
+	return s.Render(ctx, tenantID, projectID)
+}
+
 // load 拉项目、派生事项与黑板（Render 与 EnsureInitial 共用）。
 func (s *BriefService) load(
 	ctx context.Context, tenantID uint64, projectID string,

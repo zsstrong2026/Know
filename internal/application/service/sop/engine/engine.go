@@ -80,6 +80,10 @@ type Deps struct {
 	// CreateItems 在节点声明 produces_child_items 且门禁通过后建子事项（可 nil；T63 接线）。
 	// 返回错误即节点失败（清单格式错/超限不静默忽略）。
 	CreateItems func(ctx context.Context, run *types.SopRun, specs []types.SopChildItemSpec) error
+	// BriefProvider 提供项目简报正文（可 nil；T64 接线）。失败只降级为空上下文。
+	BriefProvider BriefProvider
+	// Notes 供「项目现状」块读取黑板决策（可 nil）。
+	Notes interfaces.SopProjectNoteRepository
 }
 
 // MCPEndpointProvisioner 签发「运行 × 节点」的受限 MCP 端点。

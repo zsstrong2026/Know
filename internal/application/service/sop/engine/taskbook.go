@@ -56,6 +56,8 @@ type TaskBookInput struct {
 	ResolvedSkills []string
 	InputsDir      string
 	OutDir         string
+	// ProjectContext 是本项目的共享上下文（已渲染的「项目现状」正文；空=不出该块）。
+	ProjectContext string
 }
 
 // RenderTaskBook 组装任务书正文（Markdown 大白话）。
@@ -69,6 +71,7 @@ func RenderTaskBook(in TaskBookInput) string {
 	writeRules(&b, in, extraRules)
 	writeWhatToDo(&b, prompt)
 	writeItemContext(&b, in)
+	writeProjectContext(&b, in)
 	writeUpstream(&b, in)
 	writeFeedback(&b, in)
 	writeHumanContext(&b, in)
@@ -201,6 +204,17 @@ func writeItemContext(b *strings.Builder, in TaskBookInput) {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
+}
+
+// writeProjectContext 项目现状：项目共享的决策/进度/简报位置（空则整节省略）。
+func writeProjectContext(b *strings.Builder, in TaskBookInput) {
+	body := strings.TrimSpace(in.ProjectContext)
+	if body == "" {
+		return
+	}
+	b.WriteString("## 项目现状\n\n")
+	b.WriteString(body)
+	b.WriteString("\n\n")
 }
 
 // writeUpstream 上游步骤产物：每次必带。按步骤名排序，附上 task_refs 勾选节点的完整输出。

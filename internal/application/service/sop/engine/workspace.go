@@ -224,6 +224,29 @@ func replaceInputDir(ws *Workspace, node string, files []inputFile) error {
 	return nil
 }
 
+// MaterializeProjectBrief 把渲染好的项目简报写进 inputs/project-brief.md。
+//
+// 放在 inputs/ 而不是 out/：它是只读输入，节点引用路径 `inputs/project-brief.md`
+// 时不需要再区分自己是第几个节点。空正文不物化（返回错误，调用方降级为空上下文）。
+func (w *Workspace) MaterializeProjectBrief(markdown string) (string, error) {
+	body := strings.TrimSpace(markdown)
+	if body == "" {
+		return "", fmt.Errorf("项目简报为空，无法物化")
+	}
+	full, err := SafeWorkspacePath(w, projectBriefPath)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return "", fmt.Errorf("创建 inputs 目录失败：%w", err)
+	}
+	content := "<!-- 自动生成，请勿手改；要补充请在「项目动态」里记一条 -->\n\n" + body + "\n"
+	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+		return "", fmt.Errorf("写入项目简报失败：%w", err)
+	}
+	return full, nil
+}
+
 // GitCheckpoint 在运行根打一个检查点提交（git add -A + commit --allow-empty）。
 //
 // 复用判断：internal/application/service/workspace_checkpointer.go 的辅助函数

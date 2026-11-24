@@ -378,3 +378,23 @@ func TestRenderTaskBookClippedOutputStaysFenceSafe(t *testing.T) {
 		require.True(t, strings.HasSuffix(l, "END"), "截断点落在行中：%q", l)
 	}
 }
+
+// 项目现状节：位置在事项背景之后、上游产物之前；空上下文整节省略。
+func TestRenderTaskBookProjectContextBlock(t *testing.T) {
+	in := TaskBookInput{
+		Node: types.SopNode{ID: "n1", Name: "实现", TaskPrompt: "写代码"},
+		Item: &types.SopItem{Title: "登录改造"},
+		ProjectContext: "- 决策：采用方案 B\n" +
+			"- 兄弟事项：3/7 已完成",
+	}
+	out := RenderTaskBook(in)
+	require.Contains(t, out, "## 项目现状")
+	require.Contains(t, out, "采用方案 B")
+	require.Less(t, strings.Index(out, "## 事项背景"), strings.Index(out, "## 项目现状"))
+	require.Less(t, strings.Index(out, "## 项目现状"), strings.Index(out, "## 上游步骤产物"))
+
+	empty := RenderTaskBook(TaskBookInput{
+		Node: types.SopNode{ID: "n1", Name: "实现", TaskPrompt: "写代码"},
+	})
+	require.NotContains(t, empty, "## 项目现状", "空上下文不出该块")
+}

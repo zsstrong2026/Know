@@ -440,9 +440,11 @@ func (e *Engine) executeNode(
 		}
 	}
 
+	projectContext := e.projectContextFor(ctx, run, ws)
 	prompt := RenderTaskBook(TaskBookInput{
 		Node:                   *node,
 		Item:                   e.loadItem(ctx, run),
+		ProjectContext:         projectContext,
 		RunInput:               run.Input,
 		UpstreamOutputs:        upOutputs,
 		UpstreamNames:          upNames,
