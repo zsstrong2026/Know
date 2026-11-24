@@ -5,7 +5,6 @@
     trigger="click"
     placement="bottom-right"
     attach="body"
-    :loading="loadingProjects"
     @click="onSelect"
   >
     <button class="sop-project-trigger" type="button">
@@ -27,7 +26,7 @@ const emit = defineEmits<{ create: [] }>();
 
 const { t } = useI18n();
 const store = useSopStore();
-const { projects, loadingProjects } = storeToRefs(store);
+const { projects } = storeToRefs(store);
 
 const options = computed(() => [
   ...projects.value.map((project) => ({

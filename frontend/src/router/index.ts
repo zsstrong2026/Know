@@ -256,6 +256,13 @@ const router = createRouter({
           meta: { requiresInit: true, requiresAuth: true },
         },
         {
+          // PM 的真实地址一直是 /platform/pm/:projectId/...：不带通配符只兜住空路径，
+          // 所有书签都会落到空 RouterView。整段旧子路径统一重定向并保留 query。
+          path: "pm/:legacy(.*)*",
+          redirect: (to) => ({ path: "/platform/sop/items", query: to.query }),
+          meta: { requiresInit: true, requiresAuth: true },
+        },
+        {
           path: "integrations",
           redirect: (to) => {
             const tab = typeof to.query.tab === 'string' ? to.query.tab : undefined

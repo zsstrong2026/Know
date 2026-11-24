@@ -83,7 +83,8 @@ export const useSopStore = defineStore('sop', () => {
 
   const templates = ref<SopTemplate[]>([]);
   const runs = ref<SopRun[]>([]);
-  const runFilter = ref<SopRunFilter>({});
+  // q/template_id 是页面级筛选（T48 消费）；只有 q→keyword 下推到后端。
+  const runFilter = ref<SopRunFilter & { q?: string }>({});
   const loadingRuns = ref(false);
 
   const approvals = ref<ApprovalEntry[]>([]);
@@ -120,9 +121,8 @@ export const useSopStore = defineStore('sop', () => {
     }
     loadingItems.value = true;
     try {
-      const list = await listItems(projectId, itemFilter.value);
-      items.value = list;
-      itemStats.value = summarizeItems(list);
+      // 只写列表：统计带必须是全量口径，由 loadStats 单独负责
+      items.value = await listItems(projectId, itemFilter.value);
     } finally {
       loadingItems.value = false;
     }
@@ -151,7 +151,10 @@ export const useSopStore = defineStore('sop', () => {
     }
     loadingRuns.value = true;
     try {
-      runs.value = await listRuns({ ...runFilter.value, project_id: projectId });
+      const { q, template_id, ...server } = runFilter.value;
+      const list = await listRuns({ ...server, keyword: q || server.keyword, project_id: projectId });
+      // template_id 后端暂不筛：在前端收敛结果，避免页面显示别的模板运行
+      runs.value = template_id ? list.filter((run) => run.template_id === template_id) : list;
     } finally {
       loadingRuns.value = false;
     }
@@ -174,17 +177,23 @@ export const useSopStore = defineStore('sop', () => {
     credentials.value = await listCredentials();
   }
 
-  /** 切项目：只改前端状态并把该项目的四类数据并行重载（URL 不变）。 */
+  /**
+   * 切项目：先改前端状态（URL 不变），再并行重载该项目的数据。
+   *
+   * 每个请求单独兜底：某个端点一时不可用（如未配置触发）不应该让整个切换失败，
+   * 更不该让旧项目数据留在新项目名下——失败的槽位归零/置空。
+   */
   async function switchProject(id: string): Promise<void> {
     if (id === currentProjectId.value) return;
     currentProjectId.value = id;
     storeProject(id);
+    const soft = <T>(p: Promise<T>, fallback: T) => p.catch(() => fallback);
     await Promise.all([
-      loadItems(),
-      loadStats(),
-      loadRuns(),
-      loadApprovals(),
-      loadTriggerConfig(),
+      soft(loadItems(), undefined),
+      soft(loadStats(), undefined),
+      soft(loadRuns(), undefined),
+      soft(loadApprovals(), undefined),
+      soft(loadTriggerConfig(), undefined),
     ]);
   }
 

@@ -50,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
@@ -74,6 +74,7 @@ const store = useSopStore();
 const { projects, loadingProjects, approvalCount } = storeToRefs(store);
 
 const createVisible = ref(false);
+let addedWhileMounted = true;
 let stopApprovals: (() => void) | null = null;
 
 const activeTab = computed(() => (route.meta.sopTab as string) || 'items');
@@ -84,29 +85,30 @@ const moreOptions = computed(() => [
 ]);
 
 onMounted(async () => {
+  addedWhileMounted = true;
   try {
     await store.loadProjects();
   } catch {
-    MessagePlugin.error(t('sop.shell.loadProjectsFailed'));
+    if (addedWhileMounted) MessagePlugin.error(t('sop.shell.loadProjectsFailed'));
     return;
   }
-  if (!store.currentProjectId) return;
-  await Promise.all([store.loadApprovals(), store.loadStats()]);
-  // 审批角标要反映真实待办：进入工作台后低频刷新
+  if (!store.currentProjectId || !addedWhileMounted) return;
+  await Promise.all([
+    // 统计带与审批角标各自兜底：任一失败都不该让工作台停在「加载失败」
+    store.loadStats().catch(() => undefined),
+    store.loadApprovals().catch(() => undefined),
+  ]);
+  // 组件可能在请求期间已卸载：此时绝不能再起 interval（否则永远清不掉）
+  if (!addedWhileMounted) return;
   stopApprovals = store.startPolling(() => store.loadApprovals(), 60_000);
 });
 
 onUnmounted(() => {
+  addedWhileMounted = false;
   stopApprovals?.();
 });
 
-// 审批数据只在布局层拉取：子页切走时角标仍保持真实
-watch(
-  () => store.currentProjectId,
-  () => {
-    void store.loadApprovals();
-  },
-);
+// 切换项目时由 store.switchProject 负责重载审批，这里不再重复请求
 
 function onMoreAction(data: { value?: string | number }) {
   if (data.value === 'settings') {

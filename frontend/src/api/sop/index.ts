@@ -434,7 +434,10 @@ export interface SopRunFilter {
   project_id?: string;
   item_id?: string;
   status?: string;
+  /** 模糊搜索（后端参数名是 keyword）。 */
   keyword?: string;
+  /** 前端侧过滤字段：后端 ListRuns 暂不按模板筛选。 */
+  template_id?: string;
   page?: number;
   page_size?: number;
 }
@@ -671,6 +674,11 @@ export async function setItemStatus(id: string, status: ItemStatus | string): Pr
 /** 批量迁移状态（后端唯一批量入口；用于批量关闭与批量推进）。 */
 export async function bulkUpdateItemStatus(ids: string[], status: ItemStatus | string): Promise<SopBulkResult> {
   return post<{ data: SopBulkResult }>(`${SOP_BASE}/items/bulk-status`, { ids, status }).then((r) => r.data);
+}
+
+/** 批量关闭：后端没有独立端点，等价于批量迁移到 closed（运行中的事项由后端跳过）。 */
+export async function bulkClose(ids: string[]): Promise<SopBulkResult> {
+  return bulkUpdateItemStatus(ids, 'closed');
 }
 
 export async function addAttachment(itemId: string, file: File): Promise<SopItemAttachment> {
