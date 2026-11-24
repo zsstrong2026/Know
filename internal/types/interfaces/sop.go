@@ -216,3 +216,24 @@ type SopTriggerRepository interface {
 	// ListEnabledConfigs 列全部启用中的触发配置（跨租户，调度器内部用）。
 	ListEnabledConfigs(ctx context.Context) ([]types.SopTriggerConfig, error)
 }
+
+// SopProjectNoteRepository 项目黑板（共享上下文时间线）仓储（实现：repository.SopProjectNoteRepo）。
+//
+// seq 由仓储在项目内自增分配（软删行不占位），调用方不得依赖自己传的 seq；
+// 每次写入（含编辑）推进 seq，简报渲染水位 brief_rendered_seq 与它比对判断是否过期。
+type SopProjectNoteRepository interface {
+	// Create 事务内取项目 max(seq)+1 写回入参；kind/source 非法返回 types.ErrInvalidSopNote。
+	Create(ctx context.Context, n *types.SopProjectNote) error
+	// GetByID 按 (租户, id) 取条目；查不到返回 gorm.ErrRecordNotFound。
+	GetByID(ctx context.Context, tenantID uint64, id string) (*types.SopProjectNote, error)
+	// List 列项目黑板：置顶优先、seq 倒序；kind 空=不过滤，pinned nil=不过滤，limit<=0 取默认上限。
+	List(
+		ctx context.Context, tenantID uint64, projectID, kind string, pinned *bool, limit int,
+	) ([]types.SopProjectNote, error)
+	// Update 只写 kind/title/body/pinned 并推进 seq；归属列取库内值，跨租户返回 gorm.ErrRecordNotFound。
+	Update(ctx context.Context, tenantID uint64, n *types.SopProjectNote) error
+	// SoftDelete 软删条目；跨租户或不存在返回 gorm.ErrRecordNotFound。
+	SoftDelete(ctx context.Context, tenantID uint64, id string) error
+	// MaxSeq 取项目当前最大 seq（只看活行；空项目返回 0）。
+	MaxSeq(ctx context.Context, tenantID uint64, projectID string) (int64, error)
+}

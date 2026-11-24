@@ -29,6 +29,13 @@ const (
 	SopExecStateClosed    = "closed"
 )
 
+// ---- 常量：大需求拆分的子项来源（独立事项为空串）----
+const (
+	SopSplitSourceAI       = "ai"
+	SopSplitSourceManual   = "manual"
+	SopSplitSourceTemplate = "template"
+)
+
 // SopItem 工作项：8 态状态机 + 项目内编号 + 大需求两级拆分（is_big/parent_id/split_source）。
 type SopItem struct {
 	ID          string   `gorm:"type:varchar(36);primaryKey" json:"id"`

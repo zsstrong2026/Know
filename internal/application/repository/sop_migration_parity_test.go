@@ -22,6 +22,9 @@ func TestSopMigrationParity(t *testing.T) {
 		{"000171_sop_cli_trigger", "000073_sop_cli_trigger"},
 		{"000172_sop_indexes", "000074_sop_indexes"},
 		{"000173_sop_builtin_templates", "000075_sop_builtin_templates"},
+		// 计划原定 000174，执行时被 meeting_phase_events 占用，PG 侧顺延为 000175
+		// （SQLite 000076 未占用，对应关系不变）。
+		{"000175_sop_project_notes", "000076_sop_project_notes"},
 	}
 	tableRe := regexp.MustCompile(`CREATE TABLE IF NOT EXISTS (\w+)`)
 	// SQLite 迁移头部注释会写「JSONB→JSON」这类映射说明，注释里的类型名不算违规

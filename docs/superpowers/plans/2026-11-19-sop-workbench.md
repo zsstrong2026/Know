@@ -66,7 +66,7 @@
 19. **简报 = 黑板投影，不是第二真相**：`brief_knowledge_id` 指向的文档只由引擎 `CreateKnowledgeFromManual/UpdateManualKnowledge`（channel=`sop`）写入，状态恒 `publish`（保证检索可命中）；任何人工补充都必须落黑板（`source=human`）。AI 只产草稿（`POST /notes/decision-draft` 不落库），人确认后走 `POST /notes`。
 20. **父项状态唯一写入口**：父项 `done` 由引擎在子项终态时经 `UpdateStatus` 推进（复用 T22 状态机守卫），不由列表接口「顺手改」；`DeriveParentExecState` 是只读派生，与 T2 `DeriveExecState` 互不替代。
 21. **拆分与触发的关系**：`POST /items/:id/split` 只建子项不触发；`POST /items/:id/relaunch` 与 `POST /runs{item_id}` 遇到有子项的父项一律 400「该事项已拆分为子项，请对子项触发」，避免双轨执行。
-22. **迁移编号顺延**：M11 使用 `000174_sop_project_notes.*` ↔ `000076_sop_project_notes.*`（执行前 `ls migrations/versioned | tail` 复核；若被占用顺延并同步 §15 编号对照与 T55 parity 清单）。
+22. **迁移编号顺延**：M11 使用 `000174_sop_project_notes.*` ↔ `000076_sop_project_notes.*`（执行前 `ls migrations/versioned | tail` 复核；若被占用顺延并同步 §15 编号对照与 T55 parity 清单）。**执行记录：000174 已被 meeting_phase_events 占用，PG 侧顺延为 `000175_sop_project_notes.*`，SQLite 侧保持 000076；parity 清单与 sqlite schema 守卫已同步。**
 23. **既有 SQLite schema 守卫测试必须同步**：`internal/database/migration_sqlite_versioned_schema_test.go` 里 `expectedSQLiteMigrationVersion = 67` 需在 T1 随首个 sop 迁移改为 68，逐任务推进至最终 **76**；`versionedSQLiteTables` 追加 sop_projects/sop_items/sop_item_attachments/sop_item_clarifications/sop_item_activities/sop_templates/sop_template_revisions/sop_runs/sop_node_runs/sop_artifacts/sop_cli_credentials/sop_trigger_configs/sop_trigger_logs/sop_project_notes，`versionedSQLiteColumns` 追加 `sop_projects: kb_owner/brief_knowledge_id/brief_rendered_seq`、`sop_items: parent_id/split_source`。T1/T2/T3/T4/T5/T6/T59 各自的「运行确认通过」步骤必须先跑 `go test ./internal/database/ -run TestSQLiteMigrationsCreateVersionedSchema -v` 并 PASS——否则桌面 Lite 首次启动会迁移失败。
 
 ## File Structure
@@ -80,7 +80,7 @@
 - `000171_sop_cli_trigger.*` ↔ `000073_sop_cli_trigger.*` — sop_cli_credentials + sop_trigger_configs + sop_trigger_logs
 - `000172_sop_indexes.*` ↔ `000074_sop_indexes.*` — 派生字段 JOIN 所需复合索引
 - `000173_sop_builtin_templates.*` ↔ `000075_sop_builtin_templates.*` — 内置模板 seed（产品方案交付/需求上线复盘）
-- `000174_sop_project_notes.*` ↔ `000076_sop_project_notes.*` — sop_project_notes（项目黑板，§3.10）+ sop_items(parent_id) 部分索引；sop_projects/sop_items 的 M11 新列已就地写入 000166/000167 建表语句
+- `000175_sop_project_notes.*` ↔ `000076_sop_project_notes.*` — sop_project_notes（项目黑板，§3.10；原定 000174 被 meeting_phase_events 占用后顺延）+ sop_items(parent_id) 部分索引；sop_projects/sop_items 的 M11 新列已就地写入 000166/000167 建表语句
 
 **后端新建（根 D:\知识库\Know\）：**
 - `internal/types/sop_project.go` — SopProject 模型 + repos JSON 类型 + 校验纯函数
@@ -5664,7 +5664,7 @@ func TestSopMigrationParity(t *testing.T) {
 		{"000171_sop_cli_trigger", "000073_sop_cli_trigger"},
 		{"000172_sop_indexes", "000074_sop_indexes"},
 		{"000173_sop_builtin_templates", "000075_sop_builtin_templates"},
-		{"000174_sop_project_notes", "000076_sop_project_notes"},
+		{"000175_sop_project_notes", "000076_sop_project_notes"}, // 000174 被 meeting_phase_events 占用后顺延
 	}
 	re := regexp.MustCompile(`CREATE TABLE IF NOT EXISTS (\w+)`)
 	for _, p := range pairs {
@@ -5924,7 +5924,7 @@ func TestRetryFromFailedNodeAndChildSOP(t *testing.T) {
 ### Task 59: 黑板表迁移 + 模型 + 仓储 + 父项汇总纯函数
 
 **Files:**
-- Create: `migrations/versioned/000174_sop_project_notes.up.sql` / `.down.sql`、`migrations/sqlite/000076_sop_project_notes.*`
+- Create: `migrations/versioned/000175_sop_project_notes.up.sql` / `.down.sql`、`migrations/sqlite/000076_sop_project_notes.*`（计划原定 000174，执行时被 meeting_phase_events 占用，按 §22 顺延）
 - Create: `internal/types/sop_project_note.go`、`internal/types/sop_project_note_test.go`
 - Create: `internal/application/repository/sop_project_note.go`、`sop_project_note_test.go`
 - Modify: `internal/types/interfaces/sop.go`（追加 `SopProjectNoteRepository`）
@@ -5935,7 +5935,7 @@ func TestRetryFromFailedNodeAndChildSOP(t *testing.T) {
 
 - [ ] **Step 1: 写迁移**
 
-`migrations/versioned/000174_sop_project_notes.up.sql`：
+`migrations/versioned/000175_sop_project_notes.up.sql`：
 
 ```sql
 CREATE TABLE IF NOT EXISTS sop_project_notes (
@@ -5962,7 +5962,7 @@ CREATE INDEX IF NOT EXISTS ix_sop_items_parent ON sop_items(parent_id) WHERE del
 
 > 说明：`kb_owner/brief_knowledge_id/brief_rendered_seq` 已随 000166 建表、`parent_id/split_source` 已随 000167 建表（本计划 T1/T2 已就地写入），000174 不再 ALTER——sop_* 是本次新增表，无存量数据需要补列，避免 PG/SQLite 上 ALTER 语义差异。000174 只负责黑板表与 parent 索引。
 
-`000174_sop_project_notes.down.sql`：
+`000175_sop_project_notes.down.sql`：
 
 ```sql
 DROP INDEX IF EXISTS ix_sop_items_parent;
@@ -6046,7 +6046,7 @@ func DeriveParentExecState(states []string) string {
 `SopProjectNoteRepository.Create` 事务内 `SELECT COALESCE(MAX(seq),0)+1 FROM sop_project_notes WHERE project_id=? AND deleted_at IS NULL` 后写入（SQLite 事务串行化保证同项目不重号；PG 唯一索引兜底冲突重试一次）。`Update` 每次修改 `body/title/pinned` 后 `seq = max+1`（保证编辑也触发重渲染，且顺序反映最新）。
 
 - [ ] **Step 5: 运行确认通过** Run: `go test ./internal/types/ -run "TestDeriveParentExecState" -v && go test ./internal/application/repository/ -run "TestNote" -v && go test ./internal/database/ -run TestSQLiteMigrationsCreateVersionedSchema -v && go build ./...` Expected: PASS。
-- [ ] **Step 6: 提交** `git add migrations/versioned/000174_sop_project_notes.* migrations/sqlite/000076_sop_project_notes.* internal/types/sop_project_note.go internal/types/sop_project_note_test.go internal/types/sop_brief.go internal/application/repository/sop_project_note.go internal/application/repository/sop_project_note_test.go internal/types/interfaces/sop.go && git commit -m "feat(sop): 项目黑板表与仓储、父子拆分字段、父项执行情况汇总"`
+- [ ] **Step 6: 提交** `git add migrations/versioned/000175_sop_project_notes.* migrations/sqlite/000076_sop_project_notes.* internal/types/sop_project_note.go internal/types/sop_project_note_test.go internal/types/sop_brief.go internal/application/repository/sop_project_note.go internal/application/repository/sop_project_note_test.go internal/types/interfaces/sop.go && git commit -m "feat(sop): 项目黑板表与仓储、父子拆分字段、父项执行情况汇总"`
 
 ### Task 60: 简报渲染纯函数（确定性、硬顶、分段顺序）
 

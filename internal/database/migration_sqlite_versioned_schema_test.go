@@ -76,6 +76,7 @@ var versionedSQLiteTables = []string{
 	"sop_trigger_configs",
 	"sop_trigger_logs",
 	"sop_dispatch_reservations",
+	"sop_project_notes",
 }
 
 // versionedSQLiteColumns maps each existing table to the columns that the
@@ -129,8 +130,9 @@ var versionedSQLiteColumns = map[string][]string{
 // expectedSQLiteMigrationVersion 跟随目录内最高 sqlite 迁移号。
 // 000072（T5 sop_runs/sop_node_runs/sop_artifacts）与 000074（T5 派生 JOIN 索引，
 // 编号排在 T6 的 000073 之后）同批落地；T6 补 000073 后仍为 74；
-// 000075（T7 内置模板 seed，只插行不建表）把版本推到 75。
-const expectedSQLiteMigrationVersion = 75
+// 000075（T7 内置模板 seed，只插行不建表）把版本推到 75；
+// 000076（T59 项目黑板表 + parent 部分索引）推到 76。
+const expectedSQLiteMigrationVersion = 76
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)
