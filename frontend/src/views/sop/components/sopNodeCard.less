@@ -1,0 +1,135 @@
+// 节点卡（画布与运行详情共用）
+.sop-node {
+  position: relative;
+  width: 220px;
+  padding: var(--app-space-2) var(--app-space-3);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-lg);
+  background: var(--td-bg-color-container);
+  box-shadow: var(--td-shadow-1);
+  font-size: var(--app-text-sm);
+
+  &.is-pending {
+    border-color: var(--td-brand-color);
+    box-shadow: 0 0 0 2px var(--td-brand-color-1);
+  }
+
+  &.readonly {
+    width: 200px;
+  }
+}
+
+.sop-node-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sop-node-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--td-text-color-primary);
+}
+
+.sop-node-type {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: var(--app-radius-xs);
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-2xs);
+
+  &.is-approval {
+    background: var(--td-warning-color-1);
+    color: var(--td-warning-color);
+  }
+
+  &.is-script {
+    background: var(--td-success-color-1);
+    color: var(--td-success-color);
+  }
+
+  &.is-sop {
+    background: var(--td-brand-color-1);
+    color: var(--td-brand-color);
+  }
+}
+
+.sop-node-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.sop-badge {
+  padding: 0 6px;
+  border-radius: var(--app-radius-xs);
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-2xs);
+
+  &.is-reject,
+  &.is-human {
+    background: var(--td-error-color-1);
+    color: var(--td-error-color);
+  }
+}
+
+.sop-node-exits {
+  margin-top: var(--app-space-2);
+  padding-top: var(--app-space-2);
+  border-top: 1px dashed var(--td-component-stroke);
+}
+
+.sop-exit {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  font-size: var(--app-text-2xs);
+  color: var(--td-text-color-secondary);
+}
+
+.sop-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--app-radius-pill);
+
+  &.is-success {
+    background: var(--td-success-color);
+  }
+
+  &.is-reject {
+    background: var(--td-error-color);
+  }
+}
+
+.sop-exit-target {
+  margin-left: auto;
+  color: var(--td-text-color-placeholder);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sop-handle {
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--td-bg-color-container);
+}
+
+.sop-handle--in {
+  background: var(--td-text-color-placeholder);
+}
+
+.sop-handle--success {
+  background: var(--td-success-color);
+}
+
+.sop-handle--reject {
+  background: var(--td-error-color);
+}

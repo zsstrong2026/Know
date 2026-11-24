@@ -1,0 +1,144 @@
+// 流程设计器：左节点面板 + 画布 + 悬浮工具条 + 小地图
+.sop-designer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--td-bg-color-container);
+}
+
+.sop-designer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-3);
+  padding: var(--app-space-2) var(--app-space-4);
+  border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.sop-designer-title {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  min-width: 0;
+}
+
+.sop-back {
+  padding: 3px 8px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-sm);
+  background: transparent;
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-sm);
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--td-brand-color);
+    color: var(--td-brand-color);
+  }
+}
+
+.sop-tag {
+  padding: 1px 8px;
+  border-radius: var(--app-radius-pill);
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-2xs);
+}
+
+.sop-designer-actions {
+  display: flex;
+  gap: var(--app-space-2);
+}
+
+.sop-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  padding: var(--app-space-2) var(--app-space-4);
+  background: var(--td-warning-color-1);
+  color: var(--td-warning-color);
+  font-size: var(--app-text-sm);
+}
+
+.sop-designer-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.sop-palette {
+  flex: 0 0 176px;
+  padding: var(--app-space-3);
+  border-right: 1px solid var(--td-component-stroke);
+  overflow: auto;
+}
+
+.sop-palette-title {
+  margin-bottom: var(--app-space-2);
+  color: var(--td-text-color-placeholder);
+  font-size: var(--app-text-xs);
+}
+
+.sop-palette-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  margin-bottom: var(--app-space-2);
+  padding: var(--app-space-2);
+  border: 1px dashed var(--td-component-stroke);
+  border-radius: var(--app-radius-md);
+  background: var(--td-bg-color-container);
+  text-align: left;
+  cursor: grab;
+
+  b {
+    font-size: var(--app-text-sm);
+    color: var(--td-text-color-primary);
+  }
+
+  span {
+    color: var(--td-text-color-placeholder);
+    font-size: var(--app-text-2xs);
+  }
+
+  &:hover {
+    border-color: var(--td-brand-color);
+  }
+}
+
+.sop-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  background:
+    radial-gradient(var(--td-component-stroke) 1px, transparent 1px) 0 0 / 18px 18px;
+}
+
+.sop-minimap {
+  position: absolute;
+  top: var(--app-space-3);
+  right: var(--app-space-3);
+  width: 180px;
+  height: 120px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-md);
+  background: color-mix(in srgb, var(--td-bg-color-container) 88%, transparent);
+}
+
+.sop-mini-node {
+  fill: var(--td-brand-color-1);
+  stroke: var(--td-brand-color);
+  stroke-width: 2;
+}
+
+.sop-mini-edge {
+  stroke: var(--td-success-color);
+  stroke-width: 2;
+
+  &.reject {
+    stroke: var(--td-error-color);
+    stroke-dasharray: 6 4;
+  }
+}
