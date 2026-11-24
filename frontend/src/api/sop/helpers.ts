@@ -535,3 +535,35 @@ export function diffDefinitions(before: SopDefinition, after: SopDefinition): Di
   }
   return cards;
 }
+
+const TRIGGER_SOURCE_LABELS: Record<string, string> = {
+  manual: '手动',
+  schedule: 'SOP 任务',
+  api: 'API',
+  child_run: '子流程',
+};
+
+/** 运行触发来源中文（未知来源原样返回）。 */
+export function triggerSourceLabel(kind: string): string {
+  return TRIGGER_SOURCE_LABELS[kind] || kind || '—';
+}
+
+/**
+ * 成功率文案：优先用后端 `success_rate`（0–1 小数），
+ * 否则用 status_counts.succeeded / finished_count。分母为 0 时给「—」。
+ */
+export function successRate(stats: {
+  success_rate?: number;
+  finished_count?: number;
+  status_counts?: Record<string, number>;
+  succeeded?: number;
+  finished?: number;
+}): string {
+  if (typeof stats?.success_rate === 'number' && stats.finished_count) {
+    return `${Math.round(stats.success_rate * 100)}%`;
+  }
+  const finished = stats?.finished ?? stats?.finished_count ?? 0;
+  if (!finished) return '—';
+  const succeeded = stats?.succeeded ?? stats?.status_counts?.succeeded ?? 0;
+  return `${Math.round((succeeded / finished) * 100)}%`;
+}

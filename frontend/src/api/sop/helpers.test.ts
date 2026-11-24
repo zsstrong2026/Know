@@ -22,6 +22,8 @@ import {
   parseBreakdownCard,
   formatDiffCards,
   diffDefinitions,
+  triggerSourceLabel,
+  successRate,
   progressText,
   shortSha,
   formatBytes,
@@ -223,4 +225,14 @@ test('两份定义逐字段比对出差', () => {
   assert.equal(cards.find((c) => c.field === '失败策略')!.to, '打回上游');
   const removed = diffDefinitions(after, before);
   assert.ok(removed.some((c) => c.field === '删除节点'));
+});
+
+test('触发来源中文与成功率口径', () => {
+  assert.equal(triggerSourceLabel('schedule'), 'SOP 任务');
+  assert.equal(triggerSourceLabel('manual'), '手动');
+  assert.equal(triggerSourceLabel('child_run'), '子流程');
+  assert.equal(triggerSourceLabel('api'), 'API');
+  assert.equal(successRate({ succeeded: 3, finished: 4 }), '75%');
+  assert.equal(successRate({ succeeded: 0, finished: 0 }), '—');
+  assert.equal(successRate({ status_counts: { succeeded: 2 }, finished_count: 5 }), '40%');
 });
