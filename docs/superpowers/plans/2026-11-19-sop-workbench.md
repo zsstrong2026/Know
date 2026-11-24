@@ -5921,7 +5921,7 @@ func TestRetryFromFailedNodeAndChildSOP(t *testing.T) {
 
 > 本轮增补（与 M1–M10 同一交付，不分期）：项目共享上下文不再是「节点只知道自己的上下游」；大需求可拆成两级子事项分别推进。**版本规划按用户决定去掉**，不在本里程碑内。
 
-### Task 59: 黑板表迁移 + 模型 + 仓储 + 父项汇总纯函数
+### Task 59: *[已完成]* 黑板表迁移 + 模型 + 仓储 + 父项汇总纯函数
 
 **Files:**
 - Create: `migrations/versioned/000175_sop_project_notes.up.sql` / `.down.sql`、`migrations/sqlite/000076_sop_project_notes.*`（计划原定 000174，执行时被 meeting_phase_events 占用，按 §22 顺延）
@@ -6048,7 +6048,7 @@ func DeriveParentExecState(states []string) string {
 - [ ] **Step 5: 运行确认通过** Run: `go test ./internal/types/ -run "TestDeriveParentExecState" -v && go test ./internal/application/repository/ -run "TestNote" -v && go test ./internal/database/ -run TestSQLiteMigrationsCreateVersionedSchema -v && go build ./...` Expected: PASS。
 - [ ] **Step 6: 提交** `git add migrations/versioned/000175_sop_project_notes.* migrations/sqlite/000076_sop_project_notes.* internal/types/sop_project_note.go internal/types/sop_project_note_test.go internal/types/sop_brief.go internal/application/repository/sop_project_note.go internal/application/repository/sop_project_note_test.go internal/types/interfaces/sop.go && git commit -m "feat(sop): 项目黑板表与仓储、父子拆分字段、父项执行情况汇总"`
 
-### Task 60: 简报渲染纯函数（确定性、硬顶、分段顺序）
+### Task 60: *[已完成]* 简报渲染纯函数（确定性、硬顶、分段顺序）
 
 **Files:**
 - Modify: `internal/types/sop_brief.go`（追加 `BriefInput`/`RenderProjectBrief`）、`internal/types/sop_brief_test.go`
@@ -6098,7 +6098,7 @@ func TestRenderProjectBriefTruncatesLowPriority(t *testing.T) {
 - [ ] **Step 4: 运行确认通过** Run: `go test ./internal/types/ -run "TestRenderProjectBrief" -v` Expected: PASS。
 - [ ] **Step 5: 提交** `git add internal/types/sop_brief.go internal/types/sop_brief_test.go && git commit -m "feat(sop): 项目简报确定性渲染（固定分段/硬顶截断）"`
 
-### Task 61: BriefService（debounce + seq 比对 + KB 覆盖写降级）+ NotesService + 运行终态自动摘要
+### Task 61: *[已完成]* BriefService（debounce + seq 比对 + KB 覆盖写降级）+ NotesService + 运行终态自动摘要
 
 **Files:**
 - Create: `internal/application/service/sop/brief.go`、`brief_test.go`
@@ -6166,7 +6166,7 @@ func TestAutoRecordRunIsDeterministic(t *testing.T) {
 - [ ] **Step 4: 运行确认通过** Run: `go test ./internal/application/service/sop/ -run "TestBrief|TestAutoRecord" -v && go test ./internal/application/service/sop/engine/ -v` Expected: PASS（引擎既有测试零回归）。
 - [ ] **Step 5: 提交** `git add internal/application/service/sop/brief.go internal/application/service/sop/brief_test.go internal/application/service/sop/note.go internal/application/service/sop/note_test.go internal/application/service/sop/engine/engine.go && git commit -m "feat(sop): 项目黑板服务、简报 KB 同步（seq 去重/降级）与运行终态自动摘要"`
 
-### Task 62: API 层（黑板/简报/拆分/子项/项目建库改绑）+ 统计带父项汇总
+### Task 62: *[已完成]* API 层（黑板/简报/拆分/子项/项目建库改绑）+ 统计带父项汇总
 
 **Files:**
 - Create: `internal/handler/sop_brief.go`、`sop_brief_test.go`
@@ -6247,7 +6247,7 @@ func TestBriefEndpointReportsSeqState(t *testing.T) {
 - [ ] **Step 4: 运行确认通过** Run: `go test ./internal/handler/ -run "TestSplitRejects|TestParentItemCannot|TestBriefEndpoint" -v && go build ./...` Expected: PASS。
 - [ ] **Step 5: 提交** `git add internal/handler/sop_brief.go internal/handler/sop_brief_test.go internal/handler/sop.go internal/handler/sop_items.go internal/router/routes_sop.go && git commit -m "feat(sop): 黑板/简报/拆分 API 与项目自动建库改绑"`
 
-### Task 63: 父项状态推进 + 模板产出子事项（out/child-items.json）
+### Task 63: *[已完成]* 父项状态推进 + 模板产出子事项（out/child-items.json）
 
 **Files:**
 - Create: `internal/application/service/sop/engine/childitems_test.go`
@@ -6314,7 +6314,7 @@ func TestParentAutoAdvancesWhenAllChildrenClosed(t *testing.T) {
 - [ ] **Step 4: 运行确认通过** Run: `go test ./internal/application/service/sop/engine/ -run "TestProducesChildItems|TestChildItemsOverLimit" -v && go test ./internal/application/service/sop/ -run TestParentAutoAdvances -v && go test ./internal/application/service/sop/engine/ -v` Expected: PASS。
 - [ ] **Step 5: 提交** `git add internal/application/service/sop/engine/childitems_test.go internal/application/service/sop/engine/node.go internal/application/service/sop/engine/engine.go internal/types/sop_template.go internal/types/sop_item.go internal/application/service/sop/item.go internal/application/service/sop/item_test.go && git commit -m "feat(sop): 模板节点产出子事项清单并自动拆分（上限 20）、父项全完成自动 done"`
 
-### Task 64: 任务书「项目现状」块 + inputs/project-brief.md 物化
+### Task 64: *[已完成]* 任务书「项目现状」块 + inputs/project-brief.md 物化
 
 **Files:**
 - Modify: `internal/application/service/sop/engine/taskbook.go`、`taskbook_test.go`
@@ -6366,7 +6366,7 @@ func TestMaterializeProjectBrief(t *testing.T) {
 - [ ] **Step 4: 运行确认通过** Run: `go test ./internal/application/service/sop/engine/ -run "TestRenderTaskBook|TestBuildProjectContext|TestMaterializeProjectBrief" -v && go test ./internal/application/service/sop/engine/ -v` Expected: PASS。
 - [ ] **Step 5: 提交** `git add internal/application/service/sop/engine/taskbook.go internal/application/service/sop/engine/taskbook_test.go internal/application/service/sop/engine/workspace.go internal/application/service/sop/engine/workspace_test.go internal/application/service/sop/engine/engine.go && git commit -m "feat(sop): 任务书项目现状块与简报物化进 inputs"`
 
-### Task 65: 前端 API/helpers 增量
+### Task 65: *[已完成]* 前端 API/helpers 增量
 
 **Files:**
 - Modify: `frontend/src/api/sop/index.ts`、`frontend/src/api/sop/helpers.ts`、`helpers.test.ts`
@@ -6402,7 +6402,7 @@ test('黑板标签与序差判定', () => {
 - [ ] **Step 4: 运行确认通过** Run: `cd frontend && npm test -- src/api/sop/helpers.test.ts && npm run type-check && npm run check-i18n` Expected: PASS。
 - [ ] **Step 5: 提交** `git add frontend/src/api/sop frontend/src/i18n/locales && git commit -m "feat(sop): 前端黑板/简报/拆分 API 与纯函数"`
 
-### Task 66: 前端 项目配置知识库卡片 + 简报卡片 + SopProjectBriefPanel
+### Task 66: *[已完成]* 前端 项目配置知识库卡片 + 简报卡片 + SopProjectBriefPanel
 
 **Files:**
 - Create: `frontend/src/views/sop/components/SopProjectBriefPanel.vue`
@@ -6420,7 +6420,7 @@ test('黑板标签与序差判定', () => {
 
   （本任务按 M9 约定：组件交互以 browser-use 走查 + type-check + check-i18n 验收，无组件级单测基建。）
 
-### Task 67: 前端 父项折叠/进度徽标 + 创建模态拆分 + 抽屉子事项 tab
+### Task 67: *[已完成]* 前端 父项折叠/进度徽标 + 创建模态拆分 + 抽屉子事项 tab
 
 **Files:**
 - Modify: `frontend/src/views/sop/SopItemBoard.vue`（父项行折叠与派生列）、`SopItemCreateModal.vue`（拆解卡勾选→拆成子事项）、`SopItemDrawer.vue`（子事项 tab + 所属大项）、`SopItemCreateModal.vue`（归属大项下拉）
@@ -6435,7 +6435,7 @@ test('黑板标签与序差判定', () => {
 - [ ] **Step 4: 浏览器走查** 按 spec §16.24：建大项→AI 拆 3 条→列表折叠展开正确→批量触发父项自动展开→子项各跑一条→父项状态/五态计数刷新→移出子项后父项计数变化→对子项再拆被拒并显示白话错误。
 - [ ] **Step 5: 验证与提交** Run: `cd frontend && npm test && npm run type-check && npm run check-i18n` → PASS；`git add frontend/src/views/sop && git commit -m "feat(sop): 父项折叠与汇总进度、创建模态拆分、抽屉子事项 tab"`
 
-### Task 68: M11 验收（spec §16.22–26）与全量回归
+### Task 68: *[已完成]* M11 验收（spec §16.22–26）与全量回归
 
 **Files:**
 - Create: `internal/application/service/sop/engine/e2e_brief_split_test.go`
