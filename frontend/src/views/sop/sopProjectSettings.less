@@ -68,13 +68,16 @@
 
 .sop-summary-main {
   flex: 1;
-  min-width: 0;
+  min-width: 180px;
 }
 
 .sop-summary-name {
+  overflow: hidden;
   font-size: var(--app-text-lg);
   font-weight: 700;
   color: var(--td-text-color-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sop-summary-meta {

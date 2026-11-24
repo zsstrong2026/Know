@@ -123,10 +123,10 @@
             <div>
               <div class="sop-card">
                 <h4>
-                  {{ $t('sop.settings.kbTitle') }}
+                  {{ $t('sop.kbCard.title') }}
                   <span class="sop-tag" :class="kbOwnerClass">{{ kbOwnerLabel }}</span>
                 </h4>
-                <p class="sop-card-sub">{{ $t('sop.settings.kbSub') }}</p>
+                <p class="sop-card-sub">{{ $t('sop.kbCard.sub') }}</p>
                 <div class="sop-kv"><span class="k">{{ $t('sop.settings.kbCurrent') }}</span><span class="v">{{ kbLabel }}</span></div>
                 <div class="sop-kv"><span class="k">{{ $t('sop.settings.kbBrief') }}</span><span class="v">{{ briefDocLabel }}</span></div>
                 <div class="sop-kv sop-kv--last">
@@ -138,43 +138,67 @@
                     v-model="rebindKbId"
                     class="sop-grow"
                     :options="kbOptions"
-                    :placeholder="$t('sop.settings.kbPick')"
+                    :placeholder="$t('sop.kbCard.bindTitle')"
                   />
-                  <t-button size="small" :disabled="!rebindKbId" @click="saveBasic">
-                    {{ $t('sop.settings.kbRebind') }}
+                  <t-button size="small" :disabled="!rebindKbId || rebindingKb" :loading="rebindingKb" @click="rebindKB">
+                    {{ $t('sop.kbCard.bindConfirm') }}
                   </t-button>
                   <t-button
                     size="small"
                     theme="danger"
                     variant="outline"
                     :disabled="project.kb_owner !== 'project' || !project.kb_id"
-                    :title="$t('sop.settings.kbUnbindHint')"
+                    :title="$t('sop.kbCard.unbindWarn')"
                     @click="askUnbindKb"
                   >
-                    {{ $t('sop.settings.kbUnbind') }}
+                    {{ $t('sop.kbCard.unbindDelete') }}
                   </t-button>
                 </div>
                 <small class="sop-hint">{{ $t('sop.settings.kbRebindHint') }}</small>
               </div>
 
               <div class="sop-card">
-                <h4>{{ $t('sop.settings.briefTitle') }} <span class="sop-tag">{{ $t('sop.settings.briefPendingPlan') }}</span></h4>
+                <h4>{{ $t('sop.brief.panelTitle') }}</h4>
                 <p class="sop-card-sub">{{ $t('sop.settings.briefSub', { name: project.name }) }}</p>
-                <div class="sop-kv sop-kv--last">
+                <div class="sop-kv">
                   <span class="k">{{ $t('sop.settings.briefLast') }}</span>
-                  <span class="v">{{ $t('sop.settings.briefNever') }}</span>
+                  <span class="v">{{ briefLastText }}</span>
                 </div>
-                <small class="sop-hint">{{ $t('sop.settings.briefComingSoon') }}</small>
+                <div class="sop-kv sop-kv--last">
+                  <span class="k">{{ $t('sop.brief.preview') }}</span>
+                  <span class="v">
+                    <span v-if="!briefKbBound" class="sop-tag sop-tag--muted">{{ $t('sop.brief.unbound') }}</span>
+                    <span v-else-if="briefStale" class="sop-tag sop-tag--warn">
+                      {{ $t('sop.brief.stale', { n: briefNotesMaxSeq - briefRenderedSeq }) }}
+                    </span>
+                    <span v-else class="sop-tag sop-tag--brand">{{ $t('sop.brief.synced') }}</span>
+                  </span>
+                </div>
+                <div class="sop-row sop-row--end">
+                  <t-button size="small" variant="outline" @click="briefPanelVisible = true">
+                    {{ $t('sop.split.panel') }}
+                  </t-button>
+                  <t-button
+                    v-if="briefStale && briefKbBound"
+                    size="small"
+                    theme="primary"
+                    :loading="renderingBrief"
+                    @click="renderBriefNow"
+                  >
+                    {{ $t('sop.brief.renderNow') }}
+                  </t-button>
+                </div>
               </div>
             </div>
 
             <div class="sop-card sop-card--preview">
-              <h4>{{ $t('sop.settings.briefPreview') }}</h4>
+              <h4>{{ $t('sop.brief.preview') }}</h4>
               <p class="sop-card-sub">
                 {{ project.kb_id ? $t('sop.settings.briefPreviewSub') : $t('sop.settings.briefNoKb') }}
               </p>
               <div class="sop-preview">
-                <t-empty :description="$t('sop.settings.briefPreviewEmpty')" />
+                <PmMarkdown v-if="briefMarkdown.trim()" :content="briefMarkdown" />
+                <t-empty v-else :description="$t('sop.brief.previewEmpty')" />
               </div>
             </div>
           </div>
@@ -282,6 +306,14 @@
       </label>
       <div v-if="repoModal.error" class="sop-form-error">{{ repoModal.error }}</div>
     </t-dialog>
+
+    <SopProjectBriefPanel
+      v-if="project"
+      :visible="briefPanelVisible"
+      :project-id="project.id"
+      @close="briefPanelVisible = false"
+      @changed="loadBriefStatus"
+    />
   </div>
 </template>
 
@@ -294,15 +326,22 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import {
   addRepo,
   deleteProject,
+  getBrief,
   getProject,
   listRuns,
   listTemplates,
   removeRepo,
+  renderBrief,
+  replaceProjectKB,
   setDefaultRepo,
   updateProject,
+  type SopBriefStatus,
   type SopProject,
   type SopRepo,
 } from '@/api/sop';
+import { briefSeqStale } from '@/api/sop/helpers';
+import SopProjectBriefPanel from './components/SopProjectBriefPanel.vue';
+import PmMarkdown from '@/views/pm/components/PmMarkdown.vue';
 import { listKnowledgeBases } from '@/api/knowledge-base';
 import { repoDisplayName, validateRepoURL, ITEM_STATUS_LABELS } from '@/api/sop/helpers';
 import { useSopStore } from '@/stores/sop';
@@ -324,6 +363,10 @@ const runCount = ref(0);
 const activeRuns = ref(0);
 const rebindKbId = ref('');
 const saving = ref(false);
+const rebindingKb = ref(false);
+const renderingBrief = ref(false);
+const briefPanelVisible = ref(false);
+const brief = ref<SopBriefStatus | null>(null);
 const activeTab = ref<SettingsTab>('basic');
 const repoModal = reactive({ visible: false, url: '', branch: 'main', name: '', error: '', submitting: false });
 
@@ -412,6 +455,19 @@ const briefDocLabel = computed(() =>
   project.value?.kb_id ? t('sop.settings.briefRendered') : t('sop.settings.briefUnbound'),
 );
 
+const briefMarkdown = computed(() => brief.value?.markdown || '');
+const briefRenderedSeq = computed(() => brief.value?.rendered_seq || 0);
+const briefNotesMaxSeq = computed(() => brief.value?.notes_max_seq || 0);
+const briefKbBound = computed(() => !!brief.value?.kb_bound);
+const briefStale = computed(() =>
+  briefSeqStale(briefRenderedSeq.value, briefNotesMaxSeq.value),
+);
+const briefLastText = computed(() => {
+  const at = brief.value?.last_rendered_at;
+  if (!at) return t('sop.settings.briefNever');
+  return at;
+});
+
 const deleteBlockedReason = computed(() => {
   if (!project.value) return t('sop.settings.deleteNoProject');
   if (store.projects.length <= 1) return t('sop.settings.deleteLast');
@@ -491,6 +547,49 @@ async function load() {
   const kbData = (kbs as { data?: { id: string; name: string }[] })?.data || [];
   kbList.value = kbData.map((kb) => ({ id: String(kb.id), name: kb.name }));
   await store.loadStats().catch(() => undefined);
+  await loadBriefStatus();
+}
+
+/** 简报状态（正文 + 水位 + 绑库）：失败不阻塞配置页，只让卡片显示未渲染。 */
+async function loadBriefStatus() {
+  if (!project.value) return;
+  try {
+    brief.value = await getBrief(project.value.id);
+  } catch {
+    brief.value = null;
+  }
+}
+
+/** 改绑知识库：后端把旧自建库改名「（已迁移）」并清空简报绑定后全量重渲染。 */
+async function rebindKB() {
+  if (!project.value || !rebindKbId.value) return;
+  rebindingKb.value = true;
+  try {
+    project.value = await replaceProjectKB(project.value.id, rebindKbId.value);
+    repos.value = project.value.repos || [];
+    rebindKbId.value = '';
+    MessagePlugin.success(t('sop.kbCard.bindDone'));
+    await store.loadProjects().catch(() => undefined);
+    await loadBriefStatus();
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('sop.kbCard.bindFailed'));
+  } finally {
+    rebindingKb.value = false;
+  }
+}
+
+/** 卡片上的「立即重新生成」：等价于面板里的同一操作。 */
+async function renderBriefNow() {
+  if (!project.value) return;
+  renderingBrief.value = true;
+  try {
+    brief.value = await renderBrief(project.value.id);
+    MessagePlugin.success(t('sop.brief.rendered'));
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('sop.brief.renderFailed'));
+  } finally {
+    renderingBrief.value = false;
+  }
 }
 
 async function saveBasic() {

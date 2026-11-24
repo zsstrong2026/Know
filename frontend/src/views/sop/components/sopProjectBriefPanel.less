@@ -1,0 +1,204 @@
+// 项目黑板与简报面板（逐段对照原型 brief-panel / vProjSettings）
+.sop-brief {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: var(--app-space-4);
+  height: min(72vh, 720px);
+}
+
+.sop-brief-left,
+.sop-brief-right {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-md);
+  background: var(--td-bg-color-container);
+}
+
+.sop-brief-head {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  padding: var(--app-space-3) var(--app-space-3) var(--app-space-2);
+  border-bottom: 1px solid var(--td-component-stroke);
+
+  .t {
+    color: var(--td-text-color-primary);
+    font-weight: 600;
+  }
+
+  .n {
+    margin-left: auto;
+    color: var(--td-text-color-placeholder);
+    font-size: var(--app-text-xs);
+  }
+}
+
+.sop-brief-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-1);
+  padding: var(--app-space-2) var(--app-space-3);
+  border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.sop-chip {
+  padding: 2px 10px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-pill);
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-xs);
+  cursor: pointer;
+
+  &.on {
+    border-color: var(--td-brand-color);
+    background: var(--td-brand-color-1);
+    color: var(--td-brand-color);
+  }
+}
+
+.sop-brief-list {
+  flex: 1;
+  min-height: 160px;
+  overflow: auto;
+  padding: var(--app-space-2) var(--app-space-3);
+}
+
+.sop-brief-empty {
+  padding: var(--app-space-6) var(--app-space-3);
+  color: var(--td-text-color-placeholder);
+  text-align: center;
+  font-size: var(--app-text-sm);
+}
+
+.sop-note {
+  padding: var(--app-space-2) 0;
+  border-bottom: 1px dashed var(--td-component-stroke);
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  .nh {
+    display: flex;
+    align-items: center;
+    gap: var(--app-space-1);
+  }
+
+  .pin {
+    font-size: var(--app-text-xs);
+  }
+
+  .nt {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--td-text-color-primary);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nact {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  &:hover .nact {
+    opacity: 1;
+  }
+
+  .nb {
+    margin-top: var(--app-space-1);
+    color: var(--td-text-color-secondary);
+    font-size: var(--app-text-sm);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .nm {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--app-space-1);
+    margin-top: var(--app-space-1);
+    color: var(--td-text-color-placeholder);
+    font-size: var(--app-text-2xs);
+  }
+}
+
+.sop-note-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+  padding: var(--app-space-3);
+  border-top: 1px solid var(--td-component-stroke);
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: var(--app-space-2);
+  }
+
+  .row--end {
+    justify-content: flex-end;
+  }
+}
+
+.sop-kind-select {
+  width: 140px;
+}
+
+.sop-brief-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  padding: var(--app-space-3);
+  border-bottom: 1px solid var(--td-component-stroke);
+
+  .doc {
+    color: var(--td-text-color-primary);
+    font-weight: 600;
+  }
+}
+
+.sop-brief-hint {
+  padding: var(--app-space-2) var(--app-space-3);
+  background: var(--td-warning-color-1);
+  color: var(--td-warning-color-7);
+  font-size: var(--app-text-xs);
+}
+
+.sop-brief-doc {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--app-space-3) var(--app-space-4);
+}
+
+.sop-brief-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  padding: var(--app-space-3);
+  border-top: 1px solid var(--td-component-stroke);
+
+  .tip {
+    margin-right: auto;
+    color: var(--td-text-color-placeholder);
+    font-size: var(--app-text-xs);
+  }
+}
+
+.sop-tag--warn {
+  background: var(--td-warning-color-1);
+  color: var(--td-warning-color-7);
+}
+
+.sop-tag--purple {
+  background: var(--td-success-color-1);
+  color: var(--td-success-color-7);
+}

@@ -46,6 +46,25 @@
           :maxlength="500"
         />
       </t-form-item>
+
+      <t-form-item :label="$t('sop.kbCard.title')">
+        <t-radio-group v-model="form.kbMode" class="sop-kb-modes">
+          <t-radio value="new">{{ $t('sop.kbCard.modeNew', { name: form.name.trim() || $t('sop.project.name') }) }}</t-radio>
+          <t-radio value="existing">{{ $t('sop.kbCard.modeExisting') }}</t-radio>
+          <t-radio value="none">{{ $t('sop.kbCard.modeNone') }}</t-radio>
+        </t-radio-group>
+        <t-select
+          v-if="form.kbMode === 'existing'"
+          v-model="form.kbId"
+          class="sop-kb-select"
+          :options="kbOptions"
+          :placeholder="$t('sop.kbCard.bindTitle')"
+          filterable
+        />
+        <template #help>
+          <span class="sop-form-hint">{{ $t('sop.kbCard.sub') }}</span>
+        </template>
+      </t-form-item>
     </t-form>
   </t-dialog>
 </template>
@@ -56,6 +75,8 @@ import { useI18n } from 'vue-i18n';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { storeToRefs } from 'pinia';
 import { validateProjectCode } from '@/api/sop/helpers';
+import type { KBMode } from '@/api/sop';
+import { listKnowledgeBases } from '@/api/knowledge-base';
 import { useSopStore } from '@/stores/sop';
 
 const props = defineProps<{ visible: boolean }>();
@@ -65,7 +86,16 @@ const { t } = useI18n();
 const store = useSopStore();
 const { projects } = storeToRefs(store);
 
-const form = reactive({ name: '', code: '', description: '' });
+const form = reactive({
+  name: '',
+  code: '',
+  description: '',
+  // 知识库三选：new=自动建同名库（默认）/ existing=绑已有库 / none=暂不建。
+  kbMode: 'new' as KBMode,
+  kbId: '',
+});
+const kbList = ref<{ id: string; name: string }[]>([]);
+const kbOptions = computed(() => kbList.value.map((kb) => ({ label: kb.name, value: kb.id })));
 const nameError = ref('');
 const codeError = ref('');
 const submitting = ref(false);
@@ -79,10 +109,25 @@ watch(
     form.name = '';
     form.code = '';
     form.description = '';
+    form.kbMode = 'new';
+    form.kbId = '';
     nameError.value = '';
     codeError.value = '';
+    void loadKBs();
   },
 );
+
+/** 知识库下拉只在选「使用已有」时才需要：失败就当没有可选库，不阻塞创建。 */
+async function loadKBs() {
+  if (kbList.value.length) return;
+  try {
+    const res = await listKnowledgeBases();
+    const data = (res as { data?: { id: string; name: string }[] })?.data || [];
+    kbList.value = data.map((kb) => ({ id: String(kb.id), name: kb.name }));
+  } catch {
+    kbList.value = [];
+  }
+}
 
 function close() {
   emit('update:visible', false);
@@ -99,6 +144,10 @@ function validate(): boolean {
   else if (projects.value.some((p) => p.code.toUpperCase() === code)) {
     codeError.value = t('sop.project.codeDuplicate', { code });
   }
+  if (form.kbMode === 'existing' && !form.kbId) {
+    MessagePlugin.warning(t('sop.kbCard.bindTitle'));
+    return false;
+  }
   return !nameError.value && !codeError.value;
 }
 
@@ -110,6 +159,8 @@ async function submit() {
       name: form.name.trim(),
       code: form.code.trim().toUpperCase(),
       description: form.description.trim(),
+      kb_mode: form.kbMode,
+      kb_id: form.kbMode === 'existing' ? form.kbId : undefined,
     });
     emit('created');
     close();
@@ -135,5 +186,16 @@ async function submit() {
 
 .sop-form-hint {
   color: var(--td-text-color-placeholder);
+}
+
+.sop-kb-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sop-kb-select {
+  width: 100%;
+  margin-top: 8px;
 }
 </style>
