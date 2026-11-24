@@ -25,6 +25,9 @@ func (p *CLIProvider) Kind() string {
 }
 
 // Prepare 校验可执行文件在 PATH 上：缺失时给白话指引，而不是等运行时 exec 报错。
+//
+// 不做凭据强校验：部分 CLI 依赖本机登录态（claude login 等），没有 API Key 也能跑；
+// 真缺凭据时由 CLI 自己报错，RunStream 会把 stderr 尾巴透出成节点理由。
 func (p *CLIProvider) Prepare(_ context.Context, _ *types.SopNode, _ string) error {
 	if p == nil || p.A == nil {
 		return errors.New("CLI 执行器未就绪")

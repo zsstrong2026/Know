@@ -49,3 +49,34 @@ func writeFakeBinary(t *testing.T, dir, name string) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name+".cmd"), []byte(wrapper), 0o644))
 	}
 }
+
+// TestCaptureSwitchWritesRawFrames 录制开关非空时，原始帧逐行落 <dir>/<kind>.jsonl。
+func TestCaptureSwitchWritesRawFrames(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(captureEnvDir, dir)
+
+	writer, closeFn := openCaptureFile("zcode")
+	require.NotNil(t, writer)
+	raw := "{\"type\":\"result\",\"subtype\":\"success\"}\n"
+	_, err := writer.Write([]byte(raw))
+	require.NoError(t, err)
+	closeFn()
+
+	got, err := os.ReadFile(filepath.Join(dir, "zcode.jsonl"))
+	require.NoError(t, err)
+	require.Equal(t, raw, string(got))
+}
+
+// TestCaptureSwitchOffWritesNothing 生产默认关：开关为空时不落任何文件。
+func TestCaptureSwitchOffWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(captureEnvDir, "")
+
+	writer, closeFn := openCaptureFile("zcode")
+	require.Nil(t, writer)
+	closeFn()
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, entries, "开关关闭时不得落盘")
+}

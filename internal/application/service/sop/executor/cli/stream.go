@@ -16,8 +16,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -113,7 +115,9 @@ func RunStream(
 	}
 
 	// 终态帧到达后给 CLI 2.5s 自行退出，到点仍活着就杀整棵树（spec §5.2）。
-	collected := collectStream(stdoutR, a, emit, func() {
+	capture, closeCapture := openCaptureFile(a.Kind())
+	defer closeCapture()
+	collected := collectStream(stdoutR, a, emit, capture, func() {
 		proc.DrainThenKill(p, proc.DrainGrace)
 	})
 	// 进程退出后写端才会关闭；Wait 先等进程，再关写端让读协程收尾。
@@ -201,6 +205,34 @@ func mergedEnv(home *Home, a Adapter, tb executor.TaskBook, mcpEnv map[string]st
 	return extra
 }
 
+// captureEnvDir 是原始 stdout 录制开关的目录（空=关闭，生产默认关）。
+//
+// 录制的是**翻译前**的原始行：适配器协议漂移时，用它把真实输出固化成黄金样本。
+const captureEnvDir = "SOP_CLI_CAPTURE_DIR"
+
+// openCaptureFile 按开关打开 `<dir>/<kind>.jsonl` 原始帧录制文件。
+// 开关关闭或目录不可写都返回 nil writer（录制失败不影响执行）。
+func openCaptureFile(kind string) (io.Writer, func()) {
+	dir := strings.TrimSpace(os.Getenv(captureEnvDir))
+	if dir == "" {
+		return nil, func() {}
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		logCaptureError(kind, err)
+		return nil, func() {}
+	}
+	file, err := os.OpenFile(filepath.Join(dir, safeSegment(kind)+".jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		logCaptureError(kind, err)
+		return nil, func() {}
+	}
+	return file, func() { _ = file.Close() }
+}
+
+func logCaptureError(kind string, err error) {
+	log.Printf("[sop-cli] %s 原始帧录制不可用：%v", kind, err)
+}
+
 // streamCollector 逐行解析 stdout，收集正文/用量/终态结论。
 type streamCollector struct {
 	// onTerminal 在首个终态帧到达时触发一次（用于「排水后杀灭」）。
@@ -220,9 +252,9 @@ type streamCollector struct {
 	resultReason string
 }
 
-// collectStream 起一个读协程。
+// collectStream 起一个读协程。capture 非空时把**翻译前**的原始行逐行落盘。
 func collectStream(
-	r io.Reader, a Adapter, emit func(executor.StreamEvent), onTerminal func(),
+	r io.Reader, a Adapter, emit func(executor.StreamEvent), capture io.Writer, onTerminal func(),
 ) *streamCollector {
 	c := &streamCollector{adapter: a, emit: emit, done: make(chan struct{}), onTerminal: onTerminal}
 	go func() {
@@ -231,6 +263,9 @@ func collectStream(
 		scanner.Buffer(make([]byte, 0, 64*1024), streamScanBuf)
 		for scanner.Scan() {
 			line := scanner.Text()
+			if capture != nil {
+				_, _ = io.WriteString(capture, line+"\n")
+			}
 			events, terminal := a.ParseLine(line)
 			if len(events) == 0 && !terminal {
 				continue
