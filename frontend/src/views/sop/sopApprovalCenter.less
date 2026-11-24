@@ -1,0 +1,136 @@
+// 审批中心
+.sop-approvals {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--app-space-5);
+}
+
+.sop-approvals-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--app-space-3);
+  margin-bottom: var(--app-space-4);
+}
+
+.sop-approvals-title {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  margin: 0;
+  font-size: var(--app-text-lg);
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.sop-badge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--app-radius-pill);
+  background: var(--td-error-color);
+  color: #fff;
+  font-size: var(--app-text-xs);
+  line-height: 20px;
+  text-align: center;
+}
+
+.sop-approvals-desc {
+  margin: 6px 0 0;
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-sm);
+}
+
+.sop-approvals-empty {
+  padding: var(--app-space-8);
+  border: 1px dashed var(--td-component-stroke);
+  border-radius: var(--app-radius-lg);
+  color: var(--td-text-color-placeholder);
+  font-size: var(--app-text-sm);
+  text-align: center;
+}
+
+.sop-approvals-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-3);
+}
+
+.sop-approval {
+  padding: var(--app-space-3) var(--app-space-4);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-lg);
+  background: var(--td-bg-color-container);
+}
+
+.sop-approval-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-2);
+}
+
+.sop-approval-title {
+  font-size: var(--app-text-base);
+  color: var(--td-text-color-primary);
+}
+
+.sop-kind {
+  padding: 1px 8px;
+  border-radius: var(--app-radius-pill);
+  background: var(--td-brand-color-1);
+  color: var(--td-brand-color);
+  font-size: var(--app-text-2xs);
+
+  &.is-agent_prompt {
+    background: var(--td-warning-color-1);
+    color: var(--td-warning-color);
+  }
+
+  &.is-automation {
+    background: var(--td-bg-color-secondarycontainer);
+    color: var(--td-text-color-secondary);
+  }
+}
+
+.sop-approval-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-3);
+  margin-top: 4px;
+  color: var(--td-text-color-placeholder);
+  font-size: var(--app-text-xs);
+}
+
+.sop-approval-reason {
+  margin: 6px 0 var(--app-space-2);
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-sm);
+}
+
+.sop-approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--app-space-2);
+}
+
+.sop-comment {
+  flex: 1 1 240px;
+  min-width: 180px;
+  max-width: 420px;
+}
+
+.sop-reject {
+  width: 180px;
+}
+
+.sop-muted {
+  margin-left: auto;
+  color: var(--td-text-color-placeholder);
+  font-size: var(--app-text-xs);
+}
