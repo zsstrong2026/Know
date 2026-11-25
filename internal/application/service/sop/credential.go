@@ -12,6 +12,7 @@ import (
 	"errors"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/application/service/sop/executor/cli"
@@ -54,7 +55,15 @@ var cliGuidance = map[string]string{
 // CredentialService CLI 凭据与安装状态。
 type CredentialService struct {
 	repo interfaces.SopCredentialRepository
+	// cliStatus* 是 Status 的进程内缓存（见 Status 注释）。
+	cliStatusMu sync.Mutex
+	cliStatus   []CLIStatus
+	cliStatusAt time.Time
 }
+
+// cliStatusTTL 是 CLI 探测结果的缓存时长：设置页轮询与多人同时打开都会反复调
+// Status，每次 10 次 LookPath + 10 次 --version 的代价没必要重复付。
+const cliStatusTTL = time.Minute
 
 // NewCredentialService 构造凭据服务；repo 可 nil（只做 PATH 探测时）。
 func NewCredentialService(repo interfaces.SopCredentialRepository) *CredentialService {
@@ -156,8 +165,24 @@ func tail4(s string) string {
 // cliVersionTimeout 是 `<binary> --version` 的上限：探测不该挂住设置页。
 const cliVersionTimeout = 3 * time.Second
 
-// Status 逐个 CLI 探测安装状态。
+// Status 逐个 CLI 探测安装状态（结果进程内缓存 cliStatusTTL，返回副本）。
+//
+// 探测涉及 10 次 LookPath 与最多 10 次 `--version`（每次 3s 上限）：设置页轮询
+// 与多人同时打开会把开销叠加起来，而 CLI 是否安装在一分钟内不会变。
 func (s *CredentialService) Status(ctx context.Context) []CLIStatus {
+	s.cliStatusMu.Lock()
+	defer s.cliStatusMu.Unlock()
+	if s.cliStatus != nil && time.Since(s.cliStatusAt) < cliStatusTTL {
+		return append([]CLIStatus(nil), s.cliStatus...)
+	}
+	out := s.probeStatus(ctx)
+	s.cliStatus = append([]CLIStatus(nil), out...)
+	s.cliStatusAt = time.Now()
+	return out
+}
+
+// probeStatus 实际执行一次全量探测（不加锁、不缓存）。
+func (s *CredentialService) probeStatus(ctx context.Context) []CLIStatus {
 	out := make([]CLIStatus, 0, len(cliAdapters()))
 	for _, a := range cliAdapters() {
 		binary := a.BinaryName()
