@@ -786,6 +786,9 @@ func (e *Engine) applyGateOutcome(
 	case types.SopGatePass:
 		nr.Status, nr.Output = types.SopNodeSucceeded, res.Output
 		nr.Error = ""
+		// 上一轮的返工意见只服务于本轮；通过后必须清掉，否则重试/重跑会把
+		// 旧意见当成新指令再喂给执行器。GateResult 保留 pass 作为最终结论。
+		nr.Feedback, nr.GateReason = "", ""
 		nr.SessionID, nr.ResumeSessionID = res.SessionID, res.ResumeSessionID
 		nr.FinishedAt = &now
 	case types.SopGateRework:

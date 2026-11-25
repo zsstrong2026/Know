@@ -148,7 +148,9 @@ func TestMixedChainWithRework(t *testing.T) {
 	require.NoError(t, err)
 	impl := findNodeRun(t, nodes, "impl")
 	require.Equal(t, 1, impl.ReworkCount, "打回计数 +1")
-	require.Contains(t, impl.Feedback, "接口不符", "返工意见要进任务书")
+	// 返工意见只服务于返工那一轮；节点已再次通过，落库必须清空，
+	// 否则下一次重试/重跑会把旧意见当成新指令下发。
+	require.Empty(t, impl.Feedback, "通过后清掉返工意见")
 
 	require.NoError(t, env.engine.Approve(context.Background(), 1, run.ID, "approve", "通过", "u1"))
 	waitRunStatus(t, env, run.ID, types.SopRunSucceeded)

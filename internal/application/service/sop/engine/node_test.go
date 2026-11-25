@@ -225,7 +225,8 @@ func TestRejectResetsTargetAndDescendants(t *testing.T) {
 	n1, _ := e.deps.Runs.GetNodeRun(ctx, 1, run.ID, "n1")
 	require.Equal(t, "a2", n1.Output)
 	require.Equal(t, 1, n1.ReworkCount)
-	require.Contains(t, n1.Feedback, "方案不行")
+	// 返工意见只在返工那一轮有效；本轮已通过，必须清掉，避免后续重试/重跑复用旧意见。
+	require.Empty(t, n1.Feedback, "通过后清掉返工意见")
 }
 
 func TestGateCommandsScriptFailureMeansRework(t *testing.T) {
