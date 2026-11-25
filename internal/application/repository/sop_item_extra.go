@@ -44,31 +44,36 @@ func (r *SopItemExtraRepo) AddClarification(ctx context.Context, c *types.SopIte
 }
 
 // SeedAnswered 批量写入已答澄清（新建事项 AI 拆解问答 seeding，spec §3.9）。
-// 入参里的 TenantID/ItemID 被显式以参数覆盖，避免调用方漏填导致跨租户写入。
+// 入参里的 TenantID/ItemID 被显式以参数覆盖，避免调用方漏填导致跨租户写入；
+// ID/CreatedAt 也一律清空交给模型补——复用调用方 id 会撞主键，带旧创建时间
+// 会让本轮问答排到历史前面。事项归属校验在判空之前做：传错 itemID 时不能
+// 因为 qas 为空就静默成功。
 func (r *SopItemExtraRepo) SeedAnswered(
 	ctx context.Context, tenantID uint64, itemID string, qas []types.SopItemClarification,
 ) error {
-	if len(qas) == 0 {
-		return nil
-	}
-	now := time.Now()
-	rows := make([]types.SopItemClarification, 0, len(qas))
-	for _, qa := range qas {
-		qa.TenantID = tenantID
-		qa.ItemID = itemID
-		qa.Status = types.SopClarificationStatusAnswered
-		if qa.Source == "" {
-			qa.Source = types.SopClarificationSourceAI
-		}
-		if qa.AnsweredAt == nil {
-			answeredAt := now
-			qa.AnsweredAt = &answeredAt
-		}
-		rows = append(rows, qa)
-	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := requireSopItemInTenant(tx, tenantID, itemID); err != nil {
 			return err
+		}
+		if len(qas) == 0 {
+			return nil
+		}
+		now := time.Now()
+		rows := make([]types.SopItemClarification, 0, len(qas))
+		for _, qa := range qas {
+			qa.ID = ""
+			qa.CreatedAt = time.Time{}
+			qa.TenantID = tenantID
+			qa.ItemID = itemID
+			qa.Status = types.SopClarificationStatusAnswered
+			if qa.Source == "" {
+				qa.Source = types.SopClarificationSourceAI
+			}
+			if qa.AnsweredAt == nil {
+				answeredAt := now
+				qa.AnsweredAt = &answeredAt
+			}
+			rows = append(rows, qa)
 		}
 		return tx.Create(&rows).Error
 	})
