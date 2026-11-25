@@ -693,6 +693,7 @@ func (h *SOPHandler) RegisterBriefRoutes(sopGroup *gin.RouterGroup) {
 		p.POST("/:id/notes", h.CreateProjectNote)
 		p.POST("/:id/notes/decision-draft", h.DecisionDraft)
 		p.POST("/:id/kb", h.ReplaceProjectKB)
+		p.DELETE("/:id/kb", h.UnbindProjectKB)
 	}
 	sopGroup.PATCH("/notes/:id", h.UpdateProjectNote)
 	sopGroup.DELETE("/notes/:id", h.DeleteProjectNote)

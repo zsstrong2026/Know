@@ -281,3 +281,43 @@ func TestDeleteProjectKeepsLinkedKB(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Empty(t, lastStubKBCalls(t).deleted, "改绑后删项目只解绑，不删库")
 }
+
+// 解绑自建库：库必须被删除，且 kb_id/kb_owner/brief 绑定一起清空。
+func TestUnbindProjectKBDeletesOwnKBAndClearsBinding(t *testing.T) {
+	r, _ := newSOPBriefTestRouterWithKB(t)
+	pid := createTestProject(t, r)
+
+	w := sopDoJSON(t, r, "DELETE", "/api/v1/sop/projects/"+pid+"/kb", "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Contains(t, lastStubKBCalls(t).deleted, "kb-self", "项目自建库必须连带删除")
+
+	got := sopDoJSON(t, r, "GET", "/api/v1/sop/projects/"+pid, "")
+	require.Equal(t, http.StatusOK, got.Code)
+	var resp struct {
+		Data types.SopProject
+	}
+	require.NoError(t, json.Unmarshal(got.Body.Bytes(), &resp))
+	require.Empty(t, resp.Data.KBID, "解绑后 kb_id 必须清空")
+	require.Empty(t, resp.Data.KBOwner)
+	require.Empty(t, resp.Data.BriefKnowledgeID)
+}
+
+// 解绑改绑库：只清绑定，绝不删别人的库。
+func TestUnbindRejectsLinkedKBDeletion(t *testing.T) {
+	r, _ := newSOPBriefTestRouterWithKB(t)
+	pid := createTestProject(t, r)
+	w := sopDoJSON(t, r, "POST", "/api/v1/sop/projects/"+pid+"/kb", `{"kb_id":"kb-other"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	w = sopDoJSON(t, r, "DELETE", "/api/v1/sop/projects/"+pid+"/kb", "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Empty(t, lastStubKBCalls(t).deleted, "改绑库只解绑，不删库")
+
+	got := sopDoJSON(t, r, "GET", "/api/v1/sop/projects/"+pid, "")
+	var resp struct {
+		Data types.SopProject
+	}
+	require.NoError(t, json.Unmarshal(got.Body.Bytes(), &resp))
+	require.Empty(t, resp.Data.KBID)
+	require.Empty(t, resp.Data.KBOwner)
+}

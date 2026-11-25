@@ -330,6 +330,42 @@ func (h *SOPHandler) ReplaceProjectKB(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": proj})
 }
 
+// UnbindProjectKB 解绑项目知识库：自建库连带删除（数据不可恢复），
+// 改绑/PM 迁移的库只解绑；两种情况都把 kb_id/kb_owner/简报绑定清空。
+func (h *SOPHandler) UnbindProjectKB(c *gin.Context) {
+	tenantID := sopTenantID(c)
+	if tenantID == 0 {
+		return
+	}
+	proj, err := h.projects.GetByID(c.Request.Context(), tenantID, sopProjectID(c))
+	if err != nil {
+		sopFail(c, err, "项目不存在")
+		return
+	}
+	if strings.TrimSpace(proj.KBID) == "" {
+		// 已解绑：幂等返回，避免重复点击报错。
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": proj})
+		return
+	}
+	if proj.KBOwner == types.SopKBOwnerProject && h.kbSvc != nil {
+		// 与 DeleteProject 不同：解绑时删库就是用户的意图，失败要如实上抛，
+		// 否则用户以为库已删掉、实际还占着列表。
+		if err := h.kbSvc.DeleteKnowledgeBase(c.Request.Context(), proj.KBID); err != nil {
+			sopFail(c, err, "")
+			return
+		}
+	}
+	proj.KBID = ""
+	proj.KBOwner = ""
+	proj.BriefKnowledgeID = ""
+	proj.BriefRenderedSeq = 0
+	if err := h.projects.Update(c.Request.Context(), proj); err != nil {
+		sopFail(c, err, "项目不存在")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": proj})
+}
+
 // RelaunchItem 整条重触发：用事项绑定的模板新建一次运行（旧运行保留为历史）。
 //
 // 大项（或有子项的父项）一律 400：双轨执行会让父子两次运行互相覆盖产物。

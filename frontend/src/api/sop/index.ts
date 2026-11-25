@@ -704,6 +704,11 @@ export async function deleteProject(id: string): Promise<void> {
   await del(`${SOP_BASE}/projects/${id}`);
 }
 
+/** 解绑项目知识库：自建库由后端连带删除，改绑库只解绑。 */
+export async function unbindProjectKB(id: string): Promise<SopProject> {
+  return del<{ data: SopProject }>(`${SOP_BASE}/projects/${id}/kb`).then((r) => r.data);
+}
+
 export async function addRepo(projectId: string, repo: Partial<SopRepo>): Promise<SopRepo> {
   return post<{ data: SopRepo }>(`${SOP_BASE}/projects/${projectId}/repos`, repo).then((r) => r.data);
 }

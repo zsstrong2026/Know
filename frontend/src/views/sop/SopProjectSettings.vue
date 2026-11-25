@@ -334,6 +334,7 @@ import {
   renderBrief,
   replaceProjectKB,
   setDefaultRepo,
+  unbindProjectKB,
   updateProject,
   type SopBriefStatus,
   type SopProject,
@@ -727,7 +728,9 @@ function askUnbindKb() {
     onConfirm: async () => {
       if (!project.value) return;
       try {
-        const updated = await updateProject(project.value.id, { kb_id: '' });
+        // 解绑走独立端点：自建库由后端连带删除，清空 kb_id/kb_owner 与简报绑定。
+        // updateProject({kb_id:''}) 会被后端当成「未传」而变成空操作。
+        const updated = await unbindProjectKB(project.value.id);
         project.value = updated;
         MessagePlugin.success(t('sop.settings.kbUnboundDone'));
         await store.loadProjects().catch(() => undefined);

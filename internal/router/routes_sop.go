@@ -39,6 +39,7 @@ func RegisterSOPRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGuards
 	manage.POST("/:id/brief/render", g.Contributor(), h.RenderProjectBrief)
 	manage.POST("/:id/notes", g.Contributor(), h.CreateProjectNote)
 	manage.POST("/:id/kb", g.Contributor(), h.ReplaceProjectKB)
+	manage.DELETE("/:id/kb", g.Contributor(), h.UnbindProjectKB)
 }
 
 // RegisterSOPNoteRoutes 挂黑板条目组（按 id 的编辑/删除，路径不在项目前缀下）。
