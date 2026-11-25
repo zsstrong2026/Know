@@ -330,6 +330,21 @@ func (r *SopRunRepo) ExpireLeases(ctx context.Context, now time.Time) (int64, er
 	if cancelled.Error != nil {
 		return 0, cancelled.Error
 	}
+	// 1c. 未带取消标记的过期行也要先收口节点：运行马上被判 failed，非终态节点
+	// 若留在 running/pending，详情页会一直显示「仍在执行」。
+	if err := db.Model(&types.SopNodeRun{}).
+		Where("run_id IN (?)", expired().Where("cancel_requested = ?", false).Select("id")).
+		Where("status IN ?", []string{
+			types.SopNodePending, types.SopNodeRunning,
+			types.SopNodeWaitingApproval, types.SopNodePendingInput,
+		}).
+		Updates(map[string]any{
+			"status":      types.SopNodeCancelled,
+			"finished_at": now,
+			"updated_at":  now,
+		}).Error; err != nil {
+		return 0, err
+	}
 	// 2. 其余过期行照旧回收为 failed。
 	failed := expired().
 		Where("cancel_requested = ?", false).
