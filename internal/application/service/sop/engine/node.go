@@ -858,15 +858,21 @@ func (e *Engine) handleFailure(
 		}
 		target := strings.TrimSpace(node.RejectTo)
 		if target == "" {
-			// 打回目标缺失是定义错误：退化为自动重跑本条，不让运行卡死。
-			nr.Status = types.SopNodePending
-			nr.Feedback = reason
-			return e.deps.Runs.UpdateNodeRun(ctx, nr)
+			// 定义错误：不能悄悄退化成「本节点重跑」——那与 loop 语义混淆，用户
+			// 永远不知道模板缺了打回目标。带着清楚的原因让运行失败。
+			reason := fmt.Sprintf("步骤「%s」配置了失败后打回上游，但没选打回目标，请到模板里补上", nodeDisplayName(run, node.ID))
+			nr.Status, nr.Error = types.SopNodeFailed, reason
+			now := time.Now()
+			nr.FinishedAt = &now
+			if err := e.deps.Runs.UpdateNodeRun(ctx, nr); err != nil {
+				return err
+			}
+			e.markRunFailed(ctx, run, reason)
+			return nil
 		}
-		ids := []string{target}
-		for id := range Descendants(&run.WorkflowSnapshot, target) {
-			ids = append(ids, id)
-		}
+		// 只重置「目标 → 本节点」这条链：无条件重置目标的全部下游会把并行兄弟
+		// 分支的产出一起抹掉，下游重跑时就读不到本该存在的数据。
+		ids := NodesOnPaths(&run.WorkflowSnapshot, target, node.ID)
 		if err := e.deps.Runs.ResetNodes(ctx, run.ID, ids, carryOverOf(&run.WorkflowSnapshot)); err != nil {
 			return err
 		}

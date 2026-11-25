@@ -57,6 +57,33 @@ func Descendants(def *types.SopDefinition, nodeID string) map[string]bool {
 	return reach(def, nodeID, Downstreams)
 }
 
+// NodesOnPaths 返回从 from 到 to 的所有路径上的节点（含两端）：即 from 的下游里
+// 能走到 to 的那些。打回重置只该动这条链——无条件重置 from 的全部下游会把并行
+// 兄弟分支的产出一起抹掉，下游节点重跑时就读不到本该存在的数据。
+//
+// from == to 时只返回该节点自身。
+func NodesOnPaths(def *types.SopDefinition, from, to string) []string {
+	if def == nil || from == "" || to == "" {
+		return nil
+	}
+	if from == to {
+		return []string{from}
+	}
+	// 反向可达集：从 to 往上游走，能到 from 的节点都在某条 from→to 的路径上。
+	upFromTo := Ancestors(def, to)
+	if !upFromTo[from] {
+		return []string{from}
+	}
+	out := []string{from}
+	for id := range Descendants(def, from) {
+		if id == to || upFromTo[id] {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func reach(def *types.SopDefinition, nodeID string, next func(*types.SopDefinition, string) []string) map[string]bool {
 	out := map[string]bool{}
 	if def == nil || nodeID == "" {
