@@ -142,9 +142,14 @@
 }
 
 .sop-empty {
-  padding: var(--app-space-6) !important;
   color: var(--td-text-color-placeholder);
-  text-align: center !important;
+  text-align: center;
+}
+
+// 表格内的空态单元格：`.sop-table td` 的特异性高于单个类，靠提高特异性而不是
+// !important 覆盖基线的 8px/10px 内边距。
+.sop-table td.sop-empty {
+  padding: var(--app-space-6);
 }
 
 .sop-muted {

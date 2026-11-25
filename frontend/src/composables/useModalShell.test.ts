@@ -26,6 +26,9 @@ function fixture() {
       { Name: 'builtin', Available: true, FileTypes: ['pdf', 'xlsx'] },
       { Name: 'anydoc', Available: true, FileTypes: ['pdf', 'xlsx'] },
     ],
+    // 8d85ca46c 起 KBParserSettings 会遍历它（空间默认解析引擎规则）：
+    // 生产由 store 初始化成 []，桩里漏了就会在 getWorkspaceDefaultEngine 抛不可迭代。
+    parserEngineDefaultRules: [],
     async prefetchAgentEditorDeps() {}, async ensureSkills() {}, async ensureSkillCatalog() {},
     async ensureParserEngines(_force = false) {},
   }

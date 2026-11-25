@@ -106,9 +106,13 @@
 }
 
 .sop-empty-row {
-  padding: var(--app-space-6) !important;
   color: var(--td-text-color-placeholder);
-  text-align: center !important;
+  text-align: center;
+}
+
+// 同上：表格 td 的 padding 由 `.sop-table td` 给，这里用双类特异性覆盖。
+.sop-table .sop-empty-row {
+  padding: var(--app-space-6);
 }
 
 .sop-empty {
