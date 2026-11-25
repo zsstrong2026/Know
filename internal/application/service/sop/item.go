@@ -229,21 +229,22 @@ func (s *ItemService) Update(
 	return it, nil
 }
 
-// Delete 软删事项（子项存在时拒绝，避免留下孤立子项）。
+// Delete 软删事项：还有子项时拒绝，避免留下孤立子项。
+//
+// 守卫按「是否存在子项」判定而不是看 is_big：is_big 可被误清、历史数据也可能
+// parent_id 有值但 is_big=false，按标记判定会留下孤儿。
 func (s *ItemService) Delete(ctx context.Context, tenantID uint64, userID, id string) error {
 	it, err := s.items.GetByID(ctx, tenantID, id)
 	if err != nil {
 		return err
 	}
-	if it.IsBig {
-		children, err := s.items.ListWithDerived(ctx, tenantID, it.ProjectID,
-			types.SopItemFilter{ParentID: &id}, nil, nil)
-		if err != nil {
-			return err
-		}
-		if len(children) > 0 {
-			return fmt.Errorf("该大项下还有 %d 个子项，请先处理子项", len(children))
-		}
+	children, err := s.items.ListWithDerived(ctx, tenantID, it.ProjectID,
+		types.SopItemFilter{ParentID: &id}, nil, nil)
+	if err != nil {
+		return err
+	}
+	if len(children) > 0 {
+		return fmt.Errorf("该大项下还有 %d 个子项，请先处理子项", len(children))
 	}
 	if err := s.items.Delete(ctx, tenantID, id); err != nil {
 		return err

@@ -10115,6 +10115,7 @@
       cliTitle: '執行器設定',
       cliDesc: '本機 CLI 憑證、安裝狀態與工作區設定',
       cliEmpty: '執行器設定正在完善中',
+    },
     brief: {
       panelTitle: '黑板與簡報',
       panelSub: '黑板是專案的共享上下文；簡報是它的唯讀投影，會同步到專案知識庫',
@@ -10191,7 +10192,7 @@
       childProgress: '子項進度',
       childrenEmpty: '還沒有子事項',
       addChild: '拆分子事項',
-      panel: '黑板與簡報'
+      panel: '黑板與簡報',
       expand: '展開子項',
       collapse: '收合子項',
       childBadge: '子項',
@@ -10230,7 +10231,6 @@
       modeNew: '新建「{name}」知識庫',
       modeExisting: '使用已有知識庫',
       modeNone: '暫不建立'
-    },
     },
     arch: {
       title: 'PM 歸檔',

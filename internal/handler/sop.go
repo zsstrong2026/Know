@@ -443,12 +443,21 @@ func (h *SOPHandler) UpdateProject(c *gin.Context) {
 }
 
 // DeleteProject 软删项目：有进行中的运行先拦（避免把正在跑的运行悬空）。
+//
+// 知识库按 kb_owner 区分（spec §16.22）：项目自建库连带删除（文档不可恢复），
+// 改绑/PM 迁移的库只解绑——项目行消失即解绑，库本身留在用户的知识库列表里。
+// 删库失败只记日志：项目已经删掉，再把错误上抛只会让用户以为删除没生效。
 func (h *SOPHandler) DeleteProject(c *gin.Context) {
 	tenantID := sopTenantID(c)
 	if tenantID == 0 {
 		return
 	}
 	id := sopProjectID(c)
+	proj, err := h.projects.GetByID(c.Request.Context(), tenantID, id)
+	if err != nil {
+		sopFail(c, err, "项目不存在")
+		return
+	}
 	active, err := h.projects.CountActiveRuns(c.Request.Context(), tenantID, id)
 	if err != nil {
 		sopFail(c, err, "项目不存在")
@@ -461,6 +470,11 @@ func (h *SOPHandler) DeleteProject(c *gin.Context) {
 	if err := h.projects.Delete(c.Request.Context(), tenantID, id); err != nil {
 		sopFail(c, err, "项目不存在")
 		return
+	}
+	if proj.KBOwner == types.SopKBOwnerProject && strings.TrimSpace(proj.KBID) != "" && h.kbSvc != nil {
+		if err := h.kbSvc.DeleteKnowledgeBase(c.Request.Context(), proj.KBID); err != nil {
+			log.Printf("[sop-project] 项目 %s 自建知识库 %s 删除失败：%v", id, proj.KBID, err)
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"deleted": true}})
 }

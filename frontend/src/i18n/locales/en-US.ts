@@ -1333,6 +1333,7 @@
       cliTitle: 'Executor settings',
       cliDesc: 'Local CLI credentials, install status and workspace',
       cliEmpty: 'Executor settings are being finished',
+    },
     brief: {
       panelTitle: 'Board and brief',
       panelSub: 'The board is the project shared context; the brief is its read-only projection synced to the project KB',
@@ -1409,7 +1410,7 @@
       childProgress: 'Child progress',
       childrenEmpty: 'No child items yet',
       addChild: 'Split into children',
-      panel: 'Board and brief'
+      panel: 'Board and brief',
       expand: 'Expand children',
       collapse: 'Collapse children',
       childBadge: 'Child',
@@ -1448,7 +1449,6 @@
       modeNew: 'Create "{name}" knowledge base',
       modeExisting: 'Use an existing knowledge base',
       modeNone: 'Skip for now'
-    },
     },
     arch: {
       title: 'PM archive',

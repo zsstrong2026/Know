@@ -10115,6 +10115,7 @@
       cliTitle: '执行器设置',
       cliDesc: '本机 CLI 凭据、安装状态与工作区配置',
       cliEmpty: '执行器设置正在完善中',
+    },
     brief: {
       panelTitle: '黑板与简报',
       panelSub: '黑板是项目的共享上下文；简报是它的只读投影，会同步到项目知识库',
@@ -10191,7 +10192,7 @@
       childProgress: '子项进度',
       childrenEmpty: '还没有子事项',
       addChild: '拆分子事项',
-      panel: '黑板与简报'
+      panel: '黑板与简报',
       expand: '展开子项',
       collapse: '收起子项',
       childBadge: '子项',
@@ -10230,7 +10231,6 @@
       modeNew: '新建「{name}」知识库',
       modeExisting: '使用已有知识库',
       modeNone: '暂不创建'
-    },
     },
     arch: {
       title: 'PM 归档',

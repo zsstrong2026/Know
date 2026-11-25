@@ -1333,6 +1333,7 @@
       cliTitle: '実行者設定',
       cliDesc: 'ローカルCLIの認証情報、インストール状態、ワークスペース',
       cliEmpty: '実行者設定は準備中です',
+    },
     brief: {
       panelTitle: 'ボードとブリーフ',
       panelSub: 'ボードはプロジェクトの共有コンテキスト、ブリーフはその読み取り専用の投影で KB に同期されます',
@@ -1409,7 +1410,7 @@
       childProgress: '子項の進捗',
       childrenEmpty: '子事項はまだありません',
       addChild: '子事項に分割',
-      panel: 'ボードとブリーフ'
+      panel: 'ボードとブリーフ',
       expand: '子項を展開',
       collapse: '子項を折りたたむ',
       childBadge: '子項',
@@ -1448,7 +1449,6 @@
       modeNew: '「{name}」KB を作成',
       modeExisting: '既存の KB を使う',
       modeNone: '今は作成しない'
-    },
     },
     arch: {
       title: 'PM アーカイブ',

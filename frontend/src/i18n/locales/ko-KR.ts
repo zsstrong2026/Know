@@ -10114,6 +10114,7 @@
       cliTitle: '실행기 설정',
       cliDesc: '로컬 CLI 자격 증명, 설치 상태 및 워크스페이스',
       cliEmpty: '실행기 설정 준비 중입니다',
+    },
     brief: {
       panelTitle: '보드와 브리프',
       panelSub: '보드는 프로젝트 공유 컨텍스트이고, 브리프는 이를 읽기 전용으로 투영해 KB에 동기화합니다',
@@ -10190,7 +10191,7 @@
       childProgress: '하위 진행률',
       childrenEmpty: '하위 항목이 없습니다',
       addChild: '하위 항목으로 분할',
-      panel: '보드와 브리프'
+      panel: '보드와 브리프',
       expand: '하위 펼치기',
       collapse: '하위 접기',
       childBadge: '하위',
@@ -10229,7 +10230,6 @@
       modeNew: '"{name}" 지식베이스 생성',
       modeExisting: '기존 지식베이스 사용',
       modeNone: '지금은 만들지 않음'
-    },
     },
     arch: {
       title: 'PM 아카이브',

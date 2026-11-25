@@ -383,3 +383,26 @@ func TestListRollsUpParentExec(t *testing.T) {
 	require.Equal(t, 1, byID[full.ID].ChildDone)
 	require.NotEmpty(t, byID[full.ID].ChildExec)
 }
+
+// 删除守卫按「是否有子项」判定：is_big 被误清也不能留下孤儿。
+func TestDeleteRejectsWhenChildrenExistEvenWithoutBigFlag(t *testing.T) {
+	svc, db := newItemTestService(t)
+	ctx := context.Background()
+	p := &types.SopProject{TenantID: 1, Name: "P", Code: "TP"}
+	require.NoError(t, repository.NewSopProjectRepo(db).Create(ctx, p))
+
+	parent, err := svc.Create(ctx, 1, "u1", p.ID, CreateItemInput{Title: "大需求"})
+	require.NoError(t, err)
+	kids, err := svc.Split(ctx, 1, "u1", parent.ID, []types.SopChildItemSpec{{Title: "子一"}}, "")
+	require.NoError(t, err)
+
+	// 模拟历史数据/误操作：父项的 is_big 被清掉，但子项仍在
+	require.NoError(t, repository.NewSopItemRepo(db).SetBig(ctx, 1, parent.ID, false))
+
+	err = svc.Delete(ctx, 1, "u1", parent.ID)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "子项", "仍有子项时必须拒绝")
+
+	require.NoError(t, svc.Delete(ctx, 1, "u1", kids[0].ID), "子项本身可以删")
+	require.NoError(t, svc.Delete(ctx, 1, "u1", parent.ID), "子项清空后父项可删")
+}

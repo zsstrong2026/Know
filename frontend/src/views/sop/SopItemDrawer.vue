@@ -332,6 +332,7 @@ import {
   answerClarification,
   createRun,
   deleteItem,
+  relaunch as apiRelaunch,
   detachChild,
   listChildren,
   generateClarifications,
@@ -672,17 +673,16 @@ async function retryLatestRun() {
   }
 }
 
-/** 整条重触发：新 run 冻结新快照，旧 run 保留为历史。 */
+/** 整条重触发：新 run 冻结新快照，旧 run 保留为历史。大项由后端 400 拦截。 */
 async function relaunch() {
   if (!item.value) return;
-  const templateId = item.value.template_id;
-  if (!templateId) {
+  if (!item.value.template_id) {
     MessagePlugin.warning(t('sop.items.noTemplate'));
     return;
   }
   busy.value = true;
   try {
-    await createRun({ item_id: item.value.id, template_id: templateId });
+    await apiRelaunch(item.value.id);
     MessagePlugin.success(t('sop.drawer.relaunched'));
     await load();
     emit('changed');

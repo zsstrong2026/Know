@@ -13,6 +13,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/application/service/sop"
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
 // newSOPBriefTestRouter 组装带事项/黑板/简报能力的最小路由。
@@ -62,6 +63,77 @@ func (stubBriefKnowledge) UpdateManualKnowledge(
 	context.Context, string, *types.ManualKnowledgePayload,
 ) (*types.Knowledge, error) {
 	return nil, errStubKBNotReady
+}
+
+// stubSOPKB 记录删除调用（嵌接口，未覆盖的方法被调用会 panic——测试里够用）。
+type stubSOPKB struct {
+	interfaces.KnowledgeBaseService
+	deleted []string
+}
+
+func (s *stubSOPKB) CreateKnowledgeBase(
+	_ context.Context, kb *types.KnowledgeBase,
+) (*types.KnowledgeBase, error) {
+	kb.ID = "kb-self"
+	return kb, nil
+}
+
+// GetKnowledgeBaseByID 供改绑时给旧库改名用（名字保持可预测）。
+func (s *stubSOPKB) GetKnowledgeBaseByID(_ context.Context, id string) (*types.KnowledgeBase, error) {
+	return &types.KnowledgeBase{ID: id, Name: "安防知识项目"}, nil
+}
+
+func (s *stubSOPKB) UpdateKnowledgeBase(
+	_ context.Context, id, name, description string, _ *types.KnowledgeBaseConfig, _ *types.VLMConfig,
+) (*types.KnowledgeBase, error) {
+	return &types.KnowledgeBase{ID: id, Name: name, Description: description}, nil
+}
+
+func (s *stubSOPKB) DeleteKnowledgeBase(_ context.Context, id string) error {
+	s.deleted = append(s.deleted, id)
+	return nil
+}
+
+var lastSOPKB *stubSOPKB
+
+func lastStubKBCalls(t *testing.T) *stubSOPKB {
+	t.Helper()
+	require.NotNil(t, lastSOPKB, "测试环境未装配 KB 桩")
+	return lastSOPKB
+}
+
+// newSOPBriefTestRouterWithKB 与 newSOPBriefTestRouter 相同，但注入可断言的 KB 桩。
+func newSOPBriefTestRouterWithKB(t *testing.T) (*gin.Engine, string) {
+	t.Helper()
+	db := newSOPHandlerTestDB(t)
+	lastSOPTestDB = db
+	projects := repository.NewSopProjectRepo(db)
+	items := sop.NewItemService(
+		projects, repository.NewSopItemRepo(db), repository.NewSopItemExtraRepo(db),
+		repository.NewSopRunRepo(db),
+	)
+	notesRepo := repository.NewSopProjectNoteRepo(db)
+	brief := sop.NewBriefService(sop.BriefDeps{
+		Projects: projects, Notes: notesRepo, Items: items, Knowledge: stubBriefKnowledge{},
+	})
+	notes := sop.NewNotesService(sop.NoteDeps{
+		Projects: projects, Notes: notesRepo, Items: items,
+		Runs:     repository.NewSopRunRepo(db),
+		OnRecord: brief.Trigger,
+	})
+	kbStub := &stubSOPKB{}
+	lastSOPKB = kbStub
+	h := NewSOPHandler(SOPHandlerDeps{
+		Projects: projects, Runs: repository.NewSopRunRepo(db),
+		Items: items, Notes: notes, Brief: brief, KBSvc: kbStub,
+		RunSvc: sop.NewRunService(
+			repository.NewSopTemplateRepo(db), repository.NewSopRunRepo(db),
+			projects, repository.NewSopItemRepo(db),
+		),
+	})
+	r := newSOPTestRouterWith(t, h)
+	r.POST("/api/v1/sop/runs", h.CreateRun)
+	return r, ""
 }
 
 // createTestItem 通过 HTTP 创建事项并返回 id。
@@ -183,4 +255,29 @@ func TestRenderBriefWithoutKBRejected(t *testing.T) {
 	w := sopDoJSON(t, r, "POST", "/api/v1/sop/projects/"+pid+"/brief/render", `{}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), "请先绑定知识库")
+}
+
+// 删项目：自建库连带删除，改绑库只解绑（不调用删除）。
+func TestDeleteProjectDeletesOnlyOwnKB(t *testing.T) {
+	r, _ := newSOPBriefTestRouterWithKB(t)
+	pid := createTestProject(t, r)
+
+	w := sopDoJSON(t, r, "DELETE", "/api/v1/sop/projects/"+pid, "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	kb := lastStubKBCalls(t)
+	require.Contains(t, kb.deleted, "kb-self", "项目自建库必须连带删除")
+	require.NotContains(t, kb.deleted, "kb-linked")
+}
+
+// 改绑后删项目不得删旧库（此时 kb_owner=linked）。
+func TestDeleteProjectKeepsLinkedKB(t *testing.T) {
+	r, _ := newSOPBriefTestRouterWithKB(t)
+	pid := createTestProject(t, r)
+	w := sopDoJSON(t, r, "POST", "/api/v1/sop/projects/"+pid+"/kb", `{"kb_id":"kb-other"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	w = sopDoJSON(t, r, "DELETE", "/api/v1/sop/projects/"+pid, "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Empty(t, lastStubKBCalls(t).deleted, "改绑后删项目只解绑，不删库")
 }
