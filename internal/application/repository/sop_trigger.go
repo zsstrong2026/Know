@@ -56,23 +56,47 @@ func (r *SopTriggerRepo) UpsertConfig(ctx context.Context, c *types.SopTriggerCo
 	}
 
 	var existing types.SopTriggerConfig
-	err := r.db.WithContext(ctx).
-		Where("tenant_id = ? AND project_id = ?", c.TenantID, c.ProjectID).
-		First(&existing).Error
+	err := r.findConfigByProject(ctx, c.TenantID, c.ProjectID, &existing)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// 先查后写之间可能有并发 Upsert 抢先插入：撞唯一索引时回查并改走更新，
+		// 把「两个请求同时保存」变成后写者胜，而不是回一个唯一约束错误。
 		c.UpdatedAt = time.Now()
-		return r.db.WithContext(ctx).Create(c).Error
-	}
-	if err != nil {
+		if err := r.db.WithContext(ctx).Create(c).Error; err != nil {
+			if !isUniqueViolation(err) {
+				return err
+			}
+			if err := r.findConfigByProject(ctx, c.TenantID, c.ProjectID, &existing); err != nil {
+				return err
+			}
+		} else {
+			return nil
+		}
+	} else if err != nil {
 		return err
 	}
+	return r.updateExistingConfig(ctx, c, existing)
+}
 
-	// 归属列以库内行为准：调用方传零值不得把配置改挂到别的项目/租户下。
+// findConfigByProject 按 (租户, 项目) 读配置行；独立的查询入口便于并发窗口的可测性
+// （测试可覆盖它以确定性地复现「预检未命中、落库撞索引」）。
+func (r *SopTriggerRepo) findConfigByProject(
+	ctx context.Context, tenantID uint64, projectID string, out *types.SopTriggerConfig,
+) error {
+	return r.db.WithContext(ctx).
+		Where("tenant_id = ? AND project_id = ?", tenantID, projectID).
+		First(out).Error
+}
+
+// updateExistingConfig 复用库内行的归属列（id/created_at）再按白名单更新：
+// 调用方传的零值不得把配置改挂到别的项目/租户下。
+func (r *SopTriggerRepo) updateExistingConfig(
+	ctx context.Context, c *types.SopTriggerConfig, existing types.SopTriggerConfig,
+) error {
 	c.ID = existing.ID
 	c.CreatedAt = existing.CreatedAt
 	c.UpdatedAt = time.Now()
 	return r.db.WithContext(ctx).Model(&types.SopTriggerConfig{}).
-		Where("id = ? AND tenant_id = ?", existing.ID, c.TenantID).
+		Where("id = ? AND tenant_id = ?", c.ID, c.TenantID).
 		Select(sopTriggerConfigUpdateColumns).
 		Updates(c).Error
 }
