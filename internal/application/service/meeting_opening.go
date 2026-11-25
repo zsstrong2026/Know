@@ -148,6 +148,11 @@ func (e *meetingEngine) GenerateOpening(ctx context.Context, room *types.Meeting
 	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventFlowConfirmation, Data: map[string]interface{}{
 		"room_id": room.ID, "message_id": msg.ID, "stage": MeetingOpeningStage,
 	}})
+	// 开场完成：阶段进入待确认；若随后自动开跑，RunTurn 会立即推进到 discussing
+	e.advancePhase(ctx, room, types.MeetingPhaseConfirming, types.MeetingEventOpeningReady,
+		types.MeetingSenderHost, "", "开场分析完成", map[string]any{
+			"message_id": msg.ID, "needs_clarification": needsClarification, "agenda_items": len(agendaItems),
+		})
 	// 议程落库：首次开会用新增，调整流程/回答澄清用重建（覆盖旧议程）
 	if len(agendaItems) > 0 {
 		e.persistAgenda(ctx, room.ID, agendaItems, true)

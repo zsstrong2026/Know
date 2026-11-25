@@ -20,6 +20,22 @@ export type AgendaItemStatus = 'pending' | 'active' | 'done' | 'skipped';
 export type ArtifactKind = 'solution' | 'generated';
 // 产物生成状态机：generating → ready | failed
 export type ArtifactStatus = 'generating' | 'ready' | 'failed';
+
+// 会议显式阶段：由后端状态机在关键节点推进（空串为旧数据）
+export type MeetingPhase = '' | 'opening' | 'confirming' | 'discussing' | 'converging' | 'producing' | 'archived';
+
+// 会议事件（只追加）：payload 为事件上下文对象，后端保证不下发 null
+export interface MeetingEvent {
+  id: string;
+  meeting_room_id: string;
+  phase: MeetingPhase;
+  type: string;
+  actor_kind: SenderKind;
+  actor_id: string;
+  summary: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
 // 产物形态（与后端 types/meeting.go 常量一致；solution 为方案，取代原独立「生成方案」入口）
 export type ArtifactKindType =
   | 'solution' | 'report_markdown' | 'minutes' | 'todo_list'
@@ -49,6 +65,8 @@ export interface MeetingRoom {
   agenda_enabled: boolean;
   // 发言准入模式：off / observe / enforce
   admission_mode: AdmissionMode;
+  // 显式讨论阶段（后端状态机写入）：空串表示旧数据未记录
+  phase: MeetingPhase;
   knowledge_base_ids: string[];
   created_by: string;
   created_at: string;
@@ -294,6 +312,14 @@ export async function generateSolution(roomId: string) {
 export async function listArtifacts(roomId: string) {
   const { get } = await loadRequest();
   return get<{ data: MeetingArtifact[] }>(`/api/v1/meetings/${roomId}/artifacts`).then((r) => r.data);
+}
+
+// 会议事件时间线（按时间正序，旧 -> 新）；limit 默认 100，后端上限 200
+export async function listMeetingEvents(roomId: string, limit = 100) {
+  const { get } = await loadRequest();
+  return get<{ data: { items: MeetingEvent[] } }>(
+    `/api/v1/meetings/${roomId}/events?limit=${limit}`,
+  ).then((r) => r.data.items);
 }
 
 // 把当前方案指针回滚到指定历史版本（成功后落一条系统消息，经 SSE 回流）

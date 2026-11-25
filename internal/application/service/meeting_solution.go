@@ -85,6 +85,8 @@ func (e *meetingEngine) GenerateSolution(ctx context.Context, room *types.Meetin
 		return nil, ErrNoDiscussionMessages
 	}
 
+	// 进入收敛阶段（无阶段专属事件，事件只在方案落库后记录）
+	e.advancePhase(ctx, room, types.MeetingPhaseConverging, "", types.MeetingSenderHost, userID, "", nil)
 	// 生成中事件无配对终态：LLM 失败时前端 loading 由 HTTP 错误响应复位（见 T4.3）
 	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventSolutionGenerating, Data: map[string]any{"room_id": room.ID}})
 
@@ -140,5 +142,7 @@ func (e *meetingEngine) GenerateSolution(ctx context.Context, room *types.Meetin
 
 	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventMessageCreated, Data: msg})
 	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventSolutionCreated, Data: artifact})
+	e.advancePhase(ctx, room, "", types.MeetingEventSolutionReady, types.MeetingSenderHost, userID,
+		"方案已生成", map[string]any{"artifact_id": artifact.ID, "message_id": msg.ID, "version": version})
 	return msg, nil
 }

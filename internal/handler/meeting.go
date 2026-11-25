@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	stderrors "errors"
 	"fmt"
 	"net/http"
@@ -415,6 +416,50 @@ func (h *MeetingHandler) ListMessages(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": msgs})
+}
+
+// meetingEventDTO 事件响应体：payload 以原始 JSON 下发。
+// MeetingEvent.Payload 是 []byte，直接序列化会被编码成 base64，前端无法读取结构化字段。
+type meetingEventDTO struct {
+	ID            string          `json:"id"`
+	MeetingRoomID string          `json:"meeting_room_id"`
+	Phase         string          `json:"phase"`
+	Type          string          `json:"type"`
+	ActorKind     string          `json:"actor_kind"`
+	ActorID       string          `json:"actor_id"`
+	Summary       string          `json:"summary"`
+	Payload       json.RawMessage `json:"payload"`
+	CreatedAt     time.Time       `json:"created_at"`
+}
+
+// ListMeetingEvents GET /api/v1/meetings/:id/events?limit=100 —— 阶段与事件时间线（正序）
+func (h *MeetingHandler) ListMeetingEvents(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	events, err := h.meetingService.ListEvents(ctx, tenantID, c.Param("id"), limit)
+	if err != nil {
+		if stderrors.Is(err, apprepo.ErrMeetingRoomNotFound) {
+			c.Error(errors.NewNotFoundError("meeting not found"))
+			return
+		}
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{"meeting_id": c.Param("id")})
+		c.Error(errors.NewInternalServerError("Failed to list meeting events"))
+		return
+	}
+	items := make([]meetingEventDTO, 0, len(events))
+	for _, ev := range events {
+		payload := ev.Payload
+		if len(payload) == 0 {
+			payload = []byte("{}") // 存量/异常数据兜底，保证前端拿到的始终是对象
+		}
+		items = append(items, meetingEventDTO{
+			ID: ev.ID, MeetingRoomID: ev.MeetingRoomID, Phase: ev.Phase, Type: ev.Type,
+			ActorKind: ev.ActorKind, ActorID: ev.ActorID, Summary: ev.Summary,
+			Payload: payload, CreatedAt: ev.CreatedAt,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"items": items}})
 }
 
 type sendMessageRequest struct {

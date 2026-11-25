@@ -8,6 +8,12 @@
           <t-tag v-if="isFreeMode" size="small" theme="warning" variant="light">
             {{ $t('meeting.modeFree') }}
           </t-tag>
+          <!-- 显式阶段：点击展开事件时间线，回答「会议现在走到哪」 -->
+          <t-tag v-if="phaseLabel" class="phase-tag" size="small" variant="light"
+            :theme="meetingPhaseTheme(store.currentRoom?.phase || '')" :title="$t('meeting.phaseHint')"
+            @click="showTimeline = true">
+            {{ phaseLabel }}
+          </t-tag>
         </div>
         <div v-if="store.currentRoom?.description" class="tb-desc">{{ store.currentRoom.description }}</div>
       </div>
@@ -106,6 +112,30 @@
           </div>
         </template>
 
+        <!-- 聊天流内产物：生成完成后直接出现在对话里，无需再打开右侧抽屉 -->
+        <div v-if="inlineArtifacts.length" class="msg artifact-inline">
+          <div class="avatar artifact-avatar"><t-icon name="file" /></div>
+          <div class="msg-body">
+            <div class="sender">
+              <span class="sender-name">{{ $t('meeting.inlineArtifacts') }}</span>
+            </div>
+            <div class="artifact-cards">
+              <div v-for="a in inlineArtifacts" :key="a.id" class="artifact-card">
+                <div class="ac-main">
+                  <div class="ac-title" :title="inlineArtifactTitle(a)">{{ inlineArtifactTitle(a) }}</div>
+                  <div class="ac-meta">
+                    <span>{{ inlineArtifactKind(a) }}</span>
+                    <span v-if="a.file_size">· {{ inlineArtifactSize(a.file_size) }}</span>
+                  </div>
+                </div>
+                <t-button size="small" theme="primary" variant="text" @click="openInlineArtifact(a)">
+                  {{ a.file_name ? $t('meeting.download') : $t('meeting.exportMd') }}
+                </t-button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 优先展示具体是谁在组织发言，否则退回通用的"讨论中" -->
         <div v-if="store.thinkingSpeaker" class="discussing">
           <t-loading size="small" />
@@ -126,6 +156,8 @@
 
     <ArtifactDrawer v-model:visible="showArtifacts" :room-id="roomId"
       :current-solution-message-id="store.currentRoom?.current_solution_message_id ?? ''" />
+
+    <MeetingTimelineDrawer v-model:visible="showTimeline" :room-id="roomId" />
 
     <ArtifactGenerateDialog v-model:visible="showGenerate" :initial-kind="generateKind"
       @requested="onArtifactRequested" />
@@ -273,9 +305,9 @@ import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { useMeetingStore } from '@/stores/meeting';
-import { interruptMeeting, openMeetingStream } from '@/api/meeting';
+import { artifactDownloadUrl, exportArtifact, interruptMeeting, openMeetingStream } from '@/api/meeting';
 import type {
-  ArtifactKindType, MeetingAttachmentStatus, MeetingMessage, MeetingParticipant,
+  ArtifactKindType, MeetingArtifact, MeetingAttachmentStatus, MeetingMessage, MeetingParticipant,
 } from '@/api/meeting';
 import { MAX_FILE_SIZE_MB } from '@/utils';
 import { createChatMarkdownRenderer, renderChatMarkdown } from '@/utils/chatMarkdownRenderer';
@@ -287,7 +319,9 @@ import type { KnowledgeReferenceLike, ReferenceHighlightTarget } from '@/utils/r
 import ChatCitationFloat from '@/components/ChatCitationFloat.vue';
 import MentionPicker from './components/MentionPicker.vue';
 import ArtifactDrawer from './ArtifactDrawer.vue';
+import MeetingTimelineDrawer from './MeetingTimelineDrawer.vue';
 import ArtifactGenerateDialog from './components/ArtifactGenerateDialog.vue';
+import { meetingPhaseLabelKey, meetingPhaseTheme } from '@/utils/meetingPhase';
 
 const route = useRoute();
 const { t } = useI18n();
@@ -298,6 +332,7 @@ const draftRef = ref<{ focus?: () => void } | null>(null); // 「调整流程」
 // 本次发言 @ 提及的智能体（仅视图本地状态，发送时取其 agent_id 传给后端）
 const mentions = ref<MeetingParticipant[]>([]);
 const showArtifacts = ref(false); // 历史产物抽屉可见性（视图本地状态，不入 store）
+const showTimeline = ref(false); // 会议时间线抽屉可见性
 const showGenerate = ref(false); // 产物生成弹窗可见性（视图本地状态）
 // 弹窗打开时的预选形态：顶部「生成方案」直达方案形态，其余入口用默认形态
 const generateKind = ref<ArtifactKindType | undefined>(undefined);
@@ -307,10 +342,22 @@ let closeStream: (() => void) | null = null;
 // 一体化页面下切换会议只变路由参数、组件实例复用，故 roomId 需为响应式
 const roomId = computed(() => (route.params.roomId as string) || '');
 
+// 聊天流内产物：只展示已就绪的生成类产物（方案已有专用气泡，避免重复展示）
+const inlineArtifacts = computed(() => store.artifacts
+  .filter((a) => a.kind !== 'solution' && a.kind_type !== 'solution' && a.status === 'ready')
+  .slice(-3));
+
 // 归档只读态：输入/发送/评审/生成方案全部禁用，SSE 仍保持接收（归档系统消息可推送到场）
 const isArchived = computed(() => store.currentRoom?.status === 'archived');
 // 自由模式：没有主持人开场与议程，顶栏给出模式标识
 const isFreeMode = computed(() => store.currentRoom?.mode === 'free');
+// 顶栏阶段徽标文案：仅后端已写入 phase 时展示；未知阶段回退原始值
+const phaseLabel = computed(() => {
+  const phase = store.currentRoom?.phase || '';
+  if (!phase) return '';
+  const key = meetingPhaseLabelKey(phase);
+  return key ? t(key) : phase;
+});
 
 // 方案与产物共用同一生成通道：任一产物在生成中都视为「正在生成」，按钮给出 loading
 const artifactGenerating = computed(() => store.artifacts.some((a) => a.status === 'generating'));
@@ -566,6 +613,53 @@ function scrollToBottom() {
   if (el) el.scrollTop = el.scrollHeight;
 }
 
+// 聊天流内产物的展示与下载：文件走会话下载端点，纯文本形态走 .md 导出
+function inlineArtifactTitle(a: MeetingArtifact): string {
+  return a.title || a.file_name || inlineArtifactKind(a);
+}
+
+function inlineArtifactKind(a: MeetingArtifact): string {
+  const key: Record<string, string> = {
+    report_markdown: 'kindReportMarkdown',
+    minutes: 'kindMinutes',
+    todo_list: 'kindTodoList',
+    docx: 'kindDocx',
+    xlsx: 'kindXlsx',
+    pptx: 'kindPptx',
+    html_report: 'kindHtmlReport',
+    chart_image: 'kindChartImage',
+  };
+  return t(`meeting.${key[a.kind_type] || 'kindReportMarkdown'}`);
+}
+
+function inlineArtifactSize(bytes?: number): string {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function openInlineArtifact(a: MeetingArtifact) {
+  try {
+    // 动态引入保持首屏包体：下载/导出只在用户点击时加载
+    const { getDown } = await import('../../utils/request');
+    const blob = a.file_name
+      ? await getDown(artifactDownloadUrl(roomId.value, a.id))
+      : await exportArtifact(roomId.value, a.id);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = a.file_name || `${inlineArtifactTitle(a)}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    MessagePlugin.error((e as Error)?.message || t('meeting.loadFailed'));
+  }
+}
+
+// 产物就绪后自动滚到底部，保证新卡片出现在可视区
+watch(() => inlineArtifacts.value.length, () => nextTick(scrollToBottom));
+
 // 统一错误提示：后端对归档房间的写操作返回 403（message 含 archived），映射为只读提示
 function toastError(e: unknown) {
   const msg = (e as Error)?.message || '';
@@ -789,6 +883,11 @@ async function interrupt() {
   white-space: nowrap;
 }
 
+.phase-tag {
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
 .tb-desc {
   font-size: var(--app-text-sm);
   color: var(--td-text-color-placeholder);
@@ -989,6 +1088,47 @@ async function interrupt() {
 
 .sender-name {
   font-weight: 500;
+}
+
+/* ---------- 聊天流内产物卡片 ---------- */
+.artifact-avatar {
+  background: var(--td-brand-color);
+  color: #fff;
+}
+
+.artifact-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-2);
+}
+
+.artifact-card {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-3);
+  max-width: 520px;
+  padding: var(--app-space-3) var(--app-space-4);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-lg);
+  background: var(--td-bg-color-container);
+
+  .ac-main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .ac-title {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ac-meta {
+    margin-top: 2px;
+    font-size: var(--app-text-sm);
+    color: var(--td-text-color-secondary);
+  }
 }
 
 .bubble {

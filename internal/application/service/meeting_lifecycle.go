@@ -33,6 +33,9 @@ func (s *meetingService) ArchiveRoom(ctx context.Context, tenantID uint64, roomI
 	if err := s.roomRepo.Update(ctx, room); err != nil {
 		return err
 	}
+	// 归档是终态：阶段同步冻结，后续任何阶段推进都应被状态机拒绝
+	advanceMeetingPhase(ctx, s.roomRepo, s.eventRepo, room, types.MeetingPhaseArchived,
+		types.MeetingEventRoomArchived, types.MeetingSenderUser, "", "会议归档", nil)
 	// 落系统消息并广播（复用 T5.2 回滚系统消息模式）
 	sysMsg := &types.MeetingMessage{
 		MeetingRoomID: roomID,

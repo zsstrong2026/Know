@@ -107,24 +107,59 @@ func TestBuildArtifactPrompt(t *testing.T) {
 	assert.Contains(t, p, "发布评审报告.docx", "文件形态指令应含建议文件名")
 }
 
+func TestBuildArtifactResearchPrompt(t *testing.T) {
+	room := &types.MeetingRoom{ID: "r1", Title: "发布评审", Description: "风险"}
+	recent := []*types.MeetingMessage{
+		{SenderKind: types.MeetingSenderUser, Content: "性能是首要关切"},
+	}
+	labelOf := func(m *types.MeetingMessage) string { return "某参会人" }
+	p := buildArtifactResearchPrompt(room, recent, nil, labelOf)
+	assert.Contains(t, p, "资料核验")
+	assert.Contains(t, p, "性能是首要关切")
+	assert.Contains(t, p, "检索次数上限 5 次")
+	assert.Contains(t, p, "来源链接")
+	assert.Contains(t, p, "不要生成文件", "核验段必须与产出段解耦")
+}
+
+func TestBuildMeetingArtifactResearchAgent(t *testing.T) {
+	// 核验段：只开联网与知识库，不挂沙箱/技能，避免把预算花在文件工具上
+	agent := buildMeetingArtifactResearchAgent(7, "model-1", nil, "")
+	assert.Equal(t, "model-1", agent.Config.ModelID)
+	assert.True(t, agent.Config.WebSearchEnabled)
+	assert.Equal(t, "none", agent.Config.SkillsSelectionMode)
+	assert.Equal(t, "none", agent.Config.MCPSelectionMode)
+	assert.Empty(t, agent.Config.SandboxConfigID)
+	assert.Equal(t, "none", agent.Config.KBSelectionMode)
+	assert.False(t, agent.Config.MultiTurnEnabled)
+	assert.LessOrEqual(t, agent.Config.MaxIterations, 15, "核验段使用独立小预算")
+
+	withKB := buildMeetingArtifactResearchAgent(7, "model-1", []string{"kb-1"}, "rr-1")
+	assert.Equal(t, "selected", withKB.Config.KBSelectionMode)
+	assert.Equal(t, "rr-1", withKB.Config.RerankModelID)
+}
+
 func TestBuildMeetingArtifactAgent(t *testing.T) {
 	// 无知识库范围：保持 none，避开 AgentQA 的 rerank 模型硬性校验
-	agent := buildMeetingArtifactAgent(7, "model-1", "sbx-1", nil, "")
+	agent := buildMeetingArtifactAgent(7, "model-1", "sbx-1", nil, "", true)
 	assert.Equal(t, "model-1", agent.Config.ModelID, "exec agent 必须显式绑定模型（resolveChatModelID 硬性要求）")
 	assert.Equal(t, "sbx-1", agent.Config.SandboxConfigID, "沙箱配置是 AgentConfig.SandboxConfigID 的唯一来源")
 	assert.Equal(t, "all", agent.Config.SkillsSelectionMode, "打开全部已装技能")
 	assert.Equal(t, "none", agent.Config.KBSelectionMode, "无知识库范围时不注入")
+	assert.True(t, agent.Config.WebSearchEnabled, "产物执行体继承会议级联网总闸")
 	assert.False(t, agent.Config.MultiTurnEnabled, "单次生成不挂多轮历史")
 	assert.NotZero(t, agent.Config.MaxIterations)
 	assert.NotEmpty(t, agent.Config.SystemPrompt)
 
+	// 会议未开启联网时，产物执行体也不应注册搜索工具
+	assert.False(t, buildMeetingArtifactAgent(7, "model-1", "sbx-1", nil, "", false).Config.WebSearchEnabled)
+
 	// 有参会智能体知识库：切 selected 并带 rerank 模型，产物可基于知识库补足事实
-	withKB := buildMeetingArtifactAgent(7, "model-1", "sbx-1", []string{"kb-1", "kb-2"}, "rr-1")
+	withKB := buildMeetingArtifactAgent(7, "model-1", "sbx-1", []string{"kb-1", "kb-2"}, "rr-1", true)
 	assert.Equal(t, "selected", withKB.Config.KBSelectionMode)
 	assert.Equal(t, []string{"kb-1", "kb-2"}, withKB.Config.KnowledgeBases)
 	assert.Equal(t, "rr-1", withKB.Config.RerankModelID, "检索工具要求 rerank 模型")
 
 	// 缺 rerank 模型时保持 none，避免整条生成链路因配置缺失报错
-	noRerank := buildMeetingArtifactAgent(7, "model-1", "sbx-1", []string{"kb-1"}, "")
+	noRerank := buildMeetingArtifactAgent(7, "model-1", "sbx-1", []string{"kb-1"}, "", false)
 	assert.Equal(t, "none", noRerank.Config.KBSelectionMode)
 }

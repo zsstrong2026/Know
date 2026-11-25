@@ -62,6 +62,28 @@ const (
 	ReviewStatePending  = "pending"
 	ReviewStateAdopted  = "adopted"
 	ReviewStateRejected = "rejected"
+
+	// 会议显式阶段（phase）：与 status 正交，status 管读写权限，phase 管讨论推进位置。
+	// 空值表示历史会议（迁移前创建），读取时按 status 兜底推断。
+	MeetingPhaseOpening    = "opening"    // 主持人开场分析与澄清
+	MeetingPhaseConfirming = "confirming" // 待用户确认流程
+	MeetingPhaseDiscussing = "discussing" // 讨论轮进行中
+	MeetingPhaseConverging = "converging" // 生成方案/收敛结论
+	MeetingPhaseProducing  = "producing"  // 生成交付物
+	MeetingPhaseArchived   = "archived"   // 已归档只读
+
+	// 会议事件类型（只追加，作为状态机与审计的事实来源）
+	MeetingEventRoomCreated     = "room_created"
+	MeetingEventOpeningReady    = "opening_ready"
+	MeetingEventFlowConfirmed   = "flow_confirmed"
+	MeetingEventTurnStarted     = "turn_started"
+	MeetingEventTurnEnded       = "turn_ended"
+	MeetingEventConsensus       = "consensus_reached"
+	MeetingEventSolutionReady   = "solution_ready"
+	MeetingEventArtifactStarted = "artifact_started"
+	MeetingEventArtifactReady   = "artifact_ready"
+	MeetingEventArtifactFailed  = "artifact_failed"
+	MeetingEventRoomArchived    = "room_archived"
 )
 
 // ---- 产物（generated）常量（M5）----
@@ -158,8 +180,10 @@ type MeetingRoom struct {
 	// Mode 会议模式：hosted 主持模式（默认）/ free 自由模式（无主持人，智能体自主提问与讨论）
 	Mode string `gorm:"type:varchar(16);default:hosted" json:"mode"`
 	// TopicBrief 主持人澄清后收敛的一句话主题；澄清未完成或用户跳过时为空（讨论回退到 Title+Description）
-	TopicBrief       string `gorm:"type:text" json:"topic_brief"`
-	Status           string `gorm:"type:varchar(32);default:active" json:"status"`
+	TopicBrief string `gorm:"type:text" json:"topic_brief"`
+	Status     string `gorm:"type:varchar(32);default:active" json:"status"`
+	// Phase 显式讨论阶段（见 MeetingPhase*），由状态机在关键节点写入，供追踪与回放
+	Phase            string `gorm:"type:varchar(32);default:''" json:"phase"`
 	BroadcastMode    string `gorm:"type:varchar(16);default:sequential" json:"broadcast_mode"`
 	RoutingMode      string `gorm:"type:varchar(32);default:host-assign" json:"routing_mode"`
 	GuardMaxExchange int    `gorm:"default:3" json:"guard_max_exchange"`
@@ -311,6 +335,30 @@ func (MeetingArtifact) TableName() string { return "meeting_artifacts" }
 func (a *MeetingArtifact) BeforeCreate(_ *gorm.DB) error {
 	if a.ID == "" {
 		a.ID = uuid.New().String()
+	}
+	return nil
+}
+
+// MeetingEvent 会议事件（只追加）：phase 记录事件发生后的房间阶段，
+// payload 存放事件相关的结构化上下文（消息 ID、产物 ID、轮次等），供审计与回放。
+type MeetingEvent struct {
+	ID            string    `gorm:"type:varchar(36);primaryKey" json:"id"`
+	TenantID      uint64    `gorm:"index" json:"tenant_id"`
+	MeetingRoomID string    `gorm:"type:varchar(36);index" json:"meeting_room_id"`
+	Phase         string    `gorm:"type:varchar(32)" json:"phase"`
+	Type          string    `gorm:"type:varchar(48)" json:"type"`
+	ActorKind     string    `gorm:"type:varchar(16)" json:"actor_kind"`
+	ActorID       string    `gorm:"type:varchar(36)" json:"actor_id"`
+	Summary       string    `gorm:"type:text" json:"summary"`
+	Payload       []byte    `gorm:"type:jsonb" json:"payload,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+func (MeetingEvent) TableName() string { return "meeting_events" }
+
+func (e *MeetingEvent) BeforeCreate(_ *gorm.DB) error {
+	if e.ID == "" {
+		e.ID = uuid.New().String()
 	}
 	return nil
 }

@@ -20,6 +20,7 @@ func RegisterMeetingRoutes(r *gin.RouterGroup, meetingHandler *handler.MeetingHa
 		meetings.POST("/:id/archive", g.OwnedMeetingOrAdmin(), meetingHandler.ArchiveMeeting)
 		meetings.DELETE("/:id", g.OwnedMeetingOrAdmin(), meetingHandler.DeleteMeeting)
 		meetings.GET("/:id/messages", g.OwnedMeetingOrAdmin(), meetingHandler.ListMessages)
+		meetings.GET("/:id/events", g.OwnedMeetingOrAdmin(), meetingHandler.ListMeetingEvents)
 		meetings.GET("/:id/agenda", g.OwnedMeetingOrAdmin(), meetingHandler.ListAgenda)
 		meetings.POST("/:id/agenda/advance", g.OwnedMeetingOrAdmin(), meetingHandler.AdvanceAgenda)
 		meetings.POST("/:id/agenda/append", g.OwnedMeetingOrAdmin(), meetingHandler.AppendAgenda)

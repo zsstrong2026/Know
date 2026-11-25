@@ -31,6 +31,7 @@ type meetingEngine struct {
 	agendaRepo      interfaces.MeetingAgendaRepository
 	agentRepo       interfaces.CustomAgentRepository
 	artifactRepo    interfaces.MeetingArtifactRepository
+	eventRepo       interfaces.MeetingEventRepository
 	sessionService  interfaces.SessionService
 	modelService    interfaces.ModelService
 	kbService       interfaces.KnowledgeBaseService     // 产物生成：展开参会智能体的 all 模式知识库范围
@@ -56,6 +57,7 @@ func NewMeetingEngine(
 	agendaRepo interfaces.MeetingAgendaRepository,
 	agentRepo interfaces.CustomAgentRepository,
 	artifactRepo interfaces.MeetingArtifactRepository,
+	eventRepo interfaces.MeetingEventRepository,
 	sessionService interfaces.SessionService,
 	modelService interfaces.ModelService,
 	kbService interfaces.KnowledgeBaseService,
@@ -76,6 +78,7 @@ func NewMeetingEngine(
 		roomRepo: roomRepo, participantRepo: participantRepo,
 		messageRepo: messageRepo, agendaRepo: agendaRepo, agentRepo: agentRepo,
 		artifactRepo:   artifactRepo,
+		eventRepo:      eventRepo,
 		sessionService: sessionService, modelService: modelService,
 		kbService:     kbService,
 		userService:   userService,
@@ -140,10 +143,15 @@ func (e *meetingEngine) RunTurn(ctx context.Context, roomID string, triggerMessa
 			return err
 		}
 		room := in.room
+		// 每轮讨论的起止都写入事件表，构成回放的时间轴
+		e.advancePhase(ctx, room, types.MeetingPhaseDiscussing, types.MeetingEventTurnStarted,
+			types.MeetingSenderSystem, "", "讨论轮开始", map[string]any{"trigger_message_id": current})
 		e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnStarted, Data: map[string]interface{}{
 			"room_id": roomID, "trigger_message_id": current,
 		}})
 		stopTurn, lastTrigger = e.runDiscussion(ctx, room, in.trigger, in.speakers, in.agents, in.participants)
+		e.advancePhase(ctx, room, "", types.MeetingEventTurnEnded,
+			types.MeetingSenderSystem, "", "讨论轮结束", map[string]any{"trigger_message_id": current, "stopped": stopTurn})
 		e.broadcaster.Publish(roomID, MeetingEvent{Type: MeetingEventTurnEnded, Data: map[string]interface{}{
 			"room_id": roomID, "trigger_message_id": current,
 		}})
@@ -539,6 +547,8 @@ func (e *meetingEngine) evaluateDiscussion(ctx context.Context, room *types.Meet
 			logger.Warnf(ctx, "meeting consensus message failed, room=%s err=%v", room.ID, err)
 			return nil, false
 		}
+		e.advancePhase(ctx, room, "", types.MeetingEventConsensus, types.MeetingSenderHost, "", "讨论达成共识",
+			map[string]any{"message_id": msg.ID, "reason": verdict.Reason, "completed_rounds": completed})
 		e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventConsensusCreated, Data: map[string]interface{}{
 			"room_id": room.ID, "message": msg,
 			"reason": verdict.Reason, "completed_rounds": completed, "all_done": true,
@@ -587,6 +597,8 @@ func (e *meetingEngine) evaluateDiscussion(ctx context.Context, room *types.Meet
 		recap = conclusion
 	}
 	if msg, merr := e.appendConsensusMessageForItem(ctx, room.ID, item.ID, recap); merr == nil {
+		e.advancePhase(ctx, room, "", types.MeetingEventConsensus, types.MeetingSenderHost, "", "议题收敛",
+			map[string]any{"message_id": msg.ID, "agenda_item_id": item.ID, "reason": verdict.Reason})
 		e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventConsensusCreated, Data: map[string]interface{}{
 			"room_id": room.ID, "message": msg, "agenda_item_id": item.ID,
 			"reason": verdict.Reason, "completed_rounds": completed, "all_done": len(remaining) == 0,

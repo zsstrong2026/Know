@@ -22,6 +22,7 @@ type meetingService struct {
 	agendaRepo      interfaces.MeetingAgendaRepository
 	agentRepo       interfaces.CustomAgentRepository
 	artifactRepo    interfaces.MeetingArtifactRepository
+	eventRepo       interfaces.MeetingEventRepository   // 会议事件日志（阶段推进审计）
 	messageService  interfaces.MessageService           // 产物详情/下载：读取后台会话消息
 	temporaryDocs   interfaces.TemporaryDocumentService // 会议文件：复用临时文档解析链路
 	engine          interfaces.MeetingEngine
@@ -34,6 +35,7 @@ func NewMeetingService(
 	agendaRepo interfaces.MeetingAgendaRepository,
 	agentRepo interfaces.CustomAgentRepository,
 	artifactRepo interfaces.MeetingArtifactRepository,
+	eventRepo interfaces.MeetingEventRepository,
 	messageService interfaces.MessageService,
 	temporaryDocs interfaces.TemporaryDocumentService,
 	engine interfaces.MeetingEngine,
@@ -41,7 +43,7 @@ func NewMeetingService(
 	return &meetingService{
 		roomRepo: roomRepo, participantRepo: participantRepo,
 		messageRepo: messageRepo, agendaRepo: agendaRepo, agentRepo: agentRepo,
-		artifactRepo: artifactRepo, messageService: messageService,
+		artifactRepo: artifactRepo, eventRepo: eventRepo, messageService: messageService,
 		temporaryDocs: temporaryDocs,
 		engine:        engine,
 	}
@@ -151,6 +153,14 @@ func (s *meetingService) CreateMeeting(ctx context.Context, room *types.MeetingR
 	if err := s.participantRepo.CreateBatch(ctx, participants); err != nil {
 		return nil, err
 	}
+	// 显式阶段 + 事件留痕：创建即进入开场分析；自由模式没有开场，直接进入讨论
+	createdPhase := types.MeetingPhaseOpening
+	if isFreeMeeting(room) {
+		createdPhase = types.MeetingPhaseDiscussing
+	}
+	advanceMeetingPhase(ctx, s.roomRepo, s.eventRepo, room, createdPhase,
+		types.MeetingEventRoomCreated, types.MeetingSenderUser, room.CreatedBy, "会议创建",
+		map[string]any{"mode": room.Mode, "agent_count": len(agentIDs)})
 	if isFreeMeeting(room) {
 		// 自由模式没有主持人开场：落一条开题系统消息后直接开跑首轮讨论
 		go func() {
@@ -311,6 +321,9 @@ func (s *meetingService) ConfirmFlow(ctx context.Context, tenantID uint64, roomI
 	if err := s.roomRepo.Update(ctx, room); err != nil {
 		return err
 	}
+	// 流程确认即进入讨论阶段；阶段推进与事件分离，事件表用于回放
+	advanceMeetingPhase(ctx, s.roomRepo, s.eventRepo, room, types.MeetingPhaseDiscussing,
+		types.MeetingEventFlowConfirmed, types.MeetingSenderUser, "", "用户确认流程", nil)
 	// 触发消息取最近一条开场（含主题分析 + 建议流程，天然的讨论起点）；无开场则等用户首条发言
 	triggerID := s.latestOpeningMessageID(ctx, roomID)
 	if triggerID == "" {
@@ -421,6 +434,28 @@ func (s *meetingService) SendUserMessage(ctx context.Context, tenantID uint64, r
 		}
 	}()
 	return msg, nil
+}
+
+// ListEvents 会议事件时间线：先做租户归属校验，再返回最近 limit 条（limit 缺省/越界回退 100，上限 200）。
+func (s *meetingService) ListEvents(ctx context.Context, tenantID uint64, roomID string, limit int) ([]*types.MeetingEvent, error) {
+	room, err := s.roomRepo.GetByID(ctx, roomID, tenantID) // 租户校验
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	if s.eventRepo == nil {
+		return []*types.MeetingEvent{}, nil
+	}
+	events, err := s.eventRepo.ListByRoom(ctx, room.ID, limit)
+	if err != nil {
+		return nil, err
+	}
+	if events == nil {
+		return []*types.MeetingEvent{}, nil
+	}
+	return events, nil
 }
 
 // ListAgenda 本会议议程项（未启用议程时返回空列表；只读）

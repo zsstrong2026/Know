@@ -58,10 +58,12 @@ export const useMeetingStore = defineStore('meetingStore', () => {
     loadingRoom.value = true;
     try {
       currentRoom.value = await getMeeting(roomId);
-      const [page, items, files] = await Promise.all([
+      const [page, items, files, arts] = await Promise.all([
         listMessages(roomId),
         listAgenda(roomId).catch(() => [] as MeetingAgendaItem[]), // 议程为可选能力，失败不阻断进房
         listMeetingAttachments(roomId).catch(() => [] as MeetingAttachment[]), // 会议文件同理
+        // 进房即拉产物：聊天流内的产物卡片依赖该列表，不能等到打开抽屉才加载
+        listArtifacts(roomId).catch(() => [] as MeetingArtifact[]),
       ]);
       // SSE 可能先于本次分页返回：保留拉取期间已到达的新消息，避免被整页覆盖
       const seen = new Set(page.map((m) => m.id));
@@ -69,6 +71,7 @@ export const useMeetingStore = defineStore('meetingStore', () => {
       messages.value = arrived.length ? [...page, ...arrived] : page;
       agenda.value = items;
       attachments.value = files;
+      artifacts.value = arts;
       hasMore.value = page.length >= 100;
       ensureAttachmentPolling();
     } finally {

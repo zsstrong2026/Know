@@ -61,6 +61,12 @@ func (r *meetingRoomRepository) Update(ctx context.Context, room *types.MeetingR
 	return r.db.WithContext(ctx).Save(room).Error
 }
 
+// UpdatePhase 只更新 phase 列，避免阶段推进时整行覆盖并发写入的其它字段
+func (r *meetingRoomRepository) UpdatePhase(ctx context.Context, id string, phase string) error {
+	return r.db.WithContext(ctx).Model(&types.MeetingRoom{}).
+		Where("id = ?", id).UpdateColumn("phase", phase).Error
+}
+
 func (r *meetingRoomRepository) Delete(ctx context.Context, id string, tenantID uint64) error {
 	return r.db.WithContext(ctx).
 		Where("id = ? AND tenant_id = ?", id, tenantID).
@@ -310,4 +316,32 @@ func (r *meetingArtifactRepository) MaxVersionByRoom(ctx context.Context, roomID
 		Where("meeting_room_id = ?", roomID).
 		Select("COALESCE(MAX(version), 0)").Scan(&v).Error
 	return v, err
+}
+
+type meetingEventRepository struct{ db *gorm.DB }
+
+func NewMeetingEventRepository(db *gorm.DB) interfaces.MeetingEventRepository {
+	return &meetingEventRepository{db: db}
+}
+
+func (r *meetingEventRepository) Append(ctx context.Context, ev *types.MeetingEvent) error {
+	return r.db.WithContext(ctx).Create(ev).Error
+}
+
+// ListByRoom 取最近 limit 条事件并按时间正序返回（先倒序截断，再反转）
+func (r *meetingEventRepository) ListByRoom(ctx context.Context, roomID string, limit int) ([]*types.MeetingEvent, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	var evs []*types.MeetingEvent
+	err := r.db.WithContext(ctx).
+		Where("meeting_room_id = ?", roomID).
+		Order("created_at DESC, id DESC").Limit(limit).Find(&evs).Error
+	if err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(evs)-1; i < j; i, j = i+1, j-1 {
+		evs[i], evs[j] = evs[j], evs[i]
+	}
+	return evs, nil
 }

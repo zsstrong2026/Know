@@ -15,6 +15,8 @@ type MeetingRoomRepository interface {
 	GetByIDInternal(ctx context.Context, id string) (*types.MeetingRoom, error)
 	ListByCreator(ctx context.Context, tenantID uint64, createdBy string, status string, offset, limit int) ([]*types.MeetingRoom, int64, error)
 	Update(ctx context.Context, room *types.MeetingRoom) error
+	// UpdatePhase 单列更新显式阶段：避免为推进阶段而整行 Save 覆盖并发修改
+	UpdatePhase(ctx context.Context, id string, phase string) error
 	Delete(ctx context.Context, id string, tenantID uint64) error // 软删
 }
 
@@ -65,6 +67,13 @@ type MeetingArtifactRepository interface {
 	MaxVersionByRoom(ctx context.Context, roomID string) (int, error)
 }
 
+// MeetingEventRepository 会议事件存储（只追加；按房间时间正序读取，供审计与回放）
+type MeetingEventRepository interface {
+	Append(ctx context.Context, ev *types.MeetingEvent) error
+	// ListByRoom 取该房间最近 limit 条事件（正序，旧->新）；limit<=0 时默认 100
+	ListByRoom(ctx context.Context, roomID string, limit int) ([]*types.MeetingEvent, error)
+}
+
 // MeetingService 会议室业务服务
 type MeetingService interface {
 	CreateMeeting(ctx context.Context, room *types.MeetingRoom, agentIDs []string) (*types.MeetingRoom, error)
@@ -103,6 +112,8 @@ type MeetingService interface {
 	GetArtifactDetail(ctx context.Context, tenantID uint64, roomID string, artifactID string) (*types.MeetingArtifactDetail, error)
 	// ResolveArtifactDownload 解析 generated 产物下载跳转地址（后台会话消息的产物索引）
 	ResolveArtifactDownload(ctx context.Context, tenantID uint64, roomID string, artifactID string) (string, error)
+	// ListEvents 本会议事件时间线（按时间正序，磁盘事实来源）；租户归属校验后读取最近 limit 条
+	ListEvents(ctx context.Context, tenantID uint64, roomID string, limit int) ([]*types.MeetingEvent, error)
 	// ListAgenda 本会议议程项（按 seq 升序；未启用议程时返回空列表）
 	ListAgenda(ctx context.Context, tenantID uint64, roomID string) ([]*types.MeetingAgendaItem, error)
 	// AdvanceAgenda 人工推进议程：把指定议程项标记完成（不再自动激活下一项，由用户决策后续动作）

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/Tencent/WeKnora/internal/agent/skills"
 	"github.com/Tencent/WeKnora/internal/common/redislock"
 	"github.com/Tencent/WeKnora/internal/event"
@@ -176,7 +178,44 @@ func buildArtifactPrompt(
 	}
 	b.WriteString("\n【执行要求】\n")
 	b.WriteString(instruction + "\n")
-	b.WriteString("内容必须忠于会议记录与采纳意见；需要补充事实、数据时，只能取自知识库检索结果并注明来源，不得编造。")
+	b.WriteString("内容必须忠于会议记录与采纳意见；需要补充事实、数据时，取自知识库检索或联网搜索结果并注明来源与发布日期，不得编造。")
+	if artifactNeedsFile(kindType) {
+		// 显式给出收敛条件：检索是为了交付物服务，不能因个别来源核验不到就放弃生成文件
+		b.WriteString("\n检索次数上限 5 次；关键事实核验完成、或来源确实缺失时，必须立即按上述要求生成文件，" +
+			"无法核验的内容在文档中标注「待核验」，不得因继续检索而不交付文件。")
+	}
+	return b.String()
+}
+
+// buildArtifactResearchPrompt 组装第一段「资料核验」提示词：只产出事实清单，不产出交付物。
+// 与生成段分离，是为了让核验与排版各自消耗独立迭代预算，避免单段任务在检索阶段耗尽轮次。
+func buildArtifactResearchPrompt(
+	room *types.MeetingRoom, recent, adopted []*types.MeetingMessage,
+	labelOf func(*types.MeetingMessage) string,
+) string {
+	var b strings.Builder
+	b.WriteString("你是会议室的资料核验助手。本阶段只核实事实，不写报告、不生成任何文件。\n")
+	fmt.Fprintf(&b, "会议主题：%s\n", effectiveTopic(room))
+	if room.Description != "" {
+		b.WriteString("会议描述：" + room.Description + "\n")
+	}
+	if len(recent) > 0 {
+		b.WriteString("\n【会议讨论记录（截取）】\n")
+		for _, m := range recent {
+			fmt.Fprintf(&b, "%s: %s\n", labelOf(m), truncate(m.Content, 400))
+		}
+	}
+	if len(adopted) > 0 {
+		b.WriteString("\n【用户已采纳的意见】\n")
+		for _, m := range adopted {
+			fmt.Fprintf(&b, "- %s: %s\n", labelOf(m), truncate(m.Content, 400))
+		}
+	}
+	b.WriteString("\n【核验任务】\n")
+	b.WriteString("- 针对讨论中提到的关键数据、事件、价格与结论联网核实，检索次数上限 5 次。\n")
+	b.WriteString("- 逐条输出事实清单，每条固定五要素：结论｜数据｜发布日期｜来源链接｜来源类型（第三方研究/厂商新闻稿/媒体报道）。\n")
+	b.WriteString("- 无法核实的条目写「未核实」并说明原因，不得用记忆中的数据补齐。\n")
+	b.WriteString("- 只输出事实清单，不要写报告、不要生成文件、不要输出文档脚本。\n")
 	return b.String()
 }
 
@@ -184,8 +223,9 @@ func buildArtifactPrompt(
 // 模型 = 租户默认 KnowledgeQA（resolveChatModelID 对非空 ModelID 强校验类型）；
 // 沙箱 = 调用方解析的租户具名配置（空则 AgentQA 走部署级 lite/禁用策略）；
 // SkillsSelectionMode=all 打开沙箱内已装技能，兑现「可调用工具箱技能」；
-// kbIDs 非空时按 selected 模式注入，让产物可基于参会智能体关联知识库补足事实。
-func buildMeetingArtifactAgent(tenantID uint64, modelID, sandboxConfigID string, kbIDs []string, rerankModelID string) *types.CustomAgent {
+// kbIDs 非空时按 selected 模式注入，让产物可基于参会智能体关联知识库补足事实；
+// webSearchEnabled 继承会议级联网总闸，开启后可用平台搜索工具核验事实（AgentQA 侧还需 req 同为真）。
+func buildMeetingArtifactAgent(tenantID uint64, modelID, sandboxConfigID string, kbIDs []string, rerankModelID string, webSearchEnabled bool) *types.CustomAgent {
 	cfg := types.CustomAgentConfig{
 		AgentMode:           "smart-reasoning",
 		ModelID:             modelID,
@@ -193,10 +233,13 @@ func buildMeetingArtifactAgent(tenantID uint64, modelID, sandboxConfigID string,
 		SystemPrompt:        "你是会议室的产物生成助手，负责把会议讨论沉淀为指定形态的交付物。严格遵循用户的形态与文件要求，善用可用的工具与技能，最终回答用中文。",
 		SkillsSelectionMode: "all",
 		MCPSelectionMode:    "none",
+		WebSearchEnabled:    webSearchEnabled,
 		// 默认不注入知识库；调用方给出范围时切到 selected，并配套 rerank 模型（AgentQA 硬性校验）
 		KBSelectionMode: "none",
-		MaxIterations:   20,
-		Temperature:     0.3,
+		// 文件形态需要「先检索核验、再生成交付物」，20 轮易在核验阶段耗尽；
+		// 抬高上限给核验+写文件留出预算，同时由 prompt 约束检索次数避免无限检索。
+		MaxIterations: 40,
+		Temperature:   0.3,
 	}
 	if len(kbIDs) > 0 && rerankModelID != "" {
 		// 检索工具强制要求 rerank 模型；租户未配置时保持不注入，避免整条生成链路报错
@@ -212,6 +255,37 @@ func buildMeetingArtifactAgent(tenantID uint64, modelID, sandboxConfigID string,
 	}
 	agent.EnsureDefaults()
 	// EnsureDefaults 对 smart-reasoning 会强制开启多轮历史；产物生成是单次任务，须在其后显式关闭
+	agent.Config.MultiTurnEnabled = false
+	return agent
+}
+
+// buildMeetingArtifactResearchAgent 构造第一段「资料核验」智能体（合成、不落库）。
+// 与执行体的差异：不挂沙箱/技能，只开联网与知识库，产出纯文本事实清单；
+// 独立的小迭代预算（12 轮），核验失败时可整体退回单段生成。
+func buildMeetingArtifactResearchAgent(tenantID uint64, modelID string, kbIDs []string, rerankModelID string) *types.CustomAgent {
+	cfg := types.CustomAgentConfig{
+		AgentMode:           "smart-reasoning",
+		ModelID:             modelID,
+		SystemPrompt:        "你是会议室的资料核验助手，只负责联网核实事实并输出带来源与发布日期的事实清单，不写报告、不生成文件。",
+		SkillsSelectionMode: "none",
+		MCPSelectionMode:    "none",
+		WebSearchEnabled:    true,
+		KBSelectionMode:     "none",
+		MaxIterations:       12,
+		Temperature:         0.2,
+	}
+	if len(kbIDs) > 0 && rerankModelID != "" {
+		cfg.KBSelectionMode = "selected"
+		cfg.KnowledgeBases = kbIDs
+		cfg.RerankModelID = rerankModelID
+	}
+	agent := &types.CustomAgent{
+		ID:       "meeting-artifact-researcher",
+		TenantID: tenantID,
+		Name:     "会议资料核验器",
+		Config:   cfg,
+	}
+	agent.EnsureDefaults()
 	agent.Config.MultiTurnEnabled = false
 	return agent
 }
@@ -268,6 +342,19 @@ func (e *meetingEngine) meetingArtifactSandboxConfigID(ctx context.Context, tena
 // buildArtifactQuery 拉取会议上下文（最近记录 + 采纳意见）并组装产物生成 query。
 // kbIDs 非空时追加知识库使用要求：素材 = 会议讨论 + 参会智能体关联知识库。
 func (e *meetingEngine) buildArtifactQuery(ctx context.Context, room *types.MeetingRoom, a *types.MeetingArtifact, kbIDs []string) string {
+	recent, adopted, labelOf := e.meetingArtifactContext(ctx, room)
+	query := buildArtifactPrompt(room, recent, adopted, a.KindType, a.Title, a.Requirement,
+		labelOf, artifactKindInstruction(a.KindType, a.Title))
+	if len(kbIDs) > 0 {
+		query += "\n\n【知识库】已为你开放本次会议参会智能体关联的知识库。需要补充事实、数据或既有资料时，" +
+			"请先检索知识库再引用；知识库内容与会议讨论结论要区分表述，不得用知识库内容替换会议已达成的结论。"
+	}
+	return query
+}
+
+// meetingArtifactContext 统一拉取会议上下文（最近讨论 + 已采纳意见）与说话人标签解析。
+// 「核验」「生成」两段共用同一份上下文，避免两段各拉一次消息造成口径漂移。
+func (e *meetingEngine) meetingArtifactContext(ctx context.Context, room *types.MeetingRoom) ([]*types.MeetingMessage, []*types.MeetingMessage, func(*types.MeetingMessage) string) {
 	recent, err := e.messageRepo.ListByRoom(ctx, room.ID, "", e.contextMax)
 	if err != nil {
 		logger.Warnf(ctx, "meeting artifact list messages failed, room=%s err=%v", room.ID, err)
@@ -283,13 +370,13 @@ func (e *meetingEngine) buildArtifactQuery(ctx context.Context, room *types.Meet
 		}
 		return senderLabel(m)
 	}
-	query := buildArtifactPrompt(room, recent, adopted, a.KindType, a.Title, a.Requirement,
-		labelOf, artifactKindInstruction(a.KindType, a.Title))
-	if len(kbIDs) > 0 {
-		query += "\n\n【知识库】已为你开放本次会议参会智能体关联的知识库。需要补充事实、数据或既有资料时，" +
-			"请先检索知识库再引用；知识库内容与会议讨论结论要区分表述，不得用知识库内容替换会议已达成的结论。"
-	}
-	return query
+	return recent, adopted, labelOf
+}
+
+// buildArtifactResearchQuery 组装第一段「联网核验」query：只出事实清单，不生成文件。
+func (e *meetingEngine) buildArtifactResearchQuery(ctx context.Context, room *types.MeetingRoom) string {
+	recent, adopted, labelOf := e.meetingArtifactContext(ctx, room)
+	return buildArtifactResearchPrompt(room, recent, adopted, labelOf)
 }
 
 // meetingParticipantKnowledgeBaseIDs 参会智能体关联知识库 ∪ 会议级知识库，作为产物生成的知识来源。
@@ -339,6 +426,21 @@ func (e *meetingEngine) agentKnowledgeBaseIDs(ctx context.Context, agent *types.
 // runArtifactAgentQA 在后台会话上执行 AgentQA 并捕获最终回答（模式同 runAgentTurn）。
 // 知识库刻意不注入：生成素材为会议记录 + 采纳意见；纯 agent 模式同时避开 rerank 模型硬性校验。
 func (e *meetingEngine) runArtifactAgentQA(ctx context.Context, room *types.MeetingRoom, agent *types.CustomAgent, sessionID, assistantMessageID, query string) (string, error) {
+	// 生成段仍沿用会议级联网总闸；检索段由 runArtifactResearch 自行指定
+	return e.runMeetingAgentQA(ctx, room, agent, sessionID, assistantMessageID, query, room.WebSearchEnabled)
+}
+
+// runArtifactResearch 第一段：基于会议讨论联网核验事实，产出纯文本清单（内存态会话，不落库）。
+func (e *meetingEngine) runArtifactResearch(ctx context.Context, room *types.MeetingRoom, modelID string, kbIDs []string) (string, error) {
+	agent := buildMeetingArtifactResearchAgent(room.TenantID, modelID, kbIDs, e.meetingArtifactRerankModelID(ctx))
+	query := e.buildArtifactResearchQuery(ctx, room)
+	// 内存态 ID：核验过程不写入房间消息，也不污染后台产物会话
+	return e.runMeetingAgentQA(ctx, room, agent, uuid.New().String(), uuid.New().String(), query, true)
+}
+
+// runMeetingAgentQA 会议室内的单次 AgentQA 执行：收集最终回答与错误，空回答视为失败。
+// webSearch 显式传入，供「核验段强制联网」「生成段继承会议开关」两种语义共用。
+func (e *meetingEngine) runMeetingAgentQA(ctx context.Context, room *types.MeetingRoom, agent *types.CustomAgent, sessionID, assistantMessageID, query string, webSearch bool) (string, error) {
 	eventBus := event.NewEventBus()
 	var answer strings.Builder
 	var runErr error
@@ -359,6 +461,8 @@ func (e *meetingEngine) runArtifactAgentQA(ctx context.Context, room *types.Meet
 		Query:              query,
 		AssistantMessageID: assistantMessageID,
 		CustomAgent:        agent,
+		// 请求侧开关与智能体配置为合取关系，二者同时为真才注册搜索工具
+		WebSearchEnabled: webSearch,
 	}
 	if err := e.sessionService.AgentQA(ctx, req, eventBus); err != nil {
 		return "", err
@@ -382,6 +486,9 @@ func (e *meetingEngine) failArtifact(ctx context.Context, room *types.MeetingRoo
 	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventArtifactFailed, Data: map[string]interface{}{
 		"artifact_id": a.ID, "error": a.Error,
 	}})
+	// 只追加事件、不改阶段：失败可能发生在拿锁冲突或产出中，贸然回退会掩盖真实阶段
+	recordMeetingEvent(ctx, e.eventRepo, room, "", types.MeetingEventArtifactFailed,
+		types.MeetingSenderHost, a.CreatedBy, "产物生成失败", map[string]any{"artifact_id": a.ID, "error": a.Error})
 	return cause
 }
 
@@ -412,6 +519,11 @@ func (e *meetingEngine) RunArtifactGeneration(ctx context.Context, room *types.M
 		}
 	}()
 
+	// 拿到锁才进入产出阶段；失败路径由 failArtifact 记录，阶段不在此处回退
+	e.advancePhase(ctx, room, types.MeetingPhaseProducing, types.MeetingEventArtifactStarted,
+		types.MeetingSenderHost, a.CreatedBy, "开始生成产物",
+		map[string]any{"artifact_id": a.ID, "kind_type": a.KindType})
+
 	sessionID, err := e.ensureArtifactSession(ctx, room)
 	if err != nil {
 		return e.failArtifact(ctx, room, a, err)
@@ -425,9 +537,26 @@ func (e *meetingEngine) RunArtifactGeneration(ctx context.Context, room *types.M
 	}
 	// 知识来源 = 参会智能体关联知识库 ∪ 会议级知识库；无任何范围时退回纯文本生成
 	kbIDs := e.meetingParticipantKnowledgeBaseIDs(ctx, room)
+
+	// 两段式：先联网核验事实，再单独生成交付物。
+	// 单段任务里「检索核验 + 排版产出」共用一份迭代预算，实测会在核验阶段耗尽轮次；
+	// 拆段后核验段只出事实清单，生成段直接消费清单，并关闭联网避免二次检索。
+	query := e.buildArtifactQuery(ctx, room, a, kbIDs)
+	factSheet := ""
+	if artifactNeedsFile(a.KindType) && room.WebSearchEnabled {
+		sheet, rerr := e.runArtifactResearch(ctx, room, modelID, kbIDs)
+		if rerr != nil {
+			// 核验失败不阻断：退回单段生成，由执行体自行处理来源核验
+			logger.Warnf(ctx, "meeting artifact research failed, room=%s artifact=%s err=%v", room.ID, a.ID, rerr)
+		} else if s := strings.TrimSpace(sheet); s != "" {
+			factSheet = s
+			query += "\n\n【已核验资料（检索阶段产出，直接引用，无需再次检索）】\n" + factSheet +
+				"\n\n所有事实以【已核验资料】为准；不要再调用联网搜索，直接按执行要求生成文件。"
+		}
+	}
 	execAgent := buildMeetingArtifactAgent(
 		room.TenantID, modelID, e.meetingArtifactSandboxConfigID(ctx, room.TenantID),
-		kbIDs, e.meetingArtifactRerankModelID(ctx),
+		kbIDs, e.meetingArtifactRerankModelID(ctx), room.WebSearchEnabled && factSheet == "",
 	)
 
 	// 先落占位 assistant 消息再执行：Message.BeforeCreate 会强制重新生成 UUID，
@@ -442,8 +571,7 @@ func (e *meetingEngine) RunArtifactGeneration(ctx context.Context, room *types.M
 	}
 	assistantMsgID := assistantMsg.ID
 
-	answer, err := e.runArtifactAgentQA(ctx, room, execAgent, sessionID, assistantMsgID,
-		e.buildArtifactQuery(ctx, room, a, kbIDs))
+	answer, err := e.runArtifactAgentQA(ctx, room, execAgent, sessionID, assistantMsgID, query)
 	if err != nil {
 		// 执行失败：清掉占位消息，避免后台会话残留空消息
 		if derr := e.messageService.DeleteMessage(ctx, sessionID, assistantMsgID); derr != nil {
@@ -502,6 +630,10 @@ func (e *meetingEngine) RunArtifactGeneration(ctx context.Context, room *types.M
 		return e.failArtifact(ctx, room, a, err)
 	}
 	e.broadcaster.Publish(room.ID, MeetingEvent{Type: MeetingEventArtifactCreated, Data: a})
+	// 产物交付后回到讨论阶段，避免 producing 成为滞留态
+	e.advancePhase(ctx, room, types.MeetingPhaseDiscussing, types.MeetingEventArtifactReady,
+		types.MeetingSenderHost, a.CreatedBy, "产物生成完成",
+		map[string]any{"artifact_id": a.ID, "file_name": a.FileName, "kind_type": a.KindType})
 	return nil
 }
 
