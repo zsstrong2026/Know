@@ -23,6 +23,11 @@ func TestDataSourceScheduleAPIRejectsInvalidCron(t *testing.T) {
 		t.Run(operation, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "schedule.db")), &gorm.Config{})
 			require.NoError(t, err)
+			// 必须在 TempDir 的清理之前关连接：Windows 上句柄未释放会让
+			// RemoveAll 报 "being used by another process"。
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = sqlDB.Close() })
 			require.NoError(t, db.AutoMigrate(&types.DataSource{}))
 			repo := repository.NewDataSourceRepository(db)
 			scheduler := datasource.NewScheduler(repo, nil, nil)

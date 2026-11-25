@@ -112,7 +112,7 @@ func runBatchDownload(
 }
 
 func TestBatchDownloadKnowledgeProducesCompleteZIP(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	setTempDir(t)
 	svc := &downloadKnowledgeStub{
 		items: []*types.Knowledge{
 			{ID: "a", TenantID: 7, KnowledgeBaseID: "kb-1", FilePath: "stored-a"},
@@ -213,7 +213,7 @@ func TestBatchDownloadKnowledgeRejectsInvalidSelectionsBeforeReading(t *testing.
 }
 
 func TestBatchDownloadKnowledgeFailureDoesNotReturnPartialZIP(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	setTempDir(t)
 	svc := &downloadKnowledgeStub{
 		items: []*types.Knowledge{
 			{ID: "a", TenantID: 7, KnowledgeBaseID: "kb-1", FilePath: "a"},
@@ -242,7 +242,7 @@ func (r *downloadTrackingReader) Close() error {
 }
 
 func TestBatchDownloadKnowledgeSkipsEntriesWithoutOriginalFiles(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	setTempDir(t)
 	svc := &downloadKnowledgeStub{
 		items: []*types.Knowledge{
 			{ID: "a", TenantID: 7, KnowledgeBaseID: "kb-1", FilePath: "stored-a"},
@@ -261,7 +261,7 @@ func TestBatchDownloadKnowledgeSkipsEntriesWithoutOriginalFiles(t *testing.T) {
 }
 
 func TestBatchDownloadKnowledgeAllowsSharedEditor(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	setTempDir(t)
 	svc := &downloadKnowledgeStub{
 		items:          []*types.Knowledge{{ID: "a", TenantID: 8, KnowledgeBaseID: "kb-1", FilePath: "stored-a"}},
 		names:          map[string]string{"a": "shared.txt"},
@@ -376,7 +376,7 @@ func TestKnowledgeDownloadZipPathKeepsSafeFolders(t *testing.T) {
 }
 
 func TestBatchDownloadKnowledgePreservesFolderPaths(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	setTempDir(t)
 	svc := &downloadKnowledgeStub{
 		items: []*types.Knowledge{{
 			ID: "a", TenantID: 7, KnowledgeBaseID: "kb-1", FilePath: "stored-a", FolderPath: "docs/spec",
@@ -390,4 +390,16 @@ func TestBatchDownloadKnowledgePreservesFolderPaths(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, reader.File, 1)
 	require.Equal(t, "docs/spec/design.md", reader.File[0].Name)
+}
+
+// setTempDir 让临时目录在 Unix 与 Windows 上都指向测试专属目录：
+// os.TempDir() 在 Windows 读 %TMP%/%TEMP%，只设 TMPDIR 不生效，
+// 「请求后临时目录应为空」这类断言会在有系统临时文件的机器上误报。
+func setTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("TMPDIR", dir)
+	t.Setenv("TMP", dir)
+	t.Setenv("TEMP", dir)
+	return dir
 }
