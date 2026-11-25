@@ -790,7 +790,9 @@ const updatedLabel = computed(() => {
 
 const wordCount = computed(() => {
   // 正文变化只通过保存状态体现：显式读取作为依赖，避免首次渲染后不再刷新。
-  void saveState.value
+  // 用 savedAt（真正落盘的那一刻）而不是 saveState：后者每轮保存要变三次，
+  // 同一篇正文会被完整投影三遍，正好压在用户继续打字的时刻。
+  void session.savedAt.value
   void ready.value
   return session.markdownCount()
 })

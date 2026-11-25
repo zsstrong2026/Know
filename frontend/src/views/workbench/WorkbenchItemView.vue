@@ -914,24 +914,60 @@ const updatedLabel = computed(() => {
 
 /** 字数：按非空白字符计，与归档正文同源（投影后的 Markdown）。 */
 const wordCount = computed(() => {
-  // 投影整篇文档不便宜，只在内容可能变化时重算：就绪与保存状态变化即触发。
+  // 投影整篇文档不便宜，只在「就绪」与「真正落盘」时重算。
+  // 不要依赖 saveState：它每轮保存要变三次（pending → saving → saved），
+  // 同一份内容会被完整投影三遍，正好压在用户继续打字的时刻。
   void ready.value
-  void saveState.value
+  void savedAt.value
   return session.markdownCount()
 })
 
-// ---- 列表封面缩略图：就绪/保存后延迟截取当前视口，失败静默回退骨架 ----
+// ---- 列表封面缩略图：只在用户真正停手后截，避免截图阻塞输入 ----
+/**
+ * html2canvas 会同步克隆整棵 DOM 并逐个元素求样式，长文档一次要几百毫秒到数秒。
+ * 原先它挂在「保存成功 + 1.5 秒」上：用户停手 2 秒触发暂存、再过 1.5 秒开始截，
+ * 此时只要重新输入，光标就会卡住。现在加三道闸：
+ *   1. 只在「已保存且此后持续空闲 10 秒」才截，一有编辑立即取消；
+ *   2. 两次截取至少间隔 2 分钟，长文档不会被反复截；
+ *   3. 封面版本确实落后于内容版本才截（原有逻辑）。
+ */
+const THUMB_IDLE_MS = 10_000
+const THUMB_MIN_INTERVAL_MS = 120_000
 let thumbnailTimer: number | null = null
 let thumbnailBusy = false
+/** 上次真正开始截图的时间；冷却期用它计算下一次可用时间 */
+let lastThumbnailAt = 0
+/** 排期期间点过「切换形态」：下一次截取忽略版本比较 */
+let thumbnailForce = false
+
+function cancelScheduledThumbnail() {
+  if (thumbnailTimer !== null) window.clearTimeout(thumbnailTimer)
+  thumbnailTimer = null
+  thumbnailForce = false
+}
 
 function scheduleThumbnail(force = false) {
+  thumbnailForce = thumbnailForce || force
   if (thumbnailTimer !== null) window.clearTimeout(thumbnailTimer)
-  // 等渲染稳定再截：刚保存时 BlockSuite 还在收尾光标/浮层。
-  thumbnailTimer = window.setTimeout(() => {
-    thumbnailTimer = null
-    void captureAndSaveThumbnail(force)
-  }, 1500)
+  // 冷却期未过就继续等，别把「停手 10 秒」排在刚结束的那次截图后面。
+  const cooldownLeft = lastThumbnailAt + THUMB_MIN_INTERVAL_MS - Date.now()
+  thumbnailTimer = window.setTimeout(
+    () => {
+      thumbnailTimer = null
+      const forceNow = thumbnailForce
+      thumbnailForce = false
+      // 排期期间又开始编辑了：交给下一次保存重新排。
+      if (saveState.value !== 'saved') return
+      void captureAndSaveThumbnail(forceNow)
+    },
+    Math.max(THUMB_IDLE_MS, cooldownLeft),
+  )
 }
+
+/** 一有编辑就撤销待截的封面：截图必须落在用户确实停手的窗口里。 */
+watch(saveState, (state) => {
+  if (state === 'pending') cancelScheduledThumbnail()
+})
 
 async function captureAndSaveThumbnail(force: boolean) {
   const current = item.value
@@ -946,6 +982,8 @@ async function captureAndSaveThumbnail(force: boolean) {
   // 空白文档截图只有底色，没有信息量，继续用骨架封面。
   if (wordCount.value === 0) return
 
+  // 记录真正开始截图的时间，供冷却期计算（跳过的情况不算一次截图）。
+  lastThumbnailAt = Date.now()
   thumbnailBusy = true
   try {
     const blob = await captureWorkbenchThumbnail(hostRef.value, session.mode.value)
@@ -962,6 +1000,7 @@ async function captureAndSaveThumbnail(force: boolean) {
 }
 
 // ready 覆盖“打开旧文档补拍”；savedAt 覆盖“编辑后内容变化”。
+// 两者都只负责「排期」，真正的截图要等空闲窗口（见 scheduleThumbnail）。
 watch([ready, savedAt], ([isReady]) => {
   if (isReady) scheduleThumbnail()
 })
@@ -2271,10 +2310,7 @@ onBeforeUnmount(() => {
     relationTimer = null
   }
   // 未触发的封面截图直接丢弃：组件卸载后 host 已销毁，截图没有意义。
-  if (thumbnailTimer !== null) {
-    clearTimeout(thumbnailTimer)
-    thumbnailTimer = null
-  }
+  cancelScheduledThumbnail()
   stopRelationWatch?.()
   stopRelationWatch = null
   teardownDatabaseTools()

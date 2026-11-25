@@ -314,6 +314,8 @@ const folderMenuOptions = computed(() => [
     content: t('workbench.new.document'),
     value: 'document',
     prefixIcon: () => h(TIcon, { name: 'file' }),
+    // 分隔线渲染在选项之后，这里逐项开启，保证相邻动作之间各有一条线。
+    divider: true,
   },
   {
     content: t('workbench.nav.addExistingDocs'),
@@ -331,7 +333,8 @@ const folderMenuOptions = computed(() => [
     content: t('workbench.item.rename'),
     value: 'rename',
     prefixIcon: () => h(TIcon, { name: 'edit' }),
-    divider: true,
+    // 不要加 divider：删除项自带主题分隔线（dropdown-menu.less 的 --theme-error::before），
+    // 两者叠加会变成两条线。
   },
   {
     content: t('workbench.nav.deleteFolderTitle'),
