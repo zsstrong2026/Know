@@ -401,6 +401,9 @@ func (e *Engine) executeNode(
 	if err := e.deps.Runs.UpdateNodeRun(ctx, nr); err != nil {
 		return err
 	}
+	// 进入 running 就广播一次：前端卡片不必等完成/失败才有事件，运行中的
+	// 「正在执行」状态能立刻显示出来。
+	e.publishNodeStatus(run.ID, nr)
 
 	resolved := ResolvedNode{}
 	if e.deps.Resolver != nil {
