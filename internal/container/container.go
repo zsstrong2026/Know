@@ -979,19 +979,6 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	}))
 	// Start only after the delegation close hook is installed.
 	must(container.Invoke(startAgentPromptReaper))
-	must(container.Invoke(startSOPEngine))
-	must(container.Invoke(startSOPTriggerScheduler))
-	// SOP 工具组：给 MCP 服务端注入模板/运行/引擎依赖（工具本身在 NewServer 已注册）。
-	must(container.Invoke(func(
-		srv *mcpserver.Server, templates interfaces.SopTemplateRepository,
-		runs interfaces.SopRunRepository, runSvc *sop.RunService, eng *sopengine.Engine,
-	) {
-		if srv != nil {
-			srv.RegisterSOPTools(mcpserver.SOPToolDeps{
-				Templates: templates, Runs: runs, RunSvc: runSvc, Engine: eng,
-			})
-		}
-	}))
 	must(container.Provide(handler.NewMCPCredentialsHandler))
 	must(container.Provide(handler.NewMCPOAuthHandler))
 	must(container.Provide(handler.NewModelCredentialsHandler))
@@ -1282,6 +1269,23 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		})
 	}))
 	logger.Debugf(ctx, "[Container] HTTP handlers registered")
+
+	// SOP 侧启动动作必须排在全部 Provider 之后：dig 的 Invoke 依赖解析只认
+	// 已登记的 Provider，放在 Engine/TriggerScheduler 的 Provide 之前会报
+	// 「missing type: *engine.Engine」。
+	must(container.Invoke(startSOPEngine))
+	must(container.Invoke(startSOPTriggerScheduler))
+	// SOP 工具组：给 MCP 服务端注入模板/运行/引擎依赖（工具本身在 NewServer 已注册）。
+	must(container.Invoke(func(
+		srv *mcpserver.Server, templates interfaces.SopTemplateRepository,
+		runs interfaces.SopRunRepository, runSvc *sop.RunService, eng *sopengine.Engine,
+	) {
+		if srv != nil {
+			srv.RegisterSOPTools(mcpserver.SOPToolDeps{
+				Templates: templates, Runs: runs, RunSvc: runSvc, Engine: eng,
+			})
+		}
+	}))
 
 	// Wire the chat package's local image resolver so multimodal chat can read
 	// local:// images that live under a tenant's configured storage PathPrefix
