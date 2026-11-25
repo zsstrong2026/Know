@@ -338,8 +338,19 @@ func paginateSopItems(list []types.SopItemWithDerived, page, pageSize int) []typ
 }
 
 // AddAttachment 写入附件（文件字节 + 抽取文本）。
+//
+// 归属校验放在仓储内：这是唯一落地入口，信任调用方传的 ItemID 等于只要猜到 id
+// 就能往别的租户事项上挂附件。TenantID 必须与事项真实归属一致。
 func (r *SopItemRepo) AddAttachment(ctx context.Context, a *types.SopItemAttachment) error {
-	return r.db.WithContext(ctx).Create(a).Error
+	if a == nil {
+		return gorm.ErrRecordNotFound
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := requireSopItemInTenant(tx, a.TenantID, a.ItemID); err != nil {
+			return err
+		}
+		return tx.Create(a).Error
+	})
 }
 
 // ListAttachments 列附件：显式不取 data 列，避免把 BYTEA/BLOB 拉进内存。
