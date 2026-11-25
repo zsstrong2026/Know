@@ -30,6 +30,51 @@ export class EditorMenuButton extends WithDisposable(LitElement) {
 
   private _popper: ReturnType<typeof createButtonPopper> | null = null;
 
+  /** 当前已绑定点击监听的触发按钮，用于识别 lit 重建后的新节点。 */
+  private _boundTrigger: EditorIconButton | null = null;
+
+  private readonly _onTriggerClick = () => {
+    this._popper?.toggle();
+  };
+
+  /**
+   * 同步触发按钮。
+   *
+   * `button` 是一个模板属性，父级重渲染时 lit 可能替换掉内部的
+   * `editor-icon-button`；而 @query 会在更新后指向新节点。若沿用旧节点的
+   * 监听与 popper reference，点击就会落在「没有监听的新按钮」上。
+   *
+   * 另外，固定置顶工具条会在 body 与组件 shadow root 之间迁移，元素会先
+   * 断开再连回来，`WithDisposable` 会在断开时清掉监听，因此这里每次都
+   * 确保监听挂在当前节点上。
+   */
+  private _syncTrigger() {
+    const trigger = this._trigger;
+    if (!trigger) return;
+
+    if (trigger !== this._boundTrigger) {
+      this._boundTrigger?.removeEventListener('click', this._onTriggerClick);
+      this._boundTrigger = trigger;
+      // popper 的定位参照物是旧按钮，需要一并重建
+      this._updatePopper();
+    }
+
+    // remove 后再 add，避免重连/重复更新造成多个监听
+    trigger.removeEventListener('click', this._onTriggerClick);
+    trigger.addEventListener('click', this._onTriggerClick);
+  }
+
+  override connectedCallback() {
+    super.connectedCallback();
+
+    // 首次连接时还处于首次更新之前，交由 firstUpdated 处理
+    if (!this.hasUpdated) return;
+
+    // 组件被移动（断开→重连）后监听已被清理，需重新挂载
+    this._boundTrigger = null;
+    this._syncTrigger();
+  }
+
   private _updatePopper() {
     this._popper?.dispose();
     this._popper = createButtonPopper({
@@ -71,17 +116,19 @@ export class EditorMenuButton extends WithDisposable(LitElement) {
   }
 
   override firstUpdated() {
-    this._updatePopper();
     this._disposables.addFromEvent(this, 'keydown', (e: KeyboardEvent) => {
       e.stopPropagation();
       if (e.key === 'Escape') {
         this._popper?.hide();
       }
     });
-    this._disposables.addFromEvent(this._trigger, 'click', (_: MouseEvent) => {
-      this._popper?.toggle();
-    });
     this._disposables.add(() => this._popper?.dispose());
+    this._syncTrigger();
+  }
+
+  override updated() {
+    // 父级重渲染可能替换掉触发按钮，需要把监听与 popper 迁到新节点
+    this._syncTrigger();
   }
 
   hide() {

@@ -1,6 +1,6 @@
 # PATCHES
 
-当前状态：**2 个补丁**（PATCH-1：日期弹层水平避让；PATCH-2：无限画布格式工具条脱离裁剪层）。除下述补丁外，`third_party/blocksuite` 内的上游文件与 tag v0.27.4 的 `blocksuite/` 子树一致，本目录顶层新增的 `UPSTREAM.md`、`PATCHES.md`、`LICENSE`、`LICENSE-MIT` 均为仓库侧元数据/许可文件，不属于上游源码改动。
+当前状态：**3 个补丁**（PATCH-1：日期弹层水平避让；PATCH-2：无限画布格式工具条脱离裁剪层；PATCH-3：菜单按钮重建后点击失效）。除下述补丁外，`third_party/blocksuite` 内的上游文件与 tag v0.27.4 的 `blocksuite/` 子树一致，本目录顶层新增的 `UPSTREAM.md`、`PATCHES.md`、`LICENSE`、`LICENSE-MIT` 均为仓库侧元数据/许可文件，不属于上游源码改动。
 
 ## 规则
 
@@ -36,6 +36,14 @@
 - 处理：固定置顶且存在 fixed 包含块（无限画布）时，把 `editor-toolbar` 临时挂到 `document.body`，用视口坐标定位；退出固定或组件卸载时放回 shadow root 并清理。脱离 shadow root 后由 `frontend/src/workbench/editor/editor-popover.css` 的 `editor-toolbar[data-wb-portal='true']` 补齐固定栏样式。
 - 对应测试：进入 Journals 无限画布 → 双击文档卡片正文进入编辑 → 顶部预留栏应出现加粗/斜体等格式按钮；切回文档形态仍正常显示。
 - 升级处理：升级 BlockSuite 后检查工具条是否已改用 portal 或不再被画布 `contain` 裁剪；若上游已修复则删除本补丁。
+
+### PATCH-3：修复工具栏菜单按钮在重渲染后点击无效
+
+- 文件：`affine/components/src/toolbar/menu-button.ts`
+- 原因：`button` 是模板属性，父级（`renderToolbar`）重渲染时 lit 会替换掉 `editor-menu-button` 内部的 `editor-icon-button`。`@query` 会在更新后指向新节点，但 `firstUpdated` 里绑定的 `click` 监听与 popper 的 `reference` 仍指向被替换的旧节点，点击因此全部落空。墨匣文档页输入内容后，顶部格式条从 3 个按钮重建成 17 个按钮，此后「正文/颜色/字号/高亮/更多」全部点不开弹层，手动调用 `show()` 才能显示。另外，固定置顶工具条会在 `document.body` 与编辑器 shadow root 之间迁移（PATCH-2），子树断开时 `WithDisposable` 会清掉 `firstUpdated` 里注册的监听，重连后 `firstUpdated` 不再执行，即使节点没变监听也会永久丢失。
+- 处理：新增 `_syncTrigger()`，在 `firstUpdated`、`updated` 与重连时的 `connectedCallback` 中把 `click` 监听重新挂到当前触发按钮上；节点变化时调用 `_updatePopper()` 重建 popper 的 reference，使监听被 `WithDisposable` 清理后能自动恢复。
+- 对应测试：墨匣文档编辑页输入内容 → 依次点击「正文」「颜色」「字号」「高亮」「更多」，弹层应立即出现且位置正确；继续输入后再次点击仍要正常。
+- 升级处理：升级 BlockSuite 后检查上游 `menu-button.ts` 是否已在 `updated()` 里重新绑定或在模板里直接使用 `@click`；若上游已修复则删除本补丁。
 
 ## 补丁记录模板
 
