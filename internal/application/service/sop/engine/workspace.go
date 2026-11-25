@@ -635,12 +635,18 @@ func within(base, p string) bool {
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
 }
 
-// isAbsLike 识别绝对路径：POSIX 前导 `/`、Windows 盘符以及 UNC。
+// isAbsLike 识别绝对路径：POSIX 前导 `/`、Windows 盘符、UNC，以及 Win32 备用数据流。
+//
+// `name:stream` 不是绝对路径，但它写的是同一文件的隐藏流：产物收集按文件名读不到，
+// 目录列表里也看不见——效果等同于把产物丢进黑洞。盘符位（`C:`）之外的冒号一律拒绝。
 func isAbsLike(p string) bool {
 	if filepath.IsAbs(p) || strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`) {
 		return true
 	}
-	return len(p) >= 2 && p[1] == ':' // C:foo（盘符相对）
+	if len(p) >= 2 && p[1] == ':' { // C:foo（盘符相对）
+		return true
+	}
+	return strings.Contains(p, ":")
 }
 
 // hasParentSegment 逐个路径段拒绝 `..`（两种分隔符都拆，保证跨平台一致）。

@@ -360,8 +360,13 @@ func ValidateDefinitionWithSelf(def *types.SopDefinition, selfTemplateID string,
 				continue
 			}
 			if escapesWorkspace(a.Path) {
-				errs = append(errs, fmt.Sprintf("步骤「%s」的产物「%s」路径不能越出工作区，请改用工作区内的相对路径",
-					name, firstNonEmpty(a.Name, a.Path)))
+				msg := "路径不能越出工作区，请改用工作区内的相对路径"
+				if strings.Contains(a.Path, ":") && !(len(a.Path) >= 2 && a.Path[1] == ':') {
+					// 冒号在非盘符位：Win32 备用数据流写法，产物收集按文件名读不到。
+					msg = "路径不能包含冒号（冒号是文件流的写法，产物会被写进隐藏流而读不到）"
+				}
+				errs = append(errs, fmt.Sprintf("步骤「%s」的产物「%s」%s",
+					name, firstNonEmpty(a.Name, a.Path), msg))
 			}
 			if a.Check.Type == types.SopArtifactCheckContains && strings.TrimSpace(a.Check.Keyword) == "" {
 				errs = append(errs, fmt.Sprintf("步骤「%s」的产物「%s」选了「包含内容」，但没写要包含什么",
@@ -474,6 +479,11 @@ func escapesWorkspace(path string) bool {
 	}
 	// Windows 盘符（C: / C:\…）。
 	if len(p) >= 2 && p[1] == ':' {
+		return true
+	}
+	// Win32 备用数据流（out/a.md:hidden）写的是同一文件的隐藏流：产物收集按文件名
+	// 读不到，等于写入黑洞。盘符位之外的冒号一律算越界。
+	if strings.Contains(p, ":") {
 		return true
 	}
 	for _, seg := range strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' }) {
