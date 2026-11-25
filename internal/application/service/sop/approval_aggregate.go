@@ -20,11 +20,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"gorm.io/gorm"
 )
@@ -175,7 +175,7 @@ func (s *ApprovalService) listSOPPending(ctx context.Context, tenantID uint64) [
 	}
 	runs, err := d.Runs.ListRuns(ctx, tenantID, types.SopRunFilter{Status: types.SopRunWaiting}, 0, 0)
 	if err != nil {
-		log.Printf("[sop-approval] 审批中心读取等待运行失败：%v", err)
+		logger.Warnf(ctx, "[sop-approval] 审批中心读取等待运行失败：%v", err)
 		return nil
 	}
 	var out []ApprovalEntry
@@ -187,7 +187,7 @@ func (s *ApprovalService) listSOPPending(ctx context.Context, tenantID uint64) [
 		item := s.itemTitle(ctx, run)
 		nrs, err := d.Runs.ListNodeRuns(ctx, run.TenantID, run.ID)
 		if err != nil {
-			log.Printf("[sop-approval] 运行 %s 节点读取失败：%v", run.ID, err)
+			logger.Warnf(ctx, "[sop-approval] 运行 %s 节点读取失败：%v", run.ID, err)
 			continue
 		}
 		for j := range nrs {
@@ -279,7 +279,7 @@ func (s *ApprovalService) listPromptPending(
 	}
 	prompts, err := s.aggregates.Prompts.ListOpenByTenant(ctx, tenantID)
 	if err != nil {
-		log.Printf("[sop-approval] 审批中心读取智能体挂起失败：%v", err)
+		logger.Warnf(ctx, "[sop-approval] 审批中心读取智能体挂起失败：%v", err)
 		return nil
 	}
 	out := make([]ApprovalEntry, 0, len(prompts))
@@ -349,7 +349,7 @@ func (s *ApprovalService) listAutomationPending(ctx context.Context, tenantID ui
 	}
 	items, err := s.aggregates.Automations.ListPendingApprovals(ctx, tenantID)
 	if err != nil {
-		log.Printf("[sop-approval] 审批中心读取自动化待审批失败：%v", err)
+		logger.Warnf(ctx, "[sop-approval] 审批中心读取自动化待审批失败：%v", err)
 		return nil
 	}
 	out := make([]ApprovalEntry, 0, len(items))

@@ -10,9 +10,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
@@ -67,7 +67,7 @@ func (s *NotesService) Create(
 	if err := s.d.Notes.Create(ctx, n); err != nil {
 		return err
 	}
-	s.notify(tenantID, n.ProjectID)
+	s.notify(ctx, tenantID, n.ProjectID)
 	return nil
 }
 
@@ -90,7 +90,7 @@ func (s *NotesService) Edit(
 		return err
 	}
 	*n = *existing
-	s.notify(tenantID, existing.ProjectID)
+	s.notify(ctx, tenantID, existing.ProjectID)
 	return nil
 }
 
@@ -104,7 +104,7 @@ func (s *NotesService) Pin(ctx context.Context, tenantID uint64, id string, pinn
 	if err := s.d.Notes.Update(ctx, tenantID, existing); err != nil {
 		return err
 	}
-	s.notify(tenantID, existing.ProjectID)
+	s.notify(ctx, tenantID, existing.ProjectID)
 	return nil
 }
 
@@ -117,7 +117,7 @@ func (s *NotesService) SoftDelete(ctx context.Context, tenantID uint64, id strin
 	if err := s.d.Notes.SoftDelete(ctx, tenantID, id); err != nil {
 		return err
 	}
-	s.notify(tenantID, existing.ProjectID)
+	s.notify(ctx, tenantID, existing.ProjectID)
 	return nil
 }
 
@@ -203,7 +203,7 @@ func (s *NotesService) AutoRecordRun(
 	if err := s.d.Notes.Create(ctx, n); err != nil {
 		return err
 	}
-	s.notify(run.TenantID, run.ProjectID)
+	s.notify(ctx, run.TenantID, run.ProjectID)
 	return nil
 }
 
@@ -219,12 +219,12 @@ func (s *NotesService) RecordRunFinal(ctx context.Context, run *types.SopRun) er
 		if list, err := s.d.Runs.ListNodeRuns(ctx, run.TenantID, run.ID); err == nil {
 			nodeRuns = list
 		} else {
-			log.Printf("[sop-notes] 运行 %s 节点读取失败：%v", run.ID, err)
+			logger.Warnf(ctx, "[sop-notes] 运行 %s 节点读取失败：%v", run.ID, err)
 		}
 		if list, err := s.d.Runs.ListArtifacts(ctx, run.TenantID, run.ID); err == nil {
 			arts = list
 		} else {
-			log.Printf("[sop-notes] 运行 %s 产物读取失败：%v", run.ID, err)
+			logger.Warnf(ctx, "[sop-notes] 运行 %s 产物读取失败：%v", run.ID, err)
 		}
 	}
 	title := ""
@@ -330,13 +330,13 @@ func (s *NotesService) ensureProject(ctx context.Context, tenantID uint64, proje
 	return nil
 }
 
-func (s *NotesService) notify(tenantID uint64, projectID string) {
+func (s *NotesService) notify(ctx context.Context, tenantID uint64, projectID string) {
 	if s.d.OnRecord == nil {
 		return
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[sop-notes] 触发简报重渲染 panic：%v", r)
+			logger.Errorf(ctx, "[sop-notes] 触发简报重渲染 panic：%v", r)
 		}
 	}()
 	s.d.OnRecord(tenantID, projectID)
