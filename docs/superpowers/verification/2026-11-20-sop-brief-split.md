@@ -7,11 +7,11 @@
 
 | # | 验收项 | 结论 | 证据 |
 | --- | --- | --- | --- |
-| 22 | 项目知识库与简报同步 | ⚠️ 部分验证 | 简报 seq 去重/降级/失败不前移水位有单测（`brief_test.go` 5 例）；E2E 覆盖「运行摘要自动落黑板 → 简报入库」；创建模态三选与改绑走查 PASS；真实建库（Embedding 模型）与真实 KB 删除未验证 |
+| 22 | 项目知识库与简报同步 | ⚠️ 部分验证（删库级联已有实现与测试） | 简报 seq 去重/降级/失败不前移水位有单测；E2E 覆盖「运行摘要自动落黑板 → 简报入库」；创建模态三选与改绑走查 PASS；删项目连带删自建库有 `TestDeleteProjectDeletesOnlyOwnKB` / `TestDeleteProjectKeepsLinkedKB`；真实建库（Embedding 模型）与真实 KB 数据删除未验证 |
 | 23 | 项目黑板与上下文注入 | ✅ 单测 + E2E PASS；⚠️ 运行详情「任务书」视图未逐项走查 | `TestRenderTaskBookProjectContextBlock`、`TestBuildProjectContext*`、`TestMaterializeProjectBrief`、`TestSharedContextFlowsToNodesAndBriefToKB`（任务书含「## 项目现状」+ 决策 + 兄弟进度，`inputs/project-brief.md` 落盘，`sop_runs.project_context` 回写） |
 | 24 | 大需求拆分（两级） | ✅ 后端 + 前端桩走查 PASS；⚠️ 模板产出子项真实运行未验证 | 后端 `TestSplit*` / `TestParentAutoAdvances*` / `TestEnsureNotBigParent` / `TestListRollsUpParentExec` / `TestChildItems*`；前端 T67 走查（折叠/汇总/子项 tab/拆分卡）；`TestSplitThreeChildrenEachRunIndependently` |
 | 25 | 知识库改绑与降级 | ⚠️ 部分验证 | 改绑走查 PASS（徽标变「改绑」、删除策略变「只解绑不删除」、简报重置为未渲染）；`kb_scope=project` 空列表解析已有单测（T31/T37）；补绑后检索命中需真实 KB，未验证 |
-| 26 | 既有能力零回归 | ⚠️ 部分 | 后端 `go test ./internal/{types,application/repository,application/service/sop/...,handler,router}` 全绿；前端 `npm test` 有 9 项**既有失败**（见下文），SOP 相关 21/21、i18n 16/16、type-check 全绿 |
+| 26 | 既有能力零回归 | ⚠️ 部分 | 后端 `go test ./internal/{types,application/repository,application/service/sop/...,handler,router}` 全绿；前端 `npm test` 有 9 项**既有失败**（见下文），SOP 相关 21/21、i18n 16/16、type-check 全绿。已修复一次 i18n 语法回归（见「收尾修复」） |
 
 ## 逐项说明
 
@@ -28,7 +28,7 @@
 | 写入失败不前移水位 | `TestBriefEnsureInitialKeepsWatermarkOnFailure` | 返回错误、`brief_rendered_seq` 不变，重试成功 | PASS |
 | 运行终态进简报 | `TestSharedContextFlowsToNodesAndBriefToKB` | 首版入库正文含「运行结论」；再记一条只 update 不 create | PASS |
 | 改绑知识库 | 配置页 → 知识库与简报 → 选择另一个库 → 确认绑定 | 徽标变「改绑」、删除策略变「只解绑不删除」、简报卡片变「有 N 条新动态未同步」 | 走查 PASS（桩） |
-| 删项目连带删库 | — | `kb_owner=project` 连带删除、`linked` 仅解绑 | **未验证**：容器后端无 SOP 路由，桩无法模拟级联；代码路径在 T62 的 `DeleteProject` 上方（仅计数校验），真实级联依赖 KB 服务 |
+| 删项目连带删库 | `DELETE /projects/:id` → 有进行中运行先 400 | `kb_owner=project` 连带删库、`linked`/`pm` 仅解绑 | 实现 + 单测 PASS（`TestDeleteProjectDeletesOnlyOwnKB` / `TestDeleteProjectKeepsLinkedKB`，断言只对自建库调用 `DeleteKnowledgeBase`）；真实 KB 文档清理未在大库上验证 |
 
 **未验证原因**：本机无法构建 server（DuckDB 静态库链接失败），容器内后端镜像不含本轮 SOP 路由，因此所有涉及真实知识库创建/删除/嵌入的链路只能走桩。
 
@@ -99,3 +99,16 @@ npm test 全量                             2810/2821 PASS，9 项失败
 - `useModalShell.test.ts` 4 项：`editorResources.parserEngineDefaultRules is not iterable`，属解析器引擎默认路由用例，与 SOP 无关。
 
 **未验证**：`go test ./...` 全量无法在本机执行（`cmd/server` 与 `cmd/download/duckdb` 的 DuckDB 静态库链接失败，属本机既有环境问题，T58 已记录）；`internal/application/service` 整包同样因 DuckDB 链接失败无法运行，已用 `go vet` 与各子包测试替代。
+
+
+## 收尾修复（2026-11-25，commit `6d043175a`）
+
+| 问题 | 处理 | 验证 |
+| --- | --- | --- |
+| **已提交的六个 locale 无法解析**（T67 手术式暂存漏 `split.panel` 行尾逗号） | 补齐逗号并闭合 `settings` 段 | HEAD 版本六个文件经 esbuild 解析通过；`check-i18n` 16/16 |
+| 删项目未处理知识库 | `DeleteProject` 按 `kb_owner` 连带删除自建库 / 仅解绑其它库 | `TestDeleteProjectDeletesOnlyOwnKB`、`TestDeleteProjectKeepsLinkedKB` |
+| 事项删除守卫依赖 `is_big` 标记 | 改为「存在子项即拒绝」 | `TestDeleteRejectsWhenChildrenExistEvenWithoutBigFlag` |
+| 抽屉「整条重触发」绕过父项拦截 | 改调 `POST /items/:id/relaunch` | 后端 `TestParentItemCannotLaunchDirectly` |
+| M11 迁移只验证了 down 脚本存在 | 新增真实回滚测试（76 → 75 → 76） | `TestSQLiteMigrationsRollbackProjectNotes` |
+
+**教训**：手术式暂存（`git hash-object` + `update-index`）之后必须校验**暂存版本本身**（`git show :path`）能否解析/编译，只跑工作树上的测试会漏掉「暂存内容语法错误」这类问题。
