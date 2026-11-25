@@ -123,9 +123,15 @@ func TestListRevisionsDescending(t *testing.T) {
 	db := newSopTplTestDB(t)
 	repo := NewSopTemplateRepo(db)
 	ctx := context.Background()
-	tpl := &types.SopTemplate{TenantID: 1, Name: "t"}
+	tpl := &types.SopTemplate{TenantID: 1, Name: "t", Definition: types.SopDefinition{
+		Nodes: []types.SopNode{{ID: "n1", Name: "v1", Type: "agent"}},
+	}}
 	require.NoError(t, repo.Create(ctx, tpl))
 	for i := 0; i < 2; i++ {
+		// 每轮改一次定义：内容相同的重复发布会被复用成同一条 revision（见
+		// TestPublishReusesRevisionForIdenticalDefinition），这里要的是两条历史。
+		tpl.Definition.Nodes[0].Name = fmt.Sprintf("v%d", i+2)
+		require.NoError(t, repo.Update(ctx, tpl))
 		_, err := repo.Publish(ctx, 1, tpl.ID, "u1")
 		require.NoError(t, err)
 	}
