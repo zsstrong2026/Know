@@ -763,6 +763,21 @@ export async function bulkClose(ids: string[]): Promise<SopBulkResult> {
   return bulkUpdateItemStatus(ids, 'closed');
 }
 
+/** 批量触发结果：建了运行的 / 跳过的（运行中、无模板）/ 建运行失败的。 */
+export interface SopBulkLaunchResult {
+  started: string[];
+  skipped: string[];
+  failed: string[];
+}
+
+/**
+ * 批量触发：一次请求展开父项、跳过运行中，避免前端逐条 createRun 串行打满。
+ * 父项会被后端展开成子项；返回的 id 都是事项 id。
+ */
+export async function bulkLaunchItems(ids: string[]): Promise<SopBulkLaunchResult> {
+  return post<{ data: SopBulkLaunchResult }>(`${SOP_BASE}/items/bulk-launch`, { ids }).then((r) => r.data);
+}
+
 export async function addAttachment(itemId: string, file: File): Promise<SopItemAttachment> {
   const form = new FormData();
   form.append('file', file);

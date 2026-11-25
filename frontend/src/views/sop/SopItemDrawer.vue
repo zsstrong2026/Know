@@ -330,6 +330,7 @@ import {
   addHumanContext,
   analyzeItem,
   answerClarification,
+  bulkLaunchItems,
   createRun,
   deleteItem,
   relaunch as apiRelaunch,
@@ -552,34 +553,26 @@ function openItemById(id: string) {
   emit('open', id);
 }
 
-/** 大项批量触发：逐条 createRun，模板取子项自己的或项目默认。 */
+/** 大项批量触发：走后端 bulk-launch 一次请求，子项模板与跳过口径都由后端判定。 */
 async function launchChildren() {
   if (!item.value) return;
-  const templateId = store.currentProject?.default_template_id || '';
-  if (!templateId) {
-    MessagePlugin.warning(t('sop.items.noTemplate'));
-    return;
-  }
+  const ids = children.value.map((kid) => kid.id);
+  if (!ids.length) return;
   busy.value = true;
-  let ok = 0;
-  let skipped = 0;
-  for (const kid of children.value) {
-    if (kid.exec_state === 'running' || kid.exec_state === 'intervene') {
-      skipped += 1;
-      continue;
+  try {
+    const result = await bulkLaunchItems(ids);
+    if (result.started.length) {
+      MessagePlugin.success(t('sop.items.bulkStarted', { n: result.started.length }));
     }
-    try {
-      await createRun({ item_id: kid.id, template_id: kid.template_id || templateId });
-      ok += 1;
-    } catch {
-      skipped += 1;
-    }
+    const skipped = result.skipped.length + result.failed.length;
+    if (skipped) MessagePlugin.info(t('sop.items.bulkSkipped', { n: skipped }));
+    await load();
+    emit('changed');
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('sop.items.launchFailed'));
+  } finally {
+    busy.value = false;
   }
-  busy.value = false;
-  if (ok) MessagePlugin.success(t('sop.items.bulkStarted', { n: ok }));
-  if (skipped) MessagePlugin.info(t('sop.items.bulkSkipped', { n: skipped }));
-  await load();
-  emit('changed');
 }
 
 async function launchChild(kid: SopItemWithDerived) {

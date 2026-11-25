@@ -370,3 +370,45 @@ func (h *SOPHandler) ListItemActivities(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
 }
+
+// BulkLaunchItems 批量触发：一次请求处理多条事项，父项展开为子项、运行中跳过。
+//
+// 逐条建运行在本机能跑，但几十条会串成几十次 HTTP 往返；这里收成一次请求，
+// 由服务层展开与跳过判定，返回 started/skipped/failed 三组 id。
+func (h *SOPHandler) BulkLaunchItems(c *gin.Context) {
+	tenantID := sopTenantID(c)
+	if tenantID == 0 {
+		return
+	}
+	if h.items == nil || h.runs2 == nil {
+		sopAbort(c, sopClientf("事项或运行服务未就绪"))
+		return
+	}
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if !sopBindJSON(c, &req) {
+		return
+	}
+	if len(req.IDs) == 0 {
+		sopAbort(c, sopClientf("请选择要触发的事项"))
+		return
+	}
+	targets, skipped, err := h.items.ExpandLaunchTargets(c.Request.Context(), tenantID, req.IDs)
+	if err != nil {
+		sopAbort(c, err)
+		return
+	}
+	result := &sop.LaunchResult{Started: []string{}, Skipped: skipped, Failed: []string{}}
+	for _, t := range targets {
+		_, err := h.runs2.Create(c.Request.Context(), tenantID, sopUserID(c), sop.CreateRunInput{
+			TemplateID: t.TemplateID, ItemID: t.ItemID,
+		})
+		if err != nil {
+			result.Failed = append(result.Failed, t.ItemID)
+			continue
+		}
+		result.Started = append(result.Started, t.ItemID)
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+}

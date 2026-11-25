@@ -70,6 +70,7 @@ func RegisterSOPItemRoutes(v1 *gin.RouterGroup, h *handler.SOPHandler, g *rbacGu
 	manage.DELETE("/items/:id", g.Contributor(), h.DeleteItem)
 	manage.PATCH("/items/:id/status", g.Contributor(), h.UpdateItemStatus)
 	manage.POST("/items/bulk-status", g.Contributor(), h.BulkUpdateItemStatus)
+	manage.POST("/items/bulk-launch", g.Contributor(), h.BulkLaunchItems)
 	manage.POST("/items/:id/attachments", g.Contributor(), h.UploadItemAttachment)
 	manage.POST("/items/:id/clarifications", g.Contributor(), h.CreateItemClarification)
 	manage.PATCH("/items/:id/clarifications/:cid/answer", g.Contributor(), h.AnswerItemClarification)

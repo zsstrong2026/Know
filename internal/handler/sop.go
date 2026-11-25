@@ -636,6 +636,7 @@ func (h *SOPHandler) RegisterItemRoutes(sopGroup *gin.RouterGroup) {
 		items.DELETE("/:id", h.DeleteItem)
 		items.PATCH("/:id/status", h.UpdateItemStatus)
 		items.POST("/bulk-status", h.BulkUpdateItemStatus)
+		items.POST("/bulk-launch", h.BulkLaunchItems)
 		items.POST("/:id/attachments", h.UploadItemAttachment)
 		items.GET("/:id/attachments", h.ListItemAttachments)
 		items.GET("/:id/clarifications", h.ListItemClarifications)

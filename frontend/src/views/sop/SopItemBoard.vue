@@ -320,6 +320,7 @@ import { storeToRefs } from 'pinia';
 import { MessagePlugin } from 'tdesign-vue-next';
 import {
   bulkClose,
+  bulkLaunchItems,
   createRun,
   listRuns,
   setItemStatus,
@@ -626,43 +627,32 @@ async function launchItem(item: SopItemWithDerived) {
 }
 
 /**
- * 批量触发：后端没有 bulk-launch 端点，这里逐条 createRun。
- * 正在推进/需要介入的事项跳过（与「跳过运行中」口径一致），其余失败逐条累计。
+ * 批量触发：走后端 bulk-launch 一次请求完成。
+ * 父项由后端展开为子项，运行中/待介入与无模板的事项进 skipped，
+ * 前端只负责按结果给出三组提示并刷新。
  */
 async function bulkLaunch() {
-  const targets = store.items.filter((item) => selected.value.has(item.id) && !item.is_big);
-  const skipped = targets.filter(
-    (item) => item.exec_state === 'running' || item.exec_state === 'intervene',
-  );
-  const runnable = targets.filter(
-    (item) => item.exec_state !== 'running' && item.exec_state !== 'intervene',
-  );
-  if (!runnable.length) {
-    MessagePlugin.info(t('sop.items.bulkSkipped', { n: skipped.length }));
-    return;
-  }
+  const ids = [...selected.value];
+  if (!ids.length) return;
   bulkBusy.value = true;
-  let started = 0;
-  let failed = 0;
-  for (const item of runnable) {
-    const templateId = resolveTemplateId(item);
-    if (!templateId) {
-      failed += 1;
-      continue;
+  try {
+    const result = await bulkLaunchItems(ids);
+    if (result.started.length) {
+      MessagePlugin.success(t('sop.items.bulkStarted', { n: result.started.length }));
     }
-    try {
-      await createRun({ item_id: item.id, template_id: templateId });
-      started += 1;
-    } catch {
-      failed += 1;
+    if (result.skipped.length) {
+      MessagePlugin.info(t('sop.items.bulkSkipped', { n: result.skipped.length }));
     }
+    if (result.failed.length) {
+      MessagePlugin.warning(t('sop.items.bulkFailed', { n: result.failed.length }));
+    }
+    clearSelection();
+    await refreshAll();
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('sop.items.launchFailed'));
+  } finally {
+    bulkBusy.value = false;
   }
-  bulkBusy.value = false;
-  if (started) MessagePlugin.success(t('sop.items.bulkStarted', { n: started }));
-  if (skipped.length) MessagePlugin.info(t('sop.items.bulkSkipped', { n: skipped.length }));
-  if (failed) MessagePlugin.warning(t('sop.items.bulkFailed', { n: failed }));
-  clearSelection();
-  await refreshAll();
 }
 
 async function bulkCloseItems() {
