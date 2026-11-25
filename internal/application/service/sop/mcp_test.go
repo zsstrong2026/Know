@@ -58,6 +58,20 @@ func (s stubEndpointStore) Update(ctx context.Context, ep *types.MCPEndpoint) er
 	return s.db.WithContext(ctx).Save(ep).Error
 }
 
+func (s stubEndpointStore) Delete(ctx context.Context, tenantID uint64, id string) error {
+	return s.db.WithContext(ctx).
+		Where("tenant_id = ? AND id = ?", tenantID, id).
+		Delete(&types.MCPEndpoint{}).Error
+}
+
+func (s stubEndpointStore) ListByTenant(
+	ctx context.Context, tenantID uint64,
+) ([]*types.MCPEndpoint, error) {
+	var rows []*types.MCPEndpoint
+	err := s.db.WithContext(ctx).Where("tenant_id = ?", tenantID).Find(&rows).Error
+	return rows, err
+}
+
 // 确定性 + 节点隔离 + 白名单/工具集落库。
 func TestEnsureNodeEndpointDeterministicAndScoped(t *testing.T) {
 	p, db := newTestProvisioner(t)

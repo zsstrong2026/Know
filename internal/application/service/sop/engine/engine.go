@@ -74,6 +74,9 @@ type Deps struct {
 	AutoIngest func(ctx context.Context, run *types.SopRun, node *types.SopNode, arts []*types.SopArtifact)
 	// MCP 为 CLI 节点签发受限 Know MCP 端点（可 nil；T37 接线）。
 	MCP MCPEndpointProvisioner
+	// ReleaseMCP 在运行收口后回收该运行签发的 MCP 端点（可 nil）。与 OnRunFinal 分开：
+	// 取消路径不走 OnRunFinal（黑板不为取消写摘要），但端点同样要回收。
+	ReleaseMCP func(ctx context.Context, tenantID uint64, runID string) error
 	// OnRunFinal 在运行收口（终态 + FinishedAt 已落库）后调用一次（可 nil；T61 接线）。
 	// 用于项目黑板自动摘要：失败只记日志，绝不影响运行结论。
 	OnRunFinal func(ctx context.Context, run *types.SopRun)
@@ -329,7 +332,23 @@ func (e *Engine) finalizeRun(ctx context.Context, run *types.SopRun) error {
 	}
 	e.notifyFinished(ctx, run)
 	e.notifyRunFinal(ctx, run)
+	e.releaseMCP(ctx, run)
 	return nil
+}
+
+// releaseMCP 回收本次运行签发的 MCP 端点（失败只记日志：清理不影响运行结论）。
+func (e *Engine) releaseMCP(ctx context.Context, run *types.SopRun) {
+	if e.deps.ReleaseMCP == nil || run == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[sop-engine] 运行 %s MCP 端点清理 panic：%v", run.ID, r)
+		}
+	}()
+	if err := e.deps.ReleaseMCP(ctx, run.TenantID, run.ID); err != nil {
+		log.Printf("[sop-engine] 运行 %s MCP 端点清理失败：%v", run.ID, err)
+	}
 }
 
 // notifyRunFinal 调 OnRunFinal（项目黑板自动摘要）：panic 与错误都只记日志。

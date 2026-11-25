@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/utils"
@@ -28,6 +29,8 @@ type MCPEndpointStore interface {
 	GetByName(ctx context.Context, tenantID uint64, name string) (*types.MCPEndpoint, error)
 	Create(ctx context.Context, ep *types.MCPEndpoint) error
 	Update(ctx context.Context, ep *types.MCPEndpoint) error
+	Delete(ctx context.Context, tenantID uint64, id string) error
+	ListByTenant(ctx context.Context, tenantID uint64) ([]*types.MCPEndpoint, error)
 }
 
 // MCPProvisioner 为运行节点签发受限 MCP 端点。
@@ -102,6 +105,35 @@ func (p *MCPProvisioner) EnsureNodeEndpoint(
 		}
 	}
 	return p.endpointURL(), token, nil
+}
+
+// runEndpointPrefix 是本运行全部端点行的名称前缀（包含结尾冒号，避免
+// run-1 误伤 run-10）。
+func runEndpointPrefix(runID string) string { return "sop:" + runID + ":" }
+
+// ReleaseRun 清理某次运行签发的全部端点：运行收口（成功/失败/取消）后调用。
+//
+// 端点行只增不减会让设置页越积越多，且过期 token 永远可用——那是可被外部
+// 持有者重放的凭据。只删本运行前缀的行，用户自建端点与其它运行不受影响；
+// 失败只返回错误由调用方记日志（清理失败不该影响运行结论）。
+func (p *MCPProvisioner) ReleaseRun(ctx context.Context, tenantID uint64, runID string) error {
+	if p == nil || p.endpoints == nil || runID == "" {
+		return nil
+	}
+	list, err := p.endpoints.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("列出 MCP 端点失败：%w", err)
+	}
+	prefix := runEndpointPrefix(runID)
+	for _, ep := range list {
+		if ep == nil || !strings.HasPrefix(ep.Name, prefix) {
+			continue
+		}
+		if err := p.endpoints.Delete(ctx, tenantID, ep.ID); err != nil {
+			return fmt.Errorf("删除 MCP 端点 %s 失败：%w", ep.Name, err)
+		}
+	}
+	return nil
 }
 
 // endpointURL 返回 MCP 服务地址（空配置时给本地默认）。

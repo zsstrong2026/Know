@@ -327,7 +327,9 @@ func (e *Engine) finishCancelled(ctx context.Context, runID string) {
 	}
 	if err := e.deps.Runs.UpdateRun(ctx, run); err != nil {
 		log.Printf("[sop-engine] 运行 %s 取消收口写入失败：%v", runID, err)
+		return
 	}
+	e.releaseMCP(ctx, run)
 }
 
 // WithRunTenant 把运行所属租户注入 ctx：执行器（平台智能体的角色读取、AgentQA 的
