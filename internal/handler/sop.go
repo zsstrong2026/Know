@@ -22,6 +22,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/application/service/sop"
 	sopengine "github.com/Tencent/WeKnora/internal/application/service/sop/engine"
 	"github.com/Tencent/WeKnora/internal/errors"
@@ -341,6 +342,11 @@ func (h *SOPHandler) CreateProject(c *gin.Context) {
 	}
 
 	if err := h.projects.Create(c.Request.Context(), proj); err != nil {
+		// 预检与落库之间仍有并发窗口：撞唯一索引时补一次可读文案，别落成 500。
+		if repository.IsUniqueViolation(err) {
+			sopAbort(c, h.sopProjectConflictError(c, tenantID, "", proj.Name, proj.Code))
+			return
+		}
 		sopFail(c, err, "")
 		return
 	}
@@ -436,6 +442,10 @@ func (h *SOPHandler) UpdateProject(c *gin.Context) {
 	}
 	req.applyTo(proj)
 	if err := h.projects.Update(c.Request.Context(), proj); err != nil {
+		if repository.IsUniqueViolation(err) {
+			sopAbort(c, h.sopProjectConflictError(c, tenantID, proj.ID, proj.Name, ""))
+			return
+		}
 		sopFail(c, err, "项目不存在")
 		return
 	}
@@ -585,6 +595,16 @@ func (h *SOPHandler) sopProjectConflict(
 		}
 	}
 	return "", nil
+}
+
+// sopProjectConflictError 在落库撞唯一索引后复述冲突：优先按编号、再按名称定位并发写入的那一行。
+func (h *SOPHandler) sopProjectConflictError(
+	c *gin.Context, tenantID uint64, skipID, name, code string,
+) error {
+	if dup, err := h.sopProjectConflict(c, tenantID, skipID, name, code); err == nil && dup != "" {
+		return sopClientError{msg: dup}
+	}
+	return sopClientf("项目编号或名称已被占用，请刷新后重试")
 }
 
 // findSopRepoID 按 id 或名称找仓库（两者都试，名称忽略大小写）。

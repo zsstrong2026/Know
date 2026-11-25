@@ -26,6 +26,10 @@ func pmUpdateByID(ctx context.Context, db *gorm.DB, model any, id string, tenant
 	return nil
 }
 
+// IsUniqueViolation 兼容 PostgreSQL 与 SQLite 的唯一约束错误识别。
+// 导出给 handler：并发撞唯一索引时把驱动错误翻译成 400「已被占用」。
+func IsUniqueViolation(err error) bool { return isUniqueViolation(err) }
+
 // isUniqueViolation 兼容 PostgreSQL 与 SQLite 的唯一约束错误识别
 func isUniqueViolation(err error) bool {
 	if err == nil {
