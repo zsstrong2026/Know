@@ -300,6 +300,12 @@ func ValidateDefinitionWithSelf(def *types.SopDefinition, selfTemplateID string,
 		n := &def.Nodes[i]
 		name := displayName(n)
 
+		// 节点类型：只认四种。未知类型跑到执行器才炸，用户看到的是内部错误，
+		// 且已经烧掉一轮 token，所以在发布/发起运行的口径上就拒绝。
+		if !knownSopNodeType(n.Type) {
+			errs = append(errs, fmt.Sprintf("步骤「%s」的类型「%s」不认识，请重新选择（agent / script / approval / sop）", name, n.Type))
+		}
+
 		// 失败策略：选了打回必须选上游，且目标必须真是上游。
 		switch n.OnFailure {
 		case types.SopOnFailureReject:
@@ -338,6 +344,10 @@ func ValidateDefinitionWithSelf(def *types.SopDefinition, selfTemplateID string,
 				errs = append(errs, fmt.Sprintf("步骤「%s」的产物「%s」选了「自定义检查」，但没写要跑的命令",
 					name, firstNonEmpty(a.Name, a.Path)))
 			}
+			if !knownArtifactCheckType(a.Check.Type) {
+				errs = append(errs, fmt.Sprintf("步骤「%s」的产物「%s」的校验方式「%s」不认识，请重新选择（exists / contains / command）",
+					name, firstNonEmpty(a.Name, a.Path), a.Check.Type))
+			}
 		}
 
 		// 子流程节点：必须选模板，且不能引用自身。
@@ -352,6 +362,27 @@ func ValidateDefinitionWithSelf(def *types.SopDefinition, selfTemplateID string,
 	}
 
 	return errs
+}
+
+// knownSopNodeType 判断节点类型是否为定义的四种之一（精确匹配，不做大小写归一；
+// 空串视为未填，由 Normalize 补默认 agent，故放行）。
+func knownSopNodeType(t string) bool {
+	switch t {
+	case "", types.SopNodeTypeAgent, types.SopNodeTypeScript,
+		types.SopNodeTypeApproval, types.SopNodeTypeSOP:
+		return true
+	}
+	return false
+}
+
+// knownArtifactCheckType 判断产物校验方式是否为定义的三种之一（空串由 Normalize
+// 补默认 exists，故放行）。
+func knownArtifactCheckType(t string) bool {
+	switch t {
+	case "", types.SopArtifactCheckExists, types.SopArtifactCheckContains, types.SopArtifactCheckCommand:
+		return true
+	}
+	return false
 }
 
 // executorGap 返回执行器缺项的白话描述；配置完整返回空串。

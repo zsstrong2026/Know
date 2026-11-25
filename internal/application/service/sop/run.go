@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Tencent/WeKnora/internal/application/service/sop/engine"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
@@ -22,6 +23,9 @@ import (
 var (
 	ErrSopTemplateUnpublished = errors.New("该模板尚未发布，不能发起运行")
 	ErrSopRunInputMissing     = errors.New("运行输入缺少必填项")
+	// ErrSopRunDefinitionInvalid 发布快照里的流程定义不合法（未知节点/校验类型等），
+	// 运行前就拒绝，避免执行到一半才在引擎里炸。
+	ErrSopRunDefinitionInvalid = errors.New("流程定义不合法")
 )
 
 // CreateRunInput 创建运行的入参。
@@ -73,6 +77,11 @@ func (s *RunService) Create(
 	def, err := cloneDefinition(rev.Definition)
 	if err != nil {
 		return nil, err
+	}
+	// 发布快照可能来自旧版本/手改库：解析期就校验结构与类型，不要等到执行器里
+	// 才因为未知类型报内部错误。
+	if errs := engine.ValidateDefinition(&def, false); len(errs) > 0 {
+		return nil, fmt.Errorf("%w：%s", ErrSopRunDefinitionInvalid, strings.Join(errs, "；"))
 	}
 	if err := validateRunInput(def.InputSchema, in.Input); err != nil {
 		return nil, err
