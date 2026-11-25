@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"time"
@@ -159,15 +160,39 @@ func (r *SopTemplateRepo) Publish(
 		if tpl.TenantID != tenantID {
 			return gorm.ErrRecordNotFound
 		}
+		def, err := cloneSopDefinition(tpl.Definition)
+		if err != nil {
+			return err
+		}
+		// 内容指纹：规范化 JSON（encoding/json 对 map 键排序）的 sha256。与当前
+		// 已发布版一致就直接复用——重复点「发布」不该在版本历史里堆同样的快照。
+		if tpl.PublishedRevisionID != "" {
+			var cur types.SopTemplateRevision
+			if err := tx.Where("tenant_id = ? AND id = ?", tpl.TenantID, tpl.PublishedRevisionID).
+				First(&cur).Error; err == nil {
+				// 两侧都过一遍 clone（补空切片），否则「nil vs []」会让内容相同的
+				// 定义算出不同指纹。
+				curDef, err := cloneSopDefinition(cur.Definition)
+				if err != nil {
+					return err
+				}
+				same, err := sameSopDefinition(curDef, def)
+				if err != nil {
+					return err
+				}
+				if same {
+					rev = cur
+					return nil
+				}
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		}
 		var maxRev int
 		if err := tx.Model(&types.SopTemplateRevision{}).
 			Where("tenant_id = ? AND template_id = ?", tpl.TenantID, tpl.ID).
 			Select("COALESCE(MAX(revision), 0)").
 			Row().Scan(&maxRev); err != nil {
-			return err
-		}
-		def, err := cloneSopDefinition(tpl.Definition)
-		if err != nil {
 			return err
 		}
 		rev = types.SopTemplateRevision{
@@ -276,4 +301,27 @@ func cloneSopDefinition(in types.SopDefinition) (types.SopDefinition, error) {
 	}
 	types.EnsureSopDefinitionSlices(&out)
 	return out, nil
+}
+
+// sameSopDefinition 判断两份定义是否等价：按规范化 JSON（encoding/json 对 map
+// 键排序、结构体字段顺序固定）比较 sha256，而不是比原始字节——键序不同但语义
+// 相同的定义必须认成同一份内容。
+func sameSopDefinition(a, b types.SopDefinition) (bool, error) {
+	ha, err := sopDefinitionFingerprint(a)
+	if err != nil {
+		return false, err
+	}
+	hb, err := sopDefinitionFingerprint(b)
+	if err != nil {
+		return false, err
+	}
+	return ha == hb, nil
+}
+
+func sopDefinitionFingerprint(d types.SopDefinition) ([sha256.Size]byte, error) {
+	raw, err := json.Marshal(d)
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	return sha256.Sum256(raw), nil
 }
