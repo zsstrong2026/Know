@@ -101,9 +101,12 @@ type AgentProvider struct {
 	// submitEnabled 表示装配时显式给了提交通道（结果槽/登记表）。
 	submitEnabled bool
 
-	// mu/cancel 让 Cancel 能中断在途的 AgentQA：AgentQA 尊重 ctx，取消它即可。
-	mu     sync.Mutex
-	cancel context.CancelFunc
+	// mu/cancels 记录在途执行的取消函数，按 nodeRunID 键控：同一个 provider 是
+	// 进程级单例，并行节点会同时在其中执行，单槽会被后来者覆盖，Cancel 只能停掉
+	// 最后一个。Cancel 取消全部在途（引擎不调它，取消靠 run ctx 传播；这里保留
+	// 接口语义「中断本 provider 的所有在途执行」）。
+	mu      sync.Mutex
+	cancels map[string]context.CancelFunc
 }
 
 // NewAgentProvider 构造平台智能体执行器。
@@ -176,9 +179,13 @@ func (p *AgentProvider) Execute(ctx context.Context, tb TaskBook, opts ExecOptio
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
-	p.setCancel(cancel)
+	key := tb.NodeRunID
+	if key == "" {
+		key = tb.RunID + "/" + tb.NodeID
+	}
+	p.setCancel(key, cancel)
 	defer func() {
-		p.clearCancel(cancel)
+		p.clearCancel(key)
 		cancel()
 	}()
 
@@ -360,29 +367,35 @@ func (p *AgentProvider) askAgain(
 const submitReminder = "你还没有提交本步骤结果。请立即调用 submit_node_result 汇报结果（pass/rework/fail/human），" +
 	"rework/fail/human 必须写 reason；如果已完成就提交 pass，不要重复做一遍工作。"
 
-// Cancel 中断在途执行：AgentQA 尊重 ctx，取消它即可（无在途执行时是 no-op）。
+// Cancel 中断全部在途执行：AgentQA 尊重 ctx，取消它即可（无在途执行时是 no-op）。
 func (p *AgentProvider) Cancel(_ context.Context) error {
 	p.mu.Lock()
-	cancel := p.cancel
+	cancels := make([]context.CancelFunc, 0, len(p.cancels))
+	for _, c := range p.cancels {
+		cancels = append(cancels, c)
+	}
 	p.mu.Unlock()
-	if cancel != nil {
-		cancel()
+	for _, c := range cancels {
+		c()
 	}
 	return nil
 }
 
-// setCancel 记录本轮取消函数；clearCancel 只在仍是本轮那一份时清空。
-func (p *AgentProvider) setCancel(cancel context.CancelFunc) {
+// setCancel 记录一条在途执行的取消函数。
+func (p *AgentProvider) setCancel(key string, cancel context.CancelFunc) {
 	p.mu.Lock()
-	p.cancel = cancel
+	if p.cancels == nil {
+		p.cancels = map[string]context.CancelFunc{}
+	}
+	p.cancels[key] = cancel
 	p.mu.Unlock()
 }
 
-func (p *AgentProvider) clearCancel(cancel context.CancelFunc) {
+// clearCancel 只清掉自己那一份：同一 provider 上并行执行时，
+// 谁先结束都不该把别人的取消函数一并抹掉。
+func (p *AgentProvider) clearCancel(key string) {
 	p.mu.Lock()
-	if p.cancel != nil {
-		p.cancel = nil
-	}
+	delete(p.cancels, key)
 	p.mu.Unlock()
 }
 
