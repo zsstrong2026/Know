@@ -162,7 +162,7 @@ func TestResetNodes(t *testing.T) {
 			Status: types.SopNodeSucceeded, Output: "old"}
 		require.NoError(t, repo.CreateNodeRun(ctx, nr))
 	}
-	require.NoError(t, repo.ResetNodes(ctx, "r1", []string{"n1", "n2"}))
+	require.NoError(t, repo.ResetNodes(ctx, "r1", []string{"n1", "n2"}, nil))
 	ns, _ := repo.ListNodeRuns(ctx, 1, "r1")
 	for _, n := range ns {
 		require.Equal(t, types.SopNodePending, n.Status)
@@ -180,7 +180,7 @@ func TestResetNodesScopedToIDs(t *testing.T) {
 		NodeID: "n1", Status: types.SopNodeSucceeded, Output: "a"}))
 	require.NoError(t, repo.CreateNodeRun(ctx, &types.SopNodeRun{TenantID: 1, RunID: "r1",
 		NodeID: "n2", Status: types.SopNodeSucceeded, Output: "b"}))
-	require.NoError(t, repo.ResetNodes(ctx, "r1", []string{"n2"}))
+	require.NoError(t, repo.ResetNodes(ctx, "r1", []string{"n2"}, nil))
 	n1, _ := repo.GetNodeRun(ctx, 1, "r1", "n1")
 	require.Equal(t, types.SopNodeSucceeded, n1.Status)
 	require.Equal(t, "a", n1.Output)

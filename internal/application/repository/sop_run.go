@@ -436,24 +436,49 @@ func (r *SopRunRepo) TransitionNodeRun(
 }
 
 // ResetNodes 把指定节点重置为 pending 并清空执行痕迹（重跑/打回共用）。
-// 运行历史本身不删：只改状态与产物字段，Attempt 由调用方按需清零。
-func (r *SopRunRepo) ResetNodes(ctx context.Context, runID string, nodeIDs []string) error {
+//
+// 计时与用量必须清（started_at/usage），否则运行详情会把上一轮的耗时与 token
+// 当成这一轮的算。会话不能一刀切：带 carry_over 的节点靠 session_id 续跑，
+// 只有不在 carryOver 集合里的节点才允许清空会话。因此按两组分别 UPDATE。
+func (r *SopRunRepo) ResetNodes(
+	ctx context.Context, runID string, nodeIDs []string, carryOver map[string]bool,
+) error {
 	if len(nodeIDs) == 0 {
 		return nil
 	}
-	return r.db.WithContext(ctx).Model(&types.SopNodeRun{}).
-		Where("run_id = ? AND node_id IN ?", runID, nodeIDs).
-		Updates(map[string]any{
-			"status":       types.SopNodePending,
-			"output":       "",
-			"error":        "",
-			"feedback":     "",
-			"gate_result":  "",
-			"gate_reason":  "",
-			"child_run_id": "",
-			"finished_at":  nil,
-			"updated_at":   time.Now(),
-		}).Error
+	var keepSession, clearSession []string
+	for _, id := range nodeIDs {
+		if carryOver[id] {
+			keepSession = append(keepSession, id)
+			continue
+		}
+		clearSession = append(clearSession, id)
+	}
+	// 用零值结构体 + 显式 Select：usage 是 serializer:json 列，走 map 更新会以
+	// struct 形式直接进驱动（unsupported type）；结构体路径由 GORM 负责编码。
+	fresh := &types.SopNodeRun{Status: types.SopNodePending}
+	baseCols := []string{
+		"status", "attempt", "output", "error", "feedback", "gate_result", "gate_reason",
+		"started_at", "usage", "child_run_id", "finished_at", "updated_at",
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if len(keepSession) > 0 {
+			if err := tx.Model(&types.SopNodeRun{}).
+				Where("run_id = ? AND node_id IN ?", runID, keepSession).
+				Select(baseCols).Updates(fresh).Error; err != nil {
+				return err
+			}
+		}
+		if len(clearSession) > 0 {
+			if err := tx.Model(&types.SopNodeRun{}).
+				Where("run_id = ? AND node_id IN ?", runID, clearSession).
+				Select(append(baseCols, "session_id", "resume_session_id")).
+				Updates(fresh).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // ResetRunForRetry 在一个事务里把运行与待重跑节点一起重置：

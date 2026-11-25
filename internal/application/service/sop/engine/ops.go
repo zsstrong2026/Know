@@ -169,7 +169,7 @@ func (e *Engine) Reject(
 	if !seen[nodeID] {
 		ids = append(ids, nodeID)
 	}
-	if err := e.deps.Runs.ResetNodes(ctx, run.ID, ids); err != nil {
+	if err := e.deps.Runs.ResetNodes(ctx, run.ID, ids, carryOverOf(&run.WorkflowSnapshot)); err != nil {
 		return fmt.Errorf("重置节点失败：%w", err)
 	}
 	tnr, err := e.deps.Runs.GetNodeRun(ctx, run.TenantID, run.ID, target)
@@ -178,8 +178,7 @@ func (e *Engine) Reject(
 	}
 	tnr.Feedback = comment
 	tnr.ReworkCount++
-	// 人工打回重置自动重试预算：否则同一个上游在几轮返工后就「重试耗尽」。
-	tnr.Attempt = 0
+	tnr.Attempt = 0 // ResetNodes 已归零，显式带回以钉住「打回不吃重试预算」
 	maxReworks := 0
 	if tn := nodeByID(&run.WorkflowSnapshot, target); tn != nil {
 		maxReworks = tn.MaxReworks
@@ -811,6 +810,21 @@ func nodeByID(def *types.SopDefinition, nodeID string) *types.SopNode {
 		}
 	}
 	return nil
+}
+
+// carryOverOf 收集定义里开了 carry_over 的节点：重置时这些节点的 session 要保留
+// （返工续跑靠它），其余节点必须清掉旧会话。
+func carryOverOf(def *types.SopDefinition) map[string]bool {
+	out := map[string]bool{}
+	if def == nil {
+		return out
+	}
+	for i := range def.Nodes {
+		if def.Nodes[i].CarryOver {
+			out[def.Nodes[i].ID] = true
+		}
+	}
+	return out
 }
 
 // timePtr 返回时间指针（FinishedAt 等可选时间字段用）。

@@ -128,8 +128,10 @@ type SopRunRepository interface {
 	TransitionNodeRun(
 		ctx context.Context, tenantID uint64, runID, nodeID, from, to string, patch map[string]any,
 	) (bool, error)
-	// ResetNodes 把指定节点重置为 pending 并清空执行痕迹（重跑/打回）。
-	ResetNodes(ctx context.Context, runID string, nodeIDs []string) error
+	// ResetNodes 把指定节点重置为 pending 并清空执行痕迹（重跑/打回）：清计时与用量，
+	// 会话按 carryOver 决定——节点在 carryOver 里（true=保留会话续跑）才留 session_id，
+	// 否则一并清空。
+	ResetNodes(ctx context.Context, runID string, nodeIDs []string, carryOver map[string]bool) error
 	// ResetRunForRetry 在一个事务里把失败/取消的运行重置为可重试：运行回 queued、
 	// 清空计时与错误（started_at 置 NULL 后由认领重新打点），指定节点回 pending、
 	// Attempt 归零。拆成多次独立写入会在中途失败时留下「节点已重置、运行仍失败」。

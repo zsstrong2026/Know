@@ -867,25 +867,20 @@ func (e *Engine) handleFailure(
 		for id := range Descendants(&run.WorkflowSnapshot, target) {
 			ids = append(ids, id)
 		}
-		if err := e.deps.Runs.ResetNodes(ctx, run.ID, ids); err != nil {
+		if err := e.deps.Runs.ResetNodes(ctx, run.ID, ids, carryOverOf(&run.WorkflowSnapshot)); err != nil {
 			return err
 		}
-		// ResetNodes 不清 Attempt：返工不该消耗被打回节点的重试预算（那会让同一个
-		// 上游在几轮返工后就「重试耗尽」），故把重置范围内节点的 Attempt 归零；
-		// ReworkCount 保留，返工次数仍由它兜底。写入一律基于重置后的新鲜行，
-		// 绝不把重置前的 Output/GateResult/FinishedAt 再写回去。
+		// ResetNodes 已把 Attempt 归零、计时/会话按 carry_over 处理；这里只补
+		// 「谁被打回、为什么」：Feedback 只给目标节点，ReworkCount 继续记账。
+		// 写入基于重置后的新鲜行，绝不把重置前的 Output/GateResult/FinishedAt 写回去。
 		for _, id := range ids {
 			fresh, err := e.deps.Runs.GetNodeRun(ctx, run.TenantID, run.ID, id)
 			if err != nil {
 				return err
 			}
-			fresh.Attempt = 0
 			if id == target {
 				fresh.Feedback = reason
 				fresh.ReworkCount++
-				if !node.CarryOver {
-					fresh.SessionID, fresh.ResumeSessionID = "", ""
-				}
 			}
 			if err := e.deps.Runs.UpdateNodeRun(ctx, fresh); err != nil {
 				return err

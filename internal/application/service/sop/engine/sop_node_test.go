@@ -266,7 +266,7 @@ func TestChildReworkReimportsNewContent(t *testing.T) {
 	firstSHA := arts[0].SHA256
 
 	// 模拟返工（与 Retry 同构的落库状态）：节点回 pending、Attempt 归零、ChildRunID 清空。
-	require.NoError(t, e.deps.Runs.ResetNodes(ctx, parent.ID, []string{"p1"}))
+	require.NoError(t, e.deps.Runs.ResetNodes(ctx, parent.ID, []string{"p1"}, nil))
 	pnr, err = e.deps.Runs.GetNodeRun(ctx, 1, parent.ID, "p1")
 	require.NoError(t, err)
 	pnr.Attempt = 0
