@@ -18,6 +18,10 @@ var _ interfaces.SopItemRepository = (*SopItemRepo)(nil)
 // ErrSopItemIllegalTransition 事项状态非法迁移：由 UpdateStatus / BulkUpdateStatus 返回。
 var ErrSopItemIllegalTransition = errors.New("sop item: illegal status transition")
 
+// ErrSopItemStatusConflict 状态在读取之后被他人改走（并发迁移落败）：服务层据此提示
+// 「状态已被他人变更，请刷新」，而不是把对方的迁移当成自己成功。
+var ErrSopItemStatusConflict = errors.New("sop item: status changed by someone else")
+
 // SopItemRepo 是 SOP 事项仓储的 GORM 实现。
 // 所有方法都显式接收 tenantID 并写进 WHERE，避免跨租户越权。
 // 事项状态的唯一写入口是 UpdateStatus / BulkUpdateStatus，Update 不改状态。
@@ -176,8 +180,10 @@ func (r *SopItemRepo) Delete(ctx context.Context, tenantID uint64, id string) er
 	return nil
 }
 
-// UpdateStatus 事项状态的唯一写入口：事务内读当前状态、过 CanTransitSopItem，
-// 非法迁移不落库并返回 ErrSopItemIllegalTransition。
+// UpdateStatus 事项状态的唯一写入口：事务内做一次 CAS 迁移——读出当前状态、
+// 过 CanTransitSopItem、再以 `WHERE status = <from>` 更新。先读后写之间若别人
+// 改了状态，条件不再命中，返回 ErrSopItemStatusConflict，而不是把对方的迁移
+// 当成自己成功。
 func (r *SopItemRepo) UpdateStatus(ctx context.Context, tenantID uint64, id, to string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var it types.SopItem
@@ -211,16 +217,22 @@ func (r *SopItemRepo) BulkUpdateStatus(
 }
 
 // applySopItemStatus 在事务内落库一次状态迁移：同状态为幂等 no-op（仍刷新 updated_at）。
-// 显式拼 tenant_id 条件：本 helper 只写 status/updated_at 两列，但租户谓词仍不可省。
+// 显式拼 tenant_id 条件；WHERE 额外带 status = it.Status 作 CAS——先读后写之间别人改走
+// 状态行时条件不再命中，返回 ErrSopItemStatusConflict 而不是覆盖对方的迁移。
 func applySopItemStatus(tx *gorm.DB, it *types.SopItem, to string) error {
 	if !types.CanTransitSopItem(it.Status, to) {
 		return fmt.Errorf("%w: %s -> %s", ErrSopItemIllegalTransition, it.Status, to)
 	}
+	from := it.Status
 	now := time.Now()
-	if err := tx.Model(&types.SopItem{}).
-		Where("tenant_id = ? AND id = ?", it.TenantID, it.ID).
-		UpdateColumns(map[string]any{"status": to, "updated_at": now}).Error; err != nil {
-		return err
+	res := tx.Model(&types.SopItem{}).
+		Where("tenant_id = ? AND id = ? AND status = ?", it.TenantID, it.ID, from).
+		UpdateColumns(map[string]any{"status": to, "updated_at": now})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("%w: %s -> %s", ErrSopItemStatusConflict, from, to)
 	}
 	it.Status = to
 	it.UpdatedAt = now

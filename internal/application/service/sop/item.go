@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
@@ -34,6 +35,8 @@ var (
 	ErrSopClarificationOpen  = errors.New("该澄清已经答复，不能重复答复")
 	// ErrSopIllegalTransition 状态机不允许的迁移（handler 映射 400）。
 	ErrSopIllegalTransition = errors.New("事项状态迁移不合法")
+	// ErrSopStatusChangedByOther 状态在操作期间被他人改走：提示刷新而不是假装成功。
+	ErrSopStatusChangedByOther = errors.New("状态已被他人变更，请刷新后重试")
 )
 
 // 事项附件口径（与 PM 需求附件一致：白名单 + 大小上限 + 文本抽取）。
@@ -260,6 +263,9 @@ func (s *ItemService) UpdateStatus(ctx context.Context, tenantID uint64, id, to 
 		return fmt.Errorf("%w：%s → %s", ErrSopIllegalTransition, from, to)
 	}
 	if err := s.items.UpdateStatus(ctx, tenantID, id, to); err != nil {
+		if errors.Is(err, repository.ErrSopItemStatusConflict) {
+			return ErrSopStatusChangedByOther
+		}
 		return err
 	}
 	s.logActivity(ctx, tenantID, id, "system", "status", "状态变更为 "+to)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
 func newItemTestService(t *testing.T) (*ItemService, *gorm.DB) {
@@ -405,4 +406,50 @@ func TestDeleteRejectsWhenChildrenExistEvenWithoutBigFlag(t *testing.T) {
 
 	require.NoError(t, svc.Delete(ctx, 1, "u1", kids[0].ID), "子项本身可以删")
 	require.NoError(t, svc.Delete(ctx, 1, "u1", parent.ID), "子项清空后父项可删")
+}
+
+// 仓储层 CAS 落败时，服务层必须翻成「状态已被他人变更，请刷新」，
+// 而不是把内部哨兵原样抛给用户。
+func TestUpdateStatusConflictTranslated(t *testing.T) {
+	svc := NewItemService(
+		stubStatusProjectRepo{}, stubStatusItemRepo{status: types.SopItemStatusBacklog},
+		stubStatusExtraRepo{}, stubStatusRunRepo{},
+	)
+	err := svc.UpdateStatus(context.Background(), 1, "i1", types.SopItemStatusTodo)
+	require.ErrorIs(t, err, ErrSopStatusChangedByOther)
+}
+
+// ---- 最小桩：只覆盖 UpdateStatus 路径用到的读与写 ----
+
+type stubStatusProjectRepo struct {
+	interfaces.SopProjectRepository
+}
+
+type stubStatusItemRepo struct {
+	interfaces.SopItemRepository
+	status string
+}
+
+func (s stubStatusItemRepo) GetByID(
+	context.Context, uint64, string,
+) (*types.SopItem, error) {
+	return &types.SopItem{ID: "i1", TenantID: 1, Status: s.status}, nil
+}
+
+func (stubStatusItemRepo) UpdateStatus(context.Context, uint64, string, string) error {
+	return fmt.Errorf("%w: backlog -> todo", repository.ErrSopItemStatusConflict)
+}
+
+type stubStatusExtraRepo struct {
+	interfaces.SopItemExtraRepository
+}
+
+type stubStatusRunRepo struct {
+	interfaces.SopRunRepository
+}
+
+func (stubStatusRunRepo) ListRuns(
+	context.Context, uint64, types.SopRunFilter, int, int,
+) ([]types.SopRun, error) {
+	return nil, nil
 }

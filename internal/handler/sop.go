@@ -153,6 +153,7 @@ var sopSentinels = []error{
 	sop.ErrSopItemTitleRequired, sop.ErrSopItemTooMany,
 	sop.ErrSopAttachmentEmpty, sop.ErrSopAttachmentTooLarge, sop.ErrSopAttachmentType,
 	sop.ErrSopClarificationOpen, sop.ErrSopIllegalTransition,
+	sop.ErrSopStatusChangedByOther,
 	sop.ErrSopTemplateReadonly, sop.ErrSopTemplateInvalid, sop.ErrSopTemplateNameRequired,
 	sop.ErrSopTemplateUnpublished, sop.ErrSopRunInputMissing,
 	sop.ErrSopAIModeInvalid, sop.ErrSopAIOutputInvalid,
