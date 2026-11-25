@@ -456,6 +456,59 @@ func (r *SopRunRepo) ResetNodes(ctx context.Context, runID string, nodeIDs []str
 		}).Error
 }
 
+// ResetRunForRetry 在一个事务里把运行与待重跑节点一起重置：
+//
+//   - 运行回 queued，清掉错误/完成时间/租约/取消与暂停标记；started_at 置 NULL，
+//     由下一次 ClaimDue 的 COALESCE(started_at, now) 重新打点，execution_duration_ms
+//     清零——否则最终耗时会包含两次执行之间的停机时间；
+//   - 待重跑节点回 pending（ResetNodes 同口径），Attempt 归零让自动重试预算重新可用。
+//
+// 分两次独立写入会在中途失败时留下「节点已重置、运行仍失败」，重试按钮按下去没反应。
+func (r *SopRunRepo) ResetRunForRetry(
+	ctx context.Context, tenantID uint64, runID string, nodeIDs []string,
+) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now := time.Now()
+		res := tx.Model(&types.SopRun{}).
+			Where("id = ? AND tenant_id = ?", runID, tenantID).
+			Updates(map[string]any{
+				"status":                types.SopRunQueued,
+				"error":                 "",
+				"finished_at":           nil,
+				"started_at":            nil,
+				"execution_duration_ms": 0,
+				"lease_until":           nil,
+				"heartbeat_at":          nil,
+				"cancel_requested":      false,
+				"pause_requested":       false,
+				"updated_at":            now,
+			})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		if len(nodeIDs) == 0 {
+			return nil
+		}
+		return tx.Model(&types.SopNodeRun{}).
+			Where("run_id = ? AND node_id IN ?", runID, nodeIDs).
+			Updates(map[string]any{
+				"status":       types.SopNodePending,
+				"attempt":      0,
+				"output":       "",
+				"error":        "",
+				"feedback":     "",
+				"gate_result":  "",
+				"gate_reason":  "",
+				"child_run_id": "",
+				"finished_at":  nil,
+				"updated_at":   now,
+			}).Error
+	})
+}
+
 // CreateArtifact 插入产物记录（id/attempt=1 由模型 BeforeCreate 补齐）。
 func (r *SopRunRepo) CreateArtifact(ctx context.Context, a *types.SopArtifact) error {
 	return r.db.WithContext(ctx).Create(a).Error

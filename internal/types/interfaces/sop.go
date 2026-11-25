@@ -130,6 +130,10 @@ type SopRunRepository interface {
 	) (bool, error)
 	// ResetNodes 把指定节点重置为 pending 并清空执行痕迹（重跑/打回）。
 	ResetNodes(ctx context.Context, runID string, nodeIDs []string) error
+	// ResetRunForRetry 在一个事务里把失败/取消的运行重置为可重试：运行回 queued、
+	// 清空计时与错误（started_at 置 NULL 后由认领重新打点），指定节点回 pending、
+	// Attempt 归零。拆成多次独立写入会在中途失败时留下「节点已重置、运行仍失败」。
+	ResetRunForRetry(ctx context.Context, tenantID uint64, runID string, nodeIDs []string) error
 	CreateArtifact(ctx context.Context, a *types.SopArtifact) error
 	ListArtifacts(ctx context.Context, tenantID uint64, runID string) ([]types.SopArtifact, error)
 	GetArtifact(ctx context.Context, tenantID uint64, id string) (*types.SopArtifact, error)

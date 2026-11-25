@@ -322,28 +322,8 @@ func (e *Engine) Retry(ctx context.Context, tenantID uint64, runID string) error
 			ids = append(ids, nrs[i].NodeID)
 		}
 	}
-	if err := e.deps.Runs.ResetNodes(ctx, run.ID, ids); err != nil {
-		return fmt.Errorf("重置节点失败：%w", err)
-	}
-	for _, id := range ids {
-		fresh, err := e.deps.Runs.GetNodeRun(ctx, run.TenantID, run.ID, id)
-		if err != nil {
-			return fmt.Errorf("读取节点 %s 失败：%w", id, err)
-		}
-		fresh.Attempt = 0
-		if err := e.deps.Runs.UpdateNodeRun(ctx, fresh); err != nil {
-			return fmt.Errorf("重置节点 %s 重试预算失败：%w", id, err)
-		}
-	}
-	run.Status = types.SopRunQueued
-	run.Error = ""
-	run.FinishedAt = nil
-	run.LeaseUntil = nil
-	run.HeartbeatAt = nil
-	run.CancelRequested = false
-	run.PauseRequested = false
-	if err := e.deps.Runs.UpdateRun(ctx, run); err != nil {
-		return fmt.Errorf("写入运行状态失败：%w", err)
+	if err := e.deps.Runs.ResetRunForRetry(ctx, run.TenantID, run.ID, ids); err != nil {
+		return fmt.Errorf("重置运行失败：%w", err)
 	}
 	e.businessActivity(ctx, run, "retry", "", "")
 	return nil
