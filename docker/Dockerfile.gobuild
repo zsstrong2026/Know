@@ -35,6 +35,11 @@ FROM golang:1.26-bookworm AS builder
 
 WORKDIR /app
 
+# 构建元信息（与 Dockerfile.app 保持一致，系统信息页展示）
+ARG VERSION_ARG=dev
+ARG COMMIT_ID_ARG=unknown
+ARG BUILD_TIME_ARG=unknown
+
 RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
         sed -i -e 's@deb.debian.org@mirrors.cloud.tencent.com@g' -e 's@http://@https://@g' /etc/apt/sources.list.d/debian.sources; \
     fi && \
@@ -55,8 +60,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 \
     CGO_CFLAGS="-Wno-deprecated-declarations" \
+    GOVERSION="$(go version | awk '{print $3}')" \
     go build -tags anydoc \
       -ldflags="-w -s \
+        -X 'github.com/Tencent/WeKnora/internal/handler.Version=${VERSION_ARG}' \
+        -X 'github.com/Tencent/WeKnora/internal/handler.CommitID=${COMMIT_ID_ARG}' \
+        -X 'github.com/Tencent/WeKnora/internal/handler.BuildTime=${BUILD_TIME_ARG}' \
+        -X 'github.com/Tencent/WeKnora/internal/handler.GoVersion=${GOVERSION}' \
         -X 'github.com/Tencent/WeKnora/internal/handler.Edition=standard' \
         -X 'google.golang.org/protobuf/reflect/protoregistry.conflictPolicy=warn'" \
       -o /app/WeKnora ./cmd/server
