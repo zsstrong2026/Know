@@ -1,6 +1,7 @@
 package hitl
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"slices"
@@ -19,11 +20,17 @@ type Store = interfaces.AgentPromptRepository
 type memoryStore struct {
 	mu   sync.Mutex
 	rows map[string]types.AgentPrompt
+	// seq records insertion order. created_at alone is not a total order:
+	// Windows' clock granularity is 1–15 ms, so rows created back to back can
+	// share a timestamp and sorting on it alone would shuffle them between
+	// reads (the GORM store breaks ties on the primary key, which is random).
+	seq map[string]uint64
+	n   uint64
 }
 
 // NewMemoryStore returns a process-local Store.
 func NewMemoryStore() Store {
-	return &memoryStore{rows: make(map[string]types.AgentPrompt)}
+	return &memoryStore{rows: make(map[string]types.AgentPrompt), seq: make(map[string]uint64)}
 }
 
 func (s *memoryStore) Create(_ context.Context, row *types.AgentPrompt) error {
@@ -37,8 +44,15 @@ func (s *memoryStore) Create(_ context.Context, row *types.AgentPrompt) error {
 	}
 	now := time.Now()
 	stored := *row
-	stored.CreatedAt, stored.UpdatedAt = now, now
+	// 与 GORM 同语义：只有零值才补当前时间，调用方显式给的时间戳原样保留
+	// （否则两条存储链路的排序、分页与「最近一条」判定会不一致）。
+	if stored.CreatedAt.IsZero() {
+		stored.CreatedAt = now
+	}
+	stored.UpdatedAt = now
 	s.rows[row.ID] = stored
+	s.n++
+	s.seq[row.ID] = s.n
 	return nil
 }
 
@@ -152,7 +166,14 @@ func (s *memoryStore) list(
 			out = append(out, &r)
 		}
 	}
-	slices.SortFunc(out, func(a, b *types.AgentPrompt) int { return key(*a).Compare(key(*b)) })
+	// 时间戳相同时按插入顺序兜底：Windows 的时钟精度约 1–15ms，同一批写入常
+	// 命中同一个 created_at，只按时间排序会让顺序在两次读之间漂移。
+	slices.SortFunc(out, func(a, b *types.AgentPrompt) int {
+		if c := key(*a).Compare(key(*b)); c != 0 {
+			return c
+		}
+		return cmp.Compare(s.seq[a.ID], s.seq[b.ID])
+	})
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
 	}
