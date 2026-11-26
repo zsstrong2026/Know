@@ -617,12 +617,22 @@ export interface SopSubItem {
   title: string;
   description: string;
   priority?: string;
+  executor?: string;
+}
+
+/** 拆解卡：目标 + 建议子事项 + 验收口径（与后端 BreakdownCard 一一对应）。 */
+export interface SopBreakdownCard {
+  goal: string;
+  sub_items: SopSubItem[];
+  acceptance: string;
 }
 
 export interface SopBreakdownInput {
   project_id: string;
   title: string;
   description?: string;
+  /** 追问或「直接给结果」提示；空=首次拆解。 */
+  instruction?: string;
 }
 
 export interface SopFlowDraft {
@@ -1011,8 +1021,8 @@ export async function ingestArtifact(runId: string, artifactId: string, kbId = '
 
 // ---- AI 助手 ----
 
-export async function breakdownItems(input: SopBreakdownInput): Promise<SopSubItem[]> {
-  return post<{ data: SopSubItem[] }>(`${SOP_BASE}/ai/breakdown`, input).then((r) => r.data);
+export async function breakdownItems(input: SopBreakdownInput): Promise<SopBreakdownCard> {
+  return post<{ data: SopBreakdownCard }>(`${SOP_BASE}/ai/breakdown`, input).then((r) => r.data);
 }
 
 export async function analyzeItem(itemId: string): Promise<string> {

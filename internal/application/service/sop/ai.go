@@ -30,6 +30,8 @@ const (
 var (
 	ErrSopAIModeInvalid   = errors.New("模式只能是 flow 或 node")
 	ErrSopAIOutputInvalid = errors.New("AI 返回的内容无法解析")
+	// ErrSopAINoModel 工作区没有任何可用聊天模型：提示去配置，而不是重试。
+	ErrSopAINoModel = errors.New("工作区还没有配置聊天模型：请先在「模型管理」里设置默认模型，再让助手拆解")
 )
 
 // Runner 是 AI 能力的执行依赖（真实实现 = AgentQA + 会话/消息服务，T26 接线）。
@@ -75,6 +77,8 @@ func NewAIService(runner Runner, items ItemServiceAPI, extras interface {
 type ItemDraft struct {
 	Title       string
 	Description string
+	// Instruction 用户的追问或「直接给结果」提示；空=首次拆解。
+	Instruction string
 }
 
 // SubItem 拆解产出的一条建议子事项。
@@ -82,33 +86,66 @@ type SubItem struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Priority    string `json:"priority,omitempty"`
+	Executor    string `json:"executor,omitempty"`
 }
 
-// Breakdown 把一条初稿拆成建议子事项（JSON 数组）。
+// BreakdownCard 拆解卡：目标 + 建议子事项 + 验收口径。
+//
+// 与前端 `SopBreakdownCard` 一一对应，前端直接把结果渲染成勾选卡片，
+// 不需要再从中抠 JSON。
+type BreakdownCard struct {
+	Goal       string    `json:"goal"`
+	SubItems   []SubItem `json:"sub_items"`
+	Acceptance string    `json:"acceptance"`
+}
+
+// breakdownSystemPrompt 拆解助手的输出契约：只要一个卡片 JSON。
+const breakdownSystemPrompt = "你是需求拆解助手。只输出一个 JSON 对象，不要解释、不要用 Markdown 代码块。" +
+	"格式为 {\"goal\":\"这一步要达成的目标\",\"sub_items\":[{\"title\":\"...\",\"description\":\"...\"," +
+	"\"priority\":\"P1\"}],\"acceptance\":\"怎么算做完\"}。" +
+	"子事项要独立可交付，3–8 条，标题不超过 40 字。"
+
+// Breakdown 把一条初稿拆成拆解卡（目标 / 子事项 / 验收口径）。
 func (s *AIService) Breakdown(
 	ctx context.Context, tenantID uint64, projectID string, draft ItemDraft,
-) ([]SubItem, error) {
+) (*BreakdownCard, error) {
 	title := strings.TrimSpace(draft.Title)
 	if title == "" {
 		return nil, ErrSopItemTitleRequired
 	}
+	prompt := fmt.Sprintf("项目：%s\n需求标题：%s\n需求描述：%s", projectID, title, draft.Description)
+	if instruction := strings.TrimSpace(draft.Instruction); instruction != "" {
+		prompt += "\n补充要求：" + instruction
+	}
 	text, _, err := s.runner.Ask(ctx, AIRequest{
 		TenantID: tenantID,
-		System: "你是需求拆解助手。只输出 JSON 数组，不要输出解释、不要用 Markdown 代码块。" +
-			"每个元素形如 {\"title\":\"...\",\"description\":\"...\",\"priority\":\"P1\"}。" +
-			"子事项要独立可交付，3–8 条，标题不超过 40 字。",
-		Prompt: fmt.Sprintf("项目：%s\n需求标题：%s\n需求描述：%s", projectID, title, draft.Description),
+		System:   breakdownSystemPrompt,
+		Prompt:   prompt,
 	})
 	if err != nil {
 		return nil, err
 	}
-	var out []SubItem
-	if err := json.Unmarshal([]byte(extractJSON(text)), &out); err != nil {
+	return parseBreakdownCard(text)
+}
+
+// parseBreakdownCard 解析拆解卡；模型偶尔只给数组，按「子事项列表」兼容。
+func parseBreakdownCard(text string) (*BreakdownCard, error) {
+	raw := extractJSON(text)
+	var card BreakdownCard
+	if err := json.Unmarshal([]byte(raw), &card); err == nil && len(card.SubItems) > 0 {
+		return normalizeCard(&card), nil
+	}
+	var items []SubItem
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
 		return nil, fmt.Errorf("%w：%v", ErrSopAIOutputInvalid, err)
 	}
-	// 过滤空标题（模型偶尔夹一条示例）并截断过长标题。
-	filtered := make([]SubItem, 0, len(out))
-	for _, it := range out {
+	return normalizeCard(&BreakdownCard{SubItems: items}), nil
+}
+
+// normalizeCard 过滤空标题并截断过长文案。
+func normalizeCard(card *BreakdownCard) *BreakdownCard {
+	filtered := make([]SubItem, 0, len(card.SubItems))
+	for _, it := range card.SubItems {
 		it.Title = strings.TrimSpace(it.Title)
 		if it.Title == "" {
 			continue
@@ -116,7 +153,10 @@ func (s *AIService) Breakdown(
 		it.Title = truncateRunes(it.Title, 60)
 		filtered = append(filtered, it)
 	}
-	return filtered, nil
+	card.Goal = strings.TrimSpace(card.Goal)
+	card.Acceptance = strings.TrimSpace(card.Acceptance)
+	card.SubItems = filtered
+	return card
 }
 
 // AnalyzeItem 为事项建/复用分析会话，返回会话 id（前端转订阅会话 SSE）。

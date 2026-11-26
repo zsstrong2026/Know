@@ -163,17 +163,27 @@ func TestParseFlowDraftDraftOnly(t *testing.T) {
 	require.Contains(t, draft.Warnings[0], "打回哪一步")
 }
 
-// 拆解：解析 JSON 数组，过滤空标题。
-func TestBreakdownParsesSubItems(t *testing.T) {
+// 拆解：解析拆解卡（目标/子事项/验收），过滤空标题；模型只给数组时也兼容。
+func TestBreakdownParsesBreakdownCard(t *testing.T) {
 	runner := &stubRunner{texts: []string{
-		`[{"title":"子事项1","description":"x"},{"title":"  ","description":"空"}]`,
+		`{"goal":"把登录改造成 SSO","sub_items":[{"title":"子事项1","description":"x"},{"title":"  "}],"acceptance":"能单点登录"}`,
 	}}
 	svc := NewAIService(runner, stubItemAPI{}, &stubClarifications{})
-	items, err := svc.Breakdown(context.Background(), 1, "p1", ItemDraft{Title: "大需求"})
+	card, err := svc.Breakdown(context.Background(), 1, "p1", ItemDraft{Title: "大需求", Instruction: "直接给结果"})
 	require.NoError(t, err)
-	require.Len(t, items, 1, "空标题被过滤")
-	require.Equal(t, "子事项1", items[0].Title)
-	require.Contains(t, runner.calls[0].System, "JSON 数组")
+	require.Equal(t, "把登录改造成 SSO", card.Goal)
+	require.Equal(t, "能单点登录", card.Acceptance)
+	require.Len(t, card.SubItems, 1, "空标题被过滤")
+	require.Equal(t, "子事项1", card.SubItems[0].Title)
+	require.Contains(t, runner.calls[0].System, "JSON 对象")
+	require.Contains(t, runner.calls[0].Prompt, "直接给结果")
+
+	// 只给数组时按子事项列表兼容
+	runner.texts = []string{`[{"title":"只有数组"}]`}
+	card, err = svc.Breakdown(context.Background(), 1, "p1", ItemDraft{Title: "大需求"})
+	require.NoError(t, err)
+	require.Len(t, card.SubItems, 1)
+	require.Equal(t, "只有数组", card.SubItems[0].Title)
 }
 
 // 澄清生成：问句夹推测答案，落库为 open/ai。

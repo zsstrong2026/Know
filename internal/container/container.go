@@ -1112,8 +1112,11 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// AI 助手：问答复用 AgentQA 运行时（会话/消息/技能/MCP），事项读与澄清写用真实服务。
 	must(container.Provide(func(
 		sessions interfaces.SessionService, messages interfaces.MessageService,
+		models interfaces.ModelService,
 	) sop.Runner {
-		return sop.NewQARunner(sop.QADeps{Sessions: sessions, Messages: messages, QA: sessions})
+		return sop.NewQARunner(sop.QADeps{
+			Sessions: sessions, Messages: messages, QA: sessions, Models: models,
+		})
 	}))
 	must(container.Provide(func(
 		runner sop.Runner, items *sop.ItemService, extras interfaces.SopItemExtraRepository,

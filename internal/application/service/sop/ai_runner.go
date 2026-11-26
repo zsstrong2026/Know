@@ -32,6 +32,13 @@ type QADeps struct {
 	}
 	// Role 提供技能/MCP 等基础配置（可 nil：用空配置，仅用提示词）。
 	Role *types.CustomAgent
+	// Models 给没有配置模型的内置助手挑工作区默认聊天模型。
+	//
+	// 助手的角色对象是合成的，不带 model_id，也不属于 AgentQA 认可的内置角色，
+	// 拿不到「工作区模型回退」；不在这里补上，AgentQA 会以「未配置模型」直接失败。
+	Models interface {
+		ListModels(ctx context.Context) ([]*types.Model, error)
+	}
 }
 
 // QARunner 基于 AgentQA 的 AI 助手执行器。
@@ -50,6 +57,12 @@ func (r *QARunner) Ask(ctx context.Context, req AIRequest) (string, string, erro
 	}
 	if strings.TrimSpace(req.Prompt) == "" {
 		return "", "", errors.New("AI 助手的输入为空")
+	}
+	agent := r.agent(ctx, req)
+	// 没有可用聊天模型时直接给出可执行的提示，而不是让 AgentQA 抛内部错误、
+	// 前端只看到一句笼统的 500。
+	if strings.TrimSpace(agent.Config.ModelID) == "" {
+		return "", "", ErrSopAINoModel
 	}
 	session, err := r.session(ctx, req)
 	if err != nil {
@@ -101,7 +114,7 @@ func (r *QARunner) Ask(ctx context.Context, req AIRequest) (string, string, erro
 		Query:              req.Prompt,
 		AssistantMessageID: answerMsg.ID,
 		UserMessageID:      userMsg.ID,
-		CustomAgent:        aiAgent(req.System, r.deps.Role),
+		CustomAgent:        agent,
 		Mode:               types.RunModeUnattended,
 		RunNote: "这是 SOP 工作台的 AI 助手请求：一次成文回答，不要向用户弹出提问卡片；" +
 			"需要更多信息时把问题写进正文。",
@@ -160,4 +173,46 @@ func aiAgent(system string, base *types.CustomAgent) *types.CustomAgent {
 	}
 	clone.Config.SystemPrompt = strings.Join(parts, "\n\n")
 	return &clone
+}
+
+// agent 组装本次请求的角色：助手不检索、不挂工具，模型缺省时取工作区默认。
+//
+// AgentQA 要求 CustomAgent.Config.ModelID 有值（只有两个内建角色能走工作区回退），
+// 而这里合成的是无角色来源的对象，所以模型必须由本函数显式补齐。
+func (r *QARunner) agent(ctx context.Context, req AIRequest) *types.CustomAgent {
+	role := aiAgent(req.System, r.deps.Role)
+	if role.ID == "" {
+		role.ID = "sop-ai-assistant"
+	}
+	if role.TenantID == 0 {
+		role.TenantID = req.TenantID
+	}
+	role.IsBuiltin = false
+	// 助手只输出文字：不检索知识库，也就不会被要求配重排模型。
+	role.Config.KBSelectionMode = "none"
+	role.Config.MCPSelectionMode = "none"
+	role.Config.SkillsSelectionMode = "none"
+	role.Config.AllowedTools = []string{}
+	// 即使将来放开工具，也不该让后台助手改动任何数据。
+	role.Config.AccessLevel = types.AssistantAccessReadOnly
+	if strings.TrimSpace(role.Config.ModelID) == "" {
+		role.Config.ModelID = r.defaultChatModelID(ctx)
+	}
+	return role
+}
+
+// defaultChatModelID 挑工作区默认聊天模型；没有可用模型时返回空，
+// 由调用方给出「去配置模型」的白话提示。
+func (r *QARunner) defaultChatModelID(ctx context.Context) string {
+	if r.deps.Models == nil {
+		return ""
+	}
+	models, err := r.deps.Models.ListModels(ctx)
+	if err != nil {
+		return ""
+	}
+	if model := types.PickChatModel(models, ""); model != nil {
+		return model.ID
+	}
+	return ""
 }

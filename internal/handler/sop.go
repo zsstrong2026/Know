@@ -157,7 +157,7 @@ var sopSentinels = []error{
 	sop.ErrSopTemplateReadonly, sop.ErrSopTemplateInvalid, sop.ErrSopTemplateNameRequired,
 	sop.ErrSopTemplateUnpublished, sop.ErrSopRunInputMissing,
 	sop.ErrSopRunDefinitionInvalid,
-	sop.ErrSopAIModeInvalid, sop.ErrSopAIOutputInvalid,
+	sop.ErrSopAIModeInvalid, sop.ErrSopAIOutputInvalid, sop.ErrSopAINoModel,
 	sop.ErrSopItemSplitTooDeep, sop.ErrSopItemSplitEmpty, sop.ErrSopItemSplitTooMany,
 	sop.ErrSopItemParentIsBig, sop.ErrSopItemChildNotFound,
 }

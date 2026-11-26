@@ -26,12 +26,14 @@ func (h *SOPHandler) BreakdownItems(c *gin.Context) {
 		ProjectID   string `json:"project_id"`
 		Title       string `json:"title"`
 		Description string `json:"description"`
+		// Instruction 是用户的追问或「直接给结果」提示，拼在描述后面。
+		Instruction string `json:"instruction"`
 	}
 	if !sopBindJSON(c, &req) {
 		return
 	}
 	items, err := h.ai.Breakdown(c.Request.Context(), tenantID, req.ProjectID, sop.ItemDraft{
-		Title: req.Title, Description: req.Description,
+		Title: req.Title, Description: req.Description, Instruction: req.Instruction,
 	})
 	if err != nil {
 		sopAbort(c, err)

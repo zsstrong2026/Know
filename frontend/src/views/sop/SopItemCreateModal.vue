@@ -45,7 +45,7 @@
           <div class="sop-field-row">
             <label class="sop-field">
               <span>{{ $t('sop.items.colPriority') }}</span>
-              <t-radio-group v-model="form.priority" variant="default-filled">
+              <t-radio-group class="sop-choice" v-model="form.priority" variant="default-filled">
                 <t-radio-button value="P0">P0</t-radio-button>
                 <t-radio-button value="P1">P1</t-radio-button>
                 <t-radio-button value="P2">P2</t-radio-button>
@@ -177,20 +177,19 @@ import {
   addAttachment,
   addClarification,
   answerClarification,
+  breakdownItems,
   createItem,
   splitItem,
   type ItemStatus,
+  type SopBreakdownCard,
   type SopChildItemSpec,
   type SopItem,
 } from '@/api/sop';
 import {
   KIND_LABELS,
   SOURCE_LABELS,
-  parseBreakdownCard,
   upsertBreakdownBlock,
-  type BreakdownCard,
 } from '@/api/sop/helpers';
-import { streamSSE } from '@/api/sop/sse';
 import { useSopStore } from '@/stores/sop';
 import PmMarkdown from '@/views/pm/components/PmMarkdown.vue';
 
@@ -220,7 +219,7 @@ const form = reactive({
 const attachments = ref<{ id: string; name: string }[]>([]);
 const pickedSubs = ref(new Set<number>());
 const messages = ref<ChatMessage[]>([]);
-const card = ref<BreakdownCard | null>(null);
+const card = ref<SopBreakdownCard | null>(null);
 const followUp = ref('');
 const agentId = ref('default');
 const streaming = ref(false);
@@ -302,44 +301,32 @@ async function scrollToBottom() {
   if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight;
 }
 
-/** 流式追问：breakdown 端点按 SSE 返回 text_delta，逐段追加到当前助手消息。 */
+/** 拆解/追问：一次请求拿回拆解卡，正文用卡片渲染（后端不返回纯文本流）。 */
 async function runBreakdown(prompt: string) {
   streaming.value = true;
   messages.value = [{ role: 'user', text: prompt }];
-  messages.value.push({ role: 'assistant', text: '' });
   await scrollToBottom();
   try {
-    await streamSSE(
-      '/api/v1/sop/ai/breakdown',
-      {
-        project_id: props.projectId,
-        title: form.title || t('sop.create.untitled'),
-        description: form.description,
-        instruction: prompt,
-        agent_id: agentId.value === 'default' ? '' : agentId.value,
-      },
-      (event) => {
-        if (event.type === 'text_delta' && event.text) {
-          const last = messages.value[messages.value.length - 1];
-          last.text += event.text;
-          void scrollToBottom();
-        }
-        if (event.type === 'error') {
-          MessagePlugin.error(String(event.text || t('sop.create.aiFailed')));
-        }
-      },
-    );
+    const result = await breakdownItems({
+      project_id: props.projectId,
+      title: form.title || t('sop.create.untitled'),
+      description: form.description,
+      instruction: prompt,
+    });
+    card.value = result;
+    messages.value.push({ role: 'assistant', text: breakdownSummary(result) });
   } catch (error: any) {
     MessagePlugin.error(error?.message || t('sop.create.aiFailed'));
   } finally {
     streaming.value = false;
-    // 流结束后尝试把回复里的 JSON 解析成拆解卡（没有就保持纯文本）
-    const last = messages.value[messages.value.length - 1];
-    if (last?.role === 'assistant') {
-      card.value = parseBreakdownCard(last.text);
-    }
     await scrollToBottom();
   }
+}
+
+/** 助手气泡里的摘要：卡片主体在下方单独渲染，这里只说明产出粒度。 */
+function breakdownSummary(result: SopBreakdownCard): string {
+  if (!result.sub_items.length) return t('sop.create.aiEmptyResult');
+  return t('sop.create.aiResult', { n: result.sub_items.length });
 }
 
 function startBreakdown() {

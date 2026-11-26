@@ -381,34 +381,6 @@ export function upsertBreakdownBlock(description: string, block: string): string
   return base.trim() ? `${base.trimEnd()}\n\n${payload}` : payload;
 }
 
-export interface BreakdownCard {
-  goal: string;
-  sub_items: { title: string; description?: string; executor?: string; priority?: string }[];
-  acceptance: string;
-}
-
-/** 从 AI 回复里抠出第一个 JSON 代码块并解析成拆解卡；失败返回 null（容错不抛错）。 */
-export function parseBreakdownCard(text: string): BreakdownCard | null {
-  const source = String(text || '');
-  const fenced = source.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidate = (fenced ? fenced[1] : source).trim();
-  if (!candidate) return null;
-  const start = candidate.indexOf('{');
-  const end = candidate.lastIndexOf('}');
-  if (start < 0 || end <= start) return null;
-  try {
-    const parsed = JSON.parse(candidate.slice(start, end + 1)) as Partial<BreakdownCard>;
-    if (!parsed || typeof parsed !== 'object') return null;
-    return {
-      goal: String(parsed.goal || ''),
-      sub_items: Array.isArray(parsed.sub_items) ? parsed.sub_items : [],
-      acceptance: String(parsed.acceptance || ''),
-    };
-  } catch {
-    return null;
-  }
-}
-
 const FIELD_LABELS: Record<string, string> = {
   name: '步骤名称',
   task_prompt: '这一步做什么',

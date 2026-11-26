@@ -19,7 +19,6 @@ import {
   mergeActivities,
   outcomeSummary,
   upsertBreakdownBlock,
-  parseBreakdownCard,
   formatDiffCards,
   diffDefinitions,
   triggerSourceLabel,
@@ -189,14 +188,6 @@ test('拆解块重复写入为覆盖不重复', () => {
   assert.ok(d2.includes('目标：Y'));
   assert.ok(!d2.includes('目标：X'));
   assert.ok(d2.includes('原始描述')); // 用户原文不动
-});
-
-test('拆解卡解析容错', () => {
-  const card = parseBreakdownCard('前言 ```json\n{"goal":"G","sub_items":[{"title":"a","executor":"platform_agent"}],"acceptance":"A"}\n``` 后语');
-  assert.equal(card?.goal, 'G');
-  assert.equal(card?.sub_items[0].executor, 'platform_agent');
-  assert.equal(parseBreakdownCard('没有 JSON'), null);
-  assert.equal(parseBreakdownCard(''), null);
 });
 
 test('差异卡原值→新值白话格式化', () => {

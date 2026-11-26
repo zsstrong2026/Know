@@ -1,0 +1,26 @@
+// SOP 工作台统一单选态：品牌淡底 + 1px 品牌描边 + 品牌色加粗文字。
+// 与自定义的失败卡 / 分段 / chip 选中态保持同一套视觉语言。
+// 用法：给 t-radio-group 加 class="sop-choice"，并在该组件的 less 中 @import 本文件。
+.sop-choice {
+  // 按钮式单选（variant="default-filled"）：TDesign 用一个滑动色块表示选中，
+  // 这里把色块换成品牌淡底 + 品牌描边，选中文字同步变品牌色加粗。
+  :deep(.t-radio-group.t-radio-group--filled .t-radio-group__bg-block) {
+    background-color: var(--td-brand-color-1);
+    box-shadow: inset 0 0 0 1px var(--td-brand-color);
+  }
+
+  :deep(.t-radio-group--filled .t-radio-button:hover:not(.t-is-disabled)) {
+    color: var(--td-text-color-primary);
+  }
+
+  :deep(.t-radio-group--filled .t-radio-button.t-is-checked) {
+    color: var(--td-brand-color);
+    font-weight: 600;
+  }
+
+  // 圆点式单选：选中项文字统一为品牌色加粗（圆点本身仍是 TDesign 的品牌实心点）
+  :deep(.t-radio.t-is-checked .t-radio__label) {
+    color: var(--td-brand-color);
+    font-weight: 600;
+  }
+}

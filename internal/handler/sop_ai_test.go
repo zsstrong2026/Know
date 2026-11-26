@@ -53,11 +53,13 @@ func newSOPAITestRouter(t *testing.T, texts ...string) (*gin.Engine, *stubAIRunn
 }
 
 func TestSopAIBreakdownReturnsSubItems(t *testing.T) {
-	r, _ := newSOPAITestRouter(t, `[{"title":"子事项A","description":"x"}]`)
+	r, _ := newSOPAITestRouter(t,
+		`{"goal":"拆开","sub_items":[{"title":"子事项A","description":"x"}],"acceptance":"可验收"}`)
 	w := sopDoJSON(t, r, "POST", "/api/v1/sop/ai/breakdown",
 		`{"project_id":"p1","title":"大需求","description":"拆开看"}`)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "子事项A")
+	require.Contains(t, w.Body.String(), "可验收")
 
 	// 缺标题 400
 	require.Equal(t, http.StatusBadRequest,
