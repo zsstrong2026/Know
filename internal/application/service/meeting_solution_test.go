@@ -29,7 +29,7 @@ func TestBuildSolutionPrompt(t *testing.T) {
 	assert.Contains(t, out, "架构师：建议蓝绿发布")
 	assert.Contains(t, out, "测试专家：需要回滚预案")
 	assert.Contains(t, out, "运维：反对引入新网关") // 反对意见作为分歧事实来源入提示词
-	assert.Contains(t, out, "议程进度")        // 议程进度入提示词
+	assert.Contains(t, out, "议程进度")       // 议程进度入提示词
 	assert.Contains(t, out, "1. [已完成] 发布策略")
 	assert.Contains(t, out, "## 背景与目标") // 固定结构五小节
 	assert.Contains(t, out, "## 分歧与未达成一致的点")

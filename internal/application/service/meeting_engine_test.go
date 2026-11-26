@@ -1229,22 +1229,34 @@ func TestMeetingAttachmentContextDisabled(t *testing.T) {
 }
 
 // UpdatePhase 必须显式实现：嵌入接口只有方法签名没有实现，引擎推进阶段时会 panic 到 nil。
-func (f *fakeRoomRepoForTurn) UpdatePhase(_ context.Context, _ string, phase string) error { return nil }
+func (f *fakeRoomRepoForTurn) UpdatePhase(_ context.Context, _ string, phase string) error {
+	return nil
+}
 
 // UpdatePhase 必须显式实现：嵌入接口只有方法签名没有实现，引擎推进阶段时会 panic 到 nil。
-func (f *fakeGuardRoomRepoForTurn) UpdatePhase(_ context.Context, _ string, phase string) error { return nil }
+func (f *fakeGuardRoomRepoForTurn) UpdatePhase(_ context.Context, _ string, phase string) error {
+	return nil
+}
 
 // UpdatePhase 必须显式实现：嵌入接口只有方法签名没有实现，引擎推进阶段时会 panic 到 nil。
-func (f *fakeHostInterventionRoomRepo) UpdatePhase(_ context.Context, _ string, phase string) error { return nil }
+func (f *fakeHostInterventionRoomRepo) UpdatePhase(_ context.Context, _ string, phase string) error {
+	return nil
+}
 
 // UpdatePhase 必须显式实现：嵌入接口只有方法签名没有实现，引擎推进阶段时会 panic 到 nil。
-func (f *fakeFreeRoutingRoomRepo) UpdatePhase(_ context.Context, _ string, phase string) error { return nil }
+func (f *fakeFreeRoutingRoomRepo) UpdatePhase(_ context.Context, _ string, phase string) error {
+	return nil
+}
 
 // UpdatePhase 必须显式实现：嵌入接口只有方法签名没有实现，引擎推进阶段时会 panic 到 nil。
-func (f *fakeNoInterventionRoomRepo) UpdatePhase(_ context.Context, _ string, phase string) error { return nil }
+func (f *fakeNoInterventionRoomRepo) UpdatePhase(_ context.Context, _ string, phase string) error {
+	return nil
+}
 
 // UpdatePhase 必须显式实现：嵌入接口只有方法签名没有实现，引擎推进阶段时会 panic 到 nil。
-func (f *fakeConsensusRoomRepo) UpdatePhase(_ context.Context, _ string, phase string) error { return nil }
+func (f *fakeConsensusRoomRepo) UpdatePhase(_ context.Context, _ string, phase string) error {
+	return nil
+}
 
 // UpdatePhase 必须显式实现：嵌入接口只有方法签名没有实现，引擎推进阶段时会 panic 到 nil。
 func (f *fakeAgendaRoomRepo) UpdatePhase(_ context.Context, _ string, phase string) error { return nil }
