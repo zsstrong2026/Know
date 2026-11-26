@@ -17,6 +17,12 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* 字段区独立滚动，操作按钮留在视口底部（不随内容一起滚走） */
+.sop-create-fields {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding-right: var(--app-space-2);
 }
@@ -143,6 +149,9 @@
 }
 
 .sop-textarea {
+  /* 原生 textarea 默认 content-box：width:100% 之外再加 padding/border 会横向溢出，
+  与 t-input（border-box）对不齐，所以显式声明。 */
+  box-sizing: border-box;
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--td-component-stroke);
@@ -171,11 +180,14 @@
 }
 
 .sop-create-actions {
+  flex: 0 0 auto;
   display: flex;
   justify-content: flex-end;
   gap: var(--app-space-2);
-  margin-top: auto;
   padding-top: var(--app-space-3);
+  border-top: 1px solid var(--td-component-stroke);
+  /* 字段区滚到底时内容紧贴按钮栏：给个底色，避免半行文字透出来。 */
+  background: var(--td-bg-color-container);
 }
 
 .sop-tag {

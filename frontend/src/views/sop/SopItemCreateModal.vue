@@ -11,76 +11,78 @@
     @close="close"
   >
     <div class="sop-create">
-      <!-- 左：表单 -->
+      <!-- 左：表单（字段区可滚动，操作按钮固定在底部） -->
       <div class="sop-create-form">
-        <label class="sop-field">
-          <span>{{ $t('sop.create.itemTitle') }} *</span>
-          <t-input v-model="form.title" :maxlength="200" :placeholder="$t('sop.create.titlePlaceholder')" />
-        </label>
-
-        <label class="sop-field">
-          <span>{{ $t('sop.create.idea') }}</span>
-          <textarea
-            v-model="form.description"
-            class="sop-textarea"
-            rows="6"
-            maxlength="2000"
-            :placeholder="$t('sop.create.ideaPlaceholder')"
-          />
-          <small class="sop-counter">{{ form.description.length }}/2000</small>
-        </label>
-
-        <div class="sop-field-row">
+        <div class="sop-create-fields">
           <label class="sop-field">
-            <span>{{ $t('sop.items.colSource') }} *</span>
-            <t-select v-model="form.source" :options="sourceOptions" />
+            <span>{{ $t('sop.create.itemTitle') }} *</span>
+            <t-input v-model="form.title" :maxlength="200" :placeholder="$t('sop.create.titlePlaceholder')" />
           </label>
+
           <label class="sop-field">
-            <span>{{ $t('sop.drawer.proposer') }}</span>
-            <t-input v-model="form.proposer" :maxlength="200" />
+            <span>{{ $t('sop.create.idea') }}</span>
+            <textarea
+              v-model="form.description"
+              class="sop-textarea"
+              rows="6"
+              maxlength="2000"
+              :placeholder="$t('sop.create.ideaPlaceholder')"
+            />
+            <small class="sop-counter">{{ form.description.length }}/2000</small>
+          </label>
+
+          <div class="sop-field-row">
+            <label class="sop-field">
+              <span>{{ $t('sop.items.colSource') }} *</span>
+              <t-select v-model="form.source" :options="sourceOptions" />
+            </label>
+            <label class="sop-field">
+              <span>{{ $t('sop.drawer.proposer') }}</span>
+              <t-input v-model="form.proposer" :maxlength="200" />
+            </label>
+          </div>
+
+          <div class="sop-field-row">
+            <label class="sop-field">
+              <span>{{ $t('sop.items.colPriority') }}</span>
+              <t-radio-group v-model="form.priority" variant="default-filled">
+                <t-radio-button value="P0">P0</t-radio-button>
+                <t-radio-button value="P1">P1</t-radio-button>
+                <t-radio-button value="P2">P2</t-radio-button>
+                <t-radio-button value="P3">P3</t-radio-button>
+              </t-radio-group>
+            </label>
+            <label class="sop-field">
+              <span>{{ $t('sop.drawer.kind') }}</span>
+              <t-select v-model="form.kind" :options="kindOptions" />
+            </label>
+          </div>
+
+          <label class="sop-field">
+            <span>{{ $t('sop.create.template') }}</span>
+            <t-select v-model="form.template_id" :options="templateOptions" clearable
+              :placeholder="$t('sop.items.templateUnbound')" />
+          </label>
+
+          <label v-if="bigParentOptions.length" class="sop-field">
+            <span>{{ $t('sop.split.parentPicker') }}</span>
+            <t-select
+              v-model="form.parent_id"
+              :options="bigParentOptions"
+              clearable
+              :placeholder="$t('sop.split.parentNone')"
+            />
+            <small class="sop-hint">{{ $t('sop.split.parentHint') }}</small>
+          </label>
+
+          <label class="sop-field">
+            <span>{{ $t('sop.create.attachments') }}</span>
+            <input type="file" multiple @change="onFilesPicked" />
+            <small v-if="attachments.length" class="sop-hint">
+              {{ $t('sop.create.attachmentsPending', { n: attachments.length }) }}
+            </small>
           </label>
         </div>
-
-        <div class="sop-field-row">
-          <label class="sop-field">
-            <span>{{ $t('sop.items.colPriority') }}</span>
-            <t-radio-group v-model="form.priority" variant="default-filled">
-              <t-radio-button value="P0">P0</t-radio-button>
-              <t-radio-button value="P1">P1</t-radio-button>
-              <t-radio-button value="P2">P2</t-radio-button>
-              <t-radio-button value="P3">P3</t-radio-button>
-            </t-radio-group>
-          </label>
-          <label class="sop-field">
-            <span>{{ $t('sop.drawer.kind') }}</span>
-            <t-select v-model="form.kind" :options="kindOptions" />
-          </label>
-        </div>
-
-        <label class="sop-field">
-          <span>{{ $t('sop.create.template') }}</span>
-          <t-select v-model="form.template_id" :options="templateOptions" clearable
-            :placeholder="$t('sop.items.templateUnbound')" />
-        </label>
-
-        <label v-if="bigParentOptions.length" class="sop-field">
-          <span>{{ $t('sop.split.parentPicker') }}</span>
-          <t-select
-            v-model="form.parent_id"
-            :options="bigParentOptions"
-            clearable
-            :placeholder="$t('sop.split.parentNone')"
-          />
-          <small class="sop-hint">{{ $t('sop.split.parentHint') }}</small>
-        </label>
-
-        <label class="sop-field">
-          <span>{{ $t('sop.create.attachments') }}</span>
-          <input type="file" multiple @change="onFilesPicked" />
-          <small v-if="attachments.length" class="sop-hint">
-            {{ $t('sop.create.attachmentsPending', { n: attachments.length }) }}
-          </small>
-        </label>
 
         <div class="sop-create-actions">
           <t-button variant="outline" @click="close">{{ $t('common.cancel') }}</t-button>
