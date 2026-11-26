@@ -260,10 +260,22 @@ func dockerHostNeedsDialGuard(host string) bool {
 // supplied URL: a daemon socket accepts container creation, so an admin who
 // can point it anywhere can make WeKnora talk to an arbitrary internal
 // service. Unix sockets are local by definition and only have to be absolute.
+//
+// A Windows named pipe (npipe:////./pipe/name) is what Docker Desktop exposes
+// and what DetectLocalDockerHost reads out of the docker context, so refusing
+// it would make "leave the host blank" unusable on Windows — the auto-detected
+// value would be rejected the moment it is validated. Only //./pipe/ (dot =
+// this machine) counts: \\remotehost\pipe\name is a remote daemon reached over
+// SMB, which is exactly the arbitrary-endpoint case the TCP branch guards.
 func ValidateDockerHost(host string, allowPrivate bool) error {
 	trimmed := strings.TrimSpace(host)
 	if trimmed == "" {
 		return nil
+	}
+	// npipe 两种写法都要认：URL 形式 npipe:////./pipe/x，与 Windows 原生
+	// UNC 形式 npipe:\\.\pipe\x（后者没有 //）。
+	if rest, ok := cutFoldPrefix(trimmed, "npipe:"); ok {
+		return validateDockerNamedPipe(rest)
 	}
 	scheme, address, found := strings.Cut(trimmed, "://")
 	if !found {
@@ -285,6 +297,39 @@ func ValidateDockerHost(host string, allowPrivate bool) error {
 	default:
 		return fmt.Errorf("sandbox: unsupported docker host scheme %q", scheme)
 	}
+}
+
+// cutFoldPrefix 大小写不敏感地剥离前缀，返回剩余部分与是否命中。
+func cutFoldPrefix(s, prefix string) (string, bool) {
+	if len(s) < len(prefix) || !strings.EqualFold(s[:len(prefix)], prefix) {
+		return "", false
+	}
+	return s[len(prefix):], true
+}
+
+// validateDockerNamedPipe 只接受「本机」命名管道：//./pipe/<name>。
+//
+// 规范化成 path.Clean 之前先按两种分隔符拆分，因为 docker 的两种写法都会出现：
+//   - npipe:////./pipe/docker_engine   （URL 形式，4 个斜杠）
+//   - npipe:\\.\pipe\docker_engine     （Windows 原生 UNC 形式）
+func validateDockerNamedPipe(address string) error {
+	normalized := strings.ReplaceAll(address, `\`, "/")
+	normalized = strings.TrimLeft(normalized, "/")
+	// 只允许 ./pipe/<非空名>：第一段不是 "." 就是远端主机，一律按远程拒绝。
+	host, rest, found := strings.Cut(normalized, "/")
+	if !found || host != "." {
+		return fmt.Errorf(
+			"sandbox: docker named pipe %q must be a local pipe (//./pipe/<name>); "+
+				"remote pipes are not supported", address)
+	}
+	switch {
+	case !strings.HasPrefix(rest, "pipe/"):
+		return fmt.Errorf(
+			"sandbox: docker named pipe %q must be a local pipe (//./pipe/<name>)", address)
+	case strings.TrimSpace(strings.TrimPrefix(rest, "pipe/")) == "":
+		return fmt.Errorf("sandbox: docker named pipe %q is missing the pipe name", address)
+	}
+	return nil
 }
 
 // ValidateDockerRemoteTLS requires client certificates for a TCP daemon.
