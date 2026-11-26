@@ -12,7 +12,7 @@
 | 仓库 | `D:\知识库\Know`（Windows / Git Bash） |
 | 分支 | `trae/metting` |
 | 基线 commit | `93ef12871`（docs: 验收记录补充收尾修复） |
-| Go | `go build ./internal/...` 可用；**`go build ./...` 与 `go test ./internal/application/service` 不可用**（DuckDB 静态库链接失败，本机既有问题） |
+| Go | `go build ./internal/...` 可用。**Windows 上 `go build ./...` 与 `go test ./internal/application/service` 必须用 UCRT 工具链**（mingw-w64 14.2.0 posix-seh UCRT）：默认的 w64devkit 是 MSVCRT，与 duckdb 预编译静态库的 ABI 不符，会报 `fpos<_Mbstatet>` / `__emutls_v` / `__stdio_common_vswprintf` 未定义。装法与验证步骤见 `docs/superpowers/verification/2026-11-26-windows-ucrt-toolchain.md`（已在本机装好：`D:/toolchain/mingw-ucrt/mingw64`，用 `CC`/`CXX` 指向即可） |
 | 前端 | `frontend/`，Vite 7 + Vue 3.5；测试是 `tsx --test`，**不要引入 Vitest** |
 | 后端容器 | `WeKnora-app` 在 18080，但**镜像不含本轮 SOP 路由**，不能用来验收 SOP 接口 |
 
@@ -197,6 +197,13 @@ git add <具体文件...> && git commit -m "fix(sop): ..."
 
 ```bash
 cd /d/知识库/Know
+
+# Windows 本机必须先切 UCRT 工具链（否则链接不出测试二进制，见 §0 与
+# docs/superpowers/verification/2026-11-26-windows-ucrt-toolchain.md）：
+export CC=/d/toolchain/mingw-ucrt/mingw64/bin/gcc.exe
+export CXX=/d/toolchain/mingw-ucrt/mingw64/bin/g++.exe
+export PATH=/d/toolchain/mingw-ucrt/mingw64/bin:$PATH
+
 go build ./internal/...
 go test ./internal/types/ ./internal/application/repository/ ./internal/application/service/sop/ ./internal/application/service/sop/engine/ ./internal/router/ ./internal/database/ -run "TestSQLiteMigrations|TestSop|TestNote|TestItem|TestSplit|TestParent|TestBrief|TestRender|TestUnbind|TestProjectConflict|TestMigrationSources"
 go test ./internal/handler/ -run "TestSOP|TestSplit|TestParent|TestBrief|TestDeleteProject|TestUnbind|TestProjectConflict"
@@ -222,6 +229,8 @@ npm run check-i18n                          # 期望 16/16
 5. 不要动 `CreateRun` 的「大项不可直接触发」守卫与 `EnsureNotBigParent`。
 6. 不要在 `ResetNodes` 里无条件清 `session_id`（会破坏 `carry_over` 续跑）。
 7. 不要声称「已验证」任何需要真实后端/真实知识库/PG 的项；本机做不到的写「未验证 + 原因」。
+   （2026-11-26 起：Windows 本机装上 UCRT 工具链后，`go build ./...` 与 `go test ./internal/application/service/...` 可以跑，
+   「本机做不到」的范围只剩真实 PG / 真实知识库 / 真实 CLI 三类。）
 
 ---
 
