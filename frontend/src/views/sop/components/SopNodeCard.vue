@@ -1,7 +1,8 @@
 <template>
   <!-- 节点卡：标题 + 徽标 + 双出口（成功/失败打回）端口 -->
   <div class="sop-node" :class="{ readonly, 'is-pending': !!pendingSource }">
-    <Handle type="target" :position="Position.Left" class="sop-handle sop-handle--in" />
+    <!-- 入端口 id 必须与边上的 targetHandle="in" 一致，否则 Vue Flow 找不到锚点、边不渲染 -->
+    <Handle id="in" type="target" :position="Position.Left" class="sop-handle sop-handle--in" />
 
     <div class="sop-node-head">
       <span class="sop-node-type" :class="`is-${node.type}`">{{ typeLabel }}</span>

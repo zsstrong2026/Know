@@ -20,7 +20,7 @@
       </header>
 
       <template v-if="node.type === 'agent'">
-        <t-radio-group :model-value="node.executor.kind" variant="default-filled" :disabled="readonly" @update:model-value="onExecutorChange">
+        <t-radio-group class="sop-choice" :model-value="node.executor.kind" variant="default-filled" :disabled="readonly" @update:model-value="onExecutorChange">
           <t-radio-button value="platform_agent">{{ $t('sop.insp.execAgent') }}</t-radio-button>
           <t-radio-button value="cli">{{ $t('sop.insp.execCli') }}</t-radio-button>
         </t-radio-group>

@@ -7,13 +7,30 @@
         <span v-if="template?.is_builtin" class="sop-tag">{{ $t('sop.designer.builtinReadonly') }}</span>
       </div>
       <div class="sop-designer-actions">
-        <div class="sop-seg">
-          <button type="button" :class="{ on: sidePanel === 'inspector' }" @click="sidePanel = 'inspector'">
+        <div class="sop-seg" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            class="sop-seg-item"
+            :class="{ on: sidePanel === 'inspector' }"
+            :aria-selected="sidePanel === 'inspector'"
+            @click="sidePanel = 'inspector'"
+          >
             {{ $t('sop.designer.panelCanvas') }}
           </button>
-          <button type="button" :class="{ on: sidePanel === 'ai' }" @click="sidePanel = 'ai'">
-            {{ $t('sop.ai.title') }}
-          </button>
+          <StarBorderButton
+            class="sop-seg-ai"
+            role="tab"
+            :active="sidePanel === 'ai'"
+            :aria-selected="sidePanel === 'ai'"
+            :radius="6"
+            :trail-length="0.34"
+            :glow="0.55"
+            :duration="4.5"
+            @click="sidePanel = 'ai'"
+          >
+            <span class="sop-seg-spark" aria-hidden="true">✦</span>{{ $t('sop.ai.title') }}
+          </StarBorderButton>
         </div>
         <t-button size="small" variant="outline" :loading="saving" :disabled="readonly" @click="saveDraft">
           {{ $t('sop.designer.saveDraft') }}
@@ -62,10 +79,15 @@
           :zoom-on-scroll="true"
           :pan-on-drag="[1, 2]"
           :nodes-draggable="!readonly"
-          :nodes-connectable="false"
+          :nodes-connectable="!readonly"
+          :connect-on-click="false"
+          :connection-radius="26"
           :fit-view-on-init="true"
           @node-drag-stop="onNodeDragStop"
           @node-click="onNodeClick"
+          @connect="onConnect"
+          @connect-start="onConnectStart"
+          @connect-end="onConnectEnd"
         >
           <template #node-sop="{ id, data }">
             <SopNodeCard
@@ -145,7 +167,14 @@ import { computed, onMounted, ref, shallowRef } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
-import { VueFlow, useVueFlow, type Edge, type Node } from '@vue-flow/core';
+import {
+  VueFlow,
+  useVueFlow,
+  type Connection,
+  type Edge,
+  type Node,
+  type OnConnectStartParams,
+} from '@vue-flow/core';
 import {
   copyTemplate,
   getTemplate,
@@ -159,6 +188,7 @@ import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
 import SopNodeCard from './components/SopNodeCard.vue';
 import SopCanvasToolbar from './components/SopCanvasToolbar.vue';
+import StarBorderButton from './components/StarBorderButton.vue';
 import SopInspector from './components/SopInspector.vue';
 import SopAiPanel from './components/SopAiPanel.vue';
 import { SnapshotHistory } from './canvas/history';
@@ -216,8 +246,11 @@ const flowNodes = computed<Node[]>(() =>
   })),
 );
 
+/** 正交连线需要 pathOptions，但基础 Edge 类型未声明，这里补一个扩展类型。 */
+type FlowEdge = Edge & { pathOptions?: { borderRadius?: number; offset?: number } };
+
 const flowEdges = computed<Edge[]>(() => {
-  const edges: Edge[] = [];
+  const edges: FlowEdge[] = [];
   for (const edge of definition.value.edges || []) {
     edges.push({
       id: edge.id || `${edge.source}->${edge.target}`,
@@ -225,6 +258,9 @@ const flowEdges = computed<Edge[]>(() => {
       target: edge.target,
       sourceHandle: 'success',
       targetHandle: 'in',
+      // 正交折线比贝塞尔更贴合「右出左入」，也更容易读出不交叉的走向
+      type: 'smoothstep',
+      pathOptions: { borderRadius: 10, offset: 24 },
       animated: false,
     });
   }
@@ -238,6 +274,8 @@ const flowEdges = computed<Edge[]>(() => {
       target: node.reject_to,
       sourceHandle: 'reject',
       targetHandle: 'in',
+      type: 'smoothstep',
+      pathOptions: { borderRadius: 10, offset: 24 },
       style: { stroke: 'var(--td-error-color)', strokeDasharray: '4 4' },
       animated: false,
     });
@@ -364,30 +402,79 @@ function onExitClick(nodeId: string, kind: 'success' | 'reject') {
   );
 }
 
+/** 成功边：落在 edges 表里，重复连线忽略。 */
+function linkSuccess(source: string, target: string) {
+  if (source === target) return;
+  const exists = (definition.value.edges || []).some(
+    (edge) => edge.source === source && edge.target === target,
+  );
+  if (exists) return;
+  commit({
+    ...definition.value,
+    edges: [...definition.value.edges, { id: `${source}->${target}`, source, target, when: 'success' }],
+  });
+}
+
+/** 打回边：后端用 node.reject_to 表达，不占 edges 表。 */
+function linkReject(source: string, target: string) {
+  if (source === target) return;
+  if (!(definition.value.nodes || []).some((node) => node.id === target)) return;
+  commit({
+    ...definition.value,
+    nodes: definition.value.nodes.map((node) =>
+      node.id === source ? { ...node, reject_to: target } : node,
+    ),
+  });
+}
+
 function connectToTarget(targetId: string) {
   const pending = pendingSource.value;
   if (!pending || pending.nodeId === targetId) return;
   pendingSource.value = null;
   if (pending.kind === 'success') {
-    const exists = (definition.value.edges || []).some(
-      (edge) => edge.source === pending.nodeId && edge.target === targetId,
-    );
-    if (exists) return;
-    commit({
-      ...definition.value,
-      edges: [
-        ...definition.value.edges,
-        { id: `${pending.nodeId}->${targetId}`, source: pending.nodeId, target: targetId, when: 'success' },
-      ],
-    });
+    linkSuccess(pending.nodeId, targetId);
     return;
   }
-  commit({
-    ...definition.value,
-    nodes: definition.value.nodes.map((node) =>
-      node.id === pending.nodeId ? { ...node, reject_to: targetId } : node,
-    ),
-  });
+  linkReject(pending.nodeId, targetId);
+}
+
+/** 正在拖拽的连线草稿，用于松开在节点卡片上（未吸附到端口）时的兜底连线。 */
+const connectDraft = ref<{ source: string; kind: 'success' | 'reject' } | null>(null);
+
+/** 拖拽连线：源端口是 reject 就打回，其余（success）按成功边处理。 */
+function onConnect(conn: Connection) {
+  if (readonly.value) return;
+  pendingSource.value = null;
+  connectDraft.value = null;
+  if (!conn.source || !conn.target) return;
+  if (conn.sourceHandle === 'reject') {
+    linkReject(conn.source, conn.target);
+    return;
+  }
+  linkSuccess(conn.source, conn.target);
+}
+
+function onConnectStart(params: OnConnectStartParams) {
+  connectDraft.value =
+    params.handleType === 'source' && params.nodeId
+      ? { source: params.nodeId, kind: params.handleId === 'reject' ? 'reject' : 'success' }
+      : null;
+}
+
+/** 拖到目标节点任意位置松开也能连：命中节点卡即按出口类型建边。 */
+function onConnectEnd(event?: MouseEvent) {
+  const draft = connectDraft.value;
+  connectDraft.value = null;
+  if (!draft || readonly.value) return;
+  const target = event?.target as HTMLElement | null;
+  const nodeEl = target?.closest?.('.vue-flow__node') as HTMLElement | null;
+  const targetId = nodeEl?.getAttribute('data-id') || '';
+  if (!targetId || targetId === draft.source) return;
+  if (draft.kind === 'reject') {
+    linkReject(draft.source, targetId);
+    return;
+  }
+  linkSuccess(draft.source, targetId);
 }
 
 /** 有待连接的出口时，点目标节点即完成连线；否则选中节点交给检查器。 */

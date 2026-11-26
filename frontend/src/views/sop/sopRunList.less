@@ -106,6 +106,7 @@
     border-color: var(--td-brand-color);
     background: var(--td-brand-color-1);
     color: var(--td-brand-color);
+    font-weight: 600;
   }
 
   &.is-failed .cnt {
@@ -124,25 +125,40 @@
   margin-bottom: var(--app-space-3);
 }
 
-.sop-search {
+/* 与事项列表同一套检索控件刻度：32px 高、6px 圆角、TDesign 默认字号 */
+.sop-filter-search {
   flex: 1 1 240px;
   min-width: 200px;
   max-width: 360px;
-  padding: 6px 10px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: var(--app-radius-sm);
-  background: var(--td-bg-color-container);
-  color: var(--td-text-color-primary);
-  font-size: var(--app-text-sm);
 
-  &:focus {
-    border-color: var(--td-brand-color);
-    outline: none;
+  :deep(.t-input) {
+    height: var(--td-comp-size-m);
+    border-radius: var(--app-radius-sm);
+    background: var(--td-bg-color-container);
+  }
+
+  :deep(.t-input__prefix-icon) {
+    color: var(--td-text-color-placeholder);
   }
 }
 
 .sop-flt {
   width: 180px;
+
+  :deep(.t-input) {
+    height: var(--td-comp-size-m);
+    border-radius: var(--app-radius-sm);
+    background: var(--td-bg-color-container);
+  }
+
+  &.is-active :deep(.t-input) {
+    border-color: var(--td-brand-color);
+  }
+
+  &.is-active :deep(.t-input__inner),
+  &.is-active :deep(.t-fake-arrow) {
+    color: var(--td-brand-color);
+  }
 }
 
 .sop-table-wrap {

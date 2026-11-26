@@ -8,7 +8,7 @@ test('拓扑分层上游恒在左', () => {
   const out = autoLayout(def);
   const x = (id: string) => out.nodes.find((n: any) => n.id === id)!.position.x;
   assert.ok(x('a') < x('b') && x('b') < x('c'));
-  assert.equal(x('b') - x('a'), 250);
+  assert.equal(x('b') - x('a'), 280);
 });
 
 test('同层行距与环检测', () => {

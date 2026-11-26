@@ -2,13 +2,13 @@
   <!-- 执行情况下拉：触发器 + 浮层（搜索 / 选项带计数 / Enter 选首个 / Esc 与点外部收起）-->
   <div ref="wrapEl" class="sop-fsel">
     <button type="button" class="sop-fsel-btn" :class="{ on: !!modelValue }" @click="toggle">
-      <span>{{ currentLabel }}</span>
-      <span class="car">⌄</span>
+      <span class="lbl">{{ currentLabel }}</span>
+      <t-icon class="car" :name="open ? 'chevron-up' : 'chevron-down'" size="16px" />
     </button>
 
     <div v-if="open" ref="popEl" class="sop-fsel-pop" :style="popStyle">
       <div class="sop-fsel-search">
-        <span>⌕</span>
+        <t-icon name="search" size="16px" />
         <input
           ref="inputEl"
           v-model="keyword"
@@ -74,6 +74,8 @@ const currentLabel = computed(() => {
   return hit ? hit.label : t('sop.items.execAll');
 });
 
+const POP_WIDTH = 240;
+
 async function toggle() {
   if (open.value) {
     close();
@@ -85,10 +87,12 @@ async function toggle() {
   await nextTick();
   const rect = wrapEl.value?.getBoundingClientRect();
   if (!rect) return;
-  const spaceBelow = window.innerHeight - rect.bottom;
-  popStyle.value = spaceBelow < 260
-    ? { bottom: `${rect.height + 6}px`, right: '0' }
-    : { top: `${rect.height + 6}px`, right: '0' };
+  const style: Record<string, string> = window.innerHeight - rect.bottom < 260
+    ? { bottom: `${rect.height + 6}px` }
+    : { top: `${rect.height + 6}px` };
+  // 默认左对齐触发器；右侧放不下时改右对齐，避免浮层溢出视口
+  style[rect.left + POP_WIDTH > window.innerWidth - 8 ? 'right' : 'left'] = '0';
+  popStyle.value = style;
   inputEl.value?.focus();
 }
 

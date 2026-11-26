@@ -80,6 +80,7 @@ let stopApprovals: (() => void) | null = null;
 const activeTab = computed(() => (route.meta.sopTab as string) || 'items');
 
 const moreOptions = computed(() => [
+  { content: t('sop.settings.projectTitle'), value: 'project' },
   { content: t('sop.shell.executorSettings'), value: 'settings' },
   { content: t('sop.shell.pmArchive'), value: 'archive' },
 ]);
@@ -111,6 +112,10 @@ onUnmounted(() => {
 // 切换项目时由 store.switchProject 负责重载审批，这里不再重复请求
 
 function onMoreAction(data: { value?: string | number }) {
+  if (data.value === 'project') {
+    void router.push({ name: 'sopProjectSettings' });
+    return;
+  }
   if (data.value === 'settings') {
     void router.push({ name: 'sopSettings' });
     return;

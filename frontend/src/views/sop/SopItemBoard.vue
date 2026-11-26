@@ -1,13 +1,23 @@
 <template>
   <div class="sop-board">
-    <!-- 统计带：总额 + 五态格（可点击筛选，再点取消） -->
+    <!-- 统计带：项目身份 + 五态统计胶囊（可点击筛选，再点取消）+ 操作区 -->
     <div class="sop-band">
-      <div class="sop-band-left">
+      <div class="sop-band-id">
         <div class="sop-band-ico">{{ (store.currentProject?.code || '··').slice(0, 2) }}</div>
-        <div class="sop-band-main">
+        <div class="sop-band-meta">
           <div class="sop-band-label">{{ $t('sop.items.currentProject') }}</div>
-          <div class="sop-band-name">{{ store.currentProject?.name || $t('sop.project.none') }}</div>
-          <div class="sop-band-desc">{{ store.currentProject?.description || $t('sop.settings.noDesc') }}</div>
+          <div class="sop-band-name" :title="store.currentProject?.description || $t('sop.settings.noDesc')">
+            {{ store.currentProject?.name || $t('sop.project.none') }}
+          </div>
+          <!-- 知识库、默认 SOP 从统计格剥离，作为项目身份的附属信息 -->
+          <div class="sop-band-chips">
+            <span class="sop-chip" :title="$t('sop.settings.statKb')">
+              {{ $t('sop.settings.statKb') }} · {{ kbName }}
+            </span>
+            <span class="sop-chip" :title="$t('sop.items.defaultSop', { name: defaultTemplateName })">
+              {{ $t('sop.items.defaultSop', { name: defaultTemplateName }) }}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -32,49 +42,49 @@
           @click="pickExec(state)"
         >
           <span class="n">{{ stats[state] }}</span>
-          <span class="l">{{ EXEC_STATE_LABELS[state] }}</span>
+          <span class="l">
+            <i class="sop-pstat-dot" />
+            {{ EXEC_STATE_LABELS[state] }}
+          </span>
         </button>
-        <div class="sop-pstat sop-pstat--meta">
-          <span class="n n--sm">{{ kbName }}</span>
-          <span class="l">{{ $t('sop.settings.statKb') }}</span>
-          <span class="sub">{{ $t('sop.items.defaultSop', { name: defaultTemplateName }) }}</span>
-        </div>
       </div>
 
       <div class="sop-band-actions">
-        <t-button size="small" variant="outline" @click="briefPanelVisible = true">
-          {{ $t('sop.split.panel') }}
-        </t-button>
-        <t-button size="small" variant="outline" @click="openSettings">
-          ⚙ {{ $t('sop.settings.projectTitle') }}
-        </t-button>
-        <t-button size="small" variant="outline" :loading="refreshing" @click="refreshAll">
-          ⟳
-        </t-button>
+        <t-tooltip :content="$t('sop.split.panel')">
+          <t-button size="small" variant="outline" shape="square" @click="briefPanelVisible = true">
+            <template #icon><t-icon name="book" /></template>
+          </t-button>
+        </t-tooltip>
         <t-button size="small" theme="primary" @click="createVisible = true">
-          ＋ {{ $t('sop.items.newItem') }}
+          <template #icon><t-icon name="add" /></template>
+          {{ $t('sop.items.newItem') }}
         </t-button>
       </div>
     </div>
 
     <!-- 检索区：条件写入 store.itemFilter，轮询刷新不会重挂载这些控件 -->
     <div class="sop-filter-row">
-      <input
-        v-model="search"
-        class="sop-search"
-        type="text"
+      <t-input
+        :model-value="search"
+        class="sop-filter-search"
+        clearable
         :placeholder="$t('sop.items.searchPlaceholder')"
-        @input="onSearchInput"
-      />
+        @update:model-value="onSearchInput"
+        @clear="onSearchClear"
+      >
+        <template #prefix-icon><t-icon name="search" size="16px" /></template>
+      </t-input>
       <t-select
         :model-value="filter.status || ''"
         class="sop-flt"
+        :class="{ 'is-active': !!filter.status }"
         :options="statusOptions"
         @update:model-value="(v: any) => setFilter('status', v)"
       />
       <t-select
         :model-value="filter.owner || ''"
         class="sop-flt"
+        :class="{ 'is-active': !!filter.owner }"
         :options="ownerOptions"
         @update:model-value="(v: any) => setFilter('owner', v)"
       />
@@ -87,12 +97,14 @@
       <t-select
         :model-value="filter.source || ''"
         class="sop-flt"
+        :class="{ 'is-active': !!filter.source }"
         :options="sourceOptions"
         @update:model-value="(v: any) => setFilter('source', v)"
       />
       <t-select
         :model-value="filter.kind || ''"
         class="sop-flt"
+        :class="{ 'is-active': !!filter.kind }"
         :options="kindOptions"
         @update:model-value="(v: any) => setFilter('kind', v)"
       />
@@ -340,6 +352,7 @@ import {
   progressText,
 } from '@/api/sop/helpers';
 import type { ExecState } from '@/api/sop';
+import { listKnowledgeBases } from '@/api/knowledge-base';
 import { useSopStore } from '@/stores/sop';
 import SopExecFilter from './components/SopExecFilter.vue';
 import SopItemDrawer from './SopItemDrawer.vue';
@@ -362,7 +375,6 @@ const draggingId = ref('');
 const dragOver = ref<ItemStatus | ''>('');
 const launchingId = ref('');
 const bulkBusy = ref(false);
-const refreshing = ref(false);
 const briefPanelVisible = ref(false);
 // 展开的大项（折叠状态只影响列表展示，不影响筛选与统计）
 const expandedParents = ref(new Set<string>());
@@ -401,10 +413,24 @@ const kindOptions = computed(() => [
   ...Object.entries(KIND_LABELS).map(([value, label]) => ({ label, value })),
 ]);
 
+/** 项目绑定的知识库列表：项目只存 kb_id，名称需要按 id 反查。 */
+const kbList = ref<{ id: string; name: string }[]>([]);
+
+async function loadKbList() {
+  try {
+    const res = await listKnowledgeBases();
+    const data = (res as { data?: { id: string; name: string }[] })?.data || [];
+    kbList.value = data.map((kb) => ({ id: String(kb.id), name: kb.name }));
+  } catch {
+    // 名称是附属信息，拉取失败就退化为显示 id
+    kbList.value = [];
+  }
+}
+
 const kbName = computed(() => {
   const project = store.currentProject;
   if (!project?.kb_id) return t('sop.settings.kbUnbound');
-  return project.kb_id;
+  return kbList.value.find((kb) => kb.id === project.kb_id)?.name || project.kb_id;
 });
 
 const defaultTemplateName = computed(() => {
@@ -537,13 +563,22 @@ function setFilter(key: 'status' | 'owner' | 'source' | 'kind', value: unknown) 
   void reloadItems();
 }
 
-function onSearchInput() {
+function onSearchInput(value: unknown) {
+  search.value = String(value ?? '');
   // 300ms 防抖：输入过程中不请求，避免每次按键打断表格
   if (searchTimer) clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
     store.itemFilter.q = search.value.trim() || undefined;
     void reloadItems();
   }, 300);
+}
+
+/** 清空按钮：跳过防抖立即回到全量列表。 */
+function onSearchClear() {
+  if (searchTimer) clearTimeout(searchTimer);
+  search.value = '';
+  store.itemFilter.q = undefined;
+  void reloadItems();
 }
 
 async function loadLatestRuns() {
@@ -565,12 +600,7 @@ async function reloadItems() {
 }
 
 async function refreshAll() {
-  refreshing.value = true;
-  try {
-    await Promise.all([store.loadItems(), store.loadStats(), store.loadTemplates(), loadLatestRuns()]);
-  } finally {
-    refreshing.value = false;
-  }
+  await Promise.all([store.loadItems(), store.loadStats(), store.loadTemplates(), loadLatestRuns()]);
 }
 
 function toggleSelect(id: string, checked: boolean) {
@@ -700,10 +730,6 @@ async function onItemCreated() {
   await refreshAll();
 }
 
-function openSettings() {
-  void router.push({ name: 'sopProjectSettings' });
-}
-
 watch(
   () => store.currentProjectId,
   async () => {
@@ -716,6 +742,7 @@ watch(
 
 onMounted(async () => {
   await refreshAll();
+  void loadKbList();
   // 自动刷新只替换表格行与统计；过滤控件在 store 里，不会重挂载，焦点得以保留
   stopPolling = store.startPolling(() => {
     void store.loadItems().catch(() => undefined);

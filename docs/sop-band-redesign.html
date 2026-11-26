@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SOP 工作台 · 顶部状态统计优化效果图</title>
+<style>
+  :root{
+    --brand:#0052d9;
+    --brand-1:#f2f7ff;
+    --text-1:#1f2329;
+    --text-2:#4b5563;
+    --text-3:#8f959e;
+    --stroke:#e7e9ec;
+    --stroke-2:#eef0f2;
+    --bg:#f5f6f8;
+    --running:#0052d9;
+    --pending:#8f959e;
+    --intervene:#d54941;
+    --pr:#ed7b2f;
+    --closed:#2ba471;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;color:var(--text-1);
+    background:#e9ebef;
+    padding:28px;
+  }
+
+  /* 页面外说明 */
+  .brief{
+    max-width:1360px;margin:0 auto 16px;padding:14px 18px;
+    background:#fff;border:1px solid var(--stroke);border-radius:12px;
+    display:flex;flex-wrap:wrap;gap:8px 26px;align-items:center;
+  }
+  .brief h1{font-size:15px;font-weight:700;margin-right:8px;white-space:nowrap}
+  .brief .item{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text-2)}
+  .brief .badge{
+    width:18px;height:18px;border-radius:50%;background:var(--brand);color:#fff;
+    font-size:11px;font-weight:700;display:grid;place-items:center;flex:0 0 auto;
+  }
+  .brief .tag-del{color:#a8071a;text-decoration:line-through;opacity:.7}
+
+  /* 应用容器 */
+  .app{
+    max-width:1360px;margin:0 auto;height:640px;
+    display:flex;background:#fff;border:1px solid #dfe2e7;border-radius:14px;
+    overflow:hidden;box-shadow:0 8px 30px rgba(15,23,42,.10);
+    position:relative;
+  }
+
+  /* ---------- 侧边栏 ---------- */
+  .side{
+    flex:0 0 208px;border-right:1px solid var(--stroke-2);
+    padding:14px 12px;display:flex;flex-direction:column;gap:2px;
+    background:#fff;color:var(--text-2);
+  }
+  .logo{display:flex;align-items:center;gap:9px;padding:4px 6px 16px}
+  .logo-mark{
+    width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#4a86f7,#0052d9);
+    display:grid;place-items:center;color:#fff;font-weight:800;font-size:13px;
+  }
+  .logo-name{font-size:16px;font-weight:800;letter-spacing:.5px;color:#0f62fe}
+  .nav{display:flex;flex-direction:column;gap:1px}
+  .nav a{
+    display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:8px;
+    font-size:13.5px;color:var(--text-2);text-decoration:none;
+  }
+  .nav a .ico{width:16px;height:16px;display:grid;place-items:center;color:var(--text-3)}
+  .nav a:hover{background:var(--bg)}
+  .nav a.on{background:var(--brand-1);color:var(--brand);font-weight:600}
+  .nav a.on .ico{color:var(--brand)}
+  .nav-sep{height:1px;background:var(--stroke-2);margin:8px 4px}
+
+  /* ---------- 主区 ---------- */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;background:#fbfbfc}
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding:9px 20px;border-bottom:1px solid var(--stroke);background:#fff;
+  }
+  .tabs{display:inline-flex;gap:2px;padding:3px;background:var(--bg);border-radius:10px}
+  .tab{
+    display:inline-flex;align-items:center;gap:6px;padding:6px 13px;border-radius:8px;
+    font-size:13px;color:var(--text-2);text-decoration:none;white-space:nowrap;
+  }
+  .tab .ico{width:15px;height:15px;display:grid;place-items:center;opacity:.75}
+  .tab.on{background:#fff;color:var(--brand);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.06),0 1px 6px rgba(0,0,0,.04)}
+
+  .top-actions{display:inline-flex;align-items:center;gap:8px;position:relative}
+  .proj-trigger{
+    display:inline-flex;align-items:center;gap:6px;padding:6px 10px;
+    border:1px solid var(--stroke);border-radius:8px;background:#fff;font-size:13px;cursor:pointer;
+  }
+  .proj-trigger .lab{color:var(--text-2)}
+  .proj-trigger .name{font-weight:600;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .more-btn{
+    width:32px;height:32px;border-radius:8px;border:none;background:transparent;color:var(--text-2);
+    display:grid;place-items:center;cursor:pointer;
+  }
+  .more-btn:hover{background:var(--bg)}
+
+  /* 展开的「更多」下拉 */
+  .more-menu{
+    position:absolute;top:40px;right:0;width:170px;padding:5px;z-index:30;
+    background:#fff;border:1px solid var(--stroke);border-radius:10px;
+    box-shadow:0 8px 24px rgba(15,23,42,.14);
+  }
+  .more-menu .mi{
+    display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;
+    font-size:13px;color:var(--text-1);cursor:pointer;
+  }
+  .more-menu .mi:hover{background:var(--bg)}
+  .more-menu .mi.new{color:var(--brand);font-weight:600;background:var(--brand-1)}
+  .more-menu .sep{height:1px;background:var(--stroke-2);margin:4px 6px}
+  .menu-note{
+    position:absolute;top:44px;right:184px;z-index:31;
+    display:flex;align-items:center;gap:6px;
+    padding:5px 10px;border-radius:999px;background:var(--brand);color:#fff;
+    font-size:12px;font-weight:600;white-space:nowrap;
+    box-shadow:0 4px 14px rgba(0,82,217,.35);
+  }
+  .menu-note::after{
+    content:"";position:absolute;right:-5px;top:50%;transform:translateY(-50%) rotate(45deg);
+    width:9px;height:9px;background:var(--brand);
+  }
+
+  .content{flex:1;min-height:0;display:flex;flex-direction:column;padding:16px 20px;overflow:auto;background:#fff}
+
+  /* ---------- 统计带（优化重点） ---------- */
+  .band{
+    display:flex;align-items:center;gap:16px;
+    padding:12px 14px;background:#fff;border:1px solid var(--stroke);border-radius:12px;
+    position:relative;
+  }
+  .pin{
+    position:absolute;width:19px;height:19px;border-radius:50%;
+    background:var(--brand);color:#fff;font-size:11px;font-weight:700;
+    display:grid;place-items:center;box-shadow:0 0 0 3px #fff;
+  }
+
+  /* 项目身份 */
+  .band-id{flex:0 0 auto;display:flex;align-items:center;gap:11px;padding-right:16px;border-right:1px solid var(--stroke-2)}
+  .proj-ico{
+    width:42px;height:42px;border-radius:10px;flex:0 0 auto;
+    background:var(--brand-1);color:var(--brand);
+    display:grid;place-items:center;font-weight:800;font-size:15px;letter-spacing:.5px;
+  }
+  .band-id .meta .lab{font-size:11.5px;color:var(--text-3);line-height:1.4}
+  .band-id .meta .name{font-size:15px;font-weight:700;line-height:1.5}
+  .band-id .meta .sub{
+    display:flex;align-items:center;gap:6px;margin-top:3px;
+    font-size:11.5px;color:var(--text-3);
+  }
+  .chip{
+    display:inline-flex;align-items:center;gap:4px;max-width:150px;
+    padding:1px 7px;border-radius:999px;background:var(--bg);
+    font-size:11px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .chip i{width:5px;height:5px;border-radius:50%;background:var(--text-3);flex:0 0 auto}
+
+  /* 统计胶囊组 */
+  .band-stats{
+    flex:1;min-width:0;display:flex;align-items:stretch;gap:3px;
+    background:var(--bg);border-radius:10px;padding:4px;
+  }
+  .stat{
+    flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:1px;min-width:74px;padding:5px 12px;border:1px solid transparent;border-radius:8px;
+    background:transparent;cursor:pointer;transition:background .15s,border-color .15s;
+  }
+  .stat:hover{background:rgba(255,255,255,.75)}
+  .stat.on{background:#fff;border-color:var(--brand);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .stat .num{font-size:21px;font-weight:700;line-height:1.15;color:var(--text-1)}
+  .stat .lab{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--text-3);white-space:nowrap}
+  .stat .lab .dot{width:5px;height:5px;border-radius:50%;flex:0 0 auto}
+  .stat.total .num{color:var(--text-1)}
+  .stat.running .num{color:var(--running)}
+  .stat.intervene .num{color:var(--intervene)}
+  .stat.pr .num{color:var(--pr)}
+  .stat.closed .num{color:var(--closed)}
+  .stat.pending .num{color:var(--text-2)}
+  .stat.on .lab{color:var(--text-2)}
+
+  /* 操作区 */
+  .band-actions{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding-left:16px;border-left:1px solid var(--stroke-2)}
+  .icon-btn{
+    width:32px;height:32px;border-radius:8px;border:1px solid var(--stroke);background:#fff;
+    display:grid;place-items:center;color:var(--text-2);cursor:pointer;transition:.15s;
+  }
+  .icon-btn:hover{border-color:var(--brand);color:var(--brand);background:var(--brand-1)}
+  .btn-primary{
+    display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 14px;
+    border:none;border-radius:8px;background:var(--brand);color:#fff;
+    font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;
+  }
+  .btn-primary:hover{background:#266fe8}
+
+  /* 悬浮提示 */
+  .tip{
+    position:absolute;top:-34px;transform:translateX(-50%);
+    padding:5px 10px;border-radius:6px;background:#1f2329;color:#fff;
+    font-size:12px;white-space:nowrap;opacity:.92;z-index:40;
+  }
+  .tip::after{
+    content:"";position:absolute;left:50%;bottom:-4px;transform:translateX(-50%) rotate(45deg);
+    width:8px;height:8px;background:#1f2329;
+  }
+
+  /* ---------- 筛选行 ---------- */
+  .filters{display:flex;align-items:center;gap:8px;margin:12px 0;flex-wrap:wrap}
+  .inp{
+    flex:0 1 260px;min-width:180px;height:32px;display:flex;align-items:center;gap:7px;
+    padding:0 11px;border:1px solid var(--stroke);border-radius:8px;background:#fff;
+    color:var(--text-3);font-size:13px;
+  }
+  .sel{
+    width:132px;height:32px;display:flex;align-items:center;justify-content:space-between;
+    padding:0 11px;border:1px solid var(--stroke);border-radius:8px;background:#fff;
+    font-size:13px;color:var(--text-2);cursor:pointer;
+  }
+  .sel.active{border-color:var(--brand);color:var(--brand)}
+  .seg{margin-left:auto;display:inline-flex;padding:2px;border-radius:8px;background:var(--bg)}
+  .seg button{
+    height:28px;padding:0 12px;border:none;border-radius:6px;background:transparent;
+    font-size:13px;color:var(--text-2);cursor:pointer;font-family:inherit;
+  }
+  .seg button.on{background:#fff;color:var(--brand);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+  .link{display:inline-flex;align-items:center;gap:4px;color:var(--brand);font-size:13px;cursor:pointer}
+
+  /* ---------- 表格 ---------- */
+  .tbl-wrap{border:1px solid var(--stroke);border-radius:12px;overflow:hidden;flex:1;min-height:0}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead th{
+    padding:9px 10px;background:var(--bg);color:var(--text-2);font-weight:600;
+    text-align:left;white-space:nowrap;border-bottom:1px solid var(--stroke);
+  }
+  tbody td{padding:9px 10px;border-bottom:1px solid var(--stroke-2);white-space:nowrap;color:var(--text-2)}
+  .empty td{padding:56px 20px;text-align:center;color:var(--text-3);white-space:normal}
+
+  svg{display:block}
+</style>
+</head>
+<body>
+
+  <!-- 页面外说明 -->
+  <div class="brief">
+    <h1>SOP 工作台 · 顶部状态统计优化</h1>
+    <div class="item"><span class="badge">1</span>统计区改为「项目身份 + 状态胶囊组 + 操作区」三段式，数字/标签分行对齐</div>
+    <div class="item"><span class="badge">2</span>黑板与简报改为图标按钮（悬停出提示）</div>
+    <div class="item"><span class="badge">3</span>项目配置移入项目选择框右侧「更多」下拉</div>
+    <div class="item"><span class="badge">4</span><span class="tag-del">刷新按钮</span> 去掉，依赖 5 秒自动轮询</div>
+  </div>
+
+  <div class="app">
+    <!-- 侧边栏 -->
+    <aside class="side">
+      <div class="logo"><div class="logo-mark">天</div><div class="logo-name">天禄</div></div>
+      <nav class="nav">
+        <a><span class="ico">✦</span>新对话</a>
+        <a><span class="ico">▤</span>知识库</a>
+        <a><span class="ico">◈</span>深度</a>
+        <a><span class="ico">◉</span>方案助手</a>
+        <a><span class="ico">▦</span>对话产物</a>
+        <a><span class="ico">✧</span>智能体</a>
+        <a class="on"><span class="ico">☰</span>SOP 工作台</a>
+        <a><span class="ico">⚡</span>自动化</a>
+        <a><span class="ico">🔧</span>工具</a>
+        <a><span class="ico">▣</span>共享空间</a>
+      </nav>
+    </aside>
+
+    <!-- 主区 -->
+    <main class="main">
+      <!-- 顶部 Tab + 项目/更多 -->
+      <header class="topbar">
+        <nav class="tabs">
+          <a class="tab on"><span class="ico">☰</span>事项</a>
+          <a class="tab"><span class="ico">▤</span>流程模板</a>
+          <a class="tab"><span class="ico">▶</span>运行记录</a>
+          <a class="tab"><span class="ico">✓</span>审批中心</a>
+          <a class="tab"><span class="ico">◷</span>SOP 任务</a>
+        </nav>
+
+        <div class="top-actions">
+          <button class="proj-trigger">
+            <span class="lab">项目</span>
+            <span class="name">测试</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <button class="more-btn" title="更多">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>
+          </button>
+
+          <!-- 展开的更多下拉：项目配置移入此处 -->
+          <div class="menu-note">项目配置已移入此下拉</div>
+          <div class="more-menu">
+            <div class="mi new">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+              项目配置
+            </div>
+            <div class="sep"></div>
+            <div class="mi"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h6"/></svg>执行器设置</div>
+            <div class="mi"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h10"/></svg>PM 归档</div>
+          </div>
+        </div>
+      </header>
+
+      <div class="content">
+        <!-- ① 统计带：三段式 -->
+        <section class="band">
+          <span class="pin" style="left:-9px;top:-9px">1</span>
+
+          <!-- 项目身份 -->
+          <div class="band-id">
+            <div class="proj-ico">SE</div>
+            <div class="meta">
+              <div class="lab">当前项目</div>
+              <div class="name">测试</div>
+              <div class="sub">
+                <span class="chip"><i></i>知识库 · kb-测试</span>
+                <span class="chip">默认 SOP：未知</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 状态胶囊组 -->
+          <div class="band-stats">
+            <button class="stat total on">
+              <span class="num">0</span>
+              <span class="lab">工作项</span>
+            </button>
+            <button class="stat pending">
+              <span class="num">0</span>
+              <span class="lab"><span class="dot" style="background:var(--pending)"></span>尚未执行</span>
+            </button>
+            <button class="stat running">
+              <span class="num">0</span>
+              <span class="lab"><span class="dot" style="background:var(--running)"></span>正在推进</span>
+            </button>
+            <button class="stat intervene">
+              <span class="num">0</span>
+              <span class="lab"><span class="dot" style="background:var(--intervene)"></span>需要介入</span>
+            </button>
+            <button class="stat pr">
+              <span class="num">0</span>
+              <span class="lab"><span class="dot" style="background:var(--pr)"></span>待处理 PR</span>
+            </button>
+            <button class="stat closed">
+              <span class="num">0</span>
+              <span class="lab"><span class="dot" style="background:var(--closed)"></span>已闭环</span>
+            </button>
+          </div>
+
+          <!-- 操作区 -->
+          <div class="band-actions">
+            <span class="pin" style="right:96px;top:-9px">2</span>
+            <button class="icon-btn" title="黑板与简报">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H14v16h4.5A1.5 1.5 0 0 0 20 18.5z"/></svg>
+            </button>
+            <button class="btn-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>
+              新建事项
+            </button>
+            <div class="tip" style="right:24px;">悬停显示「黑板与简报」</div>
+          </div>
+        </section>
+
+        <!-- 筛选行 -->
+        <div class="filters">
+          <div class="inp">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            搜索标题 / 编号 / 描述
+          </div>
+          <div class="sel">全部状态 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="sel">全部责任人 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="sel">全部执行情况 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="sel">全部来源 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="sel">全部类型 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="seg">
+            <button class="on">列表</button>
+            <button>看板</button>
+          </div>
+        </div>
+
+        <!-- 表格 -->
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:34px"><input type="checkbox" disabled></th>
+                <th style="width:88px">编号</th>
+                <th>标题</th>
+                <th style="width:96px">状态</th>
+                <th style="width:96px">来源</th>
+                <th style="width:96px">责任人</th>
+                <th style="width:72px">优先级</th>
+                <th style="width:140px">关联 SOP</th>
+                <th style="width:120px">当前环节</th>
+                <th style="width:80px">进度</th>
+                <th style="width:120px">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="empty">
+                <td colspan="11">没有匹配的事项，调整检索条件或新建一条</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+</body>
+</html>

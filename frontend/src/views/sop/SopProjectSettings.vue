@@ -135,12 +135,18 @@
                 </div>
                 <div class="sop-row">
                   <t-select
-                    v-model="rebindKbId"
+                    :model-value="kbSelectValue"
                     class="sop-grow"
                     :options="kbOptions"
                     :placeholder="$t('sop.kbCard.bindTitle')"
+                    @update:model-value="onKbPick"
                   />
-                  <t-button size="small" :disabled="!rebindKbId || rebindingKb" :loading="rebindingKb" @click="rebindKB">
+                  <t-button
+                    size="small"
+                    :disabled="!rebindKbId || rebindKbId === project.kb_id || rebindingKb"
+                    :loading="rebindingKb"
+                    @click="rebindKB"
+                  >
                     {{ $t('sop.kbCard.bindConfirm') }}
                   </t-button>
                   <t-button
@@ -414,6 +420,17 @@ const onSuccessOptions = computed(() =>
 );
 
 const kbOptions = computed(() => kbList.value.map((kb) => ({ label: kb.name, value: kb.id })));
+
+/**
+ * 下拉始终回显当前已绑定的库；选择新库只更新 rebindKbId 这个「待绑定草稿」，
+ * 这样绑定成功后框里仍显示实际绑定项，且顶部保存不会把旧值重复提交触发改绑。
+ */
+const kbSelectValue = computed(() => rebindKbId.value || project.value?.kb_id || '');
+
+/** 选中下拉项时只记录待绑定草稿，真正的绑定仍由「确认绑定」触发。 */
+function onKbPick(value: unknown) {
+  rebindKbId.value = value ? String(value) : '';
+}
 
 const kbLabel = computed(() => {
   if (!project.value?.kb_id) return t('sop.settings.kbUnbound');

@@ -264,7 +264,7 @@
           <h4>{{ $t('sop.drawer.acceptance') }}</h4>
           <label class="sop-field">
             <span>{{ $t('sop.drawer.valueAchieved') }}</span>
-            <t-radio-group v-model="outcomeForm.value_achieved">
+            <t-radio-group class="sop-choice" v-model="outcomeForm.value_achieved">
               <t-radio value="achieved">{{ $t('sop.drawer.achieved') }}</t-radio>
               <t-radio value="partial">{{ $t('sop.drawer.partial') }}</t-radio>
               <t-radio value="not_achieved">{{ $t('sop.drawer.notAchieved') }}</t-radio>

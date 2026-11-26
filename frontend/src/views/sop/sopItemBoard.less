@@ -11,6 +11,7 @@
 /* ---------- 统计带 ---------- */
 .sop-band {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--app-space-4);
   padding: var(--app-space-3) var(--app-space-4);
@@ -19,17 +20,20 @@
   background: var(--td-bg-color-container);
 }
 
-.sop-band-left {
-  flex: 0 0 auto;
+/* 左：项目身份 */
+.sop-band-id {
+  flex: 0 1 auto;
+  max-width: 340px;
   display: flex;
   align-items: center;
-  gap: var(--app-space-2);
-  min-width: 220px;
+  gap: var(--app-space-3);
+  padding-right: var(--app-space-4);
+  border-right: 1px solid var(--td-component-stroke);
 }
 
 .sop-band-ico {
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -37,35 +41,56 @@
   background: var(--td-brand-color-1);
   color: var(--td-brand-color);
   font-weight: 700;
-  font-size: var(--app-text-xl);
+  font-size: var(--app-text-lg);
+}
+
+.sop-band-meta {
+  min-width: 0;
 }
 
 .sop-band-label {
   color: var(--td-text-color-placeholder);
   font-size: var(--app-text-xs);
+  line-height: 1.4;
 }
 
 .sop-band-name {
   font-size: var(--app-text-base);
   font-weight: 700;
+  line-height: 1.5;
   color: var(--td-text-color-primary);
 }
 
-.sop-band-desc {
-  max-width: 260px;
-  color: var(--td-text-color-placeholder);
-  font-size: var(--app-text-xs);
+/* 知识库 / 默认 SOP 小标签 */
+.sop-band-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  margin-top: 2px;
+}
+
+.sop-chip {
+  max-width: 132px;
+  padding: 1px 7px;
+  border-radius: var(--app-radius-pill);
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-2xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 中：统计胶囊组 */
 .sop-band-stats {
-  flex: 1;
+  flex: 1 1 360px;
   min-width: 0;
   display: flex;
   align-items: stretch;
-  gap: var(--app-space-2);
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--app-radius-md);
+  background: var(--td-bg-color-secondarycontainer);
   overflow-x: auto;
 }
 
@@ -74,84 +99,112 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 76px;
-  padding: 6px 10px;
+  justify-content: center;
+  gap: 1px;
+  min-width: 68px;
+  padding: 5px 9px;
   border: 1px solid transparent;
-  border-radius: var(--app-radius-md);
+  border-radius: var(--app-radius-sm);
   background: transparent;
   color: inherit;
   cursor: pointer;
+  transition:
+    background var(--app-motion-fast),
+    border-color var(--app-motion-fast);
 
   &:hover {
-    background: var(--td-bg-color-container-hover);
+    background: var(--td-bg-color-container);
   }
 
+  /* 选中态：白底 + 品牌色描边浮起 */
   &.on {
     border-color: var(--td-brand-color);
-    background: var(--td-brand-color-1);
+    background: var(--td-bg-color-container);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   }
 
   .n {
     font-size: var(--app-text-xl);
     font-weight: 700;
+    line-height: 1.15;
     color: var(--td-text-color-primary);
   }
 
-  .n--sm {
-    max-width: 140px;
-    font-size: var(--app-text-sm);
-    line-height: 2.4;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .l {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     color: var(--td-text-color-placeholder);
     font-size: var(--app-text-xs);
     white-space: nowrap;
   }
 
-  .sub {
-    color: var(--td-text-color-placeholder);
-    font-size: var(--app-text-2xs);
-    white-space: nowrap;
+  &.on .l {
+    color: var(--td-text-color-secondary);
   }
 
-  &.is-intervene .n {
-    color: var(--td-error-color);
+  /* 状态色点：与数字同色 */
+  .sop-pstat-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: var(--app-radius-pill);
+    background: var(--td-text-color-placeholder);
   }
 
-  &.is-running .n {
-    color: var(--td-brand-color);
+  &.is-running {
+    .n {
+      color: var(--td-brand-color);
+    }
+
+    .sop-pstat-dot {
+      background: var(--td-brand-color);
+    }
   }
 
-  &.is-pr .n {
-    color: var(--td-warning-color);
+  &.is-intervene {
+    .n {
+      color: var(--td-error-color);
+    }
+
+    .sop-pstat-dot {
+      background: var(--td-error-color);
+    }
   }
 
-  &.is-closed .n {
-    color: var(--td-success-color);
+  &.is-pr {
+    .n {
+      color: var(--td-warning-color);
+    }
+
+    .sop-pstat-dot {
+      background: var(--td-warning-color);
+    }
   }
 
-  &--meta {
-    align-items: flex-start;
-    cursor: default;
+  &.is-closed {
+    .n {
+      color: var(--td-success-color);
+    }
 
-    &:hover {
-      background: transparent;
+    .sop-pstat-dot {
+      background: var(--td-success-color);
     }
   }
 }
 
+/* 右：操作区 */
 .sop-band-actions {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: var(--app-space-2);
+  padding-left: var(--app-space-4);
+  border-left: 1px solid var(--td-component-stroke);
 }
 
 /* ---------- 检索区 ---------- */
+/* 搜索框与四个下拉统一走 TDesign 默认尺寸（32px 高、14px 字号、6px 圆角），
+   自定义的执行情况下拉在 sopExecFilter.less 里对齐同一组刻度。 */
 .sop-filter-row {
   display: flex;
   flex-wrap: wrap;
@@ -160,47 +213,68 @@
   margin: var(--app-space-3) 0;
 }
 
-.sop-search {
-  flex: 1 1 220px;
-  min-width: 180px;
+.sop-filter-search {
+  flex: 1 1 240px;
+  min-width: 200px;
   max-width: 320px;
-  padding: 6px 10px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: var(--app-radius-sm);
-  background: var(--td-bg-color-container);
-  color: var(--td-text-color-primary);
-  font-size: var(--app-text-sm);
 
-  &:focus {
-    border-color: var(--td-brand-color);
-    outline: none;
+  :deep(.t-input) {
+    height: var(--td-comp-size-m);
+    border-radius: var(--app-radius-sm);
+    background: var(--td-bg-color-container);
+  }
+
+  :deep(.t-input__prefix-icon) {
+    color: var(--td-text-color-placeholder);
   }
 }
 
 .sop-flt {
-  width: 132px;
+  width: 148px;
+
+  :deep(.t-input) {
+    height: var(--td-comp-size-m);
+    border-radius: var(--app-radius-sm);
+    background: var(--td-bg-color-container);
+  }
+
+  /* 已选条件的边框与文案换成品牌色，和「全部状态」等默认态区分开 */
+  &.is-active :deep(.t-input) {
+    border-color: var(--td-brand-color);
+    color: var(--td-brand-color);
+  }
+
+  &.is-active :deep(.t-input__inner),
+  &.is-active :deep(.t-fake-arrow) {
+    color: var(--td-brand-color);
+  }
 }
 
 .sop-seg {
   margin-left: auto;
   display: inline-flex;
+  align-items: center;
+  height: var(--td-comp-size-m);
   padding: 2px;
   border-radius: var(--app-radius-sm);
   background: var(--td-bg-color-secondarycontainer);
 
   button {
-    padding: 4px 12px;
+    height: 100%;
+    padding: 0 var(--app-space-3);
     border: none;
     border-radius: var(--app-radius-xs);
     background: transparent;
     color: var(--td-text-color-secondary);
+    font-family: inherit;
     font-size: var(--app-text-sm);
     cursor: pointer;
 
     &.on {
-      background: var(--td-bg-color-container);
+      background: var(--td-brand-color-1);
       color: var(--td-brand-color);
       font-weight: 600;
+      box-shadow: inset 0 0 0 1px var(--td-brand-color);
     }
 
     &:disabled {
@@ -385,12 +459,11 @@
 }
 
 @media (max-width: 1080px) {
-  .sop-band {
-    flex-wrap: wrap;
-  }
-
-  .sop-band-left {
+  .sop-band-id {
+    max-width: none;
     min-width: 0;
+    padding-right: 0;
+    border-right: none;
   }
 }
 

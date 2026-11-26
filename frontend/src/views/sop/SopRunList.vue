@@ -34,16 +34,20 @@
     </div>
 
     <div class="sop-run-filter">
-      <input
-        v-model="search"
-        class="sop-search"
-        type="text"
+      <t-input
+        :model-value="search"
+        class="sop-filter-search"
+        clearable
         :placeholder="$t('sop.runsList.searchPlaceholder')"
-        @input="onSearchInput"
-      />
+        @update:model-value="onSearchInput"
+        @clear="onSearchClear"
+      >
+        <template #prefix-icon><t-icon name="search" size="16px" /></template>
+      </t-input>
       <t-select
         :model-value="filter.template_id || ''"
         class="sop-flt"
+        :class="{ 'is-active': !!filter.template_id }"
         :options="templateOptions"
         @update:model-value="(v: any) => setTemplate(v)"
       />
@@ -197,12 +201,21 @@ function setTemplate(value: unknown) {
   void store.loadRuns().catch(() => undefined);
 }
 
-function onSearchInput() {
+function onSearchInput(value: unknown) {
+  search.value = String(value ?? '');
   if (searchTimer) clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
     store.runFilter.q = search.value.trim() || undefined;
     void store.loadRuns().catch(() => undefined);
   }, 300);
+}
+
+/** 清空按钮：跳过防抖立即回到全量列表。 */
+function onSearchClear() {
+  if (searchTimer) clearTimeout(searchTimer);
+  search.value = '';
+  store.runFilter.q = undefined;
+  void store.loadRuns().catch(() => undefined);
 }
 
 async function loadStats() {

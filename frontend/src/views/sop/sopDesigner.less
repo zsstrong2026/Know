@@ -48,7 +48,63 @@
 
 .sop-designer-actions {
   display: flex;
+  align-items: center;
   gap: var(--app-space-2);
+}
+
+// 画布 / AI 编排 分段切换：AI 项由 StarBorderButton 提供星轨，这里只补槽位与选中态
+.sop-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--app-radius-md);
+  background: var(--td-bg-color-secondarycontainer);
+
+  .sop-seg-item {
+    height: 26px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: var(--app-radius-sm);
+    background: transparent;
+    color: var(--td-text-color-secondary);
+    font-family: inherit;
+    font-size: var(--app-text-sm);
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      color var(--app-motion-fast) ease,
+      background var(--app-motion-fast) ease;
+
+    &:hover {
+      color: var(--td-text-color-primary);
+    }
+
+    &.on {
+      background: var(--td-brand-color-1);
+      color: var(--td-brand-color);
+      font-weight: 600;
+      box-shadow: inset 0 0 0 1px var(--td-brand-color);
+    }
+  }
+
+  .sop-seg-ai.is-active {
+    background: var(--td-brand-color-1);
+    color: var(--td-brand-color);
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--td-brand-color);
+  }
+
+  .sop-seg-spark {
+    font-size: var(--app-text-xs);
+    line-height: 1;
+    background: linear-gradient(135deg, var(--td-brand-color-3), var(--td-brand-color));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
 }
 
 .sop-banner {
@@ -117,6 +173,11 @@
   height: 100%;
   background:
     radial-gradient(var(--td-component-stroke) 1px, transparent 1px) 0 0 / 18px 18px;
+
+  /* 连线层默认在节点层之下会被卡片遮住，这里抬到节点之上，保证整条线可见 */
+  :deep(.vue-flow__edges) {
+    z-index: 2;
+  }
 }
 
 .sop-minimap {

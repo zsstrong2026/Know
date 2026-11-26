@@ -3,46 +3,69 @@
   flex: 0 0 auto;
 }
 
+/* 触发器与同排四个 t-select 对齐：32px 高、6px 圆角、同样 14px 字号与内边距 */
 .sop-fsel-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-width: 148px;
-  padding: 6px 10px;
-  border: 1px solid var(--td-component-stroke);
+  gap: var(--app-space-2);
+  width: 148px;
+  height: var(--td-comp-size-m);
+  padding: 0 var(--td-comp-paddingLR-s);
+  border: 1px solid var(--td-border-level-2-color);
   border-radius: var(--app-radius-sm);
   background: var(--td-bg-color-container);
   color: var(--td-text-color-primary);
-  font-size: var(--app-text-sm);
+  font-size: var(--app-text-base);
+  font-family: inherit;
   cursor: pointer;
 
+  &:hover {
+    border-color: var(--td-brand-color);
+  }
+
+  .lbl {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+  }
+
   .car {
-    margin-left: auto;
+    flex: 0 0 auto;
     color: var(--td-text-color-placeholder);
+    transition: color var(--app-motion-fast) ease;
   }
 
   &.on {
     border-color: var(--td-brand-color);
     color: var(--td-brand-color);
+
+    .car {
+      color: var(--td-brand-color);
+    }
   }
 }
 
 .sop-fsel-pop {
   position: absolute;
-  z-index: 20;
+  z-index: var(--z-dropdown);
   width: 240px;
-  padding: 6px;
+  padding: var(--app-space-1) 0;
   border: 1px solid var(--td-component-stroke);
   border-radius: var(--app-radius-md);
   background: var(--td-bg-color-container);
   box-shadow: var(--td-shadow-2);
+  overflow: hidden;
 }
 
 .sop-fsel-search {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  gap: var(--app-space-1);
+  margin: 0 var(--app-space-1) var(--app-space-1);
+  padding: var(--app-space-1) var(--app-space-2);
   border-bottom: 1px solid var(--td-component-stroke);
   color: var(--td-text-color-placeholder);
 
@@ -52,28 +75,37 @@
     border: none;
     background: transparent;
     color: var(--td-text-color-primary);
-    font-size: var(--app-text-sm);
+    font-size: var(--app-text-base);
+    font-family: inherit;
     outline: none;
+
+    &::placeholder {
+      color: var(--td-text-color-placeholder);
+    }
   }
 }
 
 .sop-fsel-list {
   max-height: 260px;
   overflow: auto;
-  padding-top: 4px;
+  padding: 0 var(--app-space-1);
 }
 
+/* 选项高度与 TDesign 下拉一致（28px），选中态用浅底 + 品牌色文字 */
 .sop-fsel-opt {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--app-space-2);
   width: 100%;
-  padding: 6px 8px;
+  height: var(--td-comp-size-s);
+  padding: 0 var(--td-comp-paddingLR-s);
   border: none;
-  border-radius: var(--app-radius-sm);
+  border-radius: var(--app-radius-xs);
   background: transparent;
   color: var(--td-text-color-primary);
-  font-size: var(--app-text-sm);
+  font-size: var(--app-text-base);
+  font-family: inherit;
   text-align: left;
   cursor: pointer;
 
@@ -82,13 +114,16 @@
   }
 
   &.on {
-    color: var(--td-brand-color);
-    background: var(--td-brand-color-1);
+    color: var(--td-text-color-primary);
+    background: var(--app-selection-bg);
+    font-weight: 500;
   }
 
   .cnt {
+    flex: 0 0 auto;
     color: var(--td-text-color-placeholder);
-    font-size: var(--app-text-xs);
+    font-size: var(--app-text-sm);
+    font-variant-numeric: tabular-nums;
   }
 }
 

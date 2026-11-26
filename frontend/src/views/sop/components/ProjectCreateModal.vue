@@ -30,6 +30,7 @@
           class="sop-form-code"
           :placeholder="$t('sop.project.codePlaceholder')"
           :maxlength="10"
+          readonly
           :status="codeError ? 'error' : 'default'"
         />
         <template #help>
@@ -47,20 +48,23 @@
         />
       </t-form-item>
 
-      <t-form-item :label="$t('sop.kbCard.title')">
-        <t-radio-group v-model="form.kbMode" class="sop-kb-modes">
-          <t-radio value="new">{{ $t('sop.kbCard.modeNew', { name: form.name.trim() || $t('sop.project.name') }) }}</t-radio>
-          <t-radio value="existing">{{ $t('sop.kbCard.modeExisting') }}</t-radio>
-          <t-radio value="none">{{ $t('sop.kbCard.modeNone') }}</t-radio>
-        </t-radio-group>
-        <t-select
-          v-if="form.kbMode === 'existing'"
-          v-model="form.kbId"
-          class="sop-kb-select"
-          :options="kbOptions"
-          :placeholder="$t('sop.kbCard.bindTitle')"
-          filterable
-        />
+      <t-form-item :label="$t('sop.kbCard.title')" class="sop-kb-form">
+        <!-- t-form 的 controls 是横向 flex：竖向单选项和「使用已有」下拉要放进同一个纵向容器才不会被并排 -->
+        <div class="sop-kb-body">
+          <t-radio-group class="sop-choice" v-model="form.kbMode" direction="vertical">
+            <t-radio value="new">{{ $t('sop.kbCard.modeNew', { name: form.name.trim() || $t('sop.project.name') }) }}</t-radio>
+            <t-radio value="existing">{{ $t('sop.kbCard.modeExisting') }}</t-radio>
+            <t-radio value="none">{{ $t('sop.kbCard.modeNone') }}</t-radio>
+          </t-radio-group>
+          <t-select
+            v-if="form.kbMode === 'existing'"
+            v-model="form.kbId"
+            class="sop-kb-select"
+            :options="kbOptions"
+            :placeholder="$t('sop.kbCard.bindTitle')"
+            filterable
+          />
+        </div>
         <template #help>
           <span class="sop-form-hint">{{ $t('sop.kbCard.sub') }}</span>
         </template>
@@ -102,6 +106,36 @@ const submitting = ref(false);
 
 const visible = computed(() => props.visible);
 
+/**
+ * 由项目名称推导编号前缀（不再手工输入）：
+ * 取名称中的字母数字并大写、字母开头、2–10 位；全中文等提取不到时用 PJ；
+ * 与已有项目重名冲突则追加序号。
+ */
+function autoCode(name: string): string {
+  const raw = name.trim();
+  if (!raw) return '';
+  let base = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  // 纯中文/符号时提取不到字符，退化为固定前缀
+  if (!base) base = 'PJ';
+  else if (!/^[A-Z]/.test(base)) base = `P${base}`.slice(0, 6);
+
+  let candidate = base;
+  let seq = 1;
+  while (projects.value.some((p) => p.code.toUpperCase() === candidate)) {
+    seq += 1;
+    candidate = `${base}${seq}`.slice(0, 10);
+  }
+  return candidate;
+}
+
+// 名称是唯一输入源：改名即重新生成前缀
+watch(
+  () => form.name,
+  (name) => {
+    form.code = autoCode(name);
+  },
+);
+
 watch(
   () => props.visible,
   (open) => {
@@ -138,10 +172,13 @@ function validate(): boolean {
   codeError.value = '';
   const name = form.name.trim();
   const code = form.code.trim().toUpperCase();
-  if (!name) nameError.value = t('sop.project.nameRequired');
-  if (!code) codeError.value = t('sop.project.codeRequired');
-  else if (!validateProjectCode(code)) codeError.value = t('sop.project.codeInvalid');
-  else if (projects.value.some((p) => p.code.toUpperCase() === code)) {
+  if (!name) {
+    nameError.value = t('sop.project.nameRequired');
+  } else if (!code) {
+    codeError.value = t('sop.project.codeRequired');
+  } else if (!validateProjectCode(code)) {
+    codeError.value = t('sop.project.codeInvalid');
+  } else if (projects.value.some((p) => p.code.toUpperCase() === code)) {
     codeError.value = t('sop.project.codeDuplicate', { code });
   }
   if (form.kbMode === 'existing' && !form.kbId) {
@@ -175,6 +212,8 @@ async function submit() {
 </script>
 
 <style lang="less" scoped>
+@import '../sopChoice.less';
+
 .sop-form-code {
   font-family: var(--app-font-family-mono);
   text-transform: uppercase;
@@ -188,14 +227,22 @@ async function submit() {
   color: var(--td-text-color-placeholder);
 }
 
-.sop-kb-modes {
+/* t-form__controls-content 是 align-items:center 的横向 flex：
+   单选组与「使用已有」下拉必须包在同一个纵向容器里，否则会被并排成一行 */
+.sop-kb-body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: flex-start;
+  width: 100%;
 }
 
 .sop-kb-select {
   width: 100%;
-  margin-top: 8px;
+  margin-top: var(--app-space-2);
+}
+
+/* 说明文字与最后一项之间留一点呼吸，避免贴着单选行 */
+.sop-kb-form :deep(.t-input__help) {
+  margin-top: var(--app-space-1);
 }
 </style>

@@ -1,4 +1,6 @@
 // 五步检查器（右栏 360px）
+@import '../sopChoice.less';
+
 .sop-inspector {
   flex: 0 0 360px;
   min-width: 0;
@@ -205,6 +207,10 @@
   &.on {
     border-color: var(--td-brand-color);
     background: var(--td-brand-color-1);
+
+    b {
+      color: var(--td-brand-color);
+    }
   }
 
   &:disabled {
