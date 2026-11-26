@@ -29,6 +29,11 @@ func newSQLiteDataSourceDeleteFixture(t *testing.T) *sqliteDataSourceDeleteFixtu
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "weknora.db")), &gorm.Config{})
 	require.NoError(t, err)
+	// 必须关掉底层连接：Windows 上只要 sql.DB 还开着，t.TempDir() 的清理就会
+	// 因 weknora.db 被占用而失败（Linux 允许删除打开中的文件，所以只在 Windows 暴露）。
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	require.NoError(t, db.AutoMigrate(&types.DataSource{}, &types.SyncLog{}))
 
 	dsRepo := repository.NewDataSourceRepository(db)

@@ -60,6 +60,14 @@ func (f *fakeSolutionRoomRepo) Update(_ context.Context, room *types.MeetingRoom
 	return nil
 }
 
+// UpdatePhase 必须显式实现：嵌入接口只有方法签名，产物生成推进阶段时会 panic 到 nil。
+func (f *fakeSolutionRoomRepo) UpdatePhase(_ context.Context, id string, phase string) error {
+	if f.room != nil && f.room.ID == id {
+		f.room.Phase = phase
+	}
+	return nil
+}
+
 // fakeArtifactRepo 记录落库产物与最近一次导出格式
 type fakeArtifactRepo struct {
 	interfaces.MeetingArtifactRepository

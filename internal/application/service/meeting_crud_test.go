@@ -169,3 +169,33 @@ func TestGenerateSolutionTenantGuard(t *testing.T) {
 	assert.Equal(t, "user-a", engine.userID)
 	assert.Equal(t, "solution", msg.Content)
 }
+
+// 创建会议要推进阶段并写事件：桩仓储必须真正实现 UpdatePhase，
+// 否则会 panic 到内嵌接口的 nil 方法（存量回归：TestCreateMeetingBuildsParticipants）。
+func TestCreateMeetingAdvancesPhase(t *testing.T) {
+	svc, rooms, _ := crudFixture(map[string]*types.CustomAgent{
+		"a1": {ID: "a1", Name: "架构师"},
+	})
+
+	_, err := svc.CreateMeeting(context.Background(),
+		&types.MeetingRoom{ID: "r-phase", TenantID: 1, Title: "阶段推进"}, []string{"a1"})
+	require.NoError(t, err)
+
+	require.Equal(t, []string{types.MeetingPhaseOpening}, rooms.phases,
+		"标准会议创建即进入开场分析阶段")
+	require.Equal(t, types.MeetingPhaseOpening, rooms.rooms["r-phase"].Phase)
+}
+
+// 自由模式没有开场：创建时直接进入讨论阶段。
+func TestCreateFreeMeetingStartsInDiscussing(t *testing.T) {
+	svc, rooms, _ := crudFixture(map[string]*types.CustomAgent{
+		"a1": {ID: "a1", Name: "架构师"},
+	})
+
+	_, err := svc.CreateMeeting(context.Background(),
+		&types.MeetingRoom{ID: "r-free-phase", TenantID: 1, Title: "自由", Mode: types.MeetingModeFree},
+		[]string{"a1"})
+	require.NoError(t, err)
+	require.Equal(t, []string{types.MeetingPhaseDiscussing}, rooms.phases,
+		"自由模式跳过开场，直接进入讨论")
+}

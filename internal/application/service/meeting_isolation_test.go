@@ -21,6 +21,7 @@ type isolationRoomRepo struct {
 	rooms       map[string]*types.MeetingRoom
 	updateCount int      // Update 调用次数（幂等断言用）
 	deletedIDs  []string // 软删标记（对齐 deleted_at 非空）
+	phases      []string // UpdatePhase 调用记录（阶段推进断言用）
 }
 
 func (f *isolationRoomRepo) GetByID(_ context.Context, id string, tenantID uint64) (*types.MeetingRoom, error) {
@@ -56,6 +57,18 @@ func (f *isolationRoomRepo) Update(_ context.Context, room *types.MeetingRoom) e
 	}
 	f.rooms[room.ID] = room
 	f.updateCount++
+	return nil
+}
+
+// UpdatePhase 单列更新阶段：与真实仓储同语义（只改 phase，不动 status 等字段）。
+// 必须显式实现——内嵌接口的方法集不含具体实现，漏写会在调用时 panic 到 nil 方法。
+func (f *isolationRoomRepo) UpdatePhase(_ context.Context, id string, phase string) error {
+	r, ok := f.rooms[id]
+	if !ok {
+		return nil // 与 GORM WHERE 未命中同口径：0 行影响不报错
+	}
+	r.Phase = phase
+	f.phases = append(f.phases, phase)
 	return nil
 }
 
