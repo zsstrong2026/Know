@@ -39,6 +39,7 @@ const (
 	ChannelIMA              = "ima"               // Tencent IMA (ima.qq.com)
 	ChannelSeafile          = "seafile"           // Seafile
 	ChannelTopicSearch      = "topic_search"      // 主题网络搜索（按主题抓取公网网页）
+	ChannelNextcloud        = "nextcloud"         // Nextcloud
 )
 
 // Knowledge parse status constants

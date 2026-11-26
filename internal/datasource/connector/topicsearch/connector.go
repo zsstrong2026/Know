@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -12,17 +13,33 @@ import (
 	"github.com/Tencent/WeKnora/internal/datasource"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
 // Compile-time proof that *Connector satisfies the datasource.Connector interface.
 var _ datasource.Connector = (*Connector)(nil)
 
 // searchRunner is the connector's minimal dependency on web search
-// (satisfied by *service.WebSearchService).
+// (satisfied by interfaces.WebSearchService). 上游 0.9.1 把搜索能力收敛到
+// Provider 解析后的 WebClient，这里只依赖该服务的 Resolve。
 type searchRunner interface {
-	Search(
-		ctx context.Context, providerID string, config *types.WebSearchConfig, query string,
-	) ([]*types.WebSearchResult, error)
+	Resolve(ctx context.Context, providerID string) (interfaces.WebClient, error)
+}
+
+// runSearch resolves the provider client and runs one query.
+func (c *Connector) runSearch(
+	ctx context.Context, providerID string, cfg *types.WebSearchConfig, query string,
+) ([]*types.WebSearchResult, error) {
+	client, err := c.search.Resolve(ctx, providerID)
+	if err != nil {
+		return nil, err
+	}
+	req := types.WebSearchRequest{Query: query}
+	if cfg != nil {
+		req.MaxResults = cfg.MaxResults
+		req.IncludeDate = cfg.IncludeDate
+	}
+	return client.Search(ctx, req)
 }
 
 // defaultProviderResolver resolves a tenant's default search provider
@@ -65,7 +82,7 @@ func (c *Connector) Validate(ctx context.Context, config *types.DataSourceConfig
 	if err != nil {
 		return err
 	}
-	if _, err := c.search.Search(ctx, providerID, cfg.searchConfig(), cfg.Topics[0]); err != nil {
+	if _, err := c.runSearch(ctx, providerID, cfg.searchConfig(), cfg.Topics[0]); err != nil {
 		return fmt.Errorf("web search probe failed: %w", err)
 	}
 	return nil
@@ -245,7 +262,7 @@ func (c *Connector) walk(
 		if produced >= cfg.MaxItemsPerRun {
 			break
 		}
-		results, searchErr := c.search.Search(ctx, providerID, cfg.searchConfig(), topic)
+		results, searchErr := c.runSearch(ctx, providerID, cfg.searchConfig(), topic)
 		if searchErr != nil {
 			failedTopics++
 			logger.Warnf(ctx, "[TopicSearch] search topic %q failed: %v", topic, searchErr)
@@ -263,6 +280,11 @@ func (c *Connector) walk(
 			normURL, normErr := normalizeURL(result.URL)
 			if normErr != nil {
 				logger.Warnf(ctx, "[TopicSearch] skip invalid url %q: %v", result.URL, normErr)
+				continue
+			}
+			// 上游 0.9.1 起搜索请求不再携带黑名单，数据源级规则改由本连接器
+			// 在抓取前过滤，保持原有行为。
+			if matchesAnyBlacklistRule(normURL, cfg.Blacklist) {
 				continue
 			}
 			if _, dup := seenURLs[normURL]; dup {
@@ -376,4 +398,34 @@ func fallbackTitle(rawURL string) string {
 		return u.Host
 	}
 	return u.Host + "/" + path
+}
+
+// matchesAnyBlacklistRule reports whether rawURL matches any of the rules.
+func matchesAnyBlacklistRule(rawURL string, rules []string) bool {
+	for _, rule := range rules {
+		if matchesBlacklistRule(rawURL, rule) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesBlacklistRule 支持两种写法：以 / 包裹的正则（/example\.(net|org)/）
+// 与通配符（*://*.example.com/*）。
+func matchesBlacklistRule(rawURL, rule string) bool {
+	if strings.HasPrefix(rule, "/") && strings.HasSuffix(rule, "/") && len(rule) > 1 {
+		matched, err := regexp.MatchString(rule[1:len(rule)-1], rawURL)
+		if err != nil {
+			logger.Warnf(context.Background(), "[TopicSearch] invalid blacklist regex %q: %v", rule, err)
+			return false
+		}
+		return matched
+	}
+	pattern := "^" + strings.ReplaceAll(rule, "*", ".*") + "$"
+	matched, err := regexp.MatchString(pattern, rawURL)
+	if err != nil {
+		logger.Warnf(context.Background(), "[TopicSearch] invalid blacklist rule %q: %v", rule, err)
+		return false
+	}
+	return matched
 }

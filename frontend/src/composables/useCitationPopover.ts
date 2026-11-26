@@ -3,6 +3,7 @@ import { resolveCitationChunkId, type CitationKnowledgeRef } from '@/utils/citat
 import {
   getCitationChunkCache,
   setCitationChunkCache,
+  type CitationChunkCacheValue,
 } from '@/utils/citationChunkCache'
 import { useChatReferencesDrawer } from '@/composables/useChatReferencesDrawer'
 import type { KnowledgeReferenceLike, ReferenceHighlightTarget } from '@/utils/referenceSources'
@@ -52,6 +53,9 @@ export function useCitationPopover(rootRef: Ref<HTMLElement | null>, options: Ci
   let closeTimer: number | null = null
 
   let requestVersion = 0
+  // A single component can receive repeated hover/click events before a
+  // request settles. Share that request within its current access scope.
+  const inFlight = new Map<string, Promise<CitationChunkCacheValue>>()
   let boundRoot: HTMLElement | null = null
   let disposed = false
 
@@ -62,6 +66,7 @@ export function useCitationPopover(rootRef: Ref<HTMLElement | null>, options: Ci
 
   const reset = () => {
     requestVersion++
+    inFlight.clear()
     cancelHover()
     cancelClose()
     float.value.visible = false
@@ -97,7 +102,7 @@ export function useCitationPopover(rootRef: Ref<HTMLElement | null>, options: Ci
     positionFor(el)
   }
 
-  const openKb = async (el: HTMLElement) => {
+  const openKb = async (el: HTMLElement, retry = false) => {
     // Embedded hover historically loads the raw ID; drawer highlights resolve aliases.
     const chunkId = isChat ? resolveChunkId(el) : el.getAttribute('data-chunk-id') || ''
     const title = el.getAttribute('data-doc') || ''
@@ -110,8 +115,10 @@ export function useCitationPopover(rootRef: Ref<HTMLElement | null>, options: Ci
     positionFor(el, 4)
 
     const scope = options.getCacheScope()
+    const key = JSON.stringify([scope, chunkId])
     const cached = getCitationChunkCache(scope, chunkId)
-    if (cached) {
+    const retryDue = cached?.retryable && (retry || Date.now() >= (cached.retryAfter ?? Infinity))
+    if (!inFlight.has(key) && cached && !retryDue) {
       float.value.content = cached.content
       float.value.error = cached.error || ''
       float.value.loading = false
@@ -121,14 +128,27 @@ export function useCitationPopover(rootRef: Ref<HTMLElement | null>, options: Ci
     float.value.loading = true
     float.value.error = ''
     float.value.content = ''
-    let result: { content: string; error?: string }
-    try {
-      const res = await options.fetchChunk(chunkId)
-      const content = String(res?.data?.content || '').trim()
-      result = { content, ...(!content && options.notFoundError ? { error: options.notFoundError() } : {}) }
-    } catch {
-      result = { content: '', error: options.loadError() }
+    let request = inFlight.get(key)
+    if (!request) {
+      request = (async (): Promise<CitationChunkCacheValue> => {
+        try {
+          const res = await options.fetchChunk(chunkId)
+          const content = String(res?.data?.content || '').trim()
+          return { content, ...(!content && options.notFoundError ? { error: options.notFoundError() } : {}) }
+        } catch (error: unknown) {
+          // A missing/deleted chunk stays cached; other failures may be
+          // transient: explicit clicks retry immediately, hovers after a short cooldown.
+          const httpError = error as { $httpStatus?: unknown; status?: unknown } | null
+          const status = httpError?.$httpStatus ?? httpError?.status
+          const retryable = status !== 404
+          return { content: '', error: options.loadError(), retryable,
+            ...(retryable ? { retryAfter: Date.now() + 5000 } : {}) }
+        }
+      })()
+      inFlight.set(key, request)
     }
+    const result = await request
+    if (inFlight.get(key) === request) inFlight.delete(key)
     // Replaced hovers, roots and access scopes must not receive late responses.
     if (disposed || version !== requestVersion || scope !== options.getCacheScope()) return
     setCitationChunkCache(scope, chunkId, result)

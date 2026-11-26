@@ -63,6 +63,10 @@ const (
 	ErrWorkbenchStreamBroken    ErrorCode = 2410 // 502：模型流式回答中途中断
 	ErrWorkbenchInvalidField    ErrorCode = 2411 // 400：日历/形态等字段非法（details.field 指明字段）
 	ErrWorkbenchSystemKB        ErrorCode = 2412 // 400：系统知识库不允许普通用户操作
+	// Import prerequisite errors：上游 0.9.1 新增。原规划 2400 与工作台错误码
+	// 冲突，顺延到 2413 以保持对外错误码契约稳定。
+	// 用于区分「未配置 VLM/ASR 的永久性导入拒绝」与可重试的摄取失败。
+	ErrImportPrerequisiteMissing ErrorCode = 2413
 
 	// Add more error codes here
 )
@@ -90,6 +94,19 @@ func (e *AppError) WithDetails(details any) *AppError {
 func NewBadRequestError(message string) *AppError {
 	return &AppError{
 		Code:     ErrBadRequest,
+		Message:  message,
+		HTTPCode: http.StatusBadRequest,
+	}
+}
+
+// NewImportPrerequisiteError creates the typed HTTP 400 returned when an
+// import requires a model (VLM for images, ASR for audio) that the target
+// knowledge base has not configured. The message stays user-facing; the code
+// lets the datasource sync path treat the rejection as permanent instead of
+// retrying a task that cannot succeed until the operator configures a model.
+func NewImportPrerequisiteError(message string) *AppError {
+	return &AppError{
+		Code:     ErrImportPrerequisiteMissing,
 		Message:  message,
 		HTTPCode: http.StatusBadRequest,
 	}

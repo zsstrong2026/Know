@@ -19,6 +19,9 @@ test('assistant profile changes refresh the workspace page without discarding an
     '@/utils/tenantSwitch': {},
     '@/workbench/use-leave-preview': { useLeavePreview: () => ({ load: async () => null }) },
     '@/workbench/leave-summary': { buildLeaveSummary: () => '' },
+    '@/utils/authRefresh': {
+      redirectToLogin: t.mock.fn(),
+    },
   })
   await flush()
   assert.equal(vm.tenantInfo.name, 'Original')

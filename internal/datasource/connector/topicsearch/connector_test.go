@@ -9,30 +9,44 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/datasource"
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
 // longBody is longer than the default min_content_length (200 runes).
 var longBody = strings.Repeat("WeKnora 主题网络搜索正文。", 30)
 
 // fakeSearch is a fake searchRunner returning canned results per topic.
+// 上游 0.9.1 的搜索服务改为 Resolve 出 WebClient，这里用 fakeWebClient 承接。
 type fakeSearch struct {
 	results      map[string][]*types.WebSearchResult
 	errs         map[string]error
 	calls        []string
-	lastConfig   *types.WebSearchConfig
 	lastProvider string
 }
 
-func (f *fakeSearch) Search(
-	_ context.Context, providerID string, cfg *types.WebSearchConfig, query string,
-) ([]*types.WebSearchResult, error) {
-	f.calls = append(f.calls, query)
-	f.lastConfig = cfg
+func (f *fakeSearch) Resolve(_ context.Context, providerID string) (interfaces.WebClient, error) {
 	f.lastProvider = providerID
-	if err := f.errs[query]; err != nil {
+	return &fakeWebClient{parent: f}, nil
+}
+
+type fakeWebClient struct{ parent *fakeSearch }
+
+func (c *fakeWebClient) Search(
+	_ context.Context, req types.WebSearchRequest,
+) ([]*types.WebSearchResult, error) {
+	c.parent.calls = append(c.parent.calls, req.Query)
+	if err := c.parent.errs[req.Query]; err != nil {
 		return nil, err
 	}
-	return f.results[query], nil
+	return c.parent.results[req.Query], nil
+}
+
+func (c *fakeWebClient) Fetch(_ context.Context, _ string) (*types.WebPage, error) {
+	return &types.WebPage{}, nil
+}
+
+func (c *fakeWebClient) Capabilities() types.WebSearchCapabilities {
+	return types.WebSearchCapabilities{}
 }
 
 // fakeProviders is a fake defaultProviderResolver.
@@ -390,18 +404,26 @@ func TestQuotaLimitsProducedItems(t *testing.T) {
 	}
 }
 
-func TestBlacklistPassedToSearchProvider(t *testing.T) {
-	search := &fakeSearch{results: map[string][]*types.WebSearchResult{"RAG": nil}}
-	c := NewConnector(search, defaultProviders(), &fakeFetcher{})
-	_, _, err := c.FetchIncremental(tenantCtx(), makeConfig(map[string]interface{}{
+func TestBlacklistFiltersResultsBeforeFetch(t *testing.T) {
+	search := &fakeSearch{results: map[string][]*types.WebSearchResult{"RAG": {
+		makeResult("垃圾站", "https://www.spam.com/page", "s"),
+		makeResult("正则命中", "https://example.net/page", "s"),
+		makeResult("正常页", "https://example.com/ok", "s"),
+	}}}
+	fetcher := &fakeFetcher{pages: map[string]string{"https://example.com/ok": longBody}}
+	c := NewConnector(search, defaultProviders(), fetcher)
+	items, _, err := c.FetchIncremental(tenantCtx(), makeConfig(map[string]interface{}{
 		"topics":    "RAG",
 		"blacklist": "*://*.spam.com/*\n/example\\.(net|org)/",
 	}), nil)
 	if err != nil {
 		t.Fatalf("FetchIncremental() error = %v", err)
 	}
-	if search.lastConfig == nil || len(search.lastConfig.Blacklist) != 2 {
-		t.Fatalf("blacklist = %v, want 2 rules forwarded to the search service", search.lastConfig)
+	if len(fetcher.urls) != 1 || fetcher.urls[0] != "https://example.com/ok" {
+		t.Fatalf("fetched urls = %v, want only the non-blacklisted page", fetcher.urls)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items = %d, want 1", len(items))
 	}
 }
 

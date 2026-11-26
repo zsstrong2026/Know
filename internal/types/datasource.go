@@ -48,6 +48,7 @@ const (
 	// credentials live in the web_search_providers entity, selected per data source
 	// via settings["provider_id"] or the tenant default.
 	ConnectorTypeTopicSearch = "topic_search"
+	ConnectorTypeNextcloud   = "nextcloud"
 
 	// Sync modes
 	SyncModeIncremental = "incremental"
@@ -321,6 +322,11 @@ type Resource struct {
 
 // FetchedItem represents a single document/content item fetched from external source
 type FetchedItem struct {
+	// RetryOnFailure requires streaming ingestion to reject recorded failures
+	// before a connector checkpoints this item. Existing connectors retain their
+	// best-effort handling unless they explicitly opt in.
+	RetryOnFailure bool `json:"retry_on_failure,omitempty"`
+
 	// Unique ID in the external system
 	ExternalID string `json:"external_id"`
 
@@ -451,8 +457,23 @@ type SyncResult struct {
 	// Per-item failure samples (capped), shown in the sync-log UI.
 	Errors []SyncItemError `json:"errors,omitempty"`
 
+	// Per-item source-deletion samples (capped), shown in the sync-log UI.
+	DeletedItems []SyncDeletedItem `json:"deleted_items,omitempty"`
+
 	// Updated cursor for next incremental sync
 	NextCursor *SyncCursor `json:"next_cursor,omitempty"`
+}
+
+// MetaKeySelectedResourceDeleted marks an IsDeleted FetchedItem emitted when a
+// directly selected resource in config.resource_ids has been deleted upstream.
+const MetaKeySelectedResourceDeleted = "selected_resource_deleted"
+
+// SyncDeletedItem records one document or selected resource deleted in the
+// external source system, surfaced in the sync-log drawer and resource picker.
+type SyncDeletedItem struct {
+	ExternalID       string `json:"external_id,omitempty"`
+	SourceResourceID string `json:"source_resource_id,omitempty"`
+	Title            string `json:"title,omitempty"`
 }
 
 // SyncItemError is one user-facing failure sample. It carries a stable i18n

@@ -201,6 +201,7 @@ export default defineConfig(({ command, mode }) => {
       : { main: entries.main, embed: entries.embed }
 
   return {
+    base: process.env.VITE_BASE_PATH || '/',
     define: {
       __FRONTEND_VERSION__: JSON.stringify(FRONTEND_VERSION),
       __FRONTEND_COMMIT__: JSON.stringify(FRONTEND_COMMIT),

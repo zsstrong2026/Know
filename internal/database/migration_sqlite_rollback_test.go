@@ -31,9 +31,11 @@ func TestSQLiteMigrationsRollbackProjectNotes(t *testing.T) {
 	require.True(t, sqliteIndexExists(t, db, "ix_sop_items_parent"))
 	require.NoError(t, db.Close())
 
-	// Down 一步：必须回到 75（000076 之前）
-	downOne(t, dbPath)
-	require.Equal(t, expectedSQLiteMigrationVersion-1, oneStepDownVersion(t, dbPath))
+	// Down 三步：必须回到 75（000076 之前）。上游 0.9.1 的 credential_vault /
+	// im_session_mode_indexes 与本地 052/053 撞号后重编号为 000077/000078，
+	// 最新版本不再是 000076，因此需要连续回滚三步才能越过 000076。
+	downSteps(t, dbPath, expectedSQLiteMigrationVersion-75)
+	require.Equal(t, 75, oneStepDownVersion(t, dbPath))
 
 	db = openSQLiteDB(t, dbPath)
 	require.False(t, sqliteTableExists(t, db, "sop_project_notes"), "down 必须删掉黑板表")
@@ -62,8 +64,8 @@ func TestSQLiteMigrationsRollbackProjectNotes(t *testing.T) {
 	require.True(t, sqliteIndexExists(t, db, "ix_sop_items_parent"))
 }
 
-// downOne 用与生产相同的迁移目录与驱动回滚一步（测试里直接建 migrator，避免暴露回滚 API）。
-func downOne(t *testing.T, dbPath string) {
+// downSteps 用与生产相同的迁移目录与驱动回滚指定步数（测试里直接建 migrator，避免暴露回滚 API）。
+func downSteps(t *testing.T, dbPath string, steps int) {
 	t.Helper()
 	sqlDB, err := sql.Open("sqlite3", dbPath)
 	require.NoError(t, err)
@@ -74,7 +76,7 @@ func downOne(t *testing.T, dbPath string) {
 	// 当成 host 而报 invalid port。
 	m, err := migrate.NewWithDatabaseInstance("file://migrations/sqlite", "sqlite3", driver)
 	require.NoError(t, err)
-	require.NoError(t, m.Steps(-1))
+	require.NoError(t, m.Steps(-steps))
 }
 
 // oneStepDownVersion 读回 schema_migrations 的版本（回滚后）。
