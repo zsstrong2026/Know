@@ -311,6 +311,7 @@ func TestHostInstallPromptNamesTheVersionDir(t *testing.T) {
 }
 
 func TestWriteHostSkillFilesRejectsEscapes(t *testing.T) {
+	skipIfNoPOSIXPermissions(t)
 	dir := t.TempDir()
 	require.Error(t, writeHostSkillFiles(dir, &SkillBundle{Files: map[string][]byte{"../x": []byte("x")}}))
 	require.NoError(t, writeHostSkillFiles(dir, &SkillBundle{Files: map[string][]byte{
@@ -324,6 +325,7 @@ func TestWriteHostSkillFilesRejectsEscapes(t *testing.T) {
 // The installer writes the version dir from inside the sandbox; the host
 // process must not follow a link it planted there.
 func TestHostVersionDirSymlinksAreNotFollowed(t *testing.T) {
+	skipIfNoSymlinkPrivilege(t)
 	versionDir, outside := t.TempDir(), t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(outside, "cache"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(outside, "requirements.json"), []byte(`{"env":[]}`), 0o600))

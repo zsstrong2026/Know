@@ -217,6 +217,7 @@ func TestSkillPythonVerifierReportsAnUnreadableScript(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root can read a 000 file, so this states nothing when tests run as root")
 	}
+	skipIfNoPOSIXPermissions(t)
 	root := writeSkillTree(t, map[string]string{"scripts/run.py": "x = 1\n"})
 	require.NoError(t, os.Chmod(filepath.Join(root, "scripts", "run.py"), 0o000))
 

@@ -3514,6 +3514,7 @@ func (installFileService) CopyFile(context.Context, string, uint64, string) (str
 }
 
 func TestSeededSkillHelperIsDirectlyExecutable(t *testing.T) {
+	skipIfNoPOSIXShell(t)
 	raw, err := packSkillTar(&SkillBundle{Files: map[string][]byte{
 		"scripts/helper.sh": []byte("#!/bin/sh\nprintf 'helper works'\n"),
 	}})

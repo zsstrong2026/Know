@@ -68,6 +68,7 @@ func TestRuntimePrerequisiteReportValidation(t *testing.T) {
 }
 
 func TestRuntimePrerequisitesResolveSkillLocalCLI(t *testing.T) {
+	skipIfNoPOSIXShell(t)
 	fx := newInstallFixture(t)
 	dir := path.Join(t.TempDir(), "skill with ' quotes")
 	binDir := path.Join(dir, ".weknora/bin")

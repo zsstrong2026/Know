@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -53,6 +54,11 @@ func TestEnvdMaintenanceFilesystemIdentity(t *testing.T) {
 }
 
 func TestWorkspaceBootstrapDoesNotRemoveOrMoveFiles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// 三个前提在 Windows 上都不成立：/bin/sh 不在该路径、
+		// os.Symlink 需要 SeCreateSymbolicLinkPrivilege、bootstrap 脚本是 POSIX。
+		t.Skip("Windows 缺少 /bin/sh 与符号链接创建权限")
+	}
 	root := t.TempDir()
 	blocked := filepath.Join(root, "existing-file")
 	require.NoError(t, os.WriteFile(blocked, []byte("keep this"), 0600))
