@@ -7,6 +7,8 @@
     tabindex="0"
     @click="emit('open', item)"
     @keydown.enter.prevent="emit('open', item)"
+    @pointermove="onPointerMove"
+    @pointerleave="onPointerReset"
   >
     <div ref="coverRef" class="card-cover" :class="`cover-${coverKind}`">
       <!-- 有真实缩略图时直接铺满封面；加载中/无图时继续用骨架，避免卡片空白 -->
@@ -97,6 +99,9 @@
         </t-dropdown>
       </div>
     </div>
+
+    <!-- 金属质感叠层：只在悬停/聚焦时淡入，纯视觉，不拦截卡片内的点击 -->
+    <span class="card-metal" aria-hidden="true" />
   </article>
 </template>
 
@@ -167,6 +172,43 @@ function onMenu(data: { value?: string | number }) {
   if (action) emit('menu', props.item, action)
 }
 
+// ---- 金属质感：悬停时高光与轻微倾斜跟随指针，离开即归位 ----
+const reduceMotion =
+  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+let tiltFrame = 0
+
+/** 指针坐标写成 CSS 变量；rAF 节流，避免高频 move 反复触发样式计算 */
+function onPointerMove(event: PointerEvent) {
+  if (event.pointerType !== 'mouse') return
+  const target = event.currentTarget as HTMLElement
+  const { clientX, clientY } = event
+  if (tiltFrame) return
+  tiltFrame = requestAnimationFrame(() => {
+    tiltFrame = 0
+    const rect = target.getBoundingClientRect()
+    if (!rect.width || !rect.height) return
+    const x = (clientX - rect.left) / rect.width
+    const y = (clientY - rect.top) / rect.height
+    target.style.setProperty('--metal-x', `${(x * 100).toFixed(2)}%`)
+    target.style.setProperty('--metal-y', `${(y * 100).toFixed(2)}%`)
+    if (reduceMotion) return
+    // 幅度控制在 ±3deg，只做「面向指针」的轻微视差，不做夸张翻面
+    target.style.setProperty('--metal-tilt-x', `${(-(y - 0.5) * 6).toFixed(2)}deg`)
+    target.style.setProperty('--metal-tilt-y', `${((x - 0.5) * 6).toFixed(2)}deg`)
+  })
+}
+
+function onPointerReset(event: PointerEvent) {
+  if (event.pointerType !== 'mouse') return
+  const target = event.currentTarget as HTMLElement
+  cancelAnimationFrame(tiltFrame)
+  tiltFrame = 0
+  target.style.removeProperty('--metal-x')
+  target.style.removeProperty('--metal-y')
+  target.style.removeProperty('--metal-tilt-x')
+  target.style.removeProperty('--metal-tilt-y')
+}
+
 // ---- 封面缩略图：进入视口附近才发起请求，避免一页 30 张同时抢带宽 ----
 const coverRef = ref<HTMLElement | null>(null)
 const thumbUrl = ref('')
@@ -227,11 +269,21 @@ function resetThumbnail() {
 
 onMounted(resetThumbnail)
 watch(() => `${props.item.id}:${props.item.thumbnail_version}`, resetThumbnail)
-onBeforeUnmount(() => observer?.disconnect())
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  cancelAnimationFrame(tiltFrame)
+})
 </script>
 
 <style lang="less" scoped>
 .item-card {
+  /* 金属质感配色：亮部/暗部/边缘/扫光带，暗色主题下换成低亮度高光 */
+  --metal-hi: rgba(255, 255, 255, 0.34);
+  --metal-shade: rgba(20, 24, 32, 0.09);
+  --metal-edge: rgba(255, 255, 255, 0.8);
+  --metal-band: rgba(255, 255, 255, 0.55);
+
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -240,6 +292,9 @@ onBeforeUnmount(() => observer?.disconnect())
   background: var(--td-bg-color-container);
   overflow: hidden;
   cursor: pointer;
+  /* 3D 透视只服务于悬停倾斜，未悬停时角度为 0，视觉与原来一致 */
+  transform: perspective(1000px) rotateX(var(--metal-tilt-x, 0deg))
+    rotateY(var(--metal-tilt-y, 0deg)) translateY(0);
   transition:
     border-color var(--app-motion-fast),
     box-shadow var(--app-motion-fast),
@@ -248,12 +303,103 @@ onBeforeUnmount(() => observer?.disconnect())
   &:hover {
     border-color: var(--td-component-border);
     box-shadow: var(--td-shadow-1);
-    transform: translateY(-2px);
+    transform: perspective(1000px) rotateX(var(--metal-tilt-x, 0deg))
+      rotateY(var(--metal-tilt-y, 0deg)) translateY(-2px);
   }
 
   &:focus-visible {
     outline: 2px solid var(--td-brand-color);
     outline-offset: 1px;
+  }
+}
+
+/* 暗色主题：白高光更收敛，靠细亮边表达金属边缘 */
+:global(:root[theme-mode='dark']) .item-card {
+  --metal-hi: rgba(255, 255, 255, 0.16);
+  --metal-shade: rgba(255, 255, 255, 0.05);
+  --metal-edge: rgba(255, 255, 255, 0.2);
+  --metal-band: rgba(255, 255, 255, 0.16);
+}
+
+/* 金属叠层：默认完全透明，悬停/聚焦才淡入；不拦截卡片内任何点击 */
+.card-metal {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  overflow: hidden;
+  transition: opacity var(--app-motion-fast);
+  background-image:
+    radial-gradient(
+      220px circle at var(--metal-x, 50%) var(--metal-y, 0%),
+      var(--metal-hi),
+      transparent 62%
+    ),
+    repeating-linear-gradient(
+      100deg,
+      rgba(255, 255, 255, 0.04) 0 1px,
+      transparent 1px 4px
+    ),
+    linear-gradient(
+      140deg,
+      var(--metal-hi) 0%,
+      transparent 38%,
+      var(--metal-shade) 64%,
+      rgba(255, 255, 255, 0.2) 100%
+    );
+  box-shadow:
+    inset 0 0 0 1px var(--metal-edge),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+
+  /* 扫光带：悬停瞬间从右向左扫过一次，模拟金属表面掠过光源 */
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      105deg,
+      transparent 42%,
+      var(--metal-band) 50%,
+      transparent 58%
+    );
+    background-size: 250% 100%;
+    background-position: 130% 0;
+  }
+}
+
+.item-card:hover .card-metal,
+.item-card:focus-visible .card-metal {
+  opacity: 1;
+
+  &::after {
+    animation: card-metal-sweep 900ms ease-out;
+  }
+}
+
+@keyframes card-metal-sweep {
+  from {
+    background-position: 130% 0;
+  }
+
+  to {
+    background-position: -30% 0;
+  }
+}
+
+/* 尊重系统「减少动态效果」：只保留高光，不做倾斜与扫光 */
+@media (prefers-reduced-motion: reduce) {
+  .item-card {
+    transition: none;
+  }
+
+  .item-card:hover {
+    transform: none;
+  }
+
+  .card-metal::after {
+    animation: none;
   }
 }
 
@@ -496,6 +642,9 @@ onBeforeUnmount(() => observer?.disconnect())
 }
 
 .card-more {
+  position: relative;
+  /* 高于金属叠层，避免「…」图标被高光冲淡 */
+  z-index: 2;
   width: 22px;
   height: 22px;
   display: grid;
